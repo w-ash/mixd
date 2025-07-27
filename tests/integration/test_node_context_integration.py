@@ -32,7 +32,7 @@ class TestNodeContextIntegration:
         assert hasattr(workflow_context.config, 'get')
         assert hasattr(workflow_context.logger, 'info')
         assert hasattr(workflow_context.connectors, 'list_connectors')
-        assert hasattr(workflow_context.use_cases, 'get_save_playlist_use_case')
+        assert hasattr(workflow_context.use_cases, 'get_create_canonical_playlist_use_case')
         assert hasattr(workflow_context.session_provider, 'get_session')
     
     @pytest.mark.asyncio
@@ -61,7 +61,7 @@ class TestNodeContextIntegration:
         # Test that use_cases can be accessed as nodes expect
         use_cases = injected_context.get("use_cases")
         assert use_cases is not None
-        assert hasattr(use_cases, 'get_save_playlist_use_case')
+        assert hasattr(use_cases, 'get_create_canonical_playlist_use_case')
     
     @pytest.mark.asyncio
     async def test_session_provider_functionality(self):
@@ -86,15 +86,10 @@ class TestNodeContextIntegration:
         workflow_context = create_workflow_context()
         
         # Test that use case provider can create use cases
-        use_case = await workflow_context.use_cases.get_save_playlist_use_case()
+        use_case = await workflow_context.use_cases.get_create_canonical_playlist_use_case()
         assert use_case is not None
         assert hasattr(use_case, 'execute')
         
-        # Test that update playlist use case can also be created
-        update_use_case = await workflow_context.use_cases.get_update_playlist_use_case()
-        assert update_use_case is not None
-        assert hasattr(update_use_case, 'execute')
-    
     @pytest.mark.asyncio
     async def test_connector_registry_functionality(self):
         """Test that connector registry works correctly."""

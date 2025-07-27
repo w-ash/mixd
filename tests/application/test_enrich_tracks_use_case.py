@@ -180,7 +180,7 @@ class TestEnrichTracksUseCase:
 
         # Assert - verify period_start and period_end were calculated 
         mock_play_repo.get_play_aggregations.assert_called_once()
-        call_args, call_kwargs = mock_play_repo.get_play_aggregations.call_args
+        _call_args, call_kwargs = mock_play_repo.get_play_aggregations.call_args
         
         assert call_kwargs['track_ids'] == [1, 2]
         assert call_kwargs['metrics'] == ["period_plays"]

@@ -1,129 +1,131 @@
-# ## 🎯 Current Status: Perfect Test Suite - Zero Failures Achieved! 🚀
+# 🎯 Active Work Tracker - v0.2.4 Playlist Workflow Expansion
 
-**MISSION ACCOMPLISHED**: Clean Architecture with UnitOfWork pattern successfully implemented with **100% passing tests**.
+> [!info] Purpose
+> This file tracks active development work on the current epic/refactor. For strategic roadmap and completed milestones, see [[BACKLOG]].
 
----
+**Current Initiative**: v0.2.4 Playlist Workflow Expansion  
+**Status**: `#in-progress` `#play-history` `#v0-2-4`  
+**Last Updated**: July 27, 2025
 
-## ✅ COMPLETED WORK SUMMARY (COMPACTED)
+## Progress Overview
 
-### Phases 1-2: Clean Architecture Migration ✅
-- **Core Achievement**: Migrated entire codebase to UnitOfWork pattern with zero constructor dependencies
-- **6 Major Use Cases**: All following UoW pattern (SavePlaylist, UpdatePlaylist, ImportTracks, EnrichTracks, ResolveTrackIdentity, MatchTracks)
-- **Service Cleanup**: Deleted redundant services (MatcherService, PlayHistoryEnricher) 
-- **Workflow Integration**: Centralized UoW management via `WorkflowContext.execute_use_case()`
-- **SQLite Strategy**: Short transaction windows eliminate database lock contention
-
-### Phase 3: Test Suite Restructure ✅ COMPLETE
-**Final Achievement**: **100% improvement** in test reliability
-- **From**: 637 tests (35 failed, 71 errors) → **To**: 401 tests (6 failed, 0 errors) → **401 tests (0 failed, 0 errors)** 🎯
-- **Strategic Deletion**: Removed 236 low-value tests (TDD bugs, deleted services, implementation details)
-- **Error Resolution**: Fixed all 71 import/fixture errors from deleted files
-- **Architecture Validation**: All core layers (domain/application/cli) at 100% pass rate
-
-### Phase 3.1: Final Test Fixes ✅ COMPLETE (JUST COMPLETED)
-**Perfect Achievement**: **0 failing tests** - UpdatePlaylistUseCase UnitOfWork compliance
-- **6 Test Fixes**: Fixed missing `uow` parameter in UpdatePlaylistUseCase tests
-- **UoW Pattern Compliance**: All tests now properly use `mock_unit_of_work` fixture
-- **Execution Time**: Excellent performance at 17-18 seconds for full suite
-
-**FINAL Test State**:
-```
-tests/
-├── domain/           47 tests ✅ (100% pass rate, 97% Track coverage, 100% Playlist coverage)
-├── application/      39 tests ✅ (100% pass rate, 93% EnrichTracks, 100% ResolveIdentity, 85% UpdatePlaylist)
-├── infrastructure/   ~70 tests ✅ (100% pass rate, UoW pattern validated)
-├── cli/             71 tests ✅ (100% pass rate, end-to-end workflows)
-└── unit/            ~174 tests ✅ (100% pass rate, all UoW pattern compliant)
-
-Total: 401 tests - **100% pass rate** with **0 errors** ✅🎯
-```
-
-**Coverage Status**:
-- **Domain Layer**: Excellent (Track 97%, Playlist 100%, Matching 94%)
-- **Application Layer**: Good-Excellent (Key use cases 85-100% coverage)
-- **Test Pyramid**: Proper distribution achieved (domain → application → integration → e2e)
+v0.2.4 Playlist Workflow Expansion:
+- [x] ✅ Complete UpdatePlaylistUseCase Implementation
+- [x] ✅ Technical Debt Cleanup  
+- [ ] 🔄 **Play History Filter and Sort** ← Current Focus
+- [ ] Advanced Transformer Workflow nodes
+- [ ] Advanced Track Matching Strategies
+- [ ] Enhanced Playlist Naming
+- [ ] Discovery Workflow Templates
 
 ---
 
-## 🚀 NEXT PHASE: Strategic Development Options
+## 🔄 Current Epic: Play History Filter and Sort `#in-progress`
 
-With **perfect test architecture** achieved, multiple development paths are now available. Choose based on priority:
+**Effort**: Medium (M) - Cross-module feature with existing architecture integration  
+**Goal**: Extend existing filter and sorter node categories to support play history metrics
 
-### Option A: Feature Development (HIGH PRIORITY) 
-**Status**: Ready for immediate development with confidence
-1. **New streaming service integration** (Apple Music, YouTube Music)
-2. **Advanced playlist features** (smart playlists, bulk operations)  
-3. **Analytics and insights** (listening patterns, discovery metrics)
-4. **User management** (multiple accounts, sharing)
+> [!todo] Next Actions
+> Research existing filter/sorter architecture in `TRANSFORM_REGISTRY` to understand extension patterns
 
-**Advantages**: 
-- 100% test coverage provides safety net for rapid development
-- Clean Architecture supports easy extension
-- UnitOfWork pattern enables complex business logic
+### Scope & Requirements
 
-### Option B: Infrastructure Modernization (MEDIUM PRIORITY)
-1. **CLI → Interface Layer Migration** (2,200+ lines, improves Clean Architecture compliance)
-2. **FastAPI Web Interface** (leverage existing use cases, no business logic changes)
-3. **Docker containerization** (consistent deployment)
-4. **CI/CD pipeline enhancement**
+**What**: Enable granular control over finding tracks based on listening behavior
+- Frequently/rarely played tracks
+- Seasonal patterns  
+- Discovery gaps
+- Listening recency for advanced playlist curation
 
-### Option C: Performance & Scale (LOW PRIORITY - if needed)
-1. **Database optimization** (PostgreSQL migration, connection pooling)
-2. **Async workflow improvements** 
-3. **Caching strategies** (Redis integration)
-4. **Load testing and profiling**
+**Why**: Users need sophisticated filtering based on their actual listening patterns, not just external metrics like popularity.
 
-### Quality Gates Established
-```bash
-# PERFECT status - all targets exceeded
-poetry run pytest tests/ --cov=src --cov-fail-under=35  # ✅ Passing (39% actual)
-poetry run pytest tests/ --tb=short                     # ✅ 401 tests, 0 failed, 0 errors 🎯
-```
+### Implementation Tasks
 
-**Success Criteria EXCEEDED**:
-- ✅ **Perfect test suite** (0 failed, 0 errors achieved) 
-- ✅ **Excellent coverage** on critical business logic (Track 97%, Playlist 100%, core use cases 85-100%)
-- ✅ **Fast feedback** (17-18 seconds for 401 tests)
-- ✅ **Proper test pyramid** structure established
-- ✅ **UnitOfWork pattern** fully implemented and tested
+- [ ] **Research Phase**
+  - [ ] Examine existing `TRANSFORM_REGISTRY` architecture
+  - [ ] Identify filter/sorter extension patterns
+  - [ ] Review play history data schema in database
 
-### Recommended Next Steps (Choose One Path):
+- [ ] **Core Filtering Features**
+  - [ ] Play count filtering (e.g., tracks played >10 times, <5 times)
+  - [ ] Time-period analysis (e.g., tracks played >5 times in July 2024)
+  - [ ] Relative time periods (last 30 days, past week, this month)
 
-#### 🎯 Path A: Immediate Feature Development
-```bash
-# Start building new features with confidence
-poetry run pytest  # Verify still passing
-# Begin feature development using existing use case patterns
-```
+- [ ] **Sorting Features**  
+  - [ ] Play recency sorting (most/least recently played)
+  - [ ] Play frequency sorting within time windows
+  - [ ] Discovery gap identification (tracks not played recently)
 
-#### 🏗️ Path B: Clean Architecture Completion  
-```bash
-# Move CLI to proper layer
-mkdir -p src/interfaces/cli/
-# Migrate 2,200+ lines from src/infrastructure/cli/ → src/interfaces/cli/
-# Update imports and test paths
-```
+- [ ] **Integration**
+  - [ ] Build on existing metric-based filtering patterns
+  - [ ] Ensure compatibility with current workflow node architecture
+  - [ ] Add comprehensive test coverage
 
-#### 🌐 Path C: Web Interface Development
-```bash
-# Add FastAPI with zero business logic changes
-pip install fastapi uvicorn
-# Create src/interfaces/web/ using existing use cases
-# Leverage UnitOfWork pattern for web controllers
-```
+> [!info] Architecture Decision
+> Leverage existing filter/sorter architecture in `TRANSFORM_REGISTRY` rather than creating new node types. This maintains consistency with current workflow patterns.
+
+### Dependencies
+- None (standalone feature building on existing infrastructure)
+
+### Files Likely to Change
+- `src/application/workflows/transform_registry.py`
+- `src/domain/transforms/` (new play history transforms)
+- Workflow definition files for testing
 
 ---
 
-## 📚 Essential Reading for New Developers
+## ✅ Recently Completed Work
 
-**Quick Start**:
-1. `docs/ARCHITECTURE.md` - Clean Architecture principles with UnitOfWork patterns
-2. `src/application/use_cases/save_playlist.py` - Perfect UnitOfWork use case example
-3. `tests/application/test_save_playlist.py` - UnitOfWork testing pattern
+### UpdatePlaylistUseCase Implementation `#completed`
+**Achievement**: Production-ready Spotify API operations with sophisticated reordering algorithms
 
-**Key Architectural Principles**:
-- **UnitOfWork Parameter Injection**: All use cases receive UnitOfWork as parameter, never constructor dependency
-- **Explicit Transaction Boundaries**: Business logic explicitly controls commit/rollback decisions  
-- **No Constructor Dependencies**: Use cases are pure domain layer with zero infrastructure coupling
-- **Single Repository Access Pattern**: All repository access goes through UnitOfWork interface
-- **Consistent Testing**: All tests use UnitOfWork mocks exclusively
+**Key Changes**:
+- Replaced placeholder implementations with real Spotify API operations
+- Added proper null checks and type safety improvements  
+- Implemented sophisticated track reordering logic
+- Added comprehensive error handling
+
+### Technical Debt Cleanup `#completed`
+**Achievement**: Massive refactor moving business logic from workflow nodes to use cases
+
+**Architecture Change**: 
+- **Before**: Workflow nodes contained business logic
+- **After**: Workflow nodes handle orchestration, use cases contain business logic
+- **Result**: Clean separation of concerns following Clean Architecture principles
+
+**Impact**: Simplified workflow nodes to pure delegators while consolidating complex logic in testable use cases.
+
+### Track Metrics Architecture Fix `#completed`
+**Key Decision**: Database-first caching with `track_metrics` table as source of truth
+
+**Pattern Established**:
+1. Get existing metrics from track_metrics table
+2. Identify missing metrics for requested types  
+3. Fetch fresh metadata only for missing/stale metrics
+4. Combine existing + newly extracted metrics
+
+**Files Changed**:
+- `src/infrastructure/services/track_metrics_manager.py` - Core architecture implementation
+- `src/infrastructure/connectors/spotify.py` - Added `batch_get_track_info()` method
+- `src/infrastructure/services/metric_freshness_controller.py` - Renamed for accuracy
+
+**Testing Pattern**: Established class-level monkeypatching for `@define(slots=True)` attrs classes.
+
+---
+
+## Architecture Notes
+
+### Clean Architecture Compliance
+- Domain layer: Pure business logic, no external dependencies
+- Application layer: Use cases orchestrate domain operations
+- Infrastructure layer: External service integrations
+- Interface layer: CLI/future web interface
+
+### Workflow Node Pattern
+- Nodes handle orchestration and parameter passing
+- Use cases contain all business logic
+- Clear separation enables easy testing and maintenance
+
+### Database-First Caching
+- Always check existing data before external API calls
+- Respect freshness controller decisions about staleness
+- Combine cached and fresh data intelligently

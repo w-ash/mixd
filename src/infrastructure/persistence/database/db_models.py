@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     select,
+    text,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -316,7 +317,14 @@ class DBPlaylistMapping(NaradaDBBase):
     """External service playlist mappings."""
 
     __tablename__ = "playlist_mappings"
-    __table_args__ = (UniqueConstraint("playlist_id", "connector_name"),)
+    __table_args__ = (
+        # Prevent one canonical playlist from having multiple mappings to same connector
+        Index("uq_playlist_connector_active", "playlist_id", "connector_name", 
+              unique=True, sqlite_where=text("is_deleted = 0")),
+        # Prevent multiple canonical playlists from claiming same external playlist  
+        Index("uq_connector_playlist_active", "connector_name", "connector_playlist_id",
+              unique=True, sqlite_where=text("is_deleted = 0")),
+    )
 
     playlist_id: Mapped[int] = mapped_column(
         ForeignKey("playlists.id", ondelete="CASCADE"),

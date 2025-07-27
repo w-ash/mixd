@@ -4,7 +4,7 @@ These tests verify individual context providers work correctly in isolation,
 following the test pyramid principle of many fast unit tests.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -144,16 +144,32 @@ class TestUseCaseProviderImpl:
     """Test use case provider implementation."""
     
     @pytest.mark.asyncio
-    async def test_get_save_playlist_use_case(self):
-        """Test getting SavePlaylistUseCase with UnitOfWork pattern."""
+    async def test_get_create_canonical_playlist_use_case(self):
+        """Test getting CreateCanonicalPlaylistUseCase with UnitOfWork pattern."""
         provider = UseCaseProviderImpl()
         
         # Use cases now have no dependencies - simple instantiation
-        result = await provider.get_save_playlist_use_case()
+        result = await provider.get_create_canonical_playlist_use_case()
         
-        # Verify the use case was created - it should be a SavePlaylistUseCase instance
-        from src.application.use_cases.save_playlist import SavePlaylistUseCase
-        assert isinstance(result, SavePlaylistUseCase)
+        # Verify the use case was created
+        from src.application.use_cases.create_canonical_playlist import (
+            CreateCanonicalPlaylistUseCase,
+        )
+        assert isinstance(result, CreateCanonicalPlaylistUseCase)
+
+    @pytest.mark.asyncio
+    async def test_get_create_connector_playlist_use_case(self):
+        """Test getting CreateConnectorPlaylistUseCase with UnitOfWork pattern."""
+        provider = UseCaseProviderImpl()
+        
+        # Use cases now have no dependencies - simple instantiation
+        result = await provider.get_create_connector_playlist_use_case()
+        
+        # Verify the use case was created
+        from src.application.use_cases.create_connector_playlist import (
+            CreateConnectorPlaylistUseCase,
+        )
+        assert isinstance(result, CreateConnectorPlaylistUseCase)
 
 
 class TestCreateWorkflowContext:

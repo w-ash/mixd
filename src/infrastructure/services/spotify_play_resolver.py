@@ -332,8 +332,8 @@ class SpotifyPlayResolver:
 
             # Check for existing mappings to internal tracks
             connections = [("spotify", track_id) for track_id in unique_track_ids]
-            existing_tracks = (
-                await self.connector_repository.find_tracks_by_connectors(connections)
+            existing_tracks = await self.connector_repository.find_tracks_by_connectors(
+                connections
             )
 
             # Process results

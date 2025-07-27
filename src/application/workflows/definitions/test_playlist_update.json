@@ -1,46 +1,95 @@
 {
   "id": "test_playlist_update",
-  "name": "Test Playlist Update",
-  "description": "Simple workflow to test playlist update functionality with the test playlist",
-  "version": "1.0",
+  "name": "End-to-End Playlist Update Test",
+  "description": "Comprehensive test: Remove 10 tracks, add 10 tracks, sort by title, update Spotify with differential operations. Starts with 98 tracks, ends with 98 tracks.",
+  "version": "2.0",
   "tasks": [
     {
-      "id": "source_test_tracks",
-      "type": "source.spotify_playlist",
+      "id": "source_original_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "14GT9ahKyAR9SObC7GdwtO"
+        "playlist_id": "14GT9ahKyAR9SObC7GdwtO",
+        "connector": "spotify"
       }
     },
     {
-      "id": "limit_tracks",
+      "id": "source_additional_tracks",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "2bYLt594RT2cv0gqeolIx4",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "select_tracks_to_remove",
       "type": "selector.limit_tracks",
       "config": {
-        "count": 5,
+        "count": 10,
         "method": "first"
       },
-      "upstream": ["source_test_tracks"]
+      "upstream": [
+        "source_original_playlist"
+      ]
     },
     {
-      "id": "sort_by_popularity",
+      "id": "select_tracks_to_add",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 10,
+        "method": "first"
+      },
+      "upstream": [
+        "source_additional_tracks"
+      ]
+    },
+    {
+      "id": "remove_selected_tracks",
+      "type": "filter.by_tracks",
+      "config": {
+        "exclusion_source": "select_tracks_to_remove"
+      },
+      "upstream": [
+        "source_original_playlist",
+        "select_tracks_to_remove"
+      ]
+    },
+    {
+      "id": "add_new_tracks",
+      "type": "combiner.concatenate_playlists",
+      "config": {
+        "order": [
+          "remove_selected_tracks",
+          "select_tracks_to_add"
+        ]
+      },
+      "upstream": [
+        "remove_selected_tracks",
+        "select_tracks_to_add"
+      ]
+    },
+    {
+      "id": "sort_by_track_title",
       "type": "sorter.by_metric",
       "config": {
-        "metric_name": "spotify_popularity",
-        "reverse": true
+        "metric_name": "title",
+        "reverse": false
       },
-      "upstream": ["limit_tracks"]
+      "upstream": [
+        "add_new_tracks"
+      ]
     },
     {
-      "id": "update_test_playlist",
+      "id": "update_spotify_playlist",
       "type": "destination.update_playlist",
       "config": {
         "playlist_id": "14GT9ahKyAR9SObC7GdwtO",
-        "operation_type": "update_spotify",
-        "conflict_resolution": "local_wins",
-        "dry_run": false,
-        "preserve_order": true,
-        "enable_external_sync": true
+        "connector": "spotify",
+        "append": false,
+        "dry_run": false
       },
-      "upstream": ["sort_by_popularity"]
+      "upstream": [
+        "sort_by_track_title"
+      ]
     }
   ]
 }

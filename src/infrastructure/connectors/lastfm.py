@@ -196,13 +196,13 @@ class LastFMConnector:
         # Create shared rate limiter for ALL API calls (first tries AND retries)
         rate_limit = get_config("LASTFM_API_RATE_LIMIT", 5.0) or 5.0
         self._api_rate_limiter = AsyncLimiter(rate_limit, 1)
-        
+
         # Initialize the batch processor with the shared rate limiter
         self.batch_processor = BatchProcessor[
             Track,
             tuple[int, LastFMTrackInfo | None],
         ](
-            batch_size=get_config("LASTFM_API_BATCH_SIZE") or 20, 
+            batch_size=get_config("LASTFM_API_BATCH_SIZE") or 20,
             concurrency_limit=get_config("LASTFM_API_CONCURRENCY") or 5,
             retry_count=get_config("LASTFM_API_RETRY_COUNT") or 3,
             retry_base_delay=get_config("LASTFM_API_RETRY_BASE_DELAY") or 1.0,
@@ -404,7 +404,7 @@ class LastFMConnector:
 
             # Try MusicBrainz ID first (highest confidence)
             mbid = track.connector_track_ids.get("musicbrainz")
-            
+
             try:
                 if mbid:
                     result = await self.get_lastfm_track_info(
@@ -432,7 +432,7 @@ class LastFMConnector:
                                     artist_used=artist.name,
                                 )
                             return track.id, result
-                    
+
                     # No artist worked
                     logger.debug(
                         f"No LastFM match found after trying {len(track.artists)} artists for track {track.id}: {track.title}"
@@ -441,9 +441,9 @@ class LastFMConnector:
                     logger.warning(
                         f"No lookup method available for track {track.id}: {track.title} (no artists)"
                     )
-                
+
                 return track.id, LastFMTrackInfo.empty()
-                    
+
             except Exception as e:
                 logger.error(f"Error processing track {track.id}: {e}")
                 return track.id, LastFMTrackInfo.empty()
@@ -586,7 +586,7 @@ class LastFMConnector:
         # Validate limit
         limit = min(
             max(get_config("LASTFM_RECENT_TRACKS_MIN_LIMIT") or 1, limit),
-            get_config("LASTFM_RECENT_TRACKS_MAX_LIMIT") or 200
+            get_config("LASTFM_RECENT_TRACKS_MAX_LIMIT") or 200,
         )
 
         try:

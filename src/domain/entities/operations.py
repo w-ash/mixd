@@ -8,7 +8,7 @@ from typing import Any
 
 from attrs import define, field
 
-from .track import Artist, Track
+from .track import Artist, Track, TrackList
 
 
 @define(frozen=True, slots=True)
@@ -218,18 +218,28 @@ class OperationResult:
     )  # metric_name -> {track_id(int) -> value}
     operation_name: str = field(default="")
     execution_time: float = field(default=0.0)
+    tracklist: "TrackList | None" = field(default=None)  # Optional tracklist with metadata
 
     # Play-based operation support
     plays_processed: int = field(default=0)  # Number of play records processed
     play_metrics: dict[str, Any] = field(factory=dict)  # Play-level statistics
 
     # Unified count fields (consolidated from specialized classes)
-    imported_count: int = field(default=0)  # Tracks imported/processed successfully
-    exported_count: int = field(default=0)  # Tracks exported to external service
-    skipped_count: int = field(default=0)  # Tracks skipped (already processed, etc)
-    error_count: int = field(default=0)  # Tracks that failed processing
-    already_liked: int = field(default=0)  # Tracks already in desired state
-    candidates: int = field(default=0)  # Total tracks considered for operation
+    # These fields are Optional - only operations that use them should set them
+    imported_count: int | None = field(
+        default=None
+    )  # Tracks imported/processed successfully
+    exported_count: int | None = field(
+        default=None
+    )  # Tracks exported to external service
+    skipped_count: int | None = field(
+        default=None
+    )  # Tracks skipped (already processed, etc)
+    error_count: int | None = field(default=None)  # Tracks that failed processing
+    already_liked: int | None = field(default=None)  # Tracks already in desired state
+    candidates: int | None = field(
+        default=None
+    )  # Total tracks considered for operation
 
     def get_metric(
         self,
@@ -279,30 +289,46 @@ class OperationResult:
         )
 
     @property
-    def total_processed(self) -> int:
-        """Calculate total processed items (imported + exported + skipped + error)."""
-        return (
-            self.imported_count
-            + self.exported_count
-            + self.skipped_count
-            + self.error_count
-        )
+    def total_processed(self) -> int | None:
+        """Calculate total processed items (imported + exported + skipped + error).
+
+        Returns None if no sync/import counts have been set.
+        """
+        counts = [
+            self.imported_count,
+            self.exported_count,
+            self.skipped_count,
+            self.error_count,
+        ]
+        # Only calculate if at least one count field has been set
+        if all(count is None for count in counts):
+            return None
+        # Treat None as 0 for calculation
+        return sum(count or 0 for count in counts)
 
     @property
-    def success_rate(self) -> float:
-        """Calculate success rate as percentage ((imported + exported) / total * 100)."""
-        if self.total_processed == 0:
-            return 0.0
-        return (
-            (self.imported_count + self.exported_count) / self.total_processed
-        ) * 100
+    def success_rate(self) -> float | None:
+        """Calculate success rate as percentage ((imported + exported) / total * 100).
+
+        Returns None if no sync/import counts have been set.
+        """
+        total = self.total_processed
+        if total is None or total == 0:
+            return None
+        imported = self.imported_count or 0
+        exported = self.exported_count or 0
+        return ((imported + exported) / total) * 100
 
     @property
-    def efficiency_rate(self) -> float:
-        """Calculate efficiency rate as percentage (already_liked / candidates * 100)."""
-        if self.candidates == 0:
-            return 0.0
-        return (self.already_liked / self.candidates) * 100
+    def efficiency_rate(self) -> float | None:
+        """Calculate efficiency rate as percentage (already_liked / candidates * 100).
+
+        Returns None if no sync/import counts have been set.
+        """
+        if self.candidates is None or self.candidates == 0:
+            return None
+        already_liked = self.already_liked or 0
+        return (already_liked / self.candidates) * 100
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to serializable dictionary for API responses.
@@ -345,18 +371,29 @@ class OperationResult:
                 }
                 for name, values in self.metrics.items()
             },
-            # Unified count fields
-            "imported_count": self.imported_count,
-            "exported_count": self.exported_count,
-            "skipped_count": self.skipped_count,
-            "error_count": self.error_count,
-            "already_liked": self.already_liked,
-            "candidates": self.candidates,
-            # Computed properties
-            "total_processed": self.total_processed,
-            "success_rate": self.success_rate,
-            "efficiency_rate": self.efficiency_rate,
         }
+
+        # Only include unified count fields that have been set (not None)
+        if self.imported_count is not None:
+            result["imported_count"] = self.imported_count
+        if self.exported_count is not None:
+            result["exported_count"] = self.exported_count
+        if self.skipped_count is not None:
+            result["skipped_count"] = self.skipped_count
+        if self.error_count is not None:
+            result["error_count"] = self.error_count
+        if self.already_liked is not None:
+            result["already_liked"] = self.already_liked
+        if self.candidates is not None:
+            result["candidates"] = self.candidates
+
+        # Only include computed properties if they're meaningful (not None)
+        if self.total_processed is not None:
+            result["total_processed"] = self.total_processed
+        if self.success_rate is not None:
+            result["success_rate"] = self.success_rate
+        if self.efficiency_rate is not None:
+            result["efficiency_rate"] = self.efficiency_rate
 
         # Add play-based metrics if this is a play operation
         if self.plays_processed > 0:

@@ -576,3 +576,64 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 return await self.get_playlist_by_id(created_playlist.id), True
 
             return created_playlist, True
+
+    @db_operation("playlist delete")
+    async def delete_playlist(self, playlist_id: int) -> bool:
+        """Delete playlist by ID using soft deletion.
+        
+        Args:
+            playlist_id: Internal playlist ID to delete
+            
+        Returns:
+            True if playlist was deleted, False if it didn't exist
+        """
+        logger.info("Deleting playlist", playlist_id=playlist_id)
+        
+        # Soft delete the playlist
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DBPlaylist)
+            .where(
+                DBPlaylist.id == playlist_id,
+                DBPlaylist.is_deleted == False,  # noqa: E712
+            )
+            .values(is_deleted=True, deleted_at=now)
+        )
+        
+        playlist_deleted = result.rowcount > 0
+        
+        if playlist_deleted:
+            # Also soft delete all playlist tracks and mappings
+            await self._soft_delete_playlist_relations(playlist_id, now)
+            logger.info("Playlist deleted successfully", playlist_id=playlist_id)
+        else:
+            logger.warning("Playlist not found for deletion", playlist_id=playlist_id)
+            
+        return playlist_deleted
+
+    async def _soft_delete_playlist_relations(self, playlist_id: int, deletion_time: datetime) -> None:
+        """Soft delete all relations for a playlist.
+        
+        Args:
+            playlist_id: Playlist ID whose relations to delete
+            deletion_time: Timestamp for deletion
+        """
+        # Soft delete playlist tracks
+        await self.session.execute(
+            update(DBPlaylistTrack)
+            .where(
+                DBPlaylistTrack.playlist_id == playlist_id,
+                DBPlaylistTrack.is_deleted == False,  # noqa: E712
+            )
+            .values(is_deleted=True, deleted_at=deletion_time)
+        )
+        
+        # Soft delete playlist mappings (connector connections)
+        await self.session.execute(
+            update(DBPlaylistMapping)
+            .where(
+                DBPlaylistMapping.playlist_id == playlist_id,
+                DBPlaylistMapping.is_deleted == False,  # noqa: E712
+            )
+            .values(is_deleted=True, deleted_at=deletion_time)
+        )

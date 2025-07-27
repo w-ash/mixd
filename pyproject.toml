@@ -39,9 +39,10 @@ black = "^25.1.0"
 ruff = "^0.11.5"  # Modern replacement for isort, flake8, etc.
 pre-commit = "^4.2.0"
 pyright = "^1.1.399"
+vulture = "^2.14"
 
 [tool.poetry.scripts]
-narada = "src.infrastructure.cli.app:main"
+narada = "src.interface.cli.app:main"
 test-db = "narada.data.test_database:main"
 
 [build-system]

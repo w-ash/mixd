@@ -23,7 +23,7 @@ from .prefect import run_workflow
 def validate_registry():
     """Validate registry integrity against critical node list."""
     critical_paths = [
-        "source.spotify_playlist",
+        "source.playlist",
         "enricher.lastfm",
         "enricher.spotify",
         "enricher.play_history",
@@ -38,9 +38,7 @@ def validate_registry():
         "combiner.merge_playlists",
         "combiner.concatenate_playlists",
         "combiner.interleave_playlists",
-        "destination.create_internal_playlist",
-        "destination.create_spotify_playlist",
-        "destination.update_spotify_playlist",
+        "destination.create_playlist",
         "destination.update_playlist",
     ]
 

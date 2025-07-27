@@ -12,7 +12,7 @@ from .sync_likes import (
 
 __all__ = [
     "ExportLastFmLikesCommand",
-    "ExportLastFmLikesUseCase", 
+    "ExportLastFmLikesUseCase",
     "ImportSpotifyLikesCommand",
     "ImportSpotifyLikesUseCase",
     "run_import",

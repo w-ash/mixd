@@ -26,13 +26,18 @@ logger = get_logger(__name__)
 class SpotifyImportService(BaseImportService):
     """Service for importing Spotify personal data exports using template method pattern."""
 
-    def __init__(self, plays_repository: PlaysRepositoryProtocol, connector_repository: ConnectorRepositoryProtocol) -> None:
+    def __init__(
+        self,
+        plays_repository: PlaysRepositoryProtocol,
+        connector_repository: ConnectorRepositoryProtocol,
+    ) -> None:
         """Initialize with repository access following Clean Architecture."""
         super().__init__(plays_repository)
         self.operation_name = "Spotify Import"
         self.spotify_connector = SpotifyConnector()
         self.resolver = SpotifyPlayResolver(
-            spotify_connector=self.spotify_connector, connector_repository=connector_repository
+            spotify_connector=self.spotify_connector,
+            connector_repository=connector_repository,
         )
 
     # Public interface method - delegate to template method

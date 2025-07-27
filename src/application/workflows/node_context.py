@@ -89,13 +89,13 @@ class NodeContext:
         return tracklists
 
     # === DRY Helper Functions ===
-    
+
     def extract_workflow_context(self):
         """Extract workflow context with validation.
-        
+
         Returns:
             WorkflowContext for UoW execution
-            
+
         Raises:
             ValueError: If workflow context not found
         """
@@ -103,13 +103,13 @@ class NodeContext:
         if not workflow_context:
             raise ValueError("Workflow context not found in context")
         return workflow_context
-    
+
     def extract_use_cases(self):
         """Extract use case provider with validation.
-        
+
         Returns:
             UseCaseProvider for getting use case instances
-            
+
         Raises:
             ValueError: If use case provider not found
         """
@@ -117,41 +117,41 @@ class NodeContext:
         if not use_cases:
             raise ValueError("Use case provider not found in context")
         return use_cases
-    
+
     def get_connector(self, connector_name: str):
         """Get connector instance with validation.
-        
+
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
-            
+
         Returns:
             Connector instance
-            
+
         Raises:
             ValueError: If connector registry or specific connector not found
         """
         connector_registry = self.data.get("connectors")
         if not connector_registry:
             raise ValueError("No connector registry available")
-        
+
         available_connectors = connector_registry.list_connectors()
         if connector_name not in available_connectors:
             raise ValueError(
                 f"Unsupported connector: {connector_name}. Available: {available_connectors}"
             )
-        
+
         return connector_registry.get_connector(connector_name)
 
     @staticmethod
     def format_playlist_result(operation: str, result, tracklist, **extras):
         """Format standard playlist operation result.
-        
+
         Args:
             operation: Operation name (e.g., "create_internal_playlist")
             result: Use case result object with playlist and track data
             tracklist: Original input tracklist
             **extras: Additional fields to include in result
-            
+
         Returns:
             Standardized result dictionary
         """
@@ -165,21 +165,21 @@ class NodeContext:
             "track_count": result.track_count,
             "execution_time_ms": result.execution_time_ms,
         }
-        
+
         # Merge in any additional fields
         base_result.update(extras)
         return base_result
-    
+
     @staticmethod
     def format_enrichment_result(operation: str, enriched_tracklist, metrics, **extras):
         """Format standard enrichment operation result.
-        
+
         Args:
             operation: Operation name (e.g., "spotify_enrichment")
             enriched_tracklist: TrackList with enriched data
             metrics: Dictionary of metrics added
             **extras: Additional fields to include in result
-            
+
         Returns:
             Standardized enrichment result dictionary
         """
@@ -188,7 +188,7 @@ class NodeContext:
             "operation": operation,
             "metrics_count": sum(len(values) for values in metrics.values()),
         }
-        
+
         # Merge in any additional fields
         base_result.update(extras)
         return base_result

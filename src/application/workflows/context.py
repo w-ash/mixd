@@ -78,7 +78,7 @@ class ConnectorRegistryImpl:
         """Get connector by name - direct access without provider wrapper."""
         if name not in self._connectors:
             raise ValueError(f"Unknown connector: {name}")
-        
+
         connector_config = self._connectors[name]
         return connector_config["factory"]({})
 
@@ -126,28 +126,32 @@ class UseCaseProviderImpl:
         """Initialize with optional shared session."""
         self._shared_session = shared_session
 
-    async def get_save_playlist_use_case(self):
-        """Get SavePlaylistUseCase with UnitOfWork pattern."""
-        from src.application.use_cases.save_playlist import SavePlaylistUseCase
-        
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
-        return SavePlaylistUseCase()
+    async def get_create_canonical_playlist_use_case(self):
+        """Get CreateCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        from src.application.use_cases.create_canonical_playlist import (
+            CreateCanonicalPlaylistUseCase,
+        )
 
-    async def get_update_playlist_use_case(self):
-        """Get UpdatePlaylistUseCase with UnitOfWork pattern."""
-        from src.application.use_cases.update_playlist import UpdatePlaylistUseCase
-        
         # Simple instantiation - no dependencies
         # UnitOfWork will be passed as parameter during execution
-        return UpdatePlaylistUseCase()
+        return CreateCanonicalPlaylistUseCase()
+
+    async def get_create_connector_playlist_use_case(self):
+        """Get CreateConnectorPlaylistUseCase with UnitOfWork pattern."""
+        from src.application.use_cases.create_connector_playlist import (
+            CreateConnectorPlaylistUseCase,
+        )
+
+        # Simple instantiation - no dependencies
+        # UnitOfWork will be passed as parameter during execution
+        return CreateConnectorPlaylistUseCase()
 
     async def get_track_identity_use_case(self):
         """Get ResolveTrackIdentityUseCase with UnitOfWork pattern."""
         from src.application.use_cases.resolve_track_identity import (
             ResolveTrackIdentityUseCase,
         )
-        
+
         # Simple instantiation - no dependencies
         # UnitOfWork will be passed as parameter during execution
         return ResolveTrackIdentityUseCase()
@@ -155,16 +159,47 @@ class UseCaseProviderImpl:
     async def get_enrich_tracks_use_case(self):
         """Get EnrichTracksUseCase with injected dependencies."""
         from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
+
         # EnrichTracksUseCase follows UnitOfWork pattern - no constructor dependencies
         return EnrichTracksUseCase()
 
     async def get_match_tracks_use_case(self):
         """Get MatchTracksUseCase with UnitOfWork pattern."""
         from src.application.use_cases.match_tracks import MatchTracksUseCase
-        
+
         # Simple instantiation - no dependencies
         # UnitOfWork will be passed as parameter during execution
         return MatchTracksUseCase()
+
+    async def get_update_canonical_playlist_use_case(self):
+        """Get UpdateCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        from src.application.use_cases.update_canonical_playlist import (
+            UpdateCanonicalPlaylistUseCase,
+        )
+
+        # Simple instantiation - no dependencies
+        # UnitOfWork will be passed as parameter during execution
+        return UpdateCanonicalPlaylistUseCase()
+
+    async def get_update_connector_playlist_use_case(self):
+        """Get UpdateConnectorPlaylistUseCase with UnitOfWork pattern."""
+        from src.application.use_cases.update_connector_playlist import (
+            UpdateConnectorPlaylistUseCase,
+        )
+
+        # Simple instantiation - no dependencies
+        # UnitOfWork will be passed as parameter during execution
+        return UpdateConnectorPlaylistUseCase()
+
+    async def get_read_canonical_playlist_use_case(self):
+        """Get ReadCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        from src.application.use_cases.read_canonical_playlist import (
+            ReadCanonicalPlaylistUseCase,
+        )
+
+        # Simple instantiation - no dependencies
+        # UnitOfWork will be passed as parameter during execution
+        return ReadCanonicalPlaylistUseCase()
 
 
 # RepositoryProviderImpl removed - Clean Architecture: use cases handle dependency injection
@@ -182,30 +217,31 @@ class ConcreteWorkflowContext:
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
         """Execute use case with UnitOfWork pattern.
-        
+
         This method provides a single entry point for all workflow use case execution,
         handling UnitOfWork creation, session management, and cleanup automatically.
-        
+
         Args:
             use_case_getter: Async function that returns a use case instance
             command: Command object to pass to the use case
-            
+
         Returns:
             Result from use case execution
         """
+        # Import UnitOfWork factory locally to avoid circular imports
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+        
         # Get session from session provider
         async with self.session_provider.get_session() as session:
-            # Import UnitOfWork factory locally to avoid circular imports
-            from src.infrastructure.persistence.repositories.factories import (
-                get_unit_of_work,
-            )
-            
+
             # Create UnitOfWork from session
             uow = get_unit_of_work(session)
-            
+
             # Get use case instance
             use_case = await use_case_getter()
-            
+
             # Execute use case with command and UnitOfWork
             return await use_case.execute(command, uow)
 

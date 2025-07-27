@@ -22,14 +22,16 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class ImportSpotifyLikesCommand:
     """Command for importing liked tracks from Spotify."""
+
     user_id: str
     limit: int | None = None
     max_imports: int | None = None
 
 
-@define(frozen=True, slots=True) 
+@define(frozen=True, slots=True)
 class ExportLastFmLikesCommand:
     """Command for exporting liked tracks to Last.fm."""
+
     user_id: str
     batch_size: int | None = None
     max_exports: int | None = None
@@ -46,15 +48,13 @@ class ExportLastFmLikesCommand:
 @define(slots=True)
 class ImportSpotifyLikesUseCase:
     """Use case for importing liked tracks from Spotify.
-    
+
     Follows Clean Architecture pattern with UnitOfWork parameter injection.
     No constructor dependencies - pure domain layer compliance.
     """
-    
+
     async def execute(
-        self, 
-        command: ImportSpotifyLikesCommand, 
-        uow: UnitOfWorkProtocol
+        self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Execute Spotify likes import with explicit transaction control."""
         async with uow:
@@ -74,7 +74,9 @@ class ImportSpotifyLikesUseCase:
         api_batch_size = limit or get_config("SPOTIFY_API_BATCH_SIZE", 50) or 50
 
         # Create checkpoint for tracking
-        checkpoint = await self._get_or_create_checkpoint(user_id, "spotify", "likes", uow)
+        checkpoint = await self._get_or_create_checkpoint(
+            user_id, "spotify", "likes", uow
+        )
 
         # Track stats for reporting
         imported_count = 0
@@ -112,11 +114,9 @@ class ImportSpotifyLikesUseCase:
                 try:
                     # Check if this track already exists and is liked
                     connector_repo = uow.get_connector_repository()
-                    existing_track = (
-                        await connector_repo.find_track_by_connector(
-                            connector="spotify",
-                            connector_id=connector_track.connector_track_id,
-                        )
+                    existing_track = await connector_repo.find_track_by_connector(
+                        connector="spotify",
+                        connector_id=connector_track.connector_track_id,
                     )
 
                     if existing_track and existing_track.id is not None:
@@ -215,7 +215,7 @@ class ImportSpotifyLikesUseCase:
 
     def _get_spotify_connector(self, uow: UnitOfWorkProtocol) -> Any:
         """Get Spotify connector from UnitOfWork.
-        
+
         Returns:
             Spotify connector instance (expected to have get_liked_tracks method)
         """
@@ -309,15 +309,13 @@ class ImportSpotifyLikesUseCase:
 @define(slots=True)
 class ExportLastFmLikesUseCase:
     """Use case for exporting liked tracks to Last.fm.
-    
+
     Follows Clean Architecture pattern with UnitOfWork parameter injection.
     No constructor dependencies - pure domain layer compliance.
     """
-    
+
     async def execute(
-        self, 
-        command: ExportLastFmLikesCommand, 
-        uow: UnitOfWorkProtocol
+        self, command: ExportLastFmLikesCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Execute Last.fm likes export with explicit transaction control."""
         async with uow:
@@ -337,7 +335,9 @@ class ExportLastFmLikesUseCase:
         api_batch_size = batch_size or get_config("LASTFM_API_BATCH_SIZE", 20) or 20
 
         # Create checkpoint for tracking
-        checkpoint = await self._get_or_create_checkpoint(user_id, "lastfm", "likes", uow)
+        checkpoint = await self._get_or_create_checkpoint(
+            user_id, "lastfm", "likes", uow
+        )
         last_sync_time = checkpoint.last_timestamp
 
         # Get likes that need exporting
@@ -361,9 +361,7 @@ class ExportLastFmLikesUseCase:
         # Calculate metrics
         like_repo = uow.get_like_repository()
         total_liked_in_narada = len(
-            await like_repo.get_all_liked_tracks(
-                service="narada", is_liked=True
-            )
+            await like_repo.get_all_liked_tracks(service="narada", is_liked=True)
         )
         candidates = len(liked_tracks)
         already_loved = total_liked_in_narada - candidates
@@ -395,7 +393,9 @@ class ExportLastFmLikesUseCase:
 
                 try:
                     track_repo = uow.get_track_repository()
-                    tracks_dict = await track_repo.find_tracks_by_ids([track_like.track_id])
+                    tracks_dict = await track_repo.find_tracks_by_ids([
+                        track_like.track_id
+                    ])
                     track = tracks_dict.get(track_like.track_id)
                     if track and track.artists:
                         tracks_to_match.append(track)
@@ -449,7 +449,7 @@ class ExportLastFmLikesUseCase:
 
     def _get_lastfm_connector(self, uow: UnitOfWorkProtocol) -> Any:
         """Get Last.fm connector from UnitOfWork.
-        
+
         Returns:
             Last.fm connector instance (expected to have love_track method)
         """
@@ -521,7 +521,9 @@ class ExportLastFmLikesUseCase:
         self,
         tracks: list[Track],
         connector: Any,
-        processor_func: Callable[[Track, Any, UnitOfWorkProtocol], Coroutine[Any, Any, dict]],
+        processor_func: Callable[
+            [Track, Any, UnitOfWorkProtocol], Coroutine[Any, Any, dict]
+        ],
         uow: UnitOfWorkProtocol,
     ) -> list[dict]:
         """Unified batch processor that replaces duplicate processing patterns."""
@@ -545,7 +547,7 @@ class ExportLastFmLikesUseCase:
         self, track: Track, connector: Any, uow: UnitOfWorkProtocol
     ) -> dict:
         """Process a single track for Last.fm loving.
-        
+
         Args:
             track: Track to love on Last.fm
             connector: Music service connector (expected to have love_track method)
@@ -617,40 +619,64 @@ class ExportLastFmLikesUseCase:
             )
 
 
-# Convenience functions for CLI usage - maintain backward compatibility
+# Application layer interfaces for CLI integration
 async def run_spotify_likes_import(
-    uow: UnitOfWorkProtocol,  # UnitOfWork for Clean Architecture compliance
     user_id: str,
     limit: int | None = None,
     max_imports: int | None = None,
 ) -> OperationResult:
-    """Convenience function for Spotify likes import from CLI.
+    """Application layer interface for Spotify likes import.
 
-    Uses Clean Architecture use case pattern.
+    Provides a clean boundary between CLI and use case layers by handling
+    command object creation, use case instantiation, and session management.
+    This follows Clean Architecture patterns for interface layers.
+
+    Args:
+        user_id: Spotify user ID for the import operation
+        limit: Maximum number of likes to import per batch
+        max_imports: Maximum total number of likes to import
+
+    Returns:
+        OperationResult with import statistics and status
     """
-    command = ImportSpotifyLikesCommand(
-        user_id=user_id,
-        limit=limit,
-        max_imports=max_imports
-    )
-    use_case = ImportSpotifyLikesUseCase()
-    return await use_case.execute(command, uow)
+    from src.infrastructure.persistence.database.db_connection import get_session
+    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+
+    async with get_session() as session:
+        uow = get_unit_of_work(session)
+        command = ImportSpotifyLikesCommand(
+            user_id=user_id, limit=limit, max_imports=max_imports
+        )
+        use_case = ImportSpotifyLikesUseCase()
+        return await use_case.execute(command, uow)
 
 
 async def run_lastfm_likes_export(
-    uow: UnitOfWorkProtocol,  # UnitOfWork for Clean Architecture compliance
     user_id: str,
     batch_size: int | None = None,
     max_exports: int | None = None,
 ) -> OperationResult:
-    """Convenience function for Last.fm likes export from CLI.
+    """Application layer interface for Last.fm likes export.
 
-    Uses Clean Architecture use case pattern.
+    Provides a clean boundary between CLI and use case layers by handling
+    command object creation, use case instantiation, and session management.
+    This follows Clean Architecture patterns for interface layers.
+
+    Args:
+        user_id: Last.fm user ID for the export operation
+        batch_size: Number of tracks to process per batch
+        max_exports: Maximum total number of tracks to export
+
+    Returns:
+        OperationResult with export statistics and status
     """
-    command = ExportLastFmLikesCommand(
-        user_id=user_id,
-        batch_size=batch_size,
-        max_exports=max_exports
-    )
-    use_case = ExportLastFmLikesUseCase()
-    return await use_case.execute(command, uow)
+    from src.infrastructure.persistence.database.db_connection import get_session
+    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+
+    async with get_session() as session:
+        uow = get_unit_of_work(session)
+        command = ExportLastFmLikesCommand(
+            user_id=user_id, batch_size=batch_size, max_exports=max_exports
+        )
+        use_case = ExportLastFmLikesUseCase()
+        return await use_case.execute(command, uow)

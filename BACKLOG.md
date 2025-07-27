@@ -11,6 +11,9 @@ This document is a high level overview of Project Narada's development backlog/r
 ## Reference Guide 📋
 
 ### Effort Estimates
+
+Never estimate time, always estimate based on relative effort.
+
 | Size    | Complexity Factors           | Criteria                                                                       |
 | ------- | ---------------------------- | ------------------------------------------------------------------------------ |
 | **XS**  | Well known, isolated         | Minimal unknowns, fits existing components, no dependencies                    |
@@ -51,84 +54,9 @@ This document is a high level overview of Project Narada's development backlog/r
 - ✅ **Epic 1: Repository Interface Consolidation**: Unified repository contracts in domain layer, eliminated 5 duplicate protocols
 - ✅ **Epic 2: Service Layer Reorganization**: Moved business logic to application layer, deleted 7 redundant files, established proper CLI → Application → Domain flow
 - ✅ **Epic 3: Architecture Compliance & Quality**: Verified Clean Architecture principles, updated to Python 3.13 patterns, maintained full test coverage
-- ✅ **Epic 4: Modern Testing Architecture**: Replaced heavy async mocking with lightweight dependency injection, achieved 332/332 tests passing
 - ✅ **Epic 5: Matcher System Modernization**: Transformed 961-line monolithic matcher into modular provider pattern with comprehensive test coverage
 - ✅ **Epic 6: Workflow Node Architecture**: Created SavePlaylistUseCase with Command/Strategy patterns, simplified workflow nodes to delegators
 - ✅ **Epic 7: Sophisticated Playlist Updates**: Implemented differential UpdatePlaylistUseCase with 29 comprehensive tests and full workflow integration
-
-#### Clean Architecture Epics:
-
-- [x] **Modern Testing Architecture** (Epic 4)
-    - Effort: M
-    - What: Replace heavy async mocking with lightweight dependency injection patterns
-    - Why: Brittle workflow tests were blocking progress due to complex mocking anti-patterns. Clean dependency injection enables fast, maintainable tests while preserving architectural boundaries.
-    - Dependencies: Clean Architecture Restructuring
-    - Status: Complete
-    - Notes:
-        - **Achievement**: 332/332 tests passing with clean linting
-        - **Performance**: <10 second test runtime achieved
-        - **Approach**: Function-level dependency injection with pytest fixtures
-
-- [x] **Matcher System Modernization** (Epic 5)
-    - Effort: L
-    - What: Decompose monolithic matcher into modular provider pattern
-    - Why: Current 961-line matcher violates Single Responsibility Principle, mixing domain logic with service-specific API calls. Clean Architecture separation enables easier testing, maintenance, and extension to new music services.
-    - Dependencies: Modern Testing Architecture
-    - Status: Complete
-    - Notes:
-        - **Achievement**: Successfully transformed 961-line monolithic matcher into modular provider pattern
-        - **Architecture**: Implemented Clean Architecture with Domain/Application/Infrastructure layers
-        - **Extensibility**: Provider pattern enables trivial addition of new music services
-        - **Test Coverage**: 19 comprehensive tests (11 domain + 8 Prefect progress)
-        - **Performance**: Maintained batch processing efficiency with zero breaking changes
-
-- [x] **Workflow Node Architecture** (Epic 6)
-    - Effort: M
-    - What: Extract playlist persistence logic into reusable Application Use Cases
-    - Why: Current workflow nodes contain complex business logic that should live in Application layer. Proper separation prepares for modern workflow engines and web interface integration.
-    - Dependencies: Matcher System Modernization
-    - Status: Complete
-    - Notes:
-        - **Achievement**: Successfully created SavePlaylistUseCase with 2025 patterns (Command, Strategy, Event-driven)
-        - **Architecture**: Workflow nodes transformed from complex persistence handlers to simple delegators
-        - **Clean Implementation**: Business logic moved to correct application layer
-        - **Test Coverage**: 11 comprehensive unit tests + integration tests
-        - **Zero Functionality Loss**: All existing APIs maintain backward compatibility
-
-- [x] **Sophisticated Playlist Updates** (Epic 7)
-    - Effort: L
-    - What: Create UpdatePlaylistUseCase for differential playlist updates with minimal operations
-    - Why: Need ability to update existing playlists while preserving Spotify track addition timestamps through smart add/remove/reorder operations
-    - Dependencies: Workflow Node Architecture (Phase 6)
-    - Status: Complete
-    - Notes:
-        - **Achievement**: Successfully implemented sophisticated UpdatePlaylistUseCase with differential algorithms
-        - **Features**: Command pattern, Strategy pattern, comprehensive validation, dry-run mode
-        - **Test Coverage**: 26 unit tests + 3 E2E integration tests (29/29 passing)
-        - **Workflow Integration**: Complete destination.update_playlist node registered and functional
-        - **Architecture**: Leverages existing spotipy infrastructure with proven rate limiting patterns
-        - **Future Ready**: Foundation for manual playlist editing and advanced streaming service features
-
-### 🎉 Clean Architecture Migration: COMPLETE
-
-**Date Completed**: 2025-07-16  
-
-**Key Achievements**:
-- **100% Clean Architecture Compliance**: Proper Domain/Application/Infrastructure separation
-- **Zero Technical Debt**: Ruthlessly DRY implementation with single responsibility principle
-- **Modern Python 3.13 Patterns**: Future-ready codebase with advanced type safety
-- **Comprehensive Test Coverage**: 29 new tests for playlist updates + existing coverage maintained
-- **Production-Ready Features**: Sophisticated playlist update system exceeding commercial platforms
-- **Proven Infrastructure**: Leverages existing spotipy, rate limiting, and resilient operation patterns
-
-**Strategic Benefits Delivered**:
-1. **Developer Productivity**: Clear separation of concerns enables rapid feature development
-2. **Maintainability**: Business logic isolated and easily testable
-3. **Extensibility**: Ready for Apple Music, advanced Spotify features, and new streaming services
-4. **Quality Assurance**: Comprehensive test coverage ensures reliability
-5. **Future-Ready**: Foundation for FastAPI web interface, microservices, and modern deployment
-
-**Next Phase Ready**: Advanced workflow features development can begin immediately on this solid foundation.
 
 ---
 
@@ -137,65 +65,26 @@ This document is a high level overview of Project Narada's development backlog/r
 ### v0.2.4: Playlist Workflow Expansion
 **Goal**: Enable advanced playlist workflows, including using plays for filtering and discovery workflows
 
-#### Foundational Epics (Pre-Feature Work)
-**Goal**: Solidify the Clean Architecture implementation and resolve key technical debt to prepare for advanced playlist workflow features. This foundational work ensures new features are built on a stable, testable, and maintainable platform.
-
-**Architectural Note on Sequencing**: These epics are sequenced to prevent rework. The data flow (`MatcherService`) is clarified first, followed by the general dependency injection pattern, and finally the `UpdatePlaylistUseCase` is completed, integrating with the new, stable components.
-
-- [ ] **Clarify Enrichment vs. Matching Data Flow**
-    - Effort: M
-    - What: Decouple the expensive process of *identity resolution* (matching new, unknown tracks) from the cheap process of *metadata enrichment* (refreshing data for known tracks).
-    - Why: The current `MatcherService` blurs these two distinct concerns. A clear separation will make the system more efficient (avoids re-matching known tracks), easier to reason about, and simplifies the data flow for both new and existing tracks.
-    - Dependencies: Clean Architecture Migration
-    - Status: Not Started
-    - Notes:
-        - Refactor `MatcherService` to only handle *identity resolution* for unknown tracks.
-        - Create a new, simple `EnricherService` or use case to refresh metadata for known tracks based on a `last_updated` timestamp.
-        - This simplifies components like `MetadataFreshnessController` and makes the data flow more explicit and efficient.
-
-- [ ] **Refactor Use Cases for True Dependency Inversion**
-    - Effort: M
-    - What: Refactor all Application Use Cases (e.g., `SavePlaylistUseCase`, `UpdatePlaylistUseCase`) to be pure orchestrators. They must receive repository and strategy *interfaces* (protocols) via dependency injection instead of creating concrete instances or accessing the database session directly.
-    - Why: This is the most critical step to fully realize the benefits of Clean Architecture. It will make our business logic 100% independent of the database, dramatically improving testability (no more mocking `get_session`), and making the system more adaptable to future changes.
-    - Dependencies: Clarify Enrichment vs. Matching Data Flow
-    - Status: Not Started
-    - Notes:
-        - Define repository and strategy protocols in the `domain` layer.
-        - Update use cases to accept these protocols in their `__init__` methods.
-        - Wire up concrete implementations (e.g., `SQLAlchemyTrackRepository`) at the outermost layer (CLI command or workflow node).
-
-- [ ] **Complete UpdatePlaylistUseCase Implementation**
+- [x] **Complete UpdatePlaylistUseCase Implementation**
     - Effort: L
     - What: Replace placeholder implementations and simplified logic with production-ready Spotify API operations and sophisticated reordering algorithms.
     - Why: Current implementation contains TODOs for critical features including sophisticated reordering logic, ISRC/metadata matching strategies, and actual Spotify API operations (currently creates new playlists instead of updating existing ones).
     - Dependencies: Refactor Use Cases for True Dependency Inversion
     - Status: Not Started
-    - Notes:
-        - **TODO(#123)**: Implement sophisticated reordering logic for playlist updates
-        - **TODO(#125)**: Replace placeholder with actual Spotify API operations (add/remove/reorder tracks)
-        - Address "simplified positioning for now" and "move operations simplified for now" in differential algorithm
-        - File: `src/application/use_cases/update_playlist.py:261,266,292,512,549`
 
-- [ ] **Technical Debt Cleanup**
+
+- [x] **Technical Debt Cleanup**
     - Effort: M
     - What: Address remaining technical debt, including consolidating playlist persistence logic, improving type safety, and cleaning up the workflow context architecture.
     - Why: To maintain code quality and architectural integrity, ensuring the codebase remains clean, modern, and easy to work with before adding new features.
     - Dependencies: Refactor Use Cases for True Dependency Inversion
     - Status: Not Started
     - Notes:
-        - Consolidate `SavePlaylistUseCase` and `UpdatePlaylistUseCase` responsibilities.
         - Replace `Any` types in repository interfaces with specific domain entities.
         - Remove the "hack" in `LazyRepositoryProvider` with proper dependency injection.
+        - Remove other hacks, workarounds, and backward compatibility leftovers
 
 #### Play History Analysis Epics
-- [x] **Informative and Easy-to-use CLI**
-    - Effort: S
-    - What: Improve usability of the CLI while ensuring we won't need to refactor when creating the web interface vie FastAPI
-    - Why: Before we add more functionality, we need to ensure our CLI is up to the task of handling more options. users should clearly see what they can do, and be able to accomplish those things with minimal typing.
-    - Dependencies: n/a
-    - Status: Done
-    - Notes:
-        - 
 
 - [ ] **Play History Filter and Sort**
     - Effort: M

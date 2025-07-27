@@ -10,7 +10,6 @@ from src.application.use_cases.sync_likes import (
     ImportSpotifyLikesCommand,
     ImportSpotifyLikesUseCase,
 )
-from src.domain.entities import Artist, Track
 from src.domain.entities.operations import OperationResult
 
 

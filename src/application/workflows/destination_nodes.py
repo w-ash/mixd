@@ -1,275 +1,189 @@
 """
-Destination node implementations for workflow pipelines.
+Simplified destination node implementations for workflow pipelines.
 
-Destination nodes are the terminal points of our workflow system, responsible for
-persisting processed data to various targets including internal databases and
-external streaming services. These nodes implement consistent error handling,
-transaction management, and result reporting patterns across different destination
-types.
+Destination nodes provide clean, intuitive interfaces for playlist operations:
+- create_playlist: Always creates canonical, optionally creates on connector
+- update_playlist: Smart ID resolution with append/overwrite and metadata updates
 
-Key responsibilities:
-- Track persistence with consistent database transaction management
-- Playlist creation and updating in both internal and external systems
-- Result metadata collection for workflow monitoring
-- Standardized error handling for destination operations
+These nodes are thin wrappers that delegate business logic to use cases,
+maintaining clear separation of concerns and DRY principles.
 """
 
-from src.application.use_cases.save_playlist import (
-    EnrichmentConfig,
-    PersistenceOptions,
-    SavePlaylistCommand,
+from src.application.use_cases.create_canonical_playlist import (
+    CreateCanonicalPlaylistCommand,
 )
-from src.application.use_cases.update_playlist import (
-    UpdatePlaylistCommand,
-    UpdatePlaylistOptions,
+from src.application.use_cases.create_connector_playlist import (
+    CreateConnectorPlaylistCommand,
+)
+from src.application.use_cases.update_canonical_playlist import (
+    UpdateCanonicalPlaylistCommand,
+)
+from src.application.use_cases.update_connector_playlist import (
+    UpdateConnectorPlaylistCommand,
 )
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 
-# Infrastructure imports removed for Clean Architecture compliance
+from .node_context import NodeContext
 
 logger = get_logger(__name__)
 
 
-# NOTE: persist_tracks function removed - now handled by SavePlaylistUseCase
-
-
-async def handle_internal_destination(
+async def create_playlist(
     tracklist: TrackList,
     config: dict,
-    context: dict,  # Now used for repository access
+    context: dict,
 ) -> dict:
-    """Create a playlist in the internal database using SavePlaylistUseCase."""
-    # Create command for internal playlist creation
-    command = SavePlaylistCommand(
-        tracklist=tracklist,
-        enrichment_config=EnrichmentConfig(enabled=config.get("enrich_tracks", True)),
-        persistence_options=PersistenceOptions(
-            operation_type="create_internal",
-            playlist_name=config.get("name", "Narada Playlist"),
-            playlist_description=config.get("description", "Created by Narada"),
-        ),
-    )
-
-    # Use DRY helper functions for context extraction
-    from .node_context import NodeContext
-    ctx = NodeContext(context)
+    """Create a new playlist with optional connector sync.
     
-    workflow_context = ctx.extract_workflow_context()
-    use_cases = ctx.extract_use_cases()
-
-    # Execute use case with UnitOfWork pattern
-    result = await workflow_context.execute_use_case(
-        use_cases.get_save_playlist_use_case, 
-        command
-    )
-
-    # Use standardized result formatter
-    return NodeContext.format_playlist_result(
-        operation="create_internal_playlist",
-        result=result,
-        tracklist=tracklist,
-        operation_type="create_internal_playlist"  # Extra field for this operation
-    )
-
-
-async def handle_spotify_destination(
-    tracklist: TrackList,
-    config: dict,
-    context: dict,  # Now used for repository access
-) -> dict:
-    """Create a new Spotify playlist using SavePlaylistUseCase."""
-    # Infrastructure: create playlist in Spotify via external API
-    from .node_context import NodeContext
-    ctx = NodeContext(context)
-    spotify = ctx.get_connector("spotify")
-    spotify_id = await spotify.create_playlist(
-        config.get("name", "Narada Playlist"),
-        tracklist.tracks,
-        config.get("description", "Created by Narada"),
-    )
-
-    # Create command for Spotify playlist creation
-    command = SavePlaylistCommand(
-        tracklist=tracklist,
-        enrichment_config=EnrichmentConfig(
-            enabled=config.get("enrich_tracks", True),
-            primary_provider="spotify",
-        ),
-        persistence_options=PersistenceOptions(
-            operation_type="create_spotify",
-            playlist_name=config.get("name", "Narada Playlist"),
-            playlist_description=config.get("description", "Created by Narada"),
-            spotify_playlist_id=spotify_id,
-        ),
-    )
-
-    # Use DRY helper functions for context extraction
-    workflow_context = ctx.extract_workflow_context()
-    use_cases = ctx.extract_use_cases()
-
-    # Execute use case with UnitOfWork pattern
-    result = await workflow_context.execute_use_case(
-        use_cases.get_save_playlist_use_case, 
-        command
-    )
-
-    # Use standardized result formatter
-    return NodeContext.format_playlist_result(
-        operation="create_spotify_playlist",
-        result=result,
-        tracklist=tracklist,
-        spotify_id=spotify_id  # Extra field for Spotify operations
-    )
-
-
-async def handle_update_spotify_destination(
-    tracklist: TrackList,
-    config: dict,
-    context: dict,  # Now used for repository access
-) -> dict:
-    """Update an existing Spotify playlist using SavePlaylistUseCase."""
-    spotify_id = config.get("playlist_id")
-    append = config.get("append", False)
-
-    if not spotify_id:
-        raise ValueError("Missing required playlist_id for update operation")
-
-    # Create command for Spotify playlist update
-    command = SavePlaylistCommand(
-        tracklist=tracklist,
-        enrichment_config=EnrichmentConfig(
-            enabled=config.get("enrich_tracks", True),
-            primary_provider="spotify",
-        ),
-        persistence_options=PersistenceOptions(
-            operation_type="update_spotify",
-            playlist_name="",  # Will be determined from existing playlist
-            spotify_playlist_id=spotify_id,
-            append_mode=append,
-        ),
-    )
-
-    # Use DRY helper functions for context extraction
-    from .node_context import NodeContext
-    ctx = NodeContext(context)
+    Always creates canonical playlist, optionally creates on connector.
     
+    Config:
+        name (str): Required playlist name
+        description (str): Optional playlist description  
+        connector (str): Optional connector ("spotify", "apple_music", etc.)
+    """
+    playlist_name = config.get("name")
+    if not playlist_name:
+        raise ValueError("Missing required 'name' for create_playlist operation")
+    
+    ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    use_cases = ctx.extract_use_cases()
+    
+    connector = config.get("connector")
+    if connector:
+        # Create on both canonical and connector
+        command = CreateConnectorPlaylistCommand(
+            tracklist=tracklist,
+            playlist_name=playlist_name,
+            connector=connector,
+            playlist_description=config.get("description", "Created by Narada"),
+            create_internal_playlist=True,
+        )
+        result = await workflow_context.execute_use_case(
+            workflow_context.use_cases.get_create_connector_playlist_use_case,
+            command
+        )
+        
+        return {
+            "operation": "create_playlist",
+            "playlist": result.playlist,
+            "playlist_name": result.playlist.name,
+            "playlist_id": result.playlist.id,
+            "connector": connector,
+            "external_playlist_id": result.external_playlist_id,
+            "tracklist": tracklist,
+            "track_count": len(tracklist.tracks),
+        }
+    else:
+        # Create canonical only
+        command = CreateCanonicalPlaylistCommand(
+            name=playlist_name,
+            tracklist=tracklist,
+            description=config.get("description", "Created by Narada"),
+        )
+        result = await workflow_context.execute_use_case(
+            workflow_context.use_cases.get_create_canonical_playlist_use_case,
+            command
+        )
+        
+        return {
+            "operation": "create_playlist",
+            "playlist": result.playlist,
+            "playlist_name": result.playlist.name,
+            "playlist_id": result.playlist.id,
+            "tracklist": tracklist,
+            "track_count": len(tracklist.tracks),
+        }
 
-    # Execute use case with UnitOfWork pattern
-    result = await workflow_context.execute_use_case(
-        use_cases.get_save_playlist_use_case, 
-        command
-    )
 
-    # Infrastructure: update Spotify via external API
-    spotify = ctx.get_connector("spotify")
-    await spotify.update_playlist(spotify_id, result.playlist, replace=not append)
-
-    # Return result in expected format for backward compatibility  
-    return NodeContext.format_playlist_result(
-        operation="update_spotify_playlist",
-        result=result,
-        tracklist=tracklist,
-        spotify_id=spotify_id,
-        append_mode=append
-    )
-
-
-async def handle_update_playlist_destination(
+async def update_playlist(
     tracklist: TrackList,
     config: dict,
-    context: dict,  # Now used for repository access
+    context: dict,
 ) -> dict:
-    """Update an existing playlist using UpdatePlaylistUseCase.
-
-    This destination node enables differential playlist updates that preserve
-    track addition timestamps and minimize API operations through sophisticated
-    add/remove/reorder algorithms.
-
-    Config parameters:
-        playlist_id (str): ID of playlist to update (internal or connector ID)
-        operation_type (str): "update_internal", "update_spotify", or "sync_bidirectional"
-        conflict_resolution (str): "local_wins", "remote_wins", "user_prompt", "merge_intelligent"
-        dry_run (bool): Preview changes without executing (default: False)
-        preserve_order (bool): Maintain existing track order where possible (default: True)
-        enable_spotify_sync (bool): Sync changes to Spotify if playlist is linked (default: True)
+    """Update existing playlist with smart ID resolution.
+    
+    Smart ID resolution:
+    - No connector: playlist_id is canonical ID, update canonical only
+    - With connector: playlist_id is connector ID, find/create canonical, update both
+    
+    Config:
+        playlist_id (str): Required - canonical OR connector playlist ID
+        connector (str): Optional - determines ID interpretation
+        append (bool): True=append tracks, False=overwrite with preservation
+        name (str): Optional - update playlist name
+        description (str): Optional - update playlist description
     """
     playlist_id = config.get("playlist_id")
     if not playlist_id:
-        raise ValueError("Missing required playlist_id for update operation")
-
-    operation_type = config.get("operation_type", "update_internal")
-    if operation_type not in [
-        "update_internal",
-        "update_spotify",
-        "sync_bidirectional",
-    ]:
-        raise ValueError(f"Invalid operation_type: {operation_type}")
-
-    # Create command for playlist update
-    command = UpdatePlaylistCommand(
-        playlist_id=playlist_id,
-        new_tracklist=tracklist,
-        options=UpdatePlaylistOptions(
-            operation_type=operation_type,
-            conflict_resolution=config.get("conflict_resolution", "local_wins"),
-            track_matching_strategy=config.get(
-                "track_matching_strategy", "comprehensive"
-            ),
-            dry_run=config.get("dry_run", False),
-            force_update=config.get("force_update", False),
-            preserve_order=config.get("preserve_order", True),
-            batch_size=min(config.get("batch_size", 100), 100),  # Enforce Spotify limit
-            max_api_calls=config.get("max_api_calls", 50),
-            enable_external_sync=config.get("enable_external_sync", True),
-        ),
-        metadata={
-            "workflow_source": "destination_node",
-            "original_config": config,
-        },
-    )
-
-    # Use DRY helper functions for context extraction
-    from .node_context import NodeContext
-    ctx = NodeContext(context)
+        raise ValueError("Missing required 'playlist_id' for update_playlist operation")
     
+    ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    use_cases = ctx.extract_use_cases()
+    
+    connector = config.get("connector")
+    append = config.get("append", False)
+    
+    if connector:
+        # playlist_id is connector ID - update connector with optimistic canonical sync
+        command = UpdateConnectorPlaylistCommand(
+            playlist_id=playlist_id,
+            new_tracklist=tracklist,
+            connector=connector,
+            append_mode=append,
+            playlist_name=config.get("name"),  # Optional metadata update
+            playlist_description=config.get("description"),  # Optional metadata update
+            preserve_timestamps=not append,  # Use preservation for overwrite
+        )
+        result = await workflow_context.execute_use_case(
+            workflow_context.use_cases.get_update_connector_playlist_use_case,
+            command
+        )
+        
+        return {
+            "operation": "update_playlist",
+            "connector": connector,
+            "playlist_id": result.playlist_id,
+            "append_mode": append,
+            "tracklist": tracklist,
+            "track_count": len(tracklist.tracks),
+            "operations_performed": result.operations_performed,
+            "tracks_added": result.tracks_added,
+            "tracks_removed": result.tracks_removed,
+            "tracks_moved": result.tracks_moved,
+        }
+    else:
+        # playlist_id is canonical ID - update canonical only
+        command = UpdateCanonicalPlaylistCommand(
+            playlist_id=playlist_id,
+            new_tracklist=tracklist,
+            append_mode=append,
+            playlist_name=config.get("name"),  # Optional metadata update
+            playlist_description=config.get("description"),  # Optional metadata update
+        )
+        result = await workflow_context.execute_use_case(
+            workflow_context.use_cases.get_update_canonical_playlist_use_case,
+            command
+        )
+        
+        return {
+            "operation": "update_playlist",
+            "playlist": result.playlist,
+            "playlist_name": result.playlist.name,
+            "playlist_id": result.playlist.id,
+            "append_mode": append,
+            "tracklist": tracklist,
+            "track_count": len(tracklist.tracks),
+            "operations_performed": result.operations_performed,
+            "tracks_added": result.tracks_added,
+            "tracks_removed": result.tracks_removed,
+            "tracks_moved": result.tracks_moved,
+        }
 
-    # Execute use case with UnitOfWork pattern
-    result = await workflow_context.execute_use_case(
-        use_cases.get_update_playlist_use_case, 
-        command
-    )
 
-    # Return result with specialized fields for update operations
-    return {
-        "operation": "update_playlist",
-        "operation_type": operation_type,
-        "playlist": result.playlist,
-        "playlist_name": result.playlist.name,
-        "playlist_id": result.playlist.id,
-        "tracklist": tracklist,
-        "updated_tracks": result.playlist.tracks,
-        "track_count": len(result.playlist.tracks),
-        "operations_performed": len(result.operations_performed),
-        "tracks_added": result.tracks_added,
-        "tracks_removed": result.tracks_removed,
-        "tracks_moved": result.tracks_moved,
-        "api_calls_made": result.api_calls_made,
-        "execution_time_ms": result.execution_time_ms,
-        "dry_run": command.options.dry_run,
-        "conflicts_detected": result.conflicts_detected,
-        "conflicts_resolved": result.conflicts_resolved,
-    }
-
-
-# Export destination handler map for factory use
+# Export simplified destination handler map
 DESTINATION_HANDLERS = {
-    "internal": handle_internal_destination,
-    "spotify": handle_spotify_destination,
-    "update_spotify": handle_update_spotify_destination,
-    "update_playlist": handle_update_playlist_destination,
+    "create_playlist": create_playlist,
+    "update_playlist": update_playlist,
 }

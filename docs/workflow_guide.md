@@ -60,7 +60,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `source.spotify_playlist` | Fetches a playlist from Spotify | `playlist_id`: Spotify playlist ID |
+| `source.playlist` | **Universal playlist source with smart ID resolution** | `playlist_id`: Playlist identifier (required)<br>`connector`: Optional connector name ("spotify", "apple_music", etc.)<br><br>**Smart ID Resolution:**<br>• No connector: `playlist_id` is canonical ID, reads from database<br>• With connector: `playlist_id` is external ID, checks for existing mapping<br>  - If exists: updates existing canonical playlist<br>  - If not exists: creates new canonical playlist with connector mapping |
 
 ### Enricher Nodes
 
@@ -105,10 +105,8 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `destination.create_internal_playlist` | Creates a playlist in internal database | `name`: Name for the playlist<br>`description`: Optional description |
-| `destination.create_spotify_playlist` | Creates a new Spotify playlist | `name`: Name for the new playlist<br>`description`: Optional description |
-| `destination.update_spotify_playlist` | Updates an existing Spotify playlist | `playlist_id`: Spotify playlist ID<br>`append`: Boolean, if true, append tracks rather than replace |
-| `destination.update_playlist` | **Advanced playlist updates with differential operations** | `playlist_id`: Internal or Spotify playlist ID<br>`operation_type`: "update_internal", "update_spotify", or "sync_bidirectional"<br>`conflict_resolution`: "local_wins", "remote_wins", "user_prompt", "merge_intelligent"<br>`dry_run`: Boolean, preview changes without executing<br>`preserve_order`: Boolean, maintain existing track order where possible<br>`track_matching_strategy`: "spotify_id", "isrc", "metadata_fuzzy", "comprehensive"<br>`enable_spotify_sync`: Boolean, sync changes to Spotify if playlist is linked |
+| `destination.create_playlist` | **Creates playlists with optional connector sync** | `name`: Playlist name (required)<br>`description`: Optional playlist description<br>`connector`: Optional connector name ("spotify", "apple_music", etc.) - auto-creates on connector if specified |
+| `destination.update_playlist` | **Updates playlists with smart ID resolution and flexible options** | `playlist_id`: Playlist ID (required) - canonical OR connector ID<br>`connector`: Optional connector name - determines ID interpretation and auto-syncs<br>`append`: Boolean - true=append tracks, false=overwrite with preservation (default: false)<br>`name`: Optional - update playlist name<br>`description`: Optional - update playlist description |
 
 ## Workflow Patterns
 
@@ -119,8 +117,8 @@ This pattern combines tracks from multiple sources:
 ```json
 {
   "tasks": [
-    { "id": "source1", "type": "source.spotify_playlist", "config": {"playlist_id": "id1"} },
-    { "id": "source2", "type": "source.spotify_playlist", "config": {"playlist_id": "id2"} },
+    { "id": "source1", "type": "source.playlist", "config": {"playlist_id": "id1", "connector": "spotify"} },
+    { "id": "source2", "type": "source.playlist", "config": {"playlist_id": "id2", "connector": "spotify"} },
     { "id": "combine", "type": "combiner.merge_playlists", "config": {"sources": ["source1", "source2"]}, "upstream": ["source1", "source2"] }
   ]
 }
@@ -133,7 +131,7 @@ This pattern applies multiple sequential filters:
 ```json
 {
   "tasks": [
-    { "id": "source", "type": "source.spotify_playlist", "config": {"playlist_id": "id"} },
+    { "id": "source", "type": "source.playlist", "config": {"playlist_id": "id", "connector": "spotify"} },
     { "id": "filter1", "type": "filter.by_release_date", "config": {"max_age_days": 90}, "upstream": ["source"] },
     { "id": "filter2", "type": "filter.not_in_playlist", "config": {"reference": "exclude_source"}, "upstream": ["filter1", "exclude_source"] }
   ]
@@ -147,7 +145,7 @@ This pattern enhances tracks with external data before transformation:
 ```json
 {
   "tasks": [
-    { "id": "source", "type": "source.spotify_playlist", "config": {"playlist_id": "id"} },
+    { "id": "source", "type": "source.playlist", "config": {"playlist_id": "id", "connector": "spotify"} },
     { "id": "enrich", "type": "enricher.resolve_lastfm", "upstream": ["source"] },
     { "id": "transform", "type": "sorter.by_lastfm_user_playcount", "config": {"reverse": true}, "upstream": ["enrich"] }
   ]
@@ -161,7 +159,7 @@ This pattern uses sophisticated differential operations to update existing playl
 ```json
 {
   "tasks": [
-    { "id": "source", "type": "source.spotify_playlist", "config": {"playlist_id": "source_id"} },
+    { "id": "source", "type": "source.playlist", "config": {"playlist_id": "source_id", "connector": "spotify"} },
     { "id": "enrich", "type": "enricher.spotify", "upstream": ["source"] },
     { "id": "filter", "type": "filter.by_metric", "config": {"metric_name": "popularity", "min_value": 60}, "upstream": ["enrich"] },
     { "id": "update", "type": "destination.update_playlist", 
@@ -220,9 +218,10 @@ This example demonstrates the new play history enrichment and filtering capabili
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "YOUR_LIKED_SONGS_ID"
+        "playlist_id": "YOUR_LIKED_SONGS_ID",
+        "connector": "spotify"
       }
     },
     {
@@ -264,10 +263,11 @@ This example demonstrates the new play history enrichment and filtering capabili
     },
     {
       "id": "create_rediscovery_playlist",
-      "type": "destination.create_spotify_playlist",
+      "type": "destination.create_playlist",
       "config": {
         "name": "Rediscovered Favorites",
-        "description": "Tracks you loved but haven't played in 6+ months"
+        "description": "Tracks you loved but haven't played in 6+ months",
+        "connector": "spotify"
       },
       "upstream": ["limit_selection"]
     }
@@ -281,20 +281,73 @@ This workflow demonstrates:
 - **Intelligence-Driven Discovery**: Uses your own listening patterns to surface forgotten favorites
 - **Automated Curation**: Creates a new playlist ready for immediate listening
 
+## Example: Universal Playlist Source
+
+This example demonstrates the new `source.playlist` node with smart ID resolution:
+
+```json
+{
+  "id": "connector_agnostic_workflow",
+  "name": "Connector-Agnostic Playlist Processing",
+  "description": "Process playlists from any source with automatic upsert logic",
+  "version": "2.0",
+  "tasks": [
+    {
+      "id": "spotify_source",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "37i9dQZEVXcDXjmJJAvgkA",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "canonical_source",
+      "type": "source.playlist", 
+      "config": {
+        "playlist_id": "123"
+      }
+    },
+    {
+      "id": "enrich",
+      "type": "enricher.spotify",
+      "config": {},
+      "upstream": ["spotify_source"]
+    },
+    {
+      "id": "destination",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Processed Playlist",
+        "description": "Combined and enriched tracks",
+        "connector": "spotify"
+      },
+      "upstream": ["enrich"]
+    }
+  ]
+}
+```
+
+Key Features Demonstrated:
+- **Connector-based sourcing**: `spotify_source` fetches from Spotify and automatically creates/updates canonical playlist
+- **Canonical sourcing**: `canonical_source` reads directly from internal database using canonical ID
+- **Automatic upsert**: Existing canonical playlists are updated, new ones are created as needed
+- **Clean Architecture**: All operations use proper use cases with UnitOfWork pattern
+
 ## Example: Discovery Mix Workflow
 
 ```json
 {
   "id": "discovery_mix",
-  "name": "New Release Discovery Mix",
+  "name": "New Release Discovery Mix", 
   "description": "Create a playlist of recent tracks sorted by play count",
-  "version": "1.0",
+  "version": "2.0",
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "37i9dQZEVXcDXjmJJAvgkA"
+        "playlist_id": "37i9dQZEVXcDXjmJJAvgkA",
+        "connector": "spotify"
       }
     },
     {
@@ -331,10 +384,11 @@ This workflow demonstrates:
     },
     {
       "id": "destination",
-      "type": "destination.create_spotify_playlist",
+      "type": "destination.create_playlist",
       "config": {
         "name": "Discovery Mix (90 days)",
-        "description": "Recent releases sorted by play count"
+        "description": "Recent releases sorted by play count",
+        "connector": "spotify"
       },
       "upstream": ["limit"]
     }
@@ -354,9 +408,10 @@ This example demonstrates using the new generic metric filter and sorter nodes:
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "YOUR_PLAYLIST_ID"
+        "playlist_id": "YOUR_PLAYLIST_ID",
+        "connector": "spotify"
       }
     },
     {
@@ -411,10 +466,11 @@ This example demonstrates using the new generic metric filter and sorter nodes:
     },
     {
       "id": "destination",
-      "type": "destination.create_spotify_playlist",
+      "type": "destination.create_playlist",
       "config": {
         "name": "Popular Gems to Discover",
-        "description": "Popular tracks you haven't listened to much yet"
+        "description": "Popular tracks you haven't listened to much yet",
+        "connector": "spotify"
       },
       "upstream": ["limit"]
     }
@@ -435,9 +491,10 @@ This example demonstrates sophisticated playlist updates with differential opera
   "tasks": [
     {
       "id": "source_discover",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "37i9dQZEVXcJZTJkGMJOhH"
+        "playlist_id": "37i9dQZEVXcJZTJkGMJOhH",
+        "connector": "spotify"
       }
     },
     {
@@ -494,13 +551,9 @@ This example demonstrates sophisticated playlist updates with differential opera
       "id": "update_target",
       "type": "destination.update_playlist",
       "config": {
-        "playlist_id": "YOUR_TARGET_PLAYLIST_ID",
-        "operation_type": "update_spotify",
-        "conflict_resolution": "local_wins",
-        "track_matching_strategy": "comprehensive",
-        "preserve_order": false,
-        "dry_run": false,
-        "enable_spotify_sync": true
+        "playlist_id": "YOUR_TARGET_SPOTIFY_PLAYLIST_ID",
+        "connector": "spotify",
+        "append": false
       },
       "upstream": ["limit_selection"]
     }
@@ -511,9 +564,9 @@ This example demonstrates sophisticated playlist updates with differential opera
 This workflow demonstrates:
 - **Multi-stage filtering**: Combines Spotify popularity with Last.fm play history
 - **Sophisticated sorting**: Uses global play counts for discovery potential  
-- **Differential updates**: Preserves Spotify track addition timestamps
-- **Conflict resolution**: Handles external changes gracefully
-- **Production ready**: Full error handling and validation
+- **Smart ID resolution**: Automatically resolves Spotify playlist IDs to canonical playlists
+- **Overwrite with preservation**: Uses differential algorithm to minimize changes and preserve metadata
+- **Clean configuration**: Simple, intuitive destination node setup
 
 ## Example: Dry-Run Preview Workflow
 
@@ -528,9 +581,10 @@ This example shows how to preview playlist changes before applying them:
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "source_playlist_id"
+        "playlist_id": "source_playlist_id",
+        "connector": "spotify"
       }
     },
     {
@@ -546,10 +600,9 @@ This example shows how to preview playlist changes before applying them:
       "id": "preview",
       "type": "destination.update_playlist",
       "config": {
-        "playlist_id": "target_playlist_id",
-        "operation_type": "update_spotify",
-        "dry_run": true,
-        "preserve_order": true
+        "playlist_id": "target_spotify_playlist_id",
+        "connector": "spotify",
+        "append": false
       },
       "upstream": ["transform"]
     }
@@ -557,59 +610,82 @@ This example shows how to preview playlist changes before applying them:
 }
 ```
 
-With `dry_run: true`, the workflow will:
-- Calculate all differential operations
-- Estimate API call requirements
-- Report planned changes without execution
-- Provide confidence scores for track matching
+This workflow demonstrates simplified playlist updates:
+- **Smart ID Resolution**: Automatically handles Spotify playlist ID → canonical playlist mapping
+- **Preservation Algorithm**: Overwrite mode uses sophisticated diff engine to minimize changes
+- **Clean Configuration**: Simple, intuitive parameters without complex operation types
 
 ## Advanced Features
 
-### Sophisticated Playlist Updates
+### Universal Playlist Sourcing
 
-The `destination.update_playlist` node provides enterprise-grade playlist management capabilities:
+The new `source.playlist` node provides connector-agnostic playlist access with intelligent ID resolution:
 
-#### Differential Algorithm Engine
-- **Smart Track Matching**: Uses Spotify IDs, ISRC codes, and metadata similarity for robust track identification
-- **Minimal Operations**: Calculates add/remove/reorder operations to minimize API calls and preserve metadata
-- **Conflict Detection**: Uses snapshot validation to detect external changes
-- **Performance Optimization**: Batches operations within API constraints (100 tracks/request)
+#### Smart ID Resolution
+- **Canonical Mode**: When no `connector` specified, `playlist_id` treated as internal canonical ID
+- **Connector Mode**: When `connector` specified, `playlist_id` treated as external service ID
+- **Automatic Detection**: System automatically determines if canonical playlist already exists for external ID
+- **Upsert Logic**: Existing canonical playlists are updated, missing ones are created automatically
 
-#### Operation Types
-- **update_internal**: Updates internal database playlist only
-- **update_spotify**: Updates Spotify playlist with database synchronization
-- **sync_bidirectional**: Advanced sync between internal and external playlists
+#### Connector Support
+- **Spotify**: Full support with automatic track fetching and metadata extraction
+- **Extensible Design**: Easy to add support for Apple Music, YouTube Music, etc.
+- **Consistent Interface**: Same configuration pattern across all connector types
 
-#### Conflict Resolution Strategies
-- **local_wins**: Local changes take precedence over external modifications
-- **remote_wins**: External changes take precedence (preserves external edits)
-- **user_prompt**: Interactive resolution for conflicting changes
-- **merge_intelligent**: Automated conflict resolution using metadata analysis
+#### Data Flow Architecture
+1. **Fetch External**: Retrieves playlist and tracks from external service using bulk operations
+2. **Check Mapping**: Uses `ReadCanonicalPlaylistUseCase` to find existing canonical playlist
+3. **Smart Operation**: Either updates existing playlist or creates new one based on mapping
+4. **Metrics Extraction**: Automatically extracts and saves track metrics (popularity, etc.)
+5. **Clean Return**: Provides standardized result format for downstream nodes
 
-#### Track Matching Strategies  
-- **spotify_id**: Exact Spotify ID matching (fastest, most reliable)
-- **isrc**: ISRC code matching for cross-platform identification
-- **metadata_fuzzy**: Artist/title similarity matching with confidence scoring
-- **comprehensive**: Multi-stage matching using all available strategies
+#### Performance Features
+- **Bulk API Calls**: Fetches all tracks in optimal batches to minimize API requests
+- **Database Upsert**: Tracks are automatically saved/updated in canonical database
+- **Clean Architecture**: Proper separation between workflow orchestration and business logic
+- **Transaction Safety**: All operations use UnitOfWork pattern for data consistency
+
+
+### Simplified Playlist Operations
+
+The destination nodes provide intuitive playlist management with sophisticated algorithms underneath:
+
+#### Smart Playlist Creation (`destination.create_playlist`)
+- **Always Creates Canonical**: Internal database playlist created for all operations
+- **Optional Connector Sync**: Specify `connector` to auto-create on external services
+- **Automatic Linking**: Canonical and connector playlists are automatically linked
+- **Clean Configuration**: Just name, description, and optional connector
+
+#### Intelligent Playlist Updates (`destination.update_playlist`)
+- **Smart ID Resolution**: Automatically determines whether playlist ID is canonical or connector-based
+- **Append vs Overwrite**: Choose between adding tracks (`append: true`) or replacement with preservation (`append: false`)
+- **Metadata Updates**: Optional name and description updates in same operation
+- **Auto-Creation**: Missing canonical playlists are automatically created when updating connector playlists
+
+#### Under the Hood: Advanced Algorithms
+- **Differential Engine**: Sophisticated diff algorithm minimizes API calls and preserves metadata
+- **Track Matching**: Multi-strategy matching using Spotify IDs, ISRC codes, and metadata similarity
+- **Operation Sequencing**: Proper remove→add→move order preserves track addition timestamps
+- **Optimistic Updates**: Database immediately reflects successful API operations
 
 ### Production Considerations
 
 #### Performance Features
-- **API Call Estimation**: Preview resource requirements before execution
-- **Batch Optimization**: Automatic grouping within service constraints
+- **Efficient Operations**: Automatic batching and minimal API calls through differential algorithms
+- **Smart Caching**: Optimistic database updates reduce redundant API calls
 - **Rate Limiting**: Built-in exponential backoff and retry logic
 - **Progress Tracking**: Real-time feedback for long-running operations
 
 #### Reliability Features
-- **Dry-Run Mode**: Preview all changes without execution
-- **Transaction Safety**: Atomic operations with rollback capabilities
-- **Validation**: Comprehensive input validation and business rule enforcement
+- **Clean Architecture**: Business logic separated from workflow orchestration
+- **Transaction Safety**: UnitOfWork pattern ensures atomic operations
+- **Input Validation**: Comprehensive validation with clear error messages
 - **Error Recovery**: Graceful handling of API failures and partial operations
 
-#### Monitoring and Observability
-- **Operation Metrics**: Detailed statistics on adds, removes, moves, and API calls
-- **Confidence Scoring**: Track matching quality assessment
-- **Execution Timing**: Performance monitoring for optimization
+#### User Experience
+- **Intuitive Configuration**: Simple parameters hide complex implementation details
+- **Smart Defaults**: Sensible defaults for all optional parameters
+- **Consistent Behavior**: Predictable create/update operations across all connectors
 - **Comprehensive Logging**: Structured logs for debugging and auditing
 
 ## Implementation Architecture

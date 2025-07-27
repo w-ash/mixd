@@ -487,7 +487,9 @@ class LastfmImportService(BaseImportService):
 
         # Use TrackIdentityResolver for clean architecture
         track_list = TrackList(tracks=tracks_for_matching)
-        identity_resolver = TrackIdentityResolver(self.track_repository, self.connector_repository)
+        identity_resolver = TrackIdentityResolver(
+            self.track_repository, self.connector_repository
+        )
         match_results = await identity_resolver.resolve_track_identities(
             track_list=track_list,
             connector="lastfm",

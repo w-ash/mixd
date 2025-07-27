@@ -20,14 +20,18 @@ def integration_workflow_context(db_session):
     Provides real use cases with test database session while mocking
     expensive external dependencies for performance.
     """
-    from src.application.use_cases.save_playlist import SavePlaylistUseCase
-    from src.application.use_cases.update_playlist import UpdatePlaylistUseCase
+    from src.application.use_cases.create_canonical_playlist import (
+        CreateCanonicalPlaylistUseCase,
+    )
+    from src.application.use_cases.create_connector_playlist import (
+        CreateConnectorPlaylistUseCase,
+    )
     
     # Create mock use case provider that returns real use cases with UoW pattern
     # Use cases now have no constructor dependencies - they get UoW in execute()
     mock_use_cases = MagicMock()
-    mock_use_cases.get_save_playlist_use_case = AsyncMock(return_value=SavePlaylistUseCase())
-    mock_use_cases.get_update_playlist_use_case = AsyncMock(return_value=UpdatePlaylistUseCase())
+    mock_use_cases.get_create_canonical_playlist_use_case = AsyncMock(return_value=CreateCanonicalPlaylistUseCase())
+    mock_use_cases.get_create_connector_playlist_use_case = AsyncMock(return_value=CreateConnectorPlaylistUseCase())
     
     # Use real connector registry for proper integration testing
     # Only external APIs should be mocked in individual tests
@@ -40,7 +44,6 @@ def integration_workflow_context(db_session):
     mock_session_provider = MagicMock()
     
     return {
-        "repositories": track_repos,  # Real repositories for integration
         "config": mock_config,
         "logger": mock_logger,
         "connectors": real_context.connectors,  # Real connectors, mock external APIs in tests

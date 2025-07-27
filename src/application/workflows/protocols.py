@@ -74,12 +74,12 @@ class DatabaseSessionProvider(Protocol):
 class UseCaseProvider(Protocol):
     """Protocol for providing configured use cases with dependency injection."""
 
-    async def get_save_playlist_use_case(self) -> Any:
-        """Get SavePlaylistUseCase with injected dependencies."""
+    async def get_create_canonical_playlist_use_case(self) -> Any:
+        """Get CreateCanonicalPlaylistUseCase with injected dependencies."""
         ...
 
-    async def get_update_playlist_use_case(self) -> Any:
-        """Get UpdatePlaylistUseCase with injected dependencies."""
+    async def get_create_connector_playlist_use_case(self) -> Any:
+        """Get CreateConnectorPlaylistUseCase with injected dependencies."""
         ...
 
     async def get_track_identity_use_case(self) -> Any:
@@ -125,14 +125,14 @@ class WorkflowContext(Protocol):
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
         """Execute use case with UnitOfWork pattern.
-        
+
         This method provides a single entry point for all workflow use case execution,
         handling UnitOfWork creation, session management, and cleanup automatically.
-        
+
         Args:
             use_case_getter: Async function that returns a use case instance
             command: Command object to pass to the use case
-            
+
         Returns:
             Result from use case execution
         """

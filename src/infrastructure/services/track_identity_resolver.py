@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 class TrackIdentityResolver(TrackIdentityServiceProtocol):
     """Resolves track identities between internal tracks and external connector tracks.
 
-    This service implements the TrackIdentityServiceProtocol and is responsible only 
+    This service implements the TrackIdentityServiceProtocol and is responsible only
     for identity resolution:
     - Finding existing track-to-connector mappings
     - Creating new mappings when tracks are not yet resolved
@@ -36,7 +36,11 @@ class TrackIdentityResolver(TrackIdentityServiceProtocol):
     - Service-specific data extraction
     """
 
-    def __init__(self, track_repo: TrackRepositoryProtocol, connector_repo: ConnectorRepositoryProtocol) -> None:
+    def __init__(
+        self,
+        track_repo: TrackRepositoryProtocol,
+        connector_repo: ConnectorRepositoryProtocol,
+    ) -> None:
         """Initialize with individual repository interfaces.
 
         Args:
@@ -176,9 +180,7 @@ class TrackIdentityResolver(TrackIdentityServiceProtocol):
                 return {}
 
             # Step 3: Get all tracks in a single batch call
-            tracks_by_id = await self.track_repo.find_tracks_by_ids(
-                mapped_track_ids
-            )
+            tracks_by_id = await self.track_repo.find_tracks_by_ids(mapped_track_ids)
 
             # Process tracks with existing identity mappings
             for track_id in mapped_track_ids:

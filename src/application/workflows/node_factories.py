@@ -9,8 +9,14 @@ Clean Architecture compliant - uses dependency injection for external concerns.
 
 from collections.abc import Awaitable, Callable
 
+# Import for enrichment functionality
+from src.application.use_cases.enrich_tracks import (
+    EnrichmentConfig,
+    EnrichTracksCommand,
+)
+
 # match_tracks import removed - modern enricher uses TrackMetadataEnricher directly
-from src.config import get_logger
+from src.config import get_config, get_logger
 from src.domain.entities.track import TrackList
 
 # WorkflowRepositoryAdapter removed - violates 2025 clean architecture principles
@@ -24,6 +30,86 @@ from .transform_registry import TRANSFORM_REGISTRY
 type NodeFn = Callable[[dict, dict], Awaitable[dict]]
 
 logger = get_logger(__name__)
+
+
+# === HELPER FUNCTIONS ===
+
+
+def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) -> dict:
+    """Get extractors for a specific connector type.
+    
+    Args:
+        enricher_type: The connector type (e.g., "lastfm", "spotify")
+        attribute_names: List of attribute names to extract
+        
+    Returns:
+        Dictionary mapping attribute names to extractor functions
+    """
+    try:
+        if enricher_type == "lastfm":
+            from src.infrastructure.connectors.lastfm import get_connector_config
+            
+            connector_config = get_connector_config()
+            available_extractors = connector_config.get("extractors", {})
+            
+            # Map attribute names to actual extractors
+            extractors = {}
+            for attr_name in attribute_names:
+                # Handle both full names and short names
+                if attr_name in available_extractors:
+                    extractors[attr_name] = available_extractors[attr_name]
+                elif f"lastfm_{attr_name}" in available_extractors:
+                    extractors[f"lastfm_{attr_name}"] = available_extractors[
+                        f"lastfm_{attr_name}"
+                    ]
+                else:
+                    logger.warning(
+                        f"Unknown extractor: {attr_name} for {enricher_type}"
+                    )
+                    
+        elif enricher_type == "spotify":
+            from src.infrastructure.connectors.spotify import get_connector_config
+            
+            connector_config = get_connector_config()
+            available_extractors = connector_config.get("extractors", {})
+            
+            # Map attribute names to actual extractors
+            extractors = {}
+            for attr_name in attribute_names:
+                if attr_name in available_extractors:
+                    extractors[attr_name] = available_extractors[attr_name]
+                elif f"spotify_{attr_name}" in available_extractors:
+                    extractors[f"spotify_{attr_name}"] = available_extractors[
+                        f"spotify_{attr_name}"
+                    ]
+                else:
+                    logger.warning(
+                        f"Unknown extractor: {attr_name} for {enricher_type}"
+                    )
+        else:
+            # Fallback: create simple extractors for unknown connectors
+            def make_extractor(field_name):
+                return lambda obj: getattr(obj, field_name, None)
+            
+            extractors = {
+                attr: make_extractor(attr)
+                for attr in attribute_names
+            }
+            
+    except ImportError as e:
+        logger.warning(
+            f"Could not import connector config for {enricher_type}: {e}, using fallback"
+        )
+
+        def make_extractor(field_name):
+            return lambda obj: getattr(obj, field_name, None)
+        
+        extractors = {
+            attr: make_extractor(attr)
+            for attr in attribute_names
+        }
+        
+    return extractors
 
 
 # === CORE NODE FACTORY ===
@@ -45,7 +131,7 @@ class WorkflowNodeFactory:
     ) -> NodeFn:
         """
         Create a node function from registry configuration using shared implementation.
-        
+
         This eliminates code duplication by delegating to the shared transform node implementation.
         """
         return _create_transform_node_impl(category, node_type, operation_name)
@@ -79,10 +165,13 @@ def create_destination_node(destination_type: str) -> NodeFn:
 
 # === SHARED NODE IMPLEMENTATION ===
 
-def _create_transform_node_impl(category: str, node_type: str, operation_name: str | None = None) -> NodeFn:
+
+def _create_transform_node_impl(
+    category: str, node_type: str, operation_name: str | None = None
+) -> NodeFn:
     """
     Shared implementation for creating transform nodes from registry.
-    
+
     This eliminates duplication between WorkflowNodeFactory.make_node and make_node.
     """
     if category not in TRANSFORM_REGISTRY:
@@ -154,7 +243,7 @@ def make_node(
 ) -> NodeFn:
     """
     Create a node function from registry configuration.
-    
+
     This is a lightweight wrapper around the shared implementation.
     """
     return _create_transform_node_impl(category, node_type, operation_name)
@@ -210,8 +299,6 @@ def create_enricher_node(config: dict) -> NodeFn:
         max_age_hours = node_config.get("max_age_hours")
         if max_age_hours is None:
             # Get default freshness requirement from config
-            from src.config import get_config
-
             config_key = f"ENRICHER_DATA_FRESHNESS_{enricher_type.upper()}"
             max_age_hours = get_config(config_key)
 
@@ -224,83 +311,41 @@ def create_enricher_node(config: dict) -> NodeFn:
 
         # Get extractors from connector configuration
         # The config may specify attribute names, but we need actual extractor functions
-        attribute_names = config.get("attributes", ["user_playcount"])  # Default for lastfm
-        
-        # Get connector's configuration to access extractors
-        try:
-            # Import the connector module to get its extractors
-            if enricher_type == "lastfm":
-                from src.infrastructure.connectors.lastfm import get_connector_config
-                connector_config = get_connector_config()
-                available_extractors = connector_config.get("extractors", {})
-                
-                # Map attribute names to actual extractors
-                extractors = {}
-                for attr_name in attribute_names:
-                    # Handle both full names and short names
-                    if attr_name in available_extractors:
-                        extractors[attr_name] = available_extractors[attr_name]
-                    elif f"lastfm_{attr_name}" in available_extractors:
-                        extractors[f"lastfm_{attr_name}"] = available_extractors[f"lastfm_{attr_name}"]
-                    else:
-                        logger.warning(f"Unknown extractor: {attr_name} for {enricher_type}")
-                
-            elif enricher_type == "spotify":
-                from src.infrastructure.connectors.spotify import get_connector_config
-                connector_config = get_connector_config()
-                available_extractors = connector_config.get("extractors", {})
-                
-                # Map attribute names to actual extractors  
-                extractors = {}
-                for attr_name in attribute_names:
-                    if attr_name in available_extractors:
-                        extractors[attr_name] = available_extractors[attr_name]
-                    elif f"spotify_{attr_name}" in available_extractors:
-                        extractors[f"spotify_{attr_name}"] = available_extractors[f"spotify_{attr_name}"]
-                    else:
-                        logger.warning(f"Unknown extractor: {attr_name} for {enricher_type}")
-            else:
-                # Fallback: create simple extractors for unknown connectors
-                extractors = {attr: lambda obj, field=attr: getattr(obj, field, None) for attr in attribute_names}
-                
-        except ImportError:
-            logger.warning(f"Could not import connector config for {enricher_type}, using fallback")
-            extractors = {attr: lambda obj, field=attr: getattr(obj, field, None) for attr in attribute_names}
+        attribute_names = config.get(
+            "attributes", ["user_playcount"]
+        )  # Default for lastfm
+
+        # Get extractors using helper function
+        extractors = _get_connector_extractors(enricher_type, attribute_names)
 
         # Create enrichment command using Clean Architecture pattern
-        from src.application.use_cases.enrich_tracks import (
-            EnrichmentConfig,
-            EnrichTracksCommand,
-        )
-        
+
         enrichment_config = EnrichmentConfig(
             enrichment_type="external_metadata",
             connector=enricher_type,
             connector_instance=connector_instance,
             extractors=extractors,
-            max_age_hours=max_age_hours
+            max_age_hours=max_age_hours,
         )
-        
+
         enrichment_command = EnrichTracksCommand(
-            tracklist=tracklist,
-            enrichment_config=enrichment_config
+            tracklist=tracklist, enrichment_config=enrichment_config
         )
-        
+
         # Execute enrichment through use case with UnitOfWork pattern
         workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
-            use_cases.get_enrich_tracks_use_case, 
-            enrichment_command
+            use_cases.get_enrich_tracks_use_case, enrichment_command
         )
-        
+
         if result.errors:
             logger.warning(f"Enrichment had errors: {result.errors}")
-        
+
         # Use standardized result formatter
         return NodeContext.format_enrichment_result(
             operation=f"{enricher_type}_enrichment",
             enriched_tracklist=result.enriched_tracklist,
-            metrics=result.metrics_added
+            metrics=result.metrics_added,
         )
 
     return node_impl
@@ -330,40 +375,34 @@ def create_play_history_enricher_node() -> NodeFn:
 
         # Use EnrichTracksUseCase for Clean Architecture compliance
         use_cases = ctx.extract_use_cases()
-        
+
         # Create enrichment command using Clean Architecture pattern
-        from src.application.use_cases.enrich_tracks import (
-            EnrichmentConfig,
-            EnrichTracksCommand,
-        )
-        
+
         enrichment_config = EnrichmentConfig(
-            enrichment_type="play_history",
-            metrics=metrics,
-            period_days=period_days
+            enrichment_type="play_history", metrics=metrics, period_days=period_days
         )
-        
+
         enrichment_command = EnrichTracksCommand(
-            tracklist=tracklist,
-            enrichment_config=enrichment_config
+            tracklist=tracklist, enrichment_config=enrichment_config
         )
-        
+
         # Execute enrichment through use case with UnitOfWork pattern
         workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
-            use_cases.get_enrich_tracks_use_case, 
-            enrichment_command
+            use_cases.get_enrich_tracks_use_case, enrichment_command
         )
-        
+
         if result.errors:
             logger.warning(f"Play history enrichment had errors: {result.errors}")
-        
+
         # Use standardized result formatter with extra fields
         return NodeContext.format_enrichment_result(
             operation="play_history_enrichment",
             enriched_tracklist=result.enriched_tracklist,
             metrics=result.metrics_added,
-            enriched_metrics=list(result.metrics_added.keys())  # Extra field for this operation
+            enriched_metrics=list(
+                result.metrics_added.keys()
+            ),  # Extra field for this operation
         )
 
     return node_impl

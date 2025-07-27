@@ -55,7 +55,7 @@ class NodeRegistry:
         """Register a node with the registry.
 
         Args:
-            node_id: Unique identifier (e.g., "source.spotify_playlist")
+            node_id: Unique identifier (e.g., "source.playlist")
             description: Human-readable description
             input_type: Type of input the node expects
             output_type: Type of output the node produces

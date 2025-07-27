@@ -184,26 +184,8 @@ class MatchStrategy[T](BatchStrategy[T]):
                     self.logger.exception(f"Error in custom match processor: {e}")
                 return [{"status": "error", "error": str(e)} for _ in items]
 
-        # Default matching implementation
-        results = []
-        for item in items:
-            try:
-                # Placeholder for actual matching logic
-                # In real implementation, this would delegate to matcher service
-                result = {
-                    "status": "matched",
-                    "confidence": 85.0,  # Placeholder
-                    "item_id": getattr(item, "id", None),
-                }
-                results.append(result)
-            except Exception as e:
-                if self.logger:
-                    self.logger.exception(f"Error matching item: {e}")
-                results.append({
-                    "status": "error",
-                    "error": str(e),
-                })
-        return results
+        # No default matching implementation - must provide match_func
+        raise NotImplementedError("match_func must be provided for matching operations")
 
 
 class SyncStrategy[T](BatchStrategy[T]):
@@ -247,26 +229,8 @@ class SyncStrategy[T](BatchStrategy[T]):
                     self.logger.exception(f"Error in custom sync processor: {e}")
                 return [{"status": "error", "error": str(e)} for _ in items]
 
-        # Default sync implementation
-        results = []
-        for item in items:
-            try:
-                # Placeholder for actual sync logic
-                result = {
-                    "status": "synced",
-                    "source_service": self.source_service,
-                    "target_service": self.target_service,
-                    "item_id": getattr(item, "id", None),
-                }
-                results.append(result)
-            except Exception as e:
-                if self.logger:
-                    self.logger.exception(f"Error syncing item: {e}")
-                results.append({
-                    "status": "error",
-                    "error": str(e),
-                })
-        return results
+        # No default sync implementation - must provide sync_func
+        raise NotImplementedError("sync_func must be provided for sync operations")
 
 
 class BatchProcessor[T]:

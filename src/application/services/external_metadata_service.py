@@ -11,11 +11,11 @@ from src.domain.entities.track import TrackList
 
 class ExternalMetadataService(Protocol):
     """Protocol for external metadata enrichment services.
-    
+
     This protocol defines the interface that infrastructure services
     must implement to provide external metadata enrichment capabilities.
     """
-    
+
     async def fetch_and_extract_metadata(
         self,
         tracklist: TrackList,
@@ -26,7 +26,7 @@ class ExternalMetadataService(Protocol):
         **additional_options: Any,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
         """Fetch external metadata and extract metrics.
-        
+
         Args:
             tracklist: Tracks to enrich with external metadata.
             connector: Connector name (e.g., 'spotify', 'lastfm').
@@ -34,7 +34,7 @@ class ExternalMetadataService(Protocol):
             extractors: Metric extractors for this connector.
             max_age_hours: Override freshness policy.
             **additional_options: Options forwarded to services.
-            
+
         Returns:
             Tuple of (enriched_tracklist, metrics_dictionary).
         """

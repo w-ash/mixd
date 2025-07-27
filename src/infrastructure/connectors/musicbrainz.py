@@ -135,7 +135,9 @@ class MusicBrainzConnector:
 
         # Get configuration values with defaults from config.py
         mb_batch_size = batch_size or get_config("MUSICBRAINZ_API_BATCH_SIZE", 50) or 50
-        mb_concurrency = concurrency or get_config("MUSICBRAINZ_API_CONCURRENCY", 5) or 5
+        mb_concurrency = (
+            concurrency or get_config("MUSICBRAINZ_API_CONCURRENCY", 5) or 5
+        )
         mb_retry_count = get_config("MUSICBRAINZ_API_RETRY_COUNT", 3) or 3
         mb_retry_base_delay = get_config("MUSICBRAINZ_API_RETRY_BASE_DELAY", 1.0) or 1.0
         mb_retry_max_delay = get_config("MUSICBRAINZ_API_RETRY_MAX_DELAY", 30.0) or 30.0

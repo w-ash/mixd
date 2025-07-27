@@ -98,7 +98,7 @@ class ConnectorMetadataManager:
             requested_tracks = set(track_ids_to_refresh)
             failed_track_ids = requested_tracks - successfully_fetched
 
-            # Log results for observability 
+            # Log results for observability
             if failed_track_ids:
                 failure_rate = len(failed_track_ids) / len(requested_tracks) * 100
                 logger.warning(
@@ -178,35 +178,40 @@ class ConnectorMetadataManager:
             if fresh_metadata:
                 # Start with cached metadata as the base (preserves existing data)
                 all_metadata = cached_metadata.copy()
-                
+
                 # Overlay fresh metadata (only for successful fetches)
                 all_metadata.update(fresh_metadata)
-                
+
                 # Calculate detailed statistics for observability
                 fresh_count = len(fresh_metadata)
                 cached_count = len(cached_metadata)
-                failed_fresh_count = len(failed_fresh_track_ids) if failed_fresh_track_ids else 0
+                failed_fresh_count = (
+                    len(failed_fresh_track_ids) if failed_fresh_track_ids else 0
+                )
                 total_requested = len(track_ids)
-                
+
                 # Verify no data loss occurred
                 final_count = len(all_metadata)
-                expected_count = len(set(cached_metadata.keys()) | set(fresh_metadata.keys()))
-                
+                expected_count = len(
+                    set(cached_metadata.keys()) | set(fresh_metadata.keys())
+                )
+
                 logger.info(
                     f"Metadata combination complete: {fresh_count} fresh + {cached_count} cached = {final_count} total "
                     f"(requested: {total_requested}, failed fresh: {failed_fresh_count})"
                 )
-                
+
                 if failed_fresh_count > 0:
                     # Ensure failed fresh fetches fall back to cached metadata
                     cached_fallback_count = sum(
-                        1 for track_id in failed_fresh_track_ids or set()
+                        1
+                        for track_id in failed_fresh_track_ids or set()
                         if track_id in cached_metadata
                     )
                     logger.info(
                         f"Cached metadata fallback: {cached_fallback_count}/{failed_fresh_count} failed tracks have cached data"
                     )
-                
+
                 if final_count != expected_count:
                     logger.warning(
                         f"Metadata count mismatch: expected {expected_count}, got {final_count}. Possible data loss!"
@@ -265,18 +270,11 @@ class ConnectorMetadataManager:
                 # Begin nested transaction (savepoint)
                 nested_transaction = await session.begin_nested()
                 try:
-                    from src.infrastructure.persistence.repositories.track.metrics import (
-                        process_metrics_for_track,
-                    )
-
+                    # Note: Metrics processing moved to MetricsApplicationService
+                    # This connector metadata manager focuses on metadata storage only
+                    # Metrics extraction is handled at the application layer
                     logger.debug(
-                        f"Batch processing metrics for {len(fresh_metadata)} tracks"
-                    )
-                    await process_metrics_for_track(
-                        session=session,
-                        track_id=None,  # Signal batch mode
-                        connector=connector,
-                        metadata=fresh_metadata,  # Pass all metadata at once
+                        f"Stored fresh metadata for {len(fresh_metadata)} tracks"
                     )
 
                     metrics_processed_count = len(fresh_metadata)
@@ -476,11 +474,11 @@ class ConnectorMetadataManager:
                 requested_count = len(tracks_for_api)
                 successful_count = len(fresh_metadata)
                 failed_count = requested_count - successful_count
-                
+
                 logger.info(
                     f"Metadata fetch results for {connector}: {successful_count}/{requested_count} successful, {failed_count} failed"
                 )
-                
+
                 if failed_count > 0:
                     failure_rate = (failed_count / requested_count) * 100
                     logger.warning(
@@ -496,7 +494,9 @@ class ConnectorMetadataManager:
                         f"Returning {len(fresh_metadata)} partial results despite error for {connector}"
                     )
                 else:
-                    logger.error(f"No metadata could be fetched for {connector} tracks due to error")
+                    logger.error(
+                        f"No metadata could be fetched for {connector} tracks due to error"
+                    )
                 # Always return fresh_metadata (could be empty or partial) instead of forcing empty dict
 
         return fresh_metadata

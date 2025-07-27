@@ -6,9 +6,10 @@
   "tasks": [
     {
       "id": "source_test_tracks",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "14GT9ahKyAR9SObC7GdwtO"
+        "playlist_id": "14GT9ahKyAR9SObC7GdwtO",
+        "connector": "spotify"
       }
     },
     {
@@ -47,6 +48,18 @@
         "method": "first"
       },
       "upstream": ["sort_by_play_count"]
+    },
+    {
+      "id": "destination",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Most Played Recently",
+        "description": "Top 10 tracks played in the last 7 days",
+        "connector": "spotify"
+      },
+      "upstream": [
+        "limit_results"
+      ]
     }
   ]
 }

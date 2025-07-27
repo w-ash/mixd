@@ -29,8 +29,6 @@ from src.domain.transforms.core import (
     sort_by_attribute,
 )
 
-# Logger will be injected via WorkflowContext when needed
-
 # === TRANSFORM STRATEGIES ===
 
 TRANSFORM_REGISTRY = {

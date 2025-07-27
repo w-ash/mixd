@@ -21,7 +21,7 @@ from src.infrastructure.persistence.repositories.playlist.mapper import (
 # Export individual repositories for direct import
 __all__ = [
     "ConnectorPlaylistRepository",
-    "PlaylistConnectorRepository", 
+    "PlaylistConnectorRepository",
     "PlaylistMappingRepository",
     "PlaylistRepository",
 ]

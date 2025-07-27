@@ -192,7 +192,7 @@ async def log_startup_info() -> None:  # noqa: RUF029
 
     # Log configuration details in a more readable format
     local_logger.debug("Configuration:")
-    
+
     # Log each config section
     config_dict = settings.model_dump()
     for section_name, section_values in config_dict.items():
@@ -206,7 +206,7 @@ async def log_startup_info() -> None:  # noqa: RUF029
             if isinstance(section_values, Path):
                 section_values = str(section_values)
             local_logger.debug("    {}", section_values)
-    
+
     local_logger.info("")
 
 

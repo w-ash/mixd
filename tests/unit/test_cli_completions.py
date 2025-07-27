@@ -2,7 +2,7 @@
 
 import json
 
-from src.infrastructure.cli.completions import complete_workflow_names
+from src.interface.cli.completions import complete_workflow_names
 
 
 def test_complete_workflow_names_empty_directory():
@@ -22,9 +22,9 @@ def test_complete_workflow_names_with_workflows(tmp_path):
     (tmp_path / "another_test.json").write_text(json.dumps(workflow2))
     
     # Mock the workflow definitions path
-    import src.infrastructure.cli.completions
-    original_path = src.infrastructure.cli.completions._get_workflow_definitions_path
-    src.infrastructure.cli.completions._get_workflow_definitions_path = lambda: tmp_path
+    import src.interface.cli.completions
+    original_path = src.interface.cli.completions._get_workflow_definitions_path
+    src.interface.cli.completions._get_workflow_definitions_path = lambda: tmp_path
     
     try:
         # Test empty search returns all workflows
@@ -38,7 +38,7 @@ def test_complete_workflow_names_with_workflows(tmp_path):
         assert "another_test" not in result
         
     finally:
-        src.infrastructure.cli.completions._get_workflow_definitions_path = original_path
+        src.interface.cli.completions._get_workflow_definitions_path = original_path
 
 
 def test_complete_workflow_names_handles_invalid_json(tmp_path):
@@ -51,9 +51,9 @@ def test_complete_workflow_names_handles_invalid_json(tmp_path):
     (tmp_path / "valid_workflow.json").write_text(json.dumps(workflow))
     
     # Mock the workflow definitions path
-    import src.infrastructure.cli.completions
-    original_path = src.infrastructure.cli.completions._get_workflow_definitions_path
-    src.infrastructure.cli.completions._get_workflow_definitions_path = lambda: tmp_path
+    import src.interface.cli.completions
+    original_path = src.interface.cli.completions._get_workflow_definitions_path
+    src.interface.cli.completions._get_workflow_definitions_path = lambda: tmp_path
     
     try:
         # Should return valid workflows and skip invalid ones
@@ -61,4 +61,4 @@ def test_complete_workflow_names_handles_invalid_json(tmp_path):
         assert "valid_workflow" in result
         
     finally:
-        src.infrastructure.cli.completions._get_workflow_definitions_path = original_path
+        src.interface.cli.completions._get_workflow_definitions_path = original_path

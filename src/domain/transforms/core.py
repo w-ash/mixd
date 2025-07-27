@@ -544,12 +544,21 @@ def concatenate(
 
     def transform(_: TrackList) -> TrackList:
         all_tracks = []
+        combined_track_sources = {}
+        
         for t in tracklists:
             all_tracks.extend(t.tracks)
+            # Merge track source information from each tracklist
+            track_sources = t.metadata.get("track_sources", {})
+            combined_track_sources.update(track_sources)
 
         return TrackList(
             tracks=all_tracks,
-            metadata={"operation": "concatenate", "source_count": len(tracklists)},
+            metadata={
+                "operation": "concatenate", 
+                "source_count": len(tracklists),
+                "track_sources": combined_track_sources
+            },
         )
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform

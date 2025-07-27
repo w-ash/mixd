@@ -44,21 +44,21 @@ This will guide you through connecting your Spotify and Last.fm accounts.
 # Single help system showing all commands
 narada --help
 
-# Check service connection status
+# Check service connection status and setup
 narada status
+narada setup
 
-# Data sync commands with clear names
-narada import-spotify-plays data/spotify_export.json
-narada import-spotify-likes --limit 1000
-narada export-likes-to-lastfm
+# Import music play history
+narada history import-lastfm --mode incremental
+narada history import-spotify /path/to/spotify_export.json
 
-# Run workflows directly 
-narada discovery_mix
-narada sort_by_release_date
+# Manage liked tracks across services
+narada likes import-spotify --limit 1000
+narada likes export-lastfm --batch-size 100
 
-# Short alias for workflow management
-narada wf list
-narada wf run
+# Playlist workflows
+narada playlist run discovery_mix
+narada playlist list
 ```
 
 
@@ -68,33 +68,32 @@ Narada uses a powerful workflow system to create and transform playlists. Workfl
 
 ### Running Workflows
 
-Narada's workflow system features direct execution and rich visual feedback:
+Narada's workflow system features organized command groups and rich visual feedback:
 
 ```bash
-# Single help system shows all available commands and workflows
-narada --help
+# Playlist workflow management
+narada playlist               # Interactive workflow menu
+narada playlist list          # List all available workflows
+narada playlist run discovery_mix
 
-# Data sync with descriptive command names
-narada import-spotify-plays /path/to/spotify_export.json
-narada import-spotify-likes --limit 500
-narada export-likes-to-lastfm --batch-size 100
+# Music history import
+narada history                # Interactive history menu
+narada history import-lastfm --mode incremental
+narada history import-spotify /path/to/export.json
 
-# Run workflows directly - no complex commands needed!
-narada discovery_mix
-narada sort_by_release_date
-
-# Or use the workflow management interface
-narada wf list              # List all workflows
-narada wf run               # Interactive runner
+# Liked tracks sync across services
+narada likes                  # Interactive likes menu
+narada likes import-spotify --limit 500
+narada likes export-lastfm --batch-size 100
 ```
 
 #### Features
 
-- **Direct Execution**: Run any workflow as a top-level command
+- **Organized Commands**: Logical grouping of related functionality (playlist, history, likes)
+- **Interactive Menus**: Run commands without arguments for guided workflows
 - **Rich Progress Display**: Real-time progress tracking with visual feedback
 - **Professional Output**: Beautiful tables and panels with color coding
 - **Error Handling**: Clear error messages with helpful context
-- **Auto-discovery**: New workflows automatically become available as commands
 
 ### Workflow Definition
 
@@ -164,7 +163,7 @@ The `discovery_mix` workflow creates a playlist of new releases from multiple cu
 Run this workflow with:
 
 ```bash
-narada discovery_mix
+narada playlist run discovery_mix
 ```
 
 ## Architecture
@@ -185,7 +184,8 @@ narada/
 ├── src/                 # Core application code
 │   ├── domain/         # Business logic and entities
 │   ├── application/    # Use cases and workflows
-│   └── infrastructure/ # External services and CLI
+│   ├── infrastructure/ # External services and persistence
+│   └── interface/      # CLI and future web interfaces
 ├── docs/               # Documentation and guides
 ├── tests/              # Test suite
 └── scripts/            # Utility scripts
@@ -210,11 +210,11 @@ poetry run pyright narada/
 # Run integration tests only
 poetry run pytest -m integration
 
-# Test the modern CLI
+# Test the CLI interface
 narada --help                           # See the unified help interface
-narada import-spotify-plays --help     # Test flattened sync commands
-narada discovery_mix --help            # Test direct workflow commands
-narada wf list                         # Test the alias functionality
+narada history import-spotify --help   # Test history import commands
+narada playlist run --help             # Test playlist workflow commands
+narada likes --help                    # Test likes sync commands
 ```
 
 ### Code Style

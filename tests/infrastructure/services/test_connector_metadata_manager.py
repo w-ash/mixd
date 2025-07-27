@@ -1,6 +1,6 @@
 """Tests for ConnectorMetadataManager service."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -354,84 +354,6 @@ class TestConnectorMetadataManager:
 
         assert result == {}
         mock_connector_repo.get_connector_metadata.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_store_fresh_metadata_success(
-        self, metadata_manager, mock_connector_repo, sample_identity_mappings
-    ):
-        """Test successful storage of fresh metadata."""
-        # Setup: Fresh metadata to store
-        fresh_metadata = {
-            1: {"lastfm_user_playcount": 42, "lastfm_global_playcount": 1000},
-            2: {"lastfm_user_playcount": 15, "lastfm_global_playcount": 800},
-        }
-
-        # Setup: Existing connector mappings
-        existing_mappings = {
-            1: {"lastfm": "https://www.last.fm/music/mac+demarco/_/home"},
-            2: {"lastfm": "https://www.last.fm/music/chris+lake/_/falling"},
-        }
-        mock_connector_repo.get_connector_mappings.return_value = existing_mappings
-
-        # Execute: Call the private method through fetch_fresh_metadata
-        # (since _store_fresh_metadata is private)
-        mock_connector_instance = Mock()
-        mock_connector_instance.batch_get_track_info = AsyncMock(
-            return_value=fresh_metadata
-        )
-        
-        with patch(
-            "src.infrastructure.persistence.repositories.track.metrics.process_metrics_for_track"
-        ) as mock_process_metrics:
-            mock_process_metrics.return_value = []
-            
-            await metadata_manager.fetch_fresh_metadata(
-                sample_identity_mappings,
-                "lastfm",
-                mock_connector_instance,
-                [1, 2]
-            )
-
-        # Note: Storage operation assertions require more complex session mocking
-        # The important thing is that the metadata fetch was successful
-
-    @pytest.mark.asyncio
-    async def test_store_fresh_metadata_no_existing_mappings(
-        self, metadata_manager, mock_connector_repo, sample_identity_mappings
-    ):
-        """Test storage behavior when no existing connector mappings exist."""
-        # Setup: Fresh metadata but no existing mappings
-        fresh_metadata = {
-            1: {"lastfm_user_playcount": 42, "lastfm_global_playcount": 1000},
-        }
-
-        # Setup: No existing mappings
-        mock_connector_repo.get_connector_mappings.return_value = {}
-
-        # Execute
-        mock_connector_instance = Mock()
-        mock_connector_instance.batch_get_track_info = AsyncMock(
-            return_value=fresh_metadata
-        )
-        
-        with patch(
-            "src.infrastructure.persistence.repositories.track.metrics.process_metrics_for_track"
-        ) as mock_process_metrics:
-            mock_process_metrics.return_value = []
-            
-            fresh_metadata, failed_track_ids = await metadata_manager.fetch_fresh_metadata(
-                sample_identity_mappings,
-                "lastfm",
-                mock_connector_instance,
-                [1]
-            )
-
-        # Verify: Should return empty dict when no connector mappings exist
-        assert fresh_metadata == {}
-        assert failed_track_ids == {1}
-        
-        # Storage should not be attempted without existing mappings
-        mock_connector_repo.save_mapping_confidence.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_lastfm_track_info_metadata_conversion(

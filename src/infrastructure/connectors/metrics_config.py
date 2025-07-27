@@ -19,6 +19,7 @@ CONNECTOR_METRICS = {
     ],
     "spotify": [
         "spotify_popularity",
+        "explicit_flag",
     ],
 }
 
@@ -30,21 +31,22 @@ FIELD_MAPPINGS = {
     "lastfm_listeners": "listeners",
     # Spotify
     "spotify_popularity": "popularity",
+    "explicit_flag": "explicit",
 }
 
 # Freshness periods in hours
 METRIC_FRESHNESS = {
     # Default freshness
-    "default": 24,
+    "default": 24.0,
     # Specific overrides
-    "lastfm_user_playcount": 1,
-    "lastfm_global_playcount": 24,
-    "lastfm_listeners": 24,
-    "spotify_popularity": 24,
+    "lastfm_user_playcount": 1.0,
+    "lastfm_global_playcount": 24.0,
+    "lastfm_listeners": 24.0,
+    "spotify_popularity": 24.0,
 }
 
 
-def get_metric_freshness(metric_name: str) -> int:
+def get_metric_freshness(metric_name: str) -> float:
     """Get freshness period for a metric in hours.
 
     Args:
@@ -68,13 +70,3 @@ def get_field_name(metric_name: str) -> str:
     return FIELD_MAPPINGS.get(metric_name, metric_name)
 
 
-def get_metrics_for_connector(connector: str) -> list[str]:
-    """Get all metrics supported by a connector.
-
-    Args:
-        connector: Name of the connector to get metrics for
-
-    Returns:
-        List of metric names supported by the connector
-    """
-    return CONNECTOR_METRICS.get(connector, [])

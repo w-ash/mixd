@@ -22,7 +22,7 @@ __all__ = [
     "LikeRepositoryProtocol",
     "MetricsRepositoryProtocol",
     "PlaylistRepositoryProtocol",
-    "PlaysRepositoryProtocol", 
+    "PlaysRepositoryProtocol",
     "TrackIdentityServiceProtocol",
     "TrackRepositoryProtocol",
     "UnitOfWorkProtocol",

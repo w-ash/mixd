@@ -33,20 +33,20 @@ class TestWorkflowContextContracts:
             )
             
             # Verify critical use case provider methods exist
-            assert hasattr(context.use_cases, "get_save_playlist_use_case"), (
-                "Use case provider must have get_save_playlist_use_case method"
+            assert hasattr(context.use_cases, "get_create_canonical_playlist_use_case"), (
+                "Use case provider must have get_create_canonical_playlist_use_case method"
             )
-            assert callable(context.use_cases.get_save_playlist_use_case), (
-                "get_save_playlist_use_case must be callable"
+            assert callable(context.use_cases.get_create_canonical_playlist_use_case), (
+                "get_create_canonical_playlist_use_case must be callable"
             )
             
-            assert hasattr(context.use_cases, "get_update_playlist_use_case"), (
-                "Use case provider must have get_update_playlist_use_case method"
+            assert hasattr(context.use_cases, "get_create_connector_playlist_use_case"), (
+                "Use case provider must have get_create_connector_playlist_use_case method"
             )
-            assert callable(context.use_cases.get_update_playlist_use_case), (
-                "get_update_playlist_use_case must be callable"
+            assert callable(context.use_cases.get_create_connector_playlist_use_case), (
+                "get_create_connector_playlist_use_case must be callable"
             )
-
+            
     def test_workflow_context_without_session_provides_use_cases(self):
         """Test that workflow context without session provides use cases.
         
@@ -101,8 +101,8 @@ class TestWorkflowContextContracts:
         )
         
         # Verify critical use case methods exist
-        assert hasattr(context.use_cases, "get_save_playlist_use_case"), (
-            "Use case provider must have get_save_playlist_use_case method"
+        assert hasattr(context.use_cases, "get_create_canonical_playlist_use_case"), (
+            "Use case provider must have get_create_canonical_playlist_use_case method"
         )
 
 
@@ -120,7 +120,7 @@ class TestUseCaseProviderContracts:
             use_cases = context.use_cases
             
             # Check all required use case provider methods exist
-            required_use_cases = ["get_save_playlist_use_case", "get_update_playlist_use_case"]
+            required_use_cases = ["get_create_canonical_playlist_use_case", "get_create_connector_playlist_use_case"]
             
             for use_case_method in required_use_cases:
                 assert hasattr(use_cases, use_case_method), (
@@ -143,11 +143,11 @@ class TestUseCaseProviderContracts:
             # Test that use cases can be instantiated successfully
             try:
                 # This tests the dependency injection pattern
-                save_playlist_use_case = await context.use_cases.get_save_playlist_use_case()
-                assert save_playlist_use_case is not None
+                canonical_use_case = await context.use_cases.get_create_canonical_playlist_use_case()
+                assert canonical_use_case is not None
                 
-                update_playlist_use_case = await context.use_cases.get_update_playlist_use_case()
-                assert update_playlist_use_case is not None
+                connector_use_case = await context.use_cases.get_create_connector_playlist_use_case()
+                assert connector_use_case is not None
                 
             except Exception as e:
                 pytest.fail(f"Use case dependency injection failed: {e}")

@@ -19,7 +19,7 @@ from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
 
 # Prefect logging is configured through dependency injection in WorkflowContext
-from src.config import get_logger
+from src.config.logging import get_logger
 from src.domain.entities.operations import WorkflowResult
 
 from .node_registry import get_node
@@ -59,7 +59,7 @@ def _should_show_progress_for_node(node_type: str) -> bool:
     - Have meaningful incremental progress
     """
     # Source nodes that fetch large playlists
-    if node_type.startswith("source.spotify_playlist"):
+    if node_type.startswith("source.playlist"):
         return True
 
     # Enrichment operations that make many API calls
@@ -330,7 +330,8 @@ async def extract_workflow_result(  # noqa: RUF029
         raise ValueError(f"Destination task has no tracklist: {destination_id}")
 
     # Use the FINAL filtered tracks from destination
-    final_tracks = destination_result["tracklist"].tracks
+    final_tracklist = destination_result["tracklist"]
+    final_tracks = final_tracklist.tracks
 
     # Extract all metrics from task results
     all_metrics = {}
@@ -384,6 +385,7 @@ async def extract_workflow_result(  # noqa: RUF029
         metrics=all_metrics,
         operation_name=workflow_def.get("name", flow_run_name),
         execution_time=execution_time,
+        tracklist=final_tracklist,
     )
 
 

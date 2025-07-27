@@ -12,14 +12,14 @@ from .node_factories import (
     make_node,
 )
 from .node_registry import node
-from .source_nodes import spotify_playlist_source
+from .source_nodes import playlist_source
 
 # === SOURCE NODES ===
 node(
-    "source.spotify_playlist",
-    description="Fetches a playlist from Spotify and persists to database",
+    "source.playlist",
+    description="Fetches a playlist from any connector or canonical source with smart ID resolution",
     output_type="tracklist",
-)(spotify_playlist_source)
+)(playlist_source)
 
 # === ENRICHER NODES ===
 # LastFm enricher
@@ -44,7 +44,7 @@ node(
 )(
     create_enricher_node({
         "connector": "spotify",
-        "attributes": ["popularity", "explicit"],
+        "attributes": ["spotify_popularity", "explicit_flag"],
     }),
 )
 
@@ -139,25 +139,11 @@ node(
 
 # === DESTINATION NODES ===
 node(
-    "destination.create_internal_playlist",
-    description="Creates a playlist in the internal database only",
+    "destination.create_playlist",
+    description="Creates a playlist with optional connector sync",
     input_type="tracklist",
     output_type="playlist_id",
-)(create_destination_node("internal"))
-
-node(
-    "destination.create_spotify_playlist",
-    description="Creates a playlist on Spotify and in the database",
-    input_type="tracklist",
-    output_type="playlist_id",
-)(create_destination_node("spotify"))
-
-node(
-    "destination.update_spotify_playlist",
-    description="Updates an existing Spotify playlist",
-    input_type="tracklist",
-    output_type="playlist_id",
-)(create_destination_node("update_spotify"))
+)(create_destination_node("create_playlist"))
 
 node(
     "destination.update_playlist",

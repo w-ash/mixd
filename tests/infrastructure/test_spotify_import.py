@@ -86,7 +86,7 @@ async def test_spotify_import_service_complete_flow(
     
     async with get_session() as session:
         # Arrange
-        uow = await get_unit_of_work(session)
+        uow = get_unit_of_work(session)
         import_service = SpotifyImportService(
             plays_repository=uow.get_plays_repository(),
             connector_repository=uow.get_connector_repository()
@@ -126,7 +126,7 @@ async def test_spotify_import_service_deduplication(
     
     async with get_session() as session:
         # Arrange
-        uow = await get_unit_of_work(session)
+        uow = get_unit_of_work(session)
         import_service = SpotifyImportService(
             plays_repository=uow.get_plays_repository(),
             connector_repository=uow.get_connector_repository()
@@ -169,7 +169,7 @@ async def test_spotify_import_service_error_handling(
     
     async with get_session() as session:
         # Arrange
-        uow = await get_unit_of_work(session)
+        uow = get_unit_of_work(session)
         import_service = SpotifyImportService(
             plays_repository=uow.get_plays_repository(),
             connector_repository=uow.get_connector_repository()
@@ -203,7 +203,7 @@ async def test_spotify_import_service_progress_reporting(
     
     async with get_session() as session:
         # Arrange
-        uow = await get_unit_of_work(session)
+        uow = get_unit_of_work(session)
         import_service = SpotifyImportService(
             plays_repository=uow.get_plays_repository(),
             connector_repository=uow.get_connector_repository()
@@ -239,7 +239,7 @@ async def test_enhanced_resolver_with_existing_tracks():
     
     async with get_session() as session:
         # Arrange
-        uow = await get_unit_of_work(session)
+        uow = get_unit_of_work(session)
         spotify_connector = SpotifyConnector()
         enhanced_resolver = SpotifyPlayResolver(
             spotify_connector=spotify_connector,

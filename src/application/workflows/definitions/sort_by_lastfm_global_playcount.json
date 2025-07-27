@@ -6,9 +6,10 @@
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "03xJ28l0eGh3UfZPOtPEl7"
+        "playlist_id": "03xJ28l0eGh3UfZPOtPEl7",
+        "connector": "spotify"
       }
     },
     {
@@ -31,10 +32,11 @@
     },
     {
       "id": "destination",
-      "type": "destination.create_spotify_playlist",
+      "type": "destination.create_playlist",
       "config": {
         "name": "Sorted by Play Count",
-        "description": "Tracks sorted by Last.fm play count (most played first)"
+        "description": "Tracks sorted by Last.fm play count (most played first)",
+        "connector": "spotify"
       },
       "upstream": [
         "sort"

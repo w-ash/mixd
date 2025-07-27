@@ -355,31 +355,9 @@ class TrackConnectorRepository:
                 return_models=False,
             )
 
-        # Process metrics in bulk
-        if updated_tracks:
-            from src.infrastructure.persistence.repositories.track.metrics import (
-                process_metrics_for_track,
-            )
-
-            # Create track/connector/metadata combinations for processing
-            metric_tasks = []
-            for track in updated_tracks:
-                if track.id is not None and track.id in track_metadata_map:
-                    for connector, metadata in track_metadata_map[track.id].items():
-                        metric_tasks.append((track.id, connector, {track.id: metadata}))
-
-            # Process each task with error handling
-            for track_id, connector, track_metadata in metric_tasks:
-                try:
-                    await process_metrics_for_track(
-                        self.session, track_id, connector, track_metadata
-                    )
-                except Exception:
-                    logger.warning(
-                        f"Error processing metrics for track {track_id}",
-                        connector=connector,
-                        exc_info=True,
-                    )
+        # Note: Metrics processing moved to MetricsApplicationService
+        # This repository focuses on track mapping only
+        # Metrics extraction is handled at the application layer
 
         return updated_tracks
 
@@ -544,30 +522,9 @@ class TrackConnectorRepository:
                 return_models=False,
             )
 
-        # 6. Process metrics in bulk
-        if metrics_data:
-            from src.infrastructure.persistence.repositories.track.metrics import (
-                process_metrics_for_track,
-            )
-
-            # Prepare all metrics data for batch processing
-            metric_tasks = [
-                (track_id, connector, {track_id: metadata})
-                for track_id, metadata in metrics_data
-            ]
-
-            # Process each task with error handling
-            for track_id, connector_name, track_metadata in metric_tasks:
-                try:
-                    await process_metrics_for_track(
-                        self.session, track_id, connector_name, track_metadata
-                    )
-                except Exception:
-                    logger.warning(
-                        f"Error processing metrics for track {track_id}",
-                        connector=connector_name,
-                        exc_info=True,
-                    )
+        # Note: Metrics processing moved to MetricsApplicationService
+        # This repository focuses on track ingestion only
+        # Metrics extraction is handled at the application layer
 
         return domain_tracks
 
@@ -887,53 +844,53 @@ class TrackConnectorRepository:
         self, track_ids: list[int], connector: str
     ) -> dict[int, datetime]:
         """Get most recent metadata collection timestamps for tracks.
-        
+
         Args:
             track_ids: Track IDs to check timestamps for.
             connector: Connector name to filter by.
-            
+
         Returns:
             Dictionary mapping track_id to most recent collected_at timestamp.
         """
         if not track_ids:
             return {}
-            
+
         try:
             from sqlalchemy import func, select
 
             from src.infrastructure.persistence.database.db_models import DBTrackMetric
-            
+
             # Query for the most recent collected_at timestamp for each track
             stmt = (
                 select(
                     DBTrackMetric.track_id,
-                    func.max(DBTrackMetric.collected_at).label("latest_collected_at")
+                    func.max(DBTrackMetric.collected_at).label("latest_collected_at"),
                 )
                 .where(
                     DBTrackMetric.track_id.in_(track_ids),
                     DBTrackMetric.connector_name == connector,
-                    DBTrackMetric.is_deleted == False  # noqa: E712
+                    DBTrackMetric.is_deleted == False,  # noqa: E712
                 )
                 .group_by(DBTrackMetric.track_id)
             )
-            
+
             result = await self.session.execute(stmt)
             rows = result.fetchall()
-            
+
             timestamps = {}
             for row in rows:
                 track_id = row[0]
                 collected_at = row[1]
-                
+
                 # Ensure UTC timezone for consistency - database stores UTC timestamps
                 # If no timezone info, assume it's already UTC (our standard)
                 if collected_at and collected_at.tzinfo is None:
                     collected_at = collected_at.replace(tzinfo=UTC)
-                    
+
                 timestamps[track_id] = collected_at
-                
+
             return timestamps
-            
+
         except Exception as e:
             logger.error(f"Failed to get metadata timestamps: {e}")
             return {}

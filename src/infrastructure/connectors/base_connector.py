@@ -13,6 +13,7 @@ reducing code duplication while enforcing standardized patterns for metric resol
 error handling, and batch processing operations.
 """
 
+from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, TypeVar
@@ -24,10 +25,8 @@ import backoff
 from src.config import get_config, get_logger
 from src.infrastructure.connectors.metrics_registry import (
     MetricResolverProtocol,
-    get_metric_freshness,
     register_metric_resolver,
 )
-from src.infrastructure.persistence.database.db_connection import get_session
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="connectors")
@@ -42,12 +41,11 @@ R = TypeVar("R")
 
 @define(frozen=True, slots=True)
 class BaseMetricResolver:
-    """Base class for resolving service metrics from persistence layer.
+    """Base class for resolving service metrics with Clean Architecture compliance.
 
-    This abstract base class provides a standard implementation for resolving
-    service-specific metrics from the persistence layer with caching awareness.
-    Subclasses define connector-specific field mappings and override the
-    CONNECTOR class variable.
+    Simplified implementation that delegates to MetricsApplicationService
+    for all business logic and database operations. Focuses purely on
+    field mapping and connector identification.
 
     Attributes:
         FIELD_MAP: Mapping of metric names to connector metadata fields
@@ -60,101 +58,81 @@ class BaseMetricResolver:
     # Connector name to be overridden by subclasses
     CONNECTOR: ClassVar[str] = ""
 
-    async def resolve(self, track_ids: list[int], metric_name: str) -> dict[int, Any]:
-        """Resolve a metric for multiple tracks.
+    async def resolve(
+        self, 
+        track_ids: list[int], 
+        metric_name: str,
+        uow: Any,  # UnitOfWorkProtocol - avoiding import for infrastructure layer
+    ) -> dict[int, Any]:
+        """Resolve a metric for multiple tracks using Application Service.
 
-        Implements a caching strategy that:
-        1. Checks for cached values using TrackMetricsRepository
-        2. For missing values, fetches from connector_metadata
-        3. Saves new values back to the track_metrics table
-        4. Returns all values with appropriate type conversion
+        Delegates to MetricsApplicationService for all business logic
+        following Clean Architecture dependency rules.
 
         Args:
             track_ids: List of internal track IDs to resolve metrics for
             metric_name: Name of the metric to resolve
+            uow: UnitOfWork for transaction management
 
         Returns:
             Dictionary mapping track IDs to their metric values
         """
-        from src.config import get_logger
-        from src.infrastructure.persistence.repositories.track.connector import (
-            TrackConnectorRepository,
-        )
-        from src.infrastructure.persistence.repositories.track.metrics import (
-            TrackMetricsRepository,
+        # Import at runtime to avoid circular dependencies
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
         )
 
-        logger = get_logger(__name__).bind(
-            service="connectors",
-            module="narada.integrations.base_connector",
-            connector=self.CONNECTOR,
+        metrics_service = MetricsApplicationService()
+        return await metrics_service.resolve_metrics(
+            track_ids=track_ids,
             metric_name=metric_name,
+            connector=self.CONNECTOR,
+            field_map=self.FIELD_MAP,
+            uow=uow,
         )
 
-        if not track_ids:
-            return {}
 
-        # Get current value to respect TTL
-        max_age = get_metric_freshness(metric_name)
+@define(slots=True)
+class BaseAPIConnector(ABC):
+    """Abstract base class for API connectors with common functionality.
+    
+    Provides standardized configuration access, batch processing setup,
+    and common patterns for all external service connectors.
+    """
 
-        async with get_session() as session:
-            metrics_repo = TrackMetricsRepository(session)
-            # Get cached metrics that aren't stale
-            cached_values = await metrics_repo.get_track_metrics(
-                track_ids,
-                metric_type=metric_name,
-                connector=self.CONNECTOR,
-                max_age_hours=max_age,
-            )
+    @property
+    @abstractmethod
+    def connector_name(self) -> str:
+        """The name of this connector (e.g., 'spotify', 'lastfm')."""
 
-            # Find IDs with missing metrics
-            missing_ids = [tid for tid in track_ids if tid not in cached_values]
+    @property
+    def batch_processor(self) -> "BatchProcessor":
+        """Get configured batch processor for this connector's operations."""
+        return BatchProcessor(
+            batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
+            concurrency_limit=int(self.get_connector_config("CONCURRENCY") or 5),
+            retry_count=int(self.get_connector_config("RETRY_COUNT") or 3),
+            retry_base_delay=float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+            retry_max_delay=float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
+            request_delay=float(self.get_connector_config("REQUEST_DELAY") or 0.1),
+            logger_instance=get_logger(__name__).bind(service=self.connector_name),
+        )
 
-            if missing_ids:
-                logger.info(
-                    f"Found {len(missing_ids)} tracks with missing {metric_name} data",
-                    track_count=len(track_ids),
-                    missing_count=len(missing_ids),
-                    missing_sample=missing_ids[:5],
-                )
-
-                # Get the source field from mapping
-                field_name = self.FIELD_MAP.get(metric_name)
-                if not field_name:
-                    logger.warning(f"No field mapping for {metric_name}")
-                    return cached_values
-
-                # Retrieve metadata for missing tracks
-                connector_repo = TrackConnectorRepository(session)
-                metadata = await connector_repo.get_connector_metadata(
-                    missing_ids, self.CONNECTOR, field_name
-                )
-
-                # Save new metrics
-                metrics_to_save = []
-                for track_id, value in metadata.items():
-                    if value is not None and not isinstance(value, dict):
-                        try:
-                            float_value = float(value)
-                            metrics_to_save.append((
-                                track_id,
-                                self.CONNECTOR,
-                                metric_name,
-                                float_value,
-                            ))
-                            cached_values[track_id] = value
-                        except (ValueError, TypeError):
-                            logger.warning(
-                                f"Cannot convert {value} to float for {metric_name}"
-                            )
-
-                # Batch save all metrics
-                if metrics_to_save:
-                    saved_count = await metrics_repo.save_track_metrics(metrics_to_save)
-                    await session.commit()  # Important: commit the changes
-                    logger.info(f"Saved {saved_count} new metrics for {metric_name}")
-
-        return cached_values
+    def get_connector_config(self, key: str, default=None):
+        """Get connector-specific configuration value.
+        
+        Args:
+            key: Configuration key (without connector prefix)
+            default: Default value if key not found
+            
+        Returns:
+            Configuration value with automatic connector prefixing
+            
+        Example:
+            self.get_connector_config("BATCH_SIZE") -> get_config("SPOTIFY_API_BATCH_SIZE")
+        """
+        connector_key = f"{self.connector_name.upper()}_API_{key}"
+        return get_config(connector_key, default)
 
 
 @define(slots=True)
@@ -268,7 +246,7 @@ class BatchProcessor[T, R]:
         )
         async def process_with_backoff(item: T) -> R:
             """Process an item with automatic backoff on failures.
-            
+
             Uses rate limiter if provided for controlling request start rate,
             or falls back to semaphore-based concurrency limiting.
             """

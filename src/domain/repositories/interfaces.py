@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         ExternalMetadataService,
     )
     from src.domain.entities import (
+        ConnectorPlaylist,
         ConnectorTrack,
         Playlist,
         SyncCheckpoint,
@@ -30,10 +31,29 @@ if TYPE_CHECKING:
     # Music service connector protocol for type hints
     class MusicServiceConnector(Protocol):
         """Protocol for music service connectors used in service operations."""
+
         async def get_liked_tracks(
             self, limit: int | None = None, cursor: str | None = None
         ) -> tuple[list[ConnectorTrack], str | None]: ...
         async def love_track(self, artist_name: str, track_title: str) -> bool: ...
+        async def append_tracks_to_playlist(
+            self, playlist_id: str, tracks: list["Track"]
+        ) -> dict[str, Any]: ...
+        async def update_playlist_metadata(
+            self, playlist_id: str, metadata: dict[str, Any]
+        ) -> dict[str, Any]: ...
+        async def get_playlist_details(
+            self, playlist_id: str
+        ) -> dict[str, Any]: ...
+        async def create_playlist(
+            self, name: str, tracks: list["Track"], description: str | None = None
+        ) -> str: ...
+        async def execute_playlist_operations(
+            self, playlist_id: str, operations: list[Any], snapshot_id: str | None = None
+        ) -> str | None: ...
+        async def get_playlist_metadata(
+            self, playlist_id: str
+        ) -> dict[str, Any]: ...
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -76,6 +96,17 @@ class PlaylistRepositoryProtocol(Protocol):
         self, playlist_id: int, playlist: "Playlist"
     ) -> Awaitable["Playlist"]:
         """Update existing playlist."""
+        ...
+
+    def delete_playlist(self, playlist_id: int) -> Awaitable[bool]:
+        """Delete playlist by ID.
+        
+        Args:
+            playlist_id: Internal playlist ID to delete
+            
+        Returns:
+            True if playlist was deleted, False if it didn't exist
+        """
         ...
 
 
@@ -133,13 +164,13 @@ class CheckpointRepositoryProtocol(Protocol):
 
 class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
-    
+
     @property
     def session(self) -> "Any":
         """Database session for transaction coordination.
-        
+
         Used by services that need to create nested transactions for batch operations.
-        This follows the pattern where use cases manage transaction scope through 
+        This follows the pattern where use cases manage transaction scope through
         shared sessions, and services coordinate complex operations using savepoints.
         """
         ...
@@ -183,11 +214,11 @@ class ConnectorRepositoryProtocol(Protocol):
         self, track_ids: list[int], connector: str
     ) -> Awaitable[dict[int, "datetime"]]:
         """Get most recent metadata collection timestamps for tracks.
-        
+
         Args:
             track_ids: Track IDs to check timestamps for.
             connector: Connector name to filter by.
-            
+
         Returns:
             Dictionary mapping track_id to most recent collected_at timestamp.
         """
@@ -197,11 +228,11 @@ class ConnectorRepositoryProtocol(Protocol):
         self, track_ids: list[int], connector: str | None = None
     ) -> Awaitable[dict[int, dict[str, str]]]:
         """Get mappings between tracks and external connectors.
-        
+
         Args:
             track_ids: Track IDs to get mappings for.
             connector: Optional connector name to filter by.
-            
+
         Returns:
             Dictionary mapping track_id to connector mapping information.
         """
@@ -211,12 +242,12 @@ class ConnectorRepositoryProtocol(Protocol):
         self, track_ids: list[int], connector: str, metadata_field: str | None = None
     ) -> Awaitable[dict[int, "Any"]]:
         """Get connector metadata for tracks.
-        
+
         Args:
             track_ids: Track IDs to get metadata for.
             connector: Connector name to filter by.
             metadata_field: Optional specific metadata field to retrieve.
-            
+
         Returns:
             Dictionary mapping track_id to metadata.
         """
@@ -233,7 +264,7 @@ class ConnectorRepositoryProtocol(Protocol):
         metadata: dict[str, "Any"] | None = None,
     ) -> Awaitable[bool]:
         """Save confidence information to the track mapping.
-        
+
         Args:
             track_id: Track ID.
             connector: Connector name.
@@ -242,7 +273,7 @@ class ConnectorRepositoryProtocol(Protocol):
             match_method: Method used for matching.
             confidence_evidence: Evidence supporting the confidence score.
             metadata: Additional metadata.
-            
+
         Returns:
             True if saved successfully.
         """
@@ -284,14 +315,45 @@ class ConnectorRepositoryProtocol(Protocol):
         self, track_id: int, connector: str, connector_id: str
     ) -> Awaitable[dict]:
         """Get mapping information including confidence and method.
-        
+
         Args:
             track_id: Internal track ID
             connector: Connector name
             connector_id: External connector track ID
-            
+
         Returns:
             Dictionary containing mapping metadata
+        """
+        ...
+
+
+class ConnectorPlaylistRepositoryProtocol(Protocol):
+    """Repository interface for connector playlist operations."""
+
+    def upsert_model(
+        self, connector_playlist: "ConnectorPlaylist"
+    ) -> Awaitable["ConnectorPlaylist"]:
+        """Upsert a connector playlist directly from a domain model.
+        
+        Args:
+            connector_playlist: ConnectorPlaylist domain model to upsert
+            
+        Returns:
+            Updated ConnectorPlaylist model
+        """
+        ...
+
+    def get_by_connector_id(
+        self, connector: str, connector_id: str
+    ) -> Awaitable["ConnectorPlaylist | None"]:
+        """Get connector playlist by connector and external ID.
+        
+        Args:
+            connector: Connector name (e.g., "spotify")
+            connector_id: External playlist ID
+            
+        Returns:
+            ConnectorPlaylist if found, None otherwise
         """
         ...
 
@@ -310,6 +372,26 @@ class MetricsRepositoryProtocol(Protocol):
 
         Returns:
             Number of metrics saved
+        """
+        ...
+
+    def get_track_metrics(
+        self,
+        track_ids: list[int],
+        metric_type: str = "play_count",
+        connector: str = "lastfm",
+        max_age_hours: float = 24.0,
+    ) -> Awaitable[dict[int, "Any"]]:
+        """Get cached metrics with TTL awareness.
+        
+        Args:
+            track_ids: List of track IDs to get metrics for
+            metric_type: Type of metric to retrieve
+            connector: Connector that provided the metrics
+            max_age_hours: Maximum age of metrics to accept (in hours)
+            
+        Returns:
+            Dictionary mapping track IDs to their metric values
         """
         ...
 
@@ -348,7 +430,7 @@ class PlaysRepositoryProtocol(Protocol):
 
 class TrackIdentityServiceProtocol(Protocol):
     """Service interface for track identity resolution operations.
-    
+
     This protocol defines the interface for resolving track identities across
     music services. It abstracts the implementation details of identity resolution
     to support Clean Architecture dependency inversion.
@@ -377,18 +459,18 @@ class TrackIdentityServiceProtocol(Protocol):
 
 class ServiceConnectorProvider(Protocol):
     """Provider for accessing individual music service connectors.
-    
+
     This protocol defines the interface for getting instances of specific
     music service connectors (Spotify, Last.fm, etc.) that can perform
     operations like getting liked tracks or loving tracks.
     """
-    
+
     def get_connector(self, service_name: str) -> "MusicServiceConnector":
         """Get connector instance for specified music service.
-        
+
         Args:
             service_name: Name of the service (e.g., "spotify", "lastfm")
-            
+
         Returns:
             Connector instance that implements MusicServiceConnector protocol
         """
@@ -397,7 +479,7 @@ class ServiceConnectorProvider(Protocol):
 
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
-    
+
     This protocol follows Clean Architecture principles by allowing the application
     layer to control transaction boundaries while keeping the implementation details
     in the infrastructure layer. Each UnitOfWork instance manages a single database
@@ -457,12 +539,16 @@ class UnitOfWorkProtocol(Protocol):
         """Get track identity service using this unit of work's transaction."""
         ...
 
-    def get_external_metadata_service(self) -> "ExternalMetadataService":
-        """Get external metadata service using this unit of work's transaction."""
+    def get_service_connector_provider(self) -> ServiceConnectorProvider:
+        """Get service connector provider for accessing music service connectors."""
         ...
 
-    def get_service_connector_provider(self) -> "ServiceConnectorProvider":
-        """Get service connector provider for accessing individual music service connectors."""
+    def get_connector_playlist_repository(self) -> "ConnectorPlaylistRepositoryProtocol":
+        """Get connector playlist repository for playlist-related operations."""
+        ...
+
+    def get_external_metadata_service(self) -> "ExternalMetadataService":
+        """Get external metadata service using this unit of work's transaction."""
         ...
 
 

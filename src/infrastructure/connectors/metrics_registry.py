@@ -29,12 +29,13 @@ class MetricResolverProtocol(Protocol):
 
     CONNECTOR: ClassVar[str]  # Changed from CONNECTOR: str to match implementation
 
-    async def resolve(self, track_ids: list[int], metric_name: str) -> dict[int, Any]:
+    async def resolve(self, track_ids: list[int], metric_name: str, uow: Any) -> dict[int, Any]:
         """Resolve metrics for tracks.
 
         Args:
             track_ids: List of internal track IDs to resolve metrics for
-            metric_name: Name of the metric to resolve
+            metric_name: Name of the metric to resolve  
+            uow: UnitOfWork for database access
 
         Returns:
             Dictionary mapping track IDs to their metric values
@@ -49,28 +50,7 @@ connector_metrics: dict[str, list[str]] = {
     "spotify": [],
 }
 
-# Metric freshness periods in hours
-METRIC_FRESHNESS = {
-    # Default freshness
-    "default": 24,
-    # Specific overrides
-    "lastfm_user_playcount": 1,
-    "lastfm_global_playcount": 24,
-    "lastfm_listeners": 24,
-    "spotify_popularity": 24,
-}
-
-
-def get_metric_freshness(metric_name: str) -> int:
-    """Get freshness period for a metric in hours.
-
-    Args:
-        metric_name: Name of the metric to get freshness for
-
-    Returns:
-        Number of hours after which the metric should be considered stale
-    """
-    return METRIC_FRESHNESS.get(metric_name, METRIC_FRESHNESS["default"])
+# Metric freshness configuration is now centralized in metrics_config.py
 
 
 def register_metric_resolver(
@@ -96,13 +76,3 @@ def register_metric_resolver(
             connector_metrics[connector].append(metric_name)
 
 
-def get_metrics_for_connector(connector: str) -> list[str]:
-    """Get all metrics supported by a connector.
-
-    Args:
-        connector: Name of the connector to get metrics for
-
-    Returns:
-        List of metric names supported by the connector
-    """
-    return connector_metrics.get(connector, [])

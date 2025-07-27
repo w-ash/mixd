@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.services.external_metadata_service import ExternalMetadataService
 from src.domain.repositories.interfaces import (
     CheckpointRepositoryProtocol,
+    ConnectorPlaylistRepositoryProtocol,
     ConnectorRepositoryProtocol,
     LikeRepositoryProtocol,
     MetricsRepositoryProtocol,
@@ -18,6 +19,9 @@ from src.domain.repositories.interfaces import (
     PlaysRepositoryProtocol,
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
+)
+from src.infrastructure.persistence.repositories.playlist.connector import (
+    ConnectorPlaylistRepository,
 )
 from src.infrastructure.persistence.repositories.playlist.core import PlaylistRepository
 from src.infrastructure.persistence.repositories.sync import SyncCheckpointRepository
@@ -38,18 +42,18 @@ from src.infrastructure.services.track_identity_resolver import TrackIdentityRes
 
 class DatabaseUnitOfWork:
     """Database implementation of the Unit of Work pattern.
-    
+
     This class manages database transactions and provides access to all repositories
     that share the same transaction context. It follows Clean Architecture principles
     by implementing the domain's UnitOfWorkProtocol interface.
-    
+
     The unit of work automatically commits on successful exit or rollback on exceptions,
     but also allows explicit commit/rollback control for complex business logic.
     """
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session.
-        
+
         Args:
             session: SQLAlchemy async session for database operations
         """
@@ -67,7 +71,7 @@ class DatabaseUnitOfWork:
         exc_tb: object,
     ) -> None:
         """Exit async context manager with automatic commit/rollback.
-        
+
         If an exception occurred, automatically rollback the transaction.
         If no exception occurred and commit wasn't called explicitly, commit the transaction.
         """
@@ -105,6 +109,10 @@ class DatabaseUnitOfWork:
         """Get connector repository using this unit of work's transaction."""
         return TrackConnectorRepository(self._session)
 
+    def get_connector_playlist_repository(self) -> ConnectorPlaylistRepositoryProtocol:
+        """Get connector playlist repository using this unit of work's transaction."""
+        return ConnectorPlaylistRepository(self._session)
+
     def get_metrics_repository(self) -> MetricsRepositoryProtocol:
         """Get metrics repository using this unit of work's transaction."""
         return TrackMetricsRepository(self._session)
@@ -131,13 +139,13 @@ class DatabaseUnitOfWork:
     def get_service_connector_provider(self) -> Any:
         """Get service connector provider for accessing individual music service connectors."""
         from src.infrastructure.connectors import CONNECTORS
-        
+
         class SimpleServiceConnectorProvider:
             """Simple service connector provider that accesses the CONNECTORS registry."""
-            
+
             def get_connector(self, service_name: str):
                 if service_name not in CONNECTORS:
                     raise ValueError(f"Unknown connector: {service_name}")
                 return CONNECTORS[service_name]["factory"]({})
-        
+
         return SimpleServiceConnectorProvider()

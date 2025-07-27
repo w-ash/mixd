@@ -6,9 +6,10 @@
   "tasks": [
     {
       "id": "source",
-      "type": "source.spotify_playlist",
+      "type": "source.playlist",
       "config": {
-        "playlist_id": "1uijxjRc9wwXXzHJ0paDJi"
+        "playlist_id": "1uijxjRc9wwXXzHJ0paDJi",
+        "connector": "spotify"
       }
     },
     {
@@ -23,10 +24,11 @@
     },
     {
       "id": "destination",
-      "type": "destination.create_spotify_playlist",
+      "type": "destination.create_playlist",
       "config": {
         "name": "Sorted by Release Date",
-        "description": "Tracks sorted by release date (oldest first)"
+        "description": "Tracks sorted by release date (oldest first)",
+        "connector": "spotify"
       },
       "upstream": [
         "sort"
