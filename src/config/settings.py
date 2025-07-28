@@ -104,6 +104,18 @@ class BatchConfig(BaseModel):
     track_batch_retry_delay: int = 5
 
 
+class ImportConfig(BaseModel):
+    """Import processing and data quality configuration."""
+
+    # Play filtering thresholds 
+    play_threshold_ms: int = 240000  # 4 minutes fallback threshold
+    play_threshold_percentage: float = 0.5  # 50% of track duration
+    
+    # Import batch processing
+    import_batch_size: int = 1000
+    import_progress_frequency: int = 100
+
+
 class FreshnessConfig(BaseModel):
     """Data freshness configuration in hours."""
 
@@ -135,6 +147,7 @@ class Settings(BaseSettings):
     credentials: CredentialsConfig = CredentialsConfig()
     api: APIConfig = APIConfig()
     batch: BatchConfig = BatchConfig()
+    import_settings: ImportConfig = ImportConfig()
     freshness: FreshnessConfig = FreshnessConfig()
 
     # Top-level settings
@@ -240,6 +253,11 @@ _LEGACY_KEY_MAP = {
     "BATCH_PROGRESS_LOG_FREQUENCY": lambda: settings.batch.progress_log_frequency,
     "TRACK_BATCH_RETRY_COUNT": lambda: settings.batch.track_batch_retry_count,
     "TRACK_BATCH_RETRY_DELAY": lambda: settings.batch.track_batch_retry_delay,
+    # Import settings
+    "PLAY_THRESHOLD_MS": lambda: settings.import_settings.play_threshold_ms,
+    "PLAY_THRESHOLD_PERCENTAGE": lambda: settings.import_settings.play_threshold_percentage,
+    "IMPORT_BATCH_SIZE": lambda: settings.import_settings.import_batch_size,
+    "IMPORT_PROGRESS_FREQUENCY": lambda: settings.import_settings.import_progress_frequency,
     # Global API defaults
     "DEFAULT_API_BATCH_SIZE": lambda: settings.api.default_batch_size,
     "DEFAULT_API_CONCURRENCY": lambda: settings.api.default_concurrency,

@@ -239,10 +239,15 @@ class DBTrackPlay(NaradaDBBase):
 
     __tablename__ = "track_plays"
     __table_args__ = (
+        # Existing indexes
         Index("ix_track_plays_service", "service"),
         Index("ix_track_plays_played_at", "played_at"),
         Index("ix_track_plays_import_source", "import_source"),
         Index("ix_track_plays_import_batch", "import_batch_id"),
+        # Critical performance indexes for play history queries
+        Index("ix_track_plays_track_id", "track_id"),  # Per-track queries
+        Index("ix_track_plays_track_played", "track_id", "played_at"),  # Time-range filtering
+        Index("ix_track_plays_track_service", "track_id", "service"),  # Service-specific queries
     )
 
     # Core fields

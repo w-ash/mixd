@@ -76,6 +76,16 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         if not plays:
             return 0
 
+        # Filter out plays with NULL track_id to prevent constraint violations
+        valid_plays = [play for play in plays if play.track_id is not None]
+        
+        if not valid_plays:
+            logger.warning(f"Filtered out all {len(plays)} plays due to NULL track_id - no plays to insert")
+            return 0
+
+        if len(valid_plays) < len(plays):
+            logger.warning(f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)")
+
         play_data = [
             {
                 "track_id": play.track_id,
@@ -87,7 +97,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 "import_source": play.import_source,
                 "import_batch_id": play.import_batch_id,
             }
-            for play in plays
+            for play in valid_plays
         ]
 
         result = await self.bulk_upsert(

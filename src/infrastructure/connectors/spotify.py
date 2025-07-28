@@ -178,7 +178,18 @@ class SpotifyConnector(BaseAPIConnector):
                 if tracks_response and "tracks" in tracks_response:
                     for track in tracks_response["tracks"]:
                         if track and "id" in track:
-                            results[track["id"]] = track
+                            current_id = track["id"]
+                            results[current_id] = track
+                            
+                            # Handle Spotify relinking: if track has linked_from, 
+                            # also map the original track ID to this data
+                            linked_from = track.get("linked_from")
+                            if linked_from and "id" in linked_from:
+                                original_id = linked_from["id"]
+                                results[original_id] = track
+                                logger.debug(
+                                    f"Relinked track found: {original_id} -> {current_id}"
+                                )
                         else:
                             logger.warning("Received null track in batch response")
                             

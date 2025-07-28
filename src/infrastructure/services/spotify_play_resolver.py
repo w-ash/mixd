@@ -25,12 +25,11 @@ class PlayResolution:
 
     spotify_uri: str
     track_id: int | None
-    resolution_method: (
-        str  # "direct_id", "relinked_id", "search_match", "preserved_metadata"
-    )
+    resolution_method: str  # "direct_id", "relinked_id", "search_match", "preserved_metadata", "validation_failed"
     confidence: int | None
     evidence: ConfidenceEvidence | None = None
     metadata: dict | None = None  # Original JSON metadata for unresolved tracks
+    failure_reason: str | None = None  # Detailed failure reason when resolution fails
 
 
 @define(frozen=True, slots=True)
@@ -357,21 +356,53 @@ class SpotifyPlayResolver:
                     if connection_key in existing_tracks:
                         internal_track = existing_tracks[connection_key]
                         internal_track_id = internal_track.id
+                        failure_reason = None
                     else:
-                        # Create track from Spotify data if not exists
-                        internal_track_id = await self._create_track_from_spotify_data(
-                            track_id, spotify_data
+                        # Try to find existing canonical track by exact content matching
+                        existing_canonical_track_id = await self._find_canonical_track_by_exact_content(
+                            spotify_data
                         )
+                        
+                        if existing_canonical_track_id:
+                            # Found existing canonical track - create connector mapping to it
+                            internal_track_id = existing_canonical_track_id
+                            failure_reason = None
+                            
+                            # Create connector track and mapping for this Spotify ID
+                            await self._create_connector_mapping_for_existing_track(
+                                existing_canonical_track_id, track_id, spotify_data
+                            )
+                            
+                            logger.info(
+                                f"Reused existing canonical track {existing_canonical_track_id} for Spotify ID {track_id}"
+                            )
+                        else:
+                            # No existing canonical track found - create new one
+                            (
+                                internal_track_id,
+                                failure_reason,
+                            ) = await self._create_track_from_spotify_data(
+                                track_id, spotify_data
+                            )
+
+                    # Determine final resolution method and confidence
+                    if failure_reason:
+                        final_resolution_method = "validation_failed"
+                        final_confidence = None
+                    else:
+                        final_resolution_method = resolution_method
+                        final_confidence = 100  # Full confidence for Spotify API data
 
                     resolution_results[uri] = PlayResolution(
                         spotify_uri=uri,
                         track_id=internal_track_id,
-                        resolution_method=resolution_method,
-                        confidence=100,  # Full confidence for Spotify API data
+                        resolution_method=final_resolution_method,
+                        confidence=final_confidence,
                         metadata={
                             "spotify_data": spotify_data,
                             "linked_from": linked_from,
                         },
+                        failure_reason=failure_reason,
                     )
 
         except Exception as e:
@@ -442,23 +473,31 @@ class SpotifyPlayResolver:
                         )
 
                         internal_track_id = None
+                        failure_reason = None
                         if connection_key in existing_tracks:
                             internal_track = existing_tracks[connection_key]
                             internal_track_id = internal_track.id
                         else:
                             # Create track from search result if not exists
-                            internal_track_id = (
-                                await self._create_track_from_spotify_data(
-                                    spotify_id, search_result
-                                )
+                            (
+                                internal_track_id,
+                                failure_reason,
+                            ) = await self._create_track_from_spotify_data(
+                                spotify_id, search_result
                             )
+
+                        # Determine final resolution method
+                        final_resolution_method = (
+                            "validation_failed" if failure_reason else "search_match"
+                        )
+                        final_confidence = None if failure_reason else confidence
 
                         resolution_results[record.track_uri] = PlayResolution(
                             spotify_uri=record.track_uri,
                             track_id=internal_track_id,
-                            resolution_method="search_match",
-                            confidence=confidence,
-                            evidence=evidence,
+                            resolution_method=final_resolution_method,
+                            confidence=final_confidence,
+                            evidence=evidence if not failure_reason else None,
                             metadata={
                                 "search_result": search_result,
                                 "original_metadata": {
@@ -467,6 +506,7 @@ class SpotifyPlayResolver:
                                     "album_name": record.album_name,
                                 },
                             },
+                            failure_reason=failure_reason,
                         )
 
                         logger.debug(
@@ -523,6 +563,7 @@ class SpotifyPlayResolver:
             "relinked_id": 0,
             "search_match": 0,
             "preserved_metadata": 0,
+            "validation_failed": 0,
             "with_track_id": 0,
         }
 
@@ -535,20 +576,44 @@ class SpotifyPlayResolver:
 
     async def _create_track_from_spotify_data(
         self, spotify_id: str, spotify_data: dict
-    ) -> int | None:
-        """Create internal track from Spotify API data."""
-        try:
-            # Create ConnectorTrack from Spotify data (reuse existing pattern)
-            artists = [
-                Artist(name=artist["name"])
-                for artist in spotify_data.get("artists", [])
-            ]
+    ) -> tuple[int | None, str | None]:
+        """Create internal track from Spotify API data.
 
+        Returns:
+            Tuple of (track_id, failure_reason). If successful, failure_reason is None.
+            If failed, track_id is None and failure_reason explains why.
+        """
+        try:
+            # Validate required fields before attempting track creation
+            if not spotify_data.get("name"):
+                failure_reason = "missing_title: Spotify API returned no track name"
+                logger.warning(f"Validation failed for {spotify_id}: {failure_reason}")
+                return None, failure_reason
+
+            artists_data = spotify_data.get("artists", [])
+            if not artists_data:
+                failure_reason = "missing_artists: Spotify API returned no artists"
+                logger.warning(f"Validation failed for {spotify_id}: {failure_reason}")
+                return None, failure_reason
+
+            # Check for valid artist names
+            valid_artists = []
+            for artist in artists_data:
+                artist_name = artist.get("name")
+                if artist_name:
+                    valid_artists.append(Artist(name=artist_name))
+
+            if not valid_artists:
+                failure_reason = "invalid_artists: No valid artist names found"
+                logger.warning(f"Validation failed for {spotify_id}: {failure_reason}")
+                return None, failure_reason
+
+            # Create ConnectorTrack from Spotify data (reuse existing pattern)
             connector_track = ConnectorTrack(
                 connector_name="spotify",
                 connector_track_id=spotify_id,
                 title=spotify_data["name"],
-                artists=artists,
+                artists=valid_artists,
                 album=spotify_data.get("album", {}).get("name"),
                 duration_ms=spotify_data.get("duration_ms"),
                 isrc=spotify_data.get("external_ids", {}).get("isrc"),
@@ -570,13 +635,156 @@ class SpotifyPlayResolver:
                 logger.debug(
                     f"Created internal track {created_tracks[0].id} for Spotify ID {spotify_id}"
                 )
-                return created_tracks[0].id
+                return created_tracks[0].id, None
             else:
+                failure_reason = "creation_failed: Track creation returned no ID"
                 logger.warning(
-                    f"Failed to create internal track for Spotify ID {spotify_id}"
+                    f"Track creation failed for {spotify_id}: {failure_reason}"
                 )
-                return None
+                return None, failure_reason
 
+        except ValueError as e:
+            # Catch domain validation errors (like "Track must have title and artists")
+            failure_reason = f"domain_validation: {e!s}"
+            logger.warning(
+                f"Domain validation failed for {spotify_id}: {failure_reason}"
+            )
+            return None, failure_reason
         except Exception as e:
-            logger.error(f"Error creating track from Spotify data {spotify_id}: {e}")
+            # Catch any other unexpected errors
+            failure_reason = f"unexpected_error: {e!s}"
+            logger.warning(
+                f"Unexpected error creating track {spotify_id}: {failure_reason}"
+            )
+            return None, failure_reason
+
+    async def _find_canonical_track_by_exact_content(self, spotify_data: dict) -> int | None:
+        """Find existing canonical track by exact content matching.
+        
+        Uses simple exact matching strategies:
+        1. ISRC exact match (highest confidence)
+        2. Normalized title + artist exact match
+        
+        Args:
+            spotify_data: Spotify API track data
+            
+        Returns:
+            Existing canonical track ID if found, None otherwise
+        """
+        title = spotify_data.get("name", "").strip()
+        artists_data = spotify_data.get("artists", [])
+        isrc = spotify_data.get("external_ids", {}).get("isrc")
+        
+        if not title or not artists_data:
             return None
+            
+        # Strategy 1: ISRC exact match (100% reliable)
+        if isrc:
+            try:
+                from src.infrastructure.persistence.database.db_connection import (
+                    get_session,
+                )
+                from src.infrastructure.persistence.repositories.track.core import (
+                    TrackRepository,
+                )
+                
+                async with get_session() as session:
+                    track_repo = TrackRepository(session)
+                    existing_track = await track_repo.find_one_by({"isrc": isrc})
+                    if existing_track and existing_track.id:
+                        logger.debug(f"Found canonical track {existing_track.id} by ISRC match: {isrc}")
+                        return existing_track.id
+            except Exception as e:
+                logger.debug(f"ISRC lookup failed for {isrc}: {e}")
+        
+        # Strategy 2: Normalized title + artist exact match
+        normalized_title = title.lower().strip()
+        normalized_artists = {
+            artist["name"].lower().strip() 
+            for artist in artists_data 
+            if artist.get("name")
+        }
+        
+        if not normalized_artists:
+            return None
+            
+        try:
+            from src.infrastructure.persistence.database.db_connection import (
+                get_session,
+            )
+            from src.infrastructure.persistence.repositories.track.core import (
+                TrackRepository,
+            )
+            
+            async with get_session() as session:
+                track_repo = TrackRepository(session)
+                
+                # Get tracks with similar titles for exact matching
+                candidates = await track_repo.find_by([
+                    track_repo.model_class.title.ilike(f"%{title}%")
+                ])
+                
+                for candidate in candidates:
+                    # Check for exact title match (case-insensitive)
+                    if candidate.title.lower().strip() != normalized_title:
+                        continue
+                        
+                    # Check for exact artist match (case-insensitive)
+                    candidate_artists = {
+                        artist.name.lower().strip() 
+                        for artist in candidate.artists
+                    }
+                    
+                    if normalized_artists == candidate_artists:
+                        logger.debug(
+                            f"Found canonical track {candidate.id} by exact title+artist match: "
+                            f"{title} by {[a['name'] for a in artists_data]}"
+                        )
+                        return candidate.id
+                        
+        except Exception as e:
+            logger.debug(f"Content lookup failed for {title}: {e}")
+            
+        return None
+
+    async def _create_connector_mapping_for_existing_track(
+        self, canonical_track_id: int, spotify_id: str, spotify_data: dict
+    ) -> None:
+        """Create connector track and mapping for existing canonical track.
+        
+        Args:
+            canonical_track_id: ID of existing canonical track
+            spotify_id: Spotify track ID
+            spotify_data: Spotify API track data
+        """
+        try:
+            # Create ConnectorTrack from Spotify data
+            artists = [
+                Artist(name=artist["name"])
+                for artist in spotify_data.get("artists", [])
+            ]
+
+            connector_track = ConnectorTrack(
+                connector_name="spotify",
+                connector_track_id=spotify_id,
+                title=spotify_data["name"],
+                artists=artists,
+                album=spotify_data.get("album", {}).get("name"),
+                duration_ms=spotify_data.get("duration_ms"),
+                isrc=spotify_data.get("external_ids", {}).get("isrc"),
+                raw_metadata=spotify_data,
+            )
+
+            # Use connector repository to create the mapping
+            created_tracks = await self.connector_repository.ingest_external_tracks_bulk(
+                "spotify", [connector_track]
+            )
+            
+            if created_tracks and len(created_tracks) > 0:
+                logger.debug(f"Created connector mapping for existing track {canonical_track_id}")
+            else:
+                logger.warning(f"Failed to create connector mapping for track {canonical_track_id}")
+                
+        except Exception as e:
+            logger.warning(f"Error creating connector mapping for existing track {canonical_track_id}: {e}")
+            # Don't raise - we don't want to fail the entire resolution process

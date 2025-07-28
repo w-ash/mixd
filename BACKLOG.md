@@ -24,88 +24,119 @@ Never estimate time, always estimate based on relative effort.
 | **XXL** | High risk & exploration      | New platform, performance/security domains, prototype-first, many dependencies |
 
 ### Status Options
-- Not Started
-- In Progress
-- Blocked
-- Completed
+- 🔜 Not Started
+- 🔄 In Progress
+- 🛑 Blocked
+- ✅ Completed
 
-## Completed Milestones ✅
+## Version Change-log 🆕
 
-### v0.2.0-0.2.2: Core Data Platform
-**Achievement**: Complete cross-service sync and play history platform
+### v0.2.1: Like Sync
+Keep your music preferences synchronized across services - automatically sync your Spotify likes to Last.fm loves, ensuring your musical taste is consistently reflected everywhere you listen.
 
-**Key Features Delivered**:
-- ✅ **Spotify ↔ Last.fm Sync**: Bidirectional likes synchronization 
-- ✅ **Play History Import**: Spotify GDPR exports + Last.fm API with smart deduplication
-- ✅ **Enhanced Track Resolution**: 100% processing rate for any age Spotify export
-- ✅ **DRY Architecture**: Unified models, factory patterns, zero redundancy
+**New Features**
+- **Import Spotify Likes**
+  - Import liked tracks from Spotify
+- **Export Canonical Likes to Last.fm**
+  - Export likes from Narada to Last.fm as loves 
+
+**Updated Features**
+- n/a
+
+**Architecture Improvements**
+- **Sync Checkpoint System**
+  - Database-backed incremental synchronization with resumable operations
+  - Tracks last timestamp and cursor position for each service and entity type
+
+### v0.2.2: Play History
+Preserve your complete listening journey forever. Import your entire play history from Spotify GDPR exports and Last.fm, creating a comprehensive backup that lets you analyze your musical evolution over time.
+
+**New Features**
+- **Spotify Play History Import**
+  - Import play history from Spotify GDPR JSON files
+- **Last.fm Play History Import**
+  - Import play history from Last.fm API
+- **Enhanced Track Resolution**
+  - Ensures the most recent Spotify ID is mapped during import
+
+**Updated Features**
+- n/a
+
+**Architecture Improvements**
+- n/a
 
 ### v0.2.3: Clean Architecture Foundation  
-**Achievement**: Modern, maintainable codebase ready for scale
+Rebuilt the entire codebase for reliability and future growth. While invisible to users, this foundation enables faster feature development and prepares Narada for advanced capabilities like web interfaces and complex workflow automation.
 
-**Architecture Transformation**:
-- ✅ **Clean Architecture**: Domain/Application/Infrastructure layers with proper boundaries
-- ✅ **Dependency Injection**: Technology-agnostic business logic
-- ✅ **Performance**: Domain tests 10x faster, maintained test coverage
-- ✅ **Future-Ready**: Foundation for web APIs and modern frameworks
+**New Features**
+- n/a
 
-**Clean Architecture Initiative Completed**:
-- ✅ **Epic 0: Project Structure Migration**: Migrated from legacy `/narada` to modern `/src` structure with consistent import paths
-- ✅ **Epic 1: Repository Interface Consolidation**: Unified repository contracts in domain layer, eliminated 5 duplicate protocols
-- ✅ **Epic 2: Service Layer Reorganization**: Moved business logic to application layer, deleted 7 redundant files, established proper CLI → Application → Domain flow
-- ✅ **Epic 3: Architecture Compliance & Quality**: Verified Clean Architecture principles, updated to Python 3.13 patterns, maintained full test coverage
-- ✅ **Epic 5: Matcher System Modernization**: Transformed 961-line monolithic matcher into modular provider pattern with comprehensive test coverage
-- ✅ **Epic 6: Workflow Node Architecture**: Created SavePlaylistUseCase with Command/Strategy patterns, simplified workflow nodes to delegators
-- ✅ **Epic 7: Sophisticated Playlist Updates**: Implemented differential UpdatePlaylistUseCase with 29 comprehensive tests and full workflow integration
+**Updated Features**
+- n/a
 
+**Architecture Improvements**
+- **Project Structure Migration**
+  - Migrated from legacy `/narada` to modern `/src` structure with consistent import paths
+- **Service Layer Reorganization**
+  - Moved business logic to application layer, established proper CLI → Application → Domain flow
+- **Architecture Compliance & Quality**
+  - Verified Clean Architecture principles, updated to Python 3.13 patterns
+- **Matcher System Modernization**
+  - Transformed 961-line monolithic matcher into modular provider pattern
+- **Workflow Node Architecture**
+  - Created SavePlaylistUseCase with Command/Strategy patterns, simplified workflow nodes to delegators
+
+### v0.2.4: Playlist Updates 
+Transform your playlists with intelligent automation. Create sophisticated workflows that can update existing playlists with smart differential algorithms, preserving your metadata while seamlessly managing even large playlist changes across services.
+
+**New Features**
+- **Comprehensive Playlist CRUD Operations**
+  - Create, read, update, and delete playlists with full domain modeling
+- **Sophisticated Playlist Updates**
+  - Differential update algorithms that preserve track metadata and ordering
+- **Playlist Diff Engine**
+  - Smart comparison system for tracking playlist changes and generating operation lists
+
+**Updated Features**  
+- **Workflow Node Orchestration**
+  - Simplified workflow nodes to pure orchestrators, delegating business logic to use cases
+- **Track Metrics System**
+  - Database-first caching strategy with track_metrics table as single source of truth
+
+**Architecture Improvements**
+- **Clean Architecture Compliance**
+  - Moved CLI from infrastructure to proper interface layer (`src/interface/cli/`)
+- **Use Case Consolidation**
+  - Centralized all business logic in application layer use cases with proper dependency injection
+- **Domain Layer Expansion**
+  - Added comprehensive playlist domain entities with immutable operations
+- **UnitOfWork Pattern**
+  - Consistent transaction boundary management across all playlist operations
 ---
 
 ## Planned Roadmap 🚀
 
-### v0.2.4: Playlist Workflow Expansion
-**Goal**: Enable advanced playlist workflows, including using plays for filtering and discovery workflows
-
-- [x] **Complete UpdatePlaylistUseCase Implementation**
-    - Effort: L
-    - What: Replace placeholder implementations and simplified logic with production-ready Spotify API operations and sophisticated reordering algorithms.
-    - Why: Current implementation contains TODOs for critical features including sophisticated reordering logic, ISRC/metadata matching strategies, and actual Spotify API operations (currently creates new playlists instead of updating existing ones).
-    - Dependencies: Refactor Use Cases for True Dependency Inversion
-    - Status: Not Started
-
-
-- [x] **Technical Debt Cleanup**
-    - Effort: M
-    - What: Address remaining technical debt, including consolidating playlist persistence logic, improving type safety, and cleaning up the workflow context architecture.
-    - Why: To maintain code quality and architectural integrity, ensuring the codebase remains clean, modern, and easy to work with before adding new features.
-    - Dependencies: Refactor Use Cases for True Dependency Inversion
-    - Status: Not Started
-    - Notes:
-        - Replace `Any` types in repository interfaces with specific domain entities.
-        - Remove the "hack" in `LazyRepositoryProvider` with proper dependency injection.
-        - Remove other hacks, workarounds, and backward compatibility leftovers
-
-#### Play History Analysis Epics
+### v0.2.5: Workflow Transformation Expansion
+Unlock the power of your listening history for intelligent playlist curation. Filter and sort your music based on actual listening patterns and discovery opportunities to create playlists that truly reflect your musical journey.
 
 - [ ] **Play History Filter and Sort**
+    - Status: 🔄 In Progress
     - Effort: M
-    - What: Extend existing filter and sorter node categories to support play history metrics based on narada's database of plays
-    - Why: Users need granular control over finding tracks based on listening behavior - frequently/rarely played tracks, seasonal patterns, discovery gaps, and listening recency for advanced playlist curation
+    - What: Transform workflows to leverage your listening history for intelligent track selection and ordering
+    - Why: Create personalized playlists based on how you actually listen - find hidden gems you haven't heard in months or tracks you've been obsessing over
     - Dependencies: n/a
-    - Status: Not Started
     - Notes:
-        - Leverage existing filter/sorter architecture in `TRANSFORM_REGISTRY`
-        - Enable play count filtering (e.g., tracks played >10 times, <5 times)
-        - Support time-period analysis (e.g., tracks played >5 times in July 2024)
-        - Add play recency sorting (most/least recently played)
-        - Include relative time periods (last 30 days, past week, this month)
-        - Build on existing metric-based filtering patterns
+        - **Play Count Filters**: Find frequently played hits (>10 plays) or neglected gems (<5 plays)
+        - **Time-Based Analysis**: Focus on recent activity (last 30 days) or specific time periods
+        - **Discovery Tools**: Identify tracks not played recently for rediscovery playlists
+        - **Smart Sorting**: Order by play recency, frequency, or discovery gaps
 
 - [ ] **Advanced Transformer Workflow nodes**
+    - Status: 🔜 Not Started
     - Effort: M
     - What: Implement additional transformer nodes for workflow system
     - Why: More transformation options enable more powerful workflows
     - Dependencies: None
-    - Status: Not Started
     - Notes:
         - Implement combining operations with different strategies
         - Add time-based transformers (seasonal, time of day)
@@ -113,11 +144,11 @@ Never estimate time, always estimate based on relative effort.
         - Include selection of just the first X or last X from a tracklist
 
 - [ ] **Advanced Track Matching Strategies**
+    - Status: 🔜 Not Started
     - Effort: M
     - What: Extend playlist update matching beyond simple Spotify ID matching to include ISRC and metadata strategies
     - Why: Enable more sophisticated track matching for playlist updates, especially useful when Spotify IDs aren't available or when handling cross-service track resolution
     - Dependencies: Complete UpdatePlaylistUseCase Implementation
-    - Status: Not Started
     - Notes:
         - Implement ISRC-based matching for high-confidence identity resolution
         - Add metadata matching (artist/title/album) with confidence scoring
@@ -126,11 +157,11 @@ Never estimate time, always estimate based on relative effort.
         - File: `src/application/use_cases/update_playlist.py` (currently uses simple Spotify ID matching)
 
 - [ ] **Enhanced Playlist Naming**
+    - Status: 🔜 Not Started
     - Effort: M
     - What: Add update and parameterization capability to destination nodes that create playlists
     - Why: Enable dynamic playlist naming and descriptions
-    - Dependencies: None 
-    - Status: Not Started
+    - Dependencies: None
     - Notes:
         - Support template parameters in playlist names
         - Allow using source playlist names in new playlist names/descriptions
