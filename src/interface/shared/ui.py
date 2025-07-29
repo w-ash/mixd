@@ -11,6 +11,15 @@ from src.domain.entities import OperationResult
 console = Console()
 
 
+def _is_play_import_operation(result: OperationResult) -> bool:
+    """Check if this is a play import operation that shouldn't show track details."""
+    operation_name = result.operation_name or ""
+    return any(
+        keyword in operation_name.lower()
+        for keyword in ["spotify import", "lastfm import", "play import"]
+    )
+
+
 def display_operation_result(
     result: OperationResult,
     output_format: str = "table",
@@ -114,8 +123,8 @@ def _display_table_result(
 
     console.print(summary_table)
 
-    # Track details table if we have tracks
-    if result.tracks:
+    # Track details table if we have tracks - skip for play import operations
+    if result.tracks and not _is_play_import_operation(result):
         console.print()
         details_table = Table(title="Track Details")
         details_table.add_column("#", style="dim", justify="right")

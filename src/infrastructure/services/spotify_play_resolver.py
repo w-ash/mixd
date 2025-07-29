@@ -394,8 +394,10 @@ class SpotifyPlayResolver:
 
                         try:
                             # Find the connector track database ID for the new Spotify track
-                            connector_track_id = await self.connector_repository.find_connector_track_id(
-                                "spotify", track_id
+                            connector_track_id = (
+                                await self.connector_repository.find_connector_track_id(
+                                    "spotify", track_id
+                                )
                             )
 
                             if connector_track_id:

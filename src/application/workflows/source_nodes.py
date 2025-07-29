@@ -9,6 +9,14 @@ from typing import Any
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
 )
+from src.application.use_cases.get_liked_tracks import (
+    GetLikedTracksCommand,
+    GetLikedTracksUseCase,
+)
+from src.application.use_cases.get_played_tracks import (
+    GetPlayedTracksCommand,
+    GetPlayedTracksUseCase,
+)
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
 )
@@ -275,6 +283,109 @@ def _convert_connector_track_to_domain(connector_track: ConnectorTrack) -> Track
             }
         },
     )
+
+
+# === Ultra-DRY Data Source Nodes ===
+
+
+async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
+    """Retrieve liked tracks from canonical database.
+    
+    Ultra-DRY source node that provides simple data retrieval with meaningful sorting.
+    Users compose complex behavior by chaining with existing transforms from core.py like
+    filter_by_play_history, sort_by_play_history, select_by_method, etc.
+    
+    Config parameters:
+        limit (int): Maximum tracks to retrieve (default: 10000, max: 10000)
+        connector_filter (str): Optional service filter ("spotify", "lastfm", etc.)
+        sort_by (str): Optional sorting method ("liked_at_desc", "liked_at_asc", "title_asc", "random")
+        
+    Returns:
+        Dict with tracklist ready for composition with transform nodes
+    """
+    # Extract config with defaults
+    limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
+    connector_filter = config.get("connector_filter")
+    sort_by = config.get("sort_by", "liked_at_desc")  # Default to most recent likes first
+    
+    # Create command for use case
+    command = GetLikedTracksCommand(
+        limit=limit,
+        connector_filter=connector_filter,
+        sort_by=sort_by,
+    )
+    
+    # Get workflow context and execute use case
+    ctx = NodeContext(context)
+    workflow_context = ctx.extract_workflow_context()
+    
+    # Execute business logic in use case
+    use_case = GetLikedTracksUseCase()
+    result = await workflow_context.execute_use_case(
+        lambda uow: use_case.execute(command, uow)
+    )
+    
+    # Return standardized result for workflow composition
+    return {
+        "tracklist": result.tracklist,
+        "operation": "source_liked_tracks",
+        "track_count": len(result.tracklist.tracks),
+        "connector_filter": connector_filter,
+        "sort_by": sort_by,
+        "execution_time_ms": result.execution_time_ms,
+    }
+
+
+async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
+    """Retrieve tracks from play history.
+    
+    Ultra-DRY source node that provides simple data retrieval with meaningful sorting.
+    Users compose complex behavior by chaining with existing transforms from core.py like
+    filter_by_play_history, sort_by_play_history, select_by_method, etc.
+    
+    Config parameters:
+        limit (int): Maximum tracks to retrieve (default: 10000, max: 10000)
+        days_back (int): Optional time window in days (e.g., 90 for last 3 months)
+        connector_filter (str): Optional service filter ("spotify", "lastfm", etc.)
+        sort_by (str): Optional sorting method ("played_at_desc", "total_plays_desc", "last_played_desc", "first_played_asc", "title_asc", "random")
+        
+    Returns:
+        Dict with tracklist ready for composition with transform nodes
+    """
+    # Extract config with defaults
+    limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
+    days_back = config.get("days_back")
+    connector_filter = config.get("connector_filter")
+    sort_by = config.get("sort_by", "played_at_desc")  # Default to most recent plays first
+    
+    # Create command for use case
+    command = GetPlayedTracksCommand(
+        limit=limit,
+        days_back=days_back,
+        connector_filter=connector_filter,
+        sort_by=sort_by,
+    )
+    
+    # Get workflow context and execute use case
+    ctx = NodeContext(context)
+    workflow_context = ctx.extract_workflow_context()
+    
+    # Execute business logic in use case
+    use_case = GetPlayedTracksUseCase()
+    result = await workflow_context.execute_use_case(
+        lambda uow: use_case.execute(command, uow)
+    )
+    
+    # Return standardized result for workflow composition
+    return {
+        "tracklist": result.tracklist,
+        "operation": "source_played_tracks",
+        "track_count": len(result.tracklist.tracks),
+        "days_back": days_back,
+        "connector_filter": connector_filter,
+        "sort_by": sort_by,
+        "execution_time_ms": result.execution_time_ms,
+    }
 
 
 # Complex helper functions removed - source nodes are now lightweight orchestration

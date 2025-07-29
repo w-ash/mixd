@@ -244,9 +244,124 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         return aggregations.get("period_plays", {})
 
     @db_operation("get_recent_plays")
-    async def get_recent_plays(self, limit: int = 100) -> list[TrackPlay]:
-        """Get recent plays."""
-        return await self.find_by(
-            [],
-            limit=limit,
-        )
+    async def get_recent_plays(self, limit: int = 100, sort_by: str | None = None) -> list[TrackPlay]:
+        """Get recent plays with optional sorting."""
+        # Handle special sorting cases that require custom queries or aggregations
+        if sort_by in ["total_plays_desc", "last_played_desc", "title_asc", "random"]:
+            from sqlalchemy import func, select
+            from src.infrastructure.persistence.database.db_models import DBTrack
+            
+            if sort_by == "total_plays_desc":
+                # Get plays grouped by track_id, ordered by count
+                stmt = (
+                    select(self.model_class.track_id, func.count().label("play_count"))
+                    .where(self.model_class.is_deleted == False)  # noqa: E712
+                    .group_by(self.model_class.track_id)
+                    .order_by(func.count().desc())
+                    .limit(limit)
+                )
+                
+                result = await self.session.execute(stmt)
+                track_counts = result.fetchall()
+                
+                # Get the most recent play for each of these tracks
+                if not track_counts:
+                    return []
+                    
+                track_ids = [row[0] for row in track_counts]
+                
+                # Get one recent play per track, maintaining the order
+                plays = []
+                for track_id in track_ids:
+                    recent_play_stmt = (
+                        select(self.model_class)
+                        .where(
+                            self.model_class.track_id == track_id,
+                            self.model_class.is_deleted == False  # noqa: E712
+                        )
+                        .order_by(self.model_class.played_at.desc())
+                        .limit(1)
+                    )
+                    recent_play_result = await self.session.execute(recent_play_stmt)
+                    recent_play = recent_play_result.scalar_one_or_none()
+                    if recent_play:
+                        plays.append(await self.mapper.to_domain(recent_play))
+                
+                return plays
+                
+            elif sort_by == "last_played_desc":
+                # Get most recent play per track, ordered by played_at desc
+                # Using window function to get the latest play per track
+                from sqlalchemy import row_number
+                from sqlalchemy.sql import and_
+                
+                subquery = (
+                    select(
+                        self.model_class,
+                        row_number()
+                        .over(
+                            partition_by=self.model_class.track_id,
+                            order_by=self.model_class.played_at.desc()
+                        )
+                        .label("rn")
+                    )
+                    .where(self.model_class.is_deleted == False)  # noqa: E712
+                ).subquery()
+                
+                stmt = (
+                    select(subquery)
+                    .where(subquery.c.rn == 1)
+                    .order_by(subquery.c.played_at.desc())
+                    .limit(limit)
+                )
+                
+                result = await self.session.execute(stmt)
+                rows = result.fetchall()
+                
+                # Convert to domain models
+                plays = []
+                for row in rows:
+                    # Extract the track play data from the row
+                    play_data = {
+                        col.name: getattr(row, col.name)
+                        for col in self.model_class.__table__.columns
+                    }
+                    db_play = self.model_class(**play_data)
+                    plays.append(await self.mapper.to_domain(db_play))
+                
+                return plays
+                
+            elif sort_by == "title_asc":
+                # Join with tracks table for title sorting
+                stmt = (
+                    select(self.model_class)
+                    .join(DBTrack, self.model_class.track_id == DBTrack.id)
+                    .where(self.model_class.is_deleted == False)  # noqa: E712
+                    .order_by(DBTrack.title)
+                    .limit(limit)
+                )
+                
+                result = await self.session.execute(stmt)
+                db_models = result.scalars().all()
+                return [await self.mapper.to_domain(model) for model in db_models]
+                
+            elif sort_by == "random":
+                stmt = (
+                    select(self.model_class)
+                    .where(self.model_class.is_deleted == False)  # noqa: E712
+                    .order_by(func.random())
+                    .limit(limit)
+                )
+                
+                result = await self.session.execute(stmt)
+                db_models = result.scalars().all()
+                return [await self.mapper.to_domain(model) for model in db_models]
+        
+        # Use base repository for simple field sorting
+        order_by = None
+        if sort_by == "played_at_desc":
+            order_by = ("played_at", False)  # DESC
+        elif sort_by == "first_played_asc":
+            order_by = ("played_at", True)   # ASC
+        
+        return await self.find_by([], limit=limit, order_by=order_by)

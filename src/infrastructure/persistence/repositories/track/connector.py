@@ -222,13 +222,10 @@ class TrackConnectorRepository:
         self, connector: str, connector_id: str
     ) -> int | None:
         """Find connector track database ID by connector name and ID."""
-        stmt = (
-            select(DBConnectorTrack.id)
-            .filter(
-                DBConnectorTrack.connector_name == connector,
-                DBConnectorTrack.connector_track_id == connector_id,
-                DBConnectorTrack.deleted_at.is_(None),
-            )
+        stmt = select(DBConnectorTrack.id).filter(
+            DBConnectorTrack.connector_name == connector,
+            DBConnectorTrack.connector_track_id == connector_id,
+            DBConnectorTrack.deleted_at.is_(None),
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()

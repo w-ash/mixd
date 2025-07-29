@@ -1,0 +1,86 @@
+{
+  "workflow_name": "Discovery Mix - Cross-Service Composition",
+  "description": "Ultra-DRY composition: Blend liked tracks and play history for discovery - demonstrates composition flexibility",
+  "tasks": [
+    {
+      "id": "get_spotify_likes",
+      "type": "source.liked_tracks",
+      "config": {
+        "limit": 2000,
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "get_recent_plays",
+      "type": "source.played_tracks", 
+      "config": {
+        "limit": 3000,
+        "days_back": 90
+      }
+    },
+    {
+      "id": "filter_liked_gems",
+      "type": "filter.by_play_history",
+      "upstream": ["get_spotify_likes"],
+      "config": {
+        "min_plays": 2,
+        "max_plays": 10,
+        "min_days_back": 60,
+        "include_missing": true
+      }
+    },
+    {
+      "id": "filter_played_variety",
+      "type": "filter.by_play_history",
+      "upstream": ["get_recent_plays"],
+      "config": {
+        "min_plays": 1,
+        "max_plays": 15,
+        "max_days_back": 90,
+        "include_missing": false
+      }
+    },
+    {
+      "id": "combine_sources",
+      "type": "combiner.interleave_playlists",
+      "upstream": ["filter_liked_gems", "filter_played_variety"],
+      "config": {
+        "sources": ["filter_liked_gems", "filter_played_variety"]
+      }
+    },
+    {
+      "id": "deduplicate_combined",
+      "type": "filter.deduplicate",
+      "upstream": ["combine_sources"],
+      "config": {}
+    },
+    {
+      "id": "sort_for_discovery",
+      "type": "sorter.by_play_history",
+      "upstream": ["deduplicate_combined"],
+      "config": {
+        "max_days_back": 90,
+        "reverse": false
+      }
+    },
+    {
+      "id": "select_mix",
+      "type": "selector.limit_tracks",
+      "upstream": ["sort_for_discovery"],
+      "config": {
+        "count": 40,
+        "method": "random"
+      }
+    },
+    {
+      "id": "create_discovery_playlist",
+      "type": "destination.create_playlist", 
+      "upstream": ["select_mix"],
+      "config": {
+        "name": "Discovery Mix {date}",
+        "description": "Curated blend of liked tracks and recent plays ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

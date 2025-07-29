@@ -23,7 +23,7 @@ def mock_track_repository():
     return mock
 
 
-@pytest.fixture(scope="class") 
+@pytest.fixture(scope="class")
 def mock_playlist_repository():
     """Mock playlist repository for application tests."""
     mock = AsyncMock()
@@ -42,12 +42,12 @@ def mock_track_repositories(mock_track_repository):
     mock.likes = AsyncMock()
     mock.connector = AsyncMock()
     mock.checkpoints = AsyncMock()
-    
+
     # Set up common returns
     mock.plays.get_play_aggregations.return_value = {}
     mock.likes.get_unsynced_likes.return_value = []
     mock.connector.get_connector_mappings.return_value = {}
-    
+
     return mock
 
 
@@ -57,10 +57,10 @@ def mock_playlist_repositories(mock_playlist_repository):
     mock = MagicMock()
     mock.core = mock_playlist_repository
     mock.connector = AsyncMock()
-    
+
     # Set up common returns
     mock.connector.get_connector_playlists.return_value = []
-    
+
     return mock
 
 
@@ -105,7 +105,7 @@ def sample_track_for_use_case():
         title="Use Case Track",
         artists=[Artist(name="Use Case Artist")],
         duration_ms=200000,
-        connector_track_ids={"spotify": "spotify123"}
+        connector_track_ids={"spotify": "spotify123"},
     )
 
 
@@ -117,7 +117,7 @@ def sample_playlist_for_use_case(sample_track_for_use_case):
         name="Use Case Playlist",
         description="For testing use cases",
         tracks=[sample_track_for_use_case],
-        connector_playlist_ids={"spotify": "playlist123"}
+        connector_playlist_ids={"spotify": "playlist123"},
     )
 
 

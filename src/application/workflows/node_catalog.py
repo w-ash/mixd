@@ -12,7 +12,7 @@ from .node_factories import (
     make_node,
 )
 from .node_registry import node
-from .source_nodes import playlist_source
+from .source_nodes import playlist_source, source_liked_tracks, source_played_tracks
 
 # === SOURCE NODES ===
 node(
@@ -20,6 +20,19 @@ node(
     description="Fetches a playlist from any connector or canonical source with smart ID resolution",
     output_type="tracklist",
 )(playlist_source)
+
+# Ultra-DRY data source nodes for composition with existing transforms
+node(
+    "source.liked_tracks",
+    description="Retrieves liked tracks from canonical database for composition with filters/sorters",
+    output_type="tracklist",
+)(source_liked_tracks)
+
+node(
+    "source.played_tracks", 
+    description="Retrieves tracks from play history for composition with filters/sorters",
+    output_type="tracklist",
+)(source_played_tracks)
 
 # === ENRICHER NODES ===
 # LastFm enricher

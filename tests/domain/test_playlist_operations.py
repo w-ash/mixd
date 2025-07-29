@@ -24,15 +24,13 @@ class TestPlaylistEntity:
         """Test creating a playlist with valid data."""
         tracks = [
             Track(title="Song 1", artists=[Artist(name="Artist 1")]),
-            Track(title="Song 2", artists=[Artist(name="Artist 2")])
+            Track(title="Song 2", artists=[Artist(name="Artist 2")]),
         ]
-        
+
         playlist = Playlist(
-            name="My Playlist",
-            tracks=tracks,
-            description="A great playlist"
+            name="My Playlist", tracks=tracks, description="A great playlist"
         )
-        
+
         assert playlist.name == "My Playlist"
         assert playlist.tracks == tracks
         assert playlist.description == "A great playlist"
@@ -42,7 +40,7 @@ class TestPlaylistEntity:
     def test_playlist_creation_with_minimal_data(self):
         """Test creating a playlist with only required fields."""
         playlist = Playlist(name="Minimal Playlist")
-        
+
         assert playlist.name == "Minimal Playlist"
         assert playlist.tracks == []
         assert playlist.description is None
@@ -53,10 +51,10 @@ class TestPlaylistEntity:
         """Test creating new playlist with different tracks."""
         original_tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
         new_tracks = [Track(title="Song 2", artists=[Artist(name="Artist 2")])]
-        
+
         playlist = Playlist(name="Test Playlist", tracks=original_tracks)
         updated_playlist = playlist.with_tracks(new_tracks)
-        
+
         assert updated_playlist.tracks == new_tracks
         assert updated_playlist.name == "Test Playlist"  # Other fields preserved
         assert updated_playlist != playlist  # Immutability
@@ -65,46 +63,51 @@ class TestPlaylistEntity:
     def test_playlist_with_connector_playlist_id(self):
         """Test adding connector playlist ID."""
         playlist = Playlist(name="Test Playlist")
-        
-        updated_playlist = playlist.with_connector_playlist_id("spotify", "37i9dQZF1DXcBWIGoYBM5M")
-        
-        assert updated_playlist.connector_playlist_ids["spotify"] == "37i9dQZF1DXcBWIGoYBM5M"
+
+        updated_playlist = playlist.with_connector_playlist_id(
+            "spotify", "37i9dQZF1DXcBWIGoYBM5M"
+        )
+
+        assert (
+            updated_playlist.connector_playlist_ids["spotify"]
+            == "37i9dQZF1DXcBWIGoYBM5M"
+        )
         assert updated_playlist != playlist  # Immutability
         assert playlist.connector_playlist_ids == {}  # Original unchanged
 
     def test_playlist_with_multiple_connector_ids(self):
         """Test adding multiple connector IDs."""
         playlist = Playlist(name="Test Playlist")
-        
+
         playlist = playlist.with_connector_playlist_id("spotify", "spotify_id")
         playlist = playlist.with_connector_playlist_id("apple_music", "apple_id")
-        
+
         assert playlist.connector_playlist_ids["spotify"] == "spotify_id"
         assert playlist.connector_playlist_ids["apple_music"] == "apple_id"
 
     def test_playlist_with_connector_id_validation(self):
         """Test that internal connector names are rejected."""
         playlist = Playlist(name="Test Playlist")
-        
+
         # Should reject internal connector names
         with pytest.raises(ValueError, match="Cannot use 'db' as connector name"):
             playlist.with_connector_playlist_id("db", "123")
-        
+
         with pytest.raises(ValueError, match="Cannot use 'internal' as connector name"):
             playlist.with_connector_playlist_id("internal", "123")
 
     def test_playlist_with_id_validation(self):
         """Test database ID validation."""
         playlist = Playlist(name="Test Playlist")
-        
+
         # Valid ID
         updated_playlist = playlist.with_id(123)
         assert updated_playlist.id == 123
-        
+
         # Invalid IDs
         with pytest.raises(ValueError, match="Invalid database ID"):
             playlist.with_id(0)
-        
+
         with pytest.raises(ValueError, match="Invalid database ID"):
             playlist.with_id(-1)
 
@@ -118,15 +121,15 @@ class TestConnectorPlaylistEntity:
             ConnectorPlaylistItem(
                 connector_track_id="track_1",
                 position=1,
-                added_at="2023-01-01T00:00:00Z"
+                added_at="2023-01-01T00:00:00Z",
             ),
             ConnectorPlaylistItem(
                 connector_track_id="track_2",
                 position=2,
-                added_at="2023-01-02T00:00:00Z"
-            )
+                added_at="2023-01-02T00:00:00Z",
+            ),
         ]
-        
+
         playlist = ConnectorPlaylist(
             connector_name="spotify",
             connector_playlist_id="37i9dQZF1DXcBWIGoYBM5M",
@@ -137,9 +140,9 @@ class TestConnectorPlaylistEntity:
             owner_id="spotify",
             is_public=True,
             collaborative=False,
-            follower_count=1000000
+            follower_count=1000000,
         )
-        
+
         assert playlist.connector_name == "spotify"
         assert playlist.connector_playlist_id == "37i9dQZF1DXcBWIGoYBM5M"
         assert playlist.name == "Discover Weekly"
@@ -156,16 +159,16 @@ class TestConnectorPlaylistEntity:
         items = [
             ConnectorPlaylistItem(connector_track_id="track_1", position=1),
             ConnectorPlaylistItem(connector_track_id="track_2", position=2),
-            ConnectorPlaylistItem(connector_track_id="track_3", position=3)
+            ConnectorPlaylistItem(connector_track_id="track_3", position=3),
         ]
-        
+
         playlist = ConnectorPlaylist(
             connector_name="spotify",
             connector_playlist_id="test_id",
             name="Test Playlist",
-            items=items
+            items=items,
         )
-        
+
         assert playlist.track_ids == ["track_1", "track_2", "track_3"]
 
     def test_connector_playlist_defaults(self):
@@ -173,9 +176,9 @@ class TestConnectorPlaylistEntity:
         playlist = ConnectorPlaylist(
             connector_name="spotify",
             connector_playlist_id="test_id",
-            name="Test Playlist"
+            name="Test Playlist",
         )
-        
+
         assert playlist.description is None
         assert playlist.items == []
         assert playlist.owner is None
@@ -198,9 +201,9 @@ class TestConnectorPlaylistItemEntity:
             position=1,
             added_at="2023-01-01T00:00:00Z",
             added_by_id="user_123",
-            extras={"is_local": False, "is_playable": True}
+            extras={"is_local": False, "is_playable": True},
         )
-        
+
         assert item.connector_track_id == "4iV5W9uYEdYUVa79Axb7Rh"
         assert item.position == 1
         assert item.added_at == "2023-01-01T00:00:00Z"
@@ -210,11 +213,8 @@ class TestConnectorPlaylistItemEntity:
 
     def test_connector_playlist_item_defaults(self):
         """Test connector playlist item default values."""
-        item = ConnectorPlaylistItem(
-            connector_track_id="track_id",
-            position=1
-        )
-        
+        item = ConnectorPlaylistItem(connector_track_id="track_id", position=1)
+
         assert item.added_at is None
         assert item.added_by_id is None
         assert item.extras == {}
@@ -226,12 +226,9 @@ class TestPlaylistTrackEntity:
     def test_playlist_track_creation(self):
         """Test creating a playlist track."""
         track = PlaylistTrack(
-            playlist_id=1,
-            track_id=123,
-            sort_key="001",
-            added_at=datetime.now(UTC)
+            playlist_id=1, track_id=123, sort_key="001", added_at=datetime.now(UTC)
         )
-        
+
         assert track.playlist_id == 1
         assert track.track_id == 123
         assert track.sort_key == "001"
@@ -240,12 +237,8 @@ class TestPlaylistTrackEntity:
 
     def test_playlist_track_defaults(self):
         """Test playlist track default values."""
-        track = PlaylistTrack(
-            playlist_id=1,
-            track_id=123,
-            sort_key="001"
-        )
-        
+        track = PlaylistTrack(playlist_id=1, track_id=123, sort_key="001")
+
         assert track.added_at is None
         assert track.id is None
 

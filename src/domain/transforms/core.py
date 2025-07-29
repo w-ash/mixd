@@ -819,7 +819,7 @@ def filter_by_play_history(
 
     Unified filter with three clear time window modes:
     - None: No date fields = all-time play counts
-    - Absolute: start_date/end_date = ISO date strings  
+    - Absolute: start_date/end_date = ISO date strings
     - Relative: min_days_back/max_days_back = integer days from today
 
     Args:
@@ -886,7 +886,9 @@ def filter_by_play_history(
                 if effective_after.tzinfo is None:
                     effective_after = effective_after.replace(tzinfo=UTC)
             except ValueError as e:
-                raise ValueError(f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'") from e
+                raise ValueError(
+                    f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'"
+                ) from e
 
         if max_days_back is not None:
             effective_after = datetime.now(UTC) - timedelta(days=max_days_back)
@@ -896,7 +898,9 @@ def filter_by_play_history(
                 if effective_before.tzinfo is None:
                     effective_before = effective_before.replace(tzinfo=UTC)
             except ValueError as e:
-                raise ValueError(f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'") from e
+                raise ValueError(
+                    f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'"
+                ) from e
 
         # Get play data from metadata (try both nested and flat structure)
         play_counts = t.metadata.get("total_plays", {}) or t.metadata.get(
@@ -987,7 +991,7 @@ def sort_by_play_history(
     Sorts tracks based on play count within specified time windows using the same
     clear time window modes as filter_by_play_history:
     - None: No date fields = all-time play counts
-    - Absolute: start_date/end_date = ISO date strings  
+    - Absolute: start_date/end_date = ISO date strings
     - Relative: min_days_back/max_days_back = integer days from today
 
     Args:
@@ -1037,7 +1041,9 @@ def sort_by_play_history(
                 if effective_after.tzinfo is None:
                     effective_after = effective_after.replace(tzinfo=UTC)
             except ValueError as e:
-                raise ValueError(f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'") from e
+                raise ValueError(
+                    f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'"
+                ) from e
 
         if max_days_back is not None:
             effective_after = datetime.now(UTC) - timedelta(days=max_days_back)
@@ -1047,7 +1053,9 @@ def sort_by_play_history(
                 if effective_before.tzinfo is None:
                     effective_before = effective_before.replace(tzinfo=UTC)
             except ValueError as e:
-                raise ValueError(f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'") from e
+                raise ValueError(
+                    f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'"
+                ) from e
 
         # Get play data from metadata (try both nested and flat structure)
         all_play_counts = t.metadata.get("total_plays", {}) or t.metadata.get(
@@ -1095,9 +1103,7 @@ def sort_by_play_history(
 
         # Sort tracks by play count
         sorted_tracks = sorted(
-            t.tracks, 
-            key=get_play_count_for_sorting, 
-            reverse=reverse
+            t.tracks, key=get_play_count_for_sorting, reverse=reverse
         )
         result = t.with_tracks(sorted_tracks)
 

@@ -1,0 +1,58 @@
+{
+  "workflow_name": "Current Obsessions from Play History",
+  "description": "Ultra-DRY composition: Find tracks you've been playing obsessively in recent weeks",
+  "tasks": [
+    {
+      "id": "get_recent_plays",
+      "type": "source.played_tracks",
+      "config": {
+        "limit": 10000,
+        "days_back": 60
+      }
+    },
+    {
+      "id": "filter_obsessions",
+      "type": "filter.by_play_history",
+      "upstream": ["get_recent_plays"],
+      "config": {
+        "min_plays": 8,
+        "max_days_back": 30,
+        "include_missing": false
+      }
+    },
+    {
+      "id": "sort_by_frequency",
+      "type": "sorter.by_play_history",
+      "upstream": ["filter_obsessions"],
+      "config": {
+        "max_days_back": 30,
+        "reverse": true
+      }
+    },
+    {
+      "id": "deduplicate",
+      "type": "filter.deduplicate",
+      "upstream": ["sort_by_frequency"],
+      "config": {}
+    },
+    {
+      "id": "limit_top",
+      "type": "selector.limit_tracks",
+      "upstream": ["deduplicate"],
+      "config": {
+        "count": 30,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_top"],
+      "config": {
+        "name": "Current Obsessions {date}",
+        "description": "My most played tracks this month ({track_count} tracks, 8+ plays)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

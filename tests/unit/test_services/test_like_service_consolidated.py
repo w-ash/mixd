@@ -20,22 +20,22 @@ class TestLikeUseCases:
     def mock_unit_of_work(self):
         """Create mock UnitOfWork for testing."""
         uow = AsyncMock()
-        
+
         # Mock repositories (non-async getters, async methods)
         mock_like_repo = AsyncMock()
-        mock_track_repo = AsyncMock() 
+        mock_track_repo = AsyncMock()
         mock_checkpoint_repo = AsyncMock()
         mock_connector_repo = AsyncMock()
-        
+
         uow.get_like_repository = MagicMock(return_value=mock_like_repo)
         uow.get_track_repository = MagicMock(return_value=mock_track_repo)
         uow.get_checkpoint_repository = MagicMock(return_value=mock_checkpoint_repo)
         uow.get_connector_repository = MagicMock(return_value=mock_connector_repo)
-        
+
         # Mock service connector provider (non-async)
         mock_provider = MagicMock()
         uow.get_service_connector_provider = MagicMock(return_value=mock_provider)
-        
+
         return uow
 
     @pytest.fixture
@@ -69,18 +69,23 @@ class TestLikeUseCases:
         # Arrange
         mock_unit_of_work.get_service_connector_provider().get_connector.return_value = mock_spotify_connector
         mock_spotify_connector.get_liked_tracks.return_value = ([], None)
-        
+
         # Mock checkpoint operations
         from src.domain.entities import SyncCheckpoint
-        mock_checkpoint = SyncCheckpoint(user_id="test", service="spotify", entity_type="likes")
+
+        mock_checkpoint = SyncCheckpoint(
+            user_id="test", service="spotify", entity_type="likes"
+        )
         mock_unit_of_work.get_checkpoint_repository().get_sync_checkpoint.return_value = mock_checkpoint
         mock_unit_of_work.get_checkpoint_repository().save_sync_checkpoint.return_value = mock_checkpoint
-        
-        command = ImportSpotifyLikesCommand(user_id="test_user", limit=50, max_imports=100)
-        
+
+        command = ImportSpotifyLikesCommand(
+            user_id="test_user", limit=50, max_imports=100
+        )
+
         # Act
         result = await import_use_case.execute(command, mock_unit_of_work)
-        
+
         # Assert
         assert isinstance(result, OperationResult)
         assert result.operation_name == "Spotify Likes Import"
@@ -93,58 +98,71 @@ class TestLikeUseCases:
         # Arrange
         mock_unit_of_work.get_service_connector_provider().get_connector.return_value = mock_lastfm_connector
         mock_lastfm_connector.love_track.return_value = True
-        
+
         # Mock repository responses - avoid division by zero
-        mock_unit_of_work.get_like_repository().get_all_liked_tracks.return_value = [1, 2, 3]  # 3 tracks
+        mock_unit_of_work.get_like_repository().get_all_liked_tracks.return_value = [
+            1,
+            2,
+            3,
+        ]  # 3 tracks
         mock_unit_of_work.get_like_repository().get_unsynced_likes.return_value = []
-        
+
         # Mock checkpoint operations
         from src.domain.entities import SyncCheckpoint
-        mock_checkpoint = SyncCheckpoint(user_id="test", service="lastfm", entity_type="likes")
+
+        mock_checkpoint = SyncCheckpoint(
+            user_id="test", service="lastfm", entity_type="likes"
+        )
         mock_unit_of_work.get_checkpoint_repository().get_sync_checkpoint.return_value = mock_checkpoint
         mock_unit_of_work.get_checkpoint_repository().save_sync_checkpoint.return_value = mock_checkpoint
-        
-        command = ExportLastFmLikesCommand(user_id="test_user", batch_size=20, max_exports=50)
-        
+
+        command = ExportLastFmLikesCommand(
+            user_id="test_user", batch_size=20, max_exports=50
+        )
+
         # Act
         result = await export_use_case.execute(command, mock_unit_of_work)
-        
+
         # Assert
         assert isinstance(result, OperationResult)
         assert result.operation_name == "Last.fm Likes Export"
         mock_unit_of_work.__aenter__.assert_called_once()
 
-    def test_use_cases_have_no_constructor_dependencies(self, import_use_case, export_use_case):
+    def test_use_cases_have_no_constructor_dependencies(
+        self, import_use_case, export_use_case
+    ):
         """Test that use cases follow Clean Architecture with no constructor dependencies."""
         # Import use case should have no constructor dependencies
-        assert hasattr(import_use_case, 'execute')
-        assert not hasattr(import_use_case, '_dependencies')
-        
-        # Export use case should have no constructor dependencies  
-        assert hasattr(export_use_case, 'execute')
-        assert not hasattr(export_use_case, '_dependencies')
+        assert hasattr(import_use_case, "execute")
+        assert not hasattr(import_use_case, "_dependencies")
 
-    def test_use_cases_use_unit_of_work_parameter_injection(self, import_use_case, export_use_case):
+        # Export use case should have no constructor dependencies
+        assert hasattr(export_use_case, "execute")
+        assert not hasattr(export_use_case, "_dependencies")
+
+    def test_use_cases_use_unit_of_work_parameter_injection(
+        self, import_use_case, export_use_case
+    ):
         """Test that use cases use UnitOfWork parameter injection pattern."""
         import inspect
-        
+
         # Import use case should take UoW as parameter
         import_sig = inspect.signature(import_use_case.execute)
-        assert 'uow' in import_sig.parameters
-        
+        assert "uow" in import_sig.parameters
+
         # Export use case should take UoW as parameter
         export_sig = inspect.signature(export_use_case.execute)
-        assert 'uow' in export_sig.parameters
+        assert "uow" in export_sig.parameters
 
     def test_commands_are_immutable(self):
         """Test that command objects are immutable."""
         import_cmd = ImportSpotifyLikesCommand(user_id="test", limit=50)
         export_cmd = ExportLastFmLikesCommand(user_id="test", batch_size=20)
-        
+
         # Commands should be frozen (immutable)
         with pytest.raises(AttributeError):
             import_cmd.user_id = "modified"  # Should fail - frozen
-            
+
         with pytest.raises(AttributeError):
             export_cmd.user_id = "modified"  # Should fail - frozen
 
@@ -162,7 +180,7 @@ class TestOperationResultForLikeOperations:
             already_liked=100,
             candidates=57,
         )
-        
+
         assert result.operation_name == "Test Import"
         assert result.imported_count == 50
         assert result.total_processed == 57  # 50 + 5 + 2
@@ -179,7 +197,7 @@ class TestOperationResultForLikeOperations:
             already_liked=50,
             candidates=29,
         )
-        
+
         assert result.operation_name == "Test Export"
         assert result.exported_count == 25
         assert result.total_processed == 29  # 25 + 3 + 1

@@ -1,153 +1,181 @@
-# 🎯 Active Work Tracker - v0.2.6 Enhanced Playlist Naming
+# 🎯 Active Work Tracker - v0.2.7 Narada Data Source Nodes
 
 > [!info] Purpose
 > This file tracks active development work on the current epic/refactor. For strategic roadmap and completed milestones, see [[BACKLOG]].
 
-**Current Initiative**: v0.2.6 Enhanced Playlist Naming  
-**Status**: `#completed` `#playlist-naming` `#v0-2-6`  
+**Current Initiative**: v0.2.7 Narada Data Source Nodes  
+**Status**: `#not-started` `#data-sources` `#v0-2-7`  
 **Last Updated**: July 29, 2025
 
 ## Progress Overview
 
-v0.2.6 Enhanced Playlist Naming:
-- [x] **Enhanced Playlist Naming** ✅ (Completed - Ultra-DRY implementation)
+v0.2.7 Narada Data Source Nodes:
+- [ ] **Narada Data Source Nodes** 🔜 (Not Started - Current focus)
 
 ---
 
-## ✅ COMPLETED Epic: Enhanced Playlist Naming `#completed`
+## 🔜 NEW Epic: Narada Data Source Nodes `#not-started`
 
-**Effort**: Extra Small (XS) - Ultra-DRY single utility function + 2 lines in destination nodes  
-**Goal**: Add update and parameterization capability to destination nodes that create playlists for dynamic naming and descriptions
+**Effort**: Medium (M) - Cross-module feature with existing workflow system integration  
+**Goal**: Create workflow source nodes that tap directly into Narada's rich canonical track database
+
+### Ultra-DRY Architecture Decision
+
+> [!important] Composition Over Complexity
+> **Key Insight**: After analyzing `src/domain/transforms/core.py`, we already have most needed functionality:
+> - `filter_by_play_history()` - play count filtering with time windows
+> - `sort_by_play_history()` - sorting by play frequency  
+> - `filter_by_metric_range()` - metric-based filtering
+> - `select_by_method()` - track selection strategies
+>
+> **Ultra-DRY Approach**: Create simple source nodes + leverage existing transforms rather than complex source nodes with built-in filtering
+> - **Source nodes**: Thin orchestration layer that delegates to use cases
+> - **Business logic**: Lives in application use cases, not workflow nodes
+> - **Composition**: Users combine simple sources with existing transforms
+> - **Clean separation**: Workflow orchestration vs business logic boundaries respected
+
+### Revised Implementation Plan
+
+**Phase 1: Core Implementation (Ultra-DRY)**
+- [x] **Create GetLikedTracksUseCase** - Business logic for liked track retrieval
+- [x] **Create GetPlayedTracksUseCase** - Business logic for play history retrieval  
+- [x] **Create source_liked_tracks node** - Thin orchestration wrapper
+- [x] **Create source_played_tracks node** - Thin orchestration wrapper
+
+**Phase 2: Performance & Sorting Enhancement**
+- [ ] **Add repository sorting methods** - Infrastructure layer: efficient database-level sorting
+- [ ] **Update use cases with sort_by parameter** - Application layer: business logic for sorting options
+- [ ] **Update source nodes with sort_by config** - Interface layer: orchestration with sorting options
+
+**Phase 3: System Integration & Testing**
+- [x] **Register source nodes** - Add to transform registry and node catalog
+- [x] **Create example workflows** - Demonstrate composition with existing transforms
+- [ ] **Add unit tests** - Test pyramid structure for critical user paths
+- [ ] **Integration testing** - Validate source + transform combinations
 
 ### Scope & Requirements
 
-**What**: Enhanced playlist naming and description capabilities for destination workflow nodes
-- **Template Parameters**: Support parameterized playlist names (no source names - simplified)
-- **Timestamp Support**: Add ability to append date/time to names and descriptions  
-- **Metadata Insertion**: Implement track count and workflow name in descriptions
-- **Lean Implementation**: Simple string replacement, no validation (let connectors handle)
+**What**: Simple source nodes with meaningful sorting + composition with existing transforms
+- **`source.liked_tracks`**: Liked track retrieval with sorting (limit, sort_by)
+- **`source.played_tracks`**: Play history retrieval with sorting (limit, sort_by, days_back)
+- **Performance-First**: Database-level sorting with single queries, minimal joins
+- **Composition Strategy**: Users combine with existing `filter.by_play_history`, `sorter.by_play_history`, etc.
+- **Performance Safeguards**: Maximum 10,000 tracks per source, configurable limits
 
-**Why**: Users need more control over playlist naming when creating playlists through workflows, especially for automated playlist generation that should reflect source context and creation time.
+**Why**: Enable workflows based on listening history without requiring playlist containers, while leveraging existing transformation infrastructure for maximum DRY principles.
 
-### Implementation Status
+### Example Ultra-DRY Workflow Composition
 
-✅ **COMPLETED - Ultra-DRY Implementation**
-- [x] **Created template utility function** - Single `render_playlist_config_templates()` function
-- [x] **Updated destination nodes** - Added template rendering calls to both `create_playlist` and `update_playlist`
-- [x] **Verified functionality** - All template parameters work correctly with comprehensive testing
-- [x] **Created test workflow** - `template_test.json` demonstrates all template features
-- [x] **Zero architectural changes** - No Command or use case modifications needed
-
-### **Enhanced Playlist Naming Specifications**
-
-> [!info] Architecture Decision - Template-Based Naming System
-> **Design Approach**: Extend existing destination nodes with optional template-based naming
-> - **Template Syntax**: Use `{parameter}` syntax for variable substitution
-> - **Source Context**: Access source playlist metadata in templates
-> - **Timestamp Support**: Built-in date/time formatting functions
-> - **Fallback Behavior**: Graceful degradation when templates fail
-> - **Validation**: Pre-creation validation of generated names
->
-> **Supported Parameters (Simplified)**:
-> - **`{date}`**: Current date (YYYY-MM-DD format)
-> - **`{time}`**: Current time (HH:MM format)
-> - **`{datetime}`**: Combined date and time
-> - **`{track_count}`**: Number of tracks in resulting playlist
-> - **`{workflow_name}`**: Name of the workflow (if available)
->
-> **Benefits**: Flexible naming without complex configuration, clear parameter syntax, extensible for future metadata
-
-### **Example Enhanced Destination Node Configurations**
-
-**Basic Template Usage**:
+**Enhanced source nodes with sorting**:
 ```json
 {
-  "type": "destination.spotify_playlist",
+  "type": "source.liked_tracks",
   "config": {
-    "name_template": "{source_name} - Filtered ({date})",
-    "description_template": "Filtered version of '{source_name}' created on {datetime}. Contains {track_count} tracks.",
-    "connector_name": "spotify"
+    "limit": 1000,
+    "sort_by": "liked_at_desc"
   }
 }
 ```
 
-**Advanced Naming with Metadata**:
+**Composition with existing transforms**:
 ```json
 {
-  "type": "destination.spotify_playlist",
-  "config": {
-    "name_template": "Hidden Gems from {source_name}",
-    "description_template": "Rediscovered tracks from '{source_name}' - tracks with 3+ plays but not heard in 6+ months. Generated by {workflow_name} workflow on {date}.",
-    "connector_name": "spotify",
-    "validation": {
-      "max_name_length": 100,
-      "allowed_chars_only": true
+  "tasks": [
+    {
+      "type": "source.played_tracks",
+      "id": "get_plays",
+      "config": {
+        "limit": 10000, 
+        "sort_by": "total_plays_desc",
+        "days_back": 365
+      }
+    },
+    {
+      "type": "filter.by_play_history", 
+      "id": "filter_frequency",
+      "upstream": ["get_plays"],
+      "config": {
+        "min_plays": 2,
+        "max_plays": 50,
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31"
+      }
     }
-  }
+  ]
 }
 ```
 
-**Timestamp-Based Naming**:
-```json
-{
-  "type": "destination.spotify_playlist",
-  "config": {
-    "name_template": "Weekly Obsessions - {date}",
-    "description_template": "Current obsessions as of {datetime} - tracks with 8+ plays in the last 30 days.",
-    "connector_name": "spotify"
-  }
-}
-```
+### **Sorting Options (Performance-First)**
 
-**Fallback Configuration**:
-```json
-{
-  "type": "destination.spotify_playlist",
-  "config": {
-    "name_template": "{source_name} - Processed",
-    "name_fallback": "Generated Playlist",
-    "description_template": "Processed playlist from {source_name}",
-    "description_fallback": "Generated by Narada workflow",
-    "connector_name": "spotify"
-  }
-}
-```
+**`source.liked_tracks` Sort Options**:
+- `liked_at_desc` - Most recently liked first (default)
+- `liked_at_asc` - Oldest likes first
+- `title_asc` - Alphabetical by title
+- `created_at_desc` - Most recent tracks first
+- `random` - Random sampling
 
-### **Clean Architecture Implementation**
+**`source.played_tracks` Sort Options**:
+- `played_at_desc` - Most recently played first (default)
+- `total_plays_desc` - Most played tracks first  
+- `last_played_desc` - Tracks by recency of last play
+- `first_played_asc` - Discovery order
+- `title_asc` - Alphabetical by title
+- `random` - Random sampling
 
-**Template Rendering in Use Cases (Business Logic)**:
-- **Template function**: Simple `{param}` string replacement in each use case
-- **Context from business data**: Extract date/time/track_count from existing use case data
-- **Fallback to static**: If template fails, use original static name/description
-- **No validation**: Keep lean - let connectors handle name validation
+### **Benefits of Ultra-DRY Approach**
 
-**Integration Points**:
-- **Use case changes**: Add template rendering to 4 use cases before name/description usage
-- **Destination node pass-through**: Accept `name_template`/`description_template` and pass to use cases
-- **Command object extension**: Add template fields to existing Command classes
-- **Context from existing data**: Use track counts, timestamps already available in use cases
+1. **Leverage Existing Code**: Reuse battle-tested transforms from `core.py`
+2. **Simple Source Nodes**: Minimal implementation, clear responsibilities
+3. **Composition Flexibility**: Users build complex behavior from simple parts
+4. **Clean Architecture**: Business logic in use cases, orchestration in nodes
+5. **DRY Principles**: Zero duplication of filtering/sorting logic
+6. **Performance**: Existing transforms already optimized for large datasets
 
-### **Key Design Benefits**
+### **Clean Architecture Implementation Strategy**
 
-1. **Intuitive Syntax**: `{parameter}` syntax is familiar and easy to understand
-2. **Extensible Design**: Easy to add new template parameters in the future
-3. **Validation Integration**: Prevents creation of playlists with invalid names
-4. **Fallback Safety**: Always produces valid playlist names even when templates fail
-5. **Backward Compatibility**: Existing workflows continue working without changes
-6. **Rich Metadata**: Access to source context enables descriptive playlist information
+**Domain Layer** (`src/domain/`):
+- No changes needed - existing entities and repository interfaces sufficient
 
-### Files to Modify (Clean Architecture Implementation)
-- `src/application/use_cases/create_canonical_playlist.py` - **Add template rendering to Command and use case**
-- `src/application/use_cases/create_connector_playlist.py` - **Add template rendering to Command and use case**
-- `src/application/use_cases/update_canonical_playlist.py` - **Add template rendering to Command and use case**
-- `src/application/use_cases/update_connector_playlist.py` - **Add template rendering to Command and use case**
-- `src/application/workflows/destination_nodes.py` - **Pass template configs to use case Commands**
-- Workflow definition files - **Update examples to demonstrate naming features (optional)**
+**Application Layer** (`src/application/`):
+- **Use Cases**: Business logic for track retrieval with sorting parameters
+- **Workflows**: Thin orchestration nodes that delegate to use cases
 
-### Architecture Patterns (Reference)
-- Extend existing destination node patterns with optional naming configuration
-- Use template rendering system similar to existing workflow parameter handling
-- Integrate with existing playlist creation use cases for seamless functionality
-- Maintain backward compatibility with current destination node configurations
+**Infrastructure Layer** (`src/infrastructure/`):
+- **Repository Implementations**: Database-level sorting with efficient queries
+- **Performance**: Single queries with ORDER BY clauses, leveraging existing indexes
+
+**Interface Layer** (`src/interface/`):
+- **CLI Integration**: No changes needed - workflows handle everything
+
+### **Test Strategy (Pyramid Structure)**
+
+**Unit Tests (Fast, Many)**:
+- `test_get_liked_tracks_use_case.py` - Business logic validation
+- `test_get_played_tracks_use_case.py` - Business logic validation
+- Mock UnitOfWork, focus on sorting parameter validation
+
+**Integration Tests (Medium, Fewer)**:
+- `test_source_nodes_integration.py` - End-to-end source node functionality
+- Real database, validate actual data retrieval and sorting
+
+**Workflow Tests (Slow, Few)**:
+- `test_composition_workflows.py` - Critical user paths like "Hidden Gems" workflow
+- Validate source + transform composition patterns
+
+### Files to Modify (Enhanced Plan)
+
+**Phase 2 Updates**:
+- `src/domain/repositories/interfaces.py` - **Add sort_by parameters to repository protocols**
+- `src/infrastructure/persistence/repositories/track/likes.py` - **Add sorting to liked tracks queries**
+- `src/infrastructure/persistence/repositories/track/plays.py` - **Add sorting to play history queries**
+- `src/application/use_cases/get_liked_tracks.py` - **Add sort_by parameter and validation**
+- `src/application/use_cases/get_played_tracks.py` - **Add sort_by parameter and validation**
+- `src/application/workflows/source_nodes.py` - **Add sort_by config option**
+
+**Phase 3 Testing**:
+- `tests/unit/application/use_cases/test_get_liked_tracks.py` - **Unit tests**
+- `tests/unit/application/use_cases/test_get_played_tracks.py` - **Unit tests**
+- `tests/integration/test_source_nodes_integration.py` - **Integration tests**
+- `tests/integration/test_composition_workflows.py` - **Workflow tests**
 
 ---

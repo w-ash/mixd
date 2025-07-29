@@ -56,7 +56,7 @@ def tracks_with_metadata():
         ),
         Track(
             id=2,
-            title="New Track", 
+            title="New Track",
             artists=[Artist(name="Test Artist")],
             duration_ms=180000,
             release_date=datetime(2023, 6, 15, tzinfo=UTC),
@@ -90,7 +90,7 @@ def tracklist_with_metrics(tracks):
                     3: 25,
                 }
             }
-        }
+        },
     )
 
 
@@ -99,7 +99,7 @@ def playlist(tracks):
     """Basic playlist for domain tests."""
     return Playlist(
         id=1,
-        name="Test Playlist", 
+        name="Test Playlist",
         description="Test playlist description",
         tracks=tracks,
     )

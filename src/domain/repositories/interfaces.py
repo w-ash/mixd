@@ -129,9 +129,15 @@ class LikeRepositoryProtocol(Protocol):
         ...
 
     def get_all_liked_tracks(
-        self, service: str, is_liked: bool = True
+        self, service: str, is_liked: bool = True, sort_by: str | None = None
     ) -> Awaitable[list["TrackLike"]]:
-        """Get all liked tracks for a service."""
+        """Get all liked tracks for a service.
+        
+        Args:
+            service: Service to get likes from
+            is_liked: Filter by like status
+            sort_by: Optional sorting method (liked_at_desc, liked_at_asc, title_asc, random)
+        """
         ...
 
     def get_unsynced_likes(
@@ -427,8 +433,13 @@ class PlaysRepositoryProtocol(Protocol):
         """Bulk insert plays."""
         ...
 
-    def get_recent_plays(self, limit: int = 100) -> Awaitable[list["TrackPlay"]]:
-        """Get recent plays."""
+    def get_recent_plays(self, limit: int = 100, sort_by: str | None = None) -> Awaitable[list["TrackPlay"]]:
+        """Get recent plays.
+        
+        Args:
+            limit: Maximum number of plays to return
+            sort_by: Optional sorting method (played_at_desc, total_plays_desc, last_played_desc, title_asc, random)
+        """
         ...
 
     def get_play_aggregations(

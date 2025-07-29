@@ -24,13 +24,15 @@ class TestTitleSimilarity:
         assert result == 1.0
 
     def test_case_insensitive(self):
-        """Test that comparison is case-insensitive.""" 
+        """Test that comparison is case-insensitive."""
         result = calculate_title_similarity("PARANOID ANDROID", "paranoid android")
         assert result == 1.0
 
     def test_variation_markers(self):
         """Test that variation markers are detected and penalized."""
-        result = calculate_title_similarity("Paranoid Android", "Paranoid Android - Live")
+        result = calculate_title_similarity(
+            "Paranoid Android", "Paranoid Android - Live"
+        )
         assert result == CONFIDENCE_CONFIG["variation_similarity_score"]
 
         result = calculate_title_similarity("Song Title", "Song Title (Remix)")
@@ -44,7 +46,9 @@ class TestTitleSimilarity:
 
     def test_word_order_tolerance(self):
         """Test that word order differences are handled well."""
-        result = calculate_title_similarity("The Final Countdown", "Final Countdown, The")
+        result = calculate_title_similarity(
+            "The Final Countdown", "Final Countdown, The"
+        )
         assert result > 0.8  # Should be high similarity despite word order
 
 
@@ -60,12 +64,12 @@ class TestConfidenceCalculation:
         }
         service_data = {
             "title": "Test Song",
-            "artist": "Test Artist", 
+            "artist": "Test Artist",
             "duration_ms": 240000,
         }
-        
+
         confidence, evidence = calculate_confidence(internal_data, service_data, "isrc")
-        
+
         assert confidence >= 90
         assert evidence.base_score == CONFIDENCE_CONFIG["base_isrc"]
         assert evidence.final_score == confidence
@@ -82,14 +86,16 @@ class TestConfidenceCalculation:
             "artist": "Artist",
             "duration_ms": 240000,
         }
-        
-        confidence, evidence = calculate_confidence(internal_data, service_data, "artist_title")
-        
+
+        confidence, evidence = calculate_confidence(
+            internal_data, service_data, "artist_title"
+        )
+
         assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
         assert evidence.title_score < 0  # Should have penalty
 
     def test_artist_mismatch_penalty(self):
-        """Test that artist mismatches reduce confidence.""" 
+        """Test that artist mismatches reduce confidence."""
         internal_data = {
             "title": "Song",
             "artists": ["Artist A"],
@@ -100,9 +106,11 @@ class TestConfidenceCalculation:
             "artist": "Artist B",
             "duration_ms": 240000,
         }
-        
-        confidence, evidence = calculate_confidence(internal_data, service_data, "artist_title")
-        
+
+        confidence, evidence = calculate_confidence(
+            internal_data, service_data, "artist_title"
+        )
+
         assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
         assert evidence.artist_score < 0  # Should have penalty
 
@@ -114,13 +122,15 @@ class TestConfidenceCalculation:
             "duration_ms": 240000,
         }
         service_data = {
-            "title": "Song", 
+            "title": "Song",
             "artist": "Artist",
             "duration_ms": 180000,  # 60 second difference
         }
-        
-        confidence, evidence = calculate_confidence(internal_data, service_data, "artist_title")
-        
+
+        confidence, evidence = calculate_confidence(
+            internal_data, service_data, "artist_title"
+        )
+
         assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
         assert evidence.duration_score < 0  # Should have penalty
         assert evidence.duration_diff_ms == 60000
@@ -137,9 +147,11 @@ class TestConfidenceCalculation:
             "artist": "Artist",
             "duration_ms": 240000,
         }
-        
-        _confidence, evidence = calculate_confidence(internal_data, service_data, "artist_title")
-        
+
+        _confidence, evidence = calculate_confidence(
+            internal_data, service_data, "artist_title"
+        )
+
         assert evidence.duration_score == -CONFIDENCE_CONFIG["duration_missing_penalty"]
 
     def test_confidence_bounds(self):
@@ -155,10 +167,16 @@ class TestConfidenceCalculation:
             "artist": "Another Artist",
             "duration_ms": 300000,
         }
-        
-        confidence, _evidence = calculate_confidence(internal_data, service_data, "artist_title")
-        
-        assert CONFIDENCE_CONFIG["min_confidence"] <= confidence <= CONFIDENCE_CONFIG["max_confidence"]
+
+        confidence, _evidence = calculate_confidence(
+            internal_data, service_data, "artist_title"
+        )
+
+        assert (
+            CONFIDENCE_CONFIG["min_confidence"]
+            <= confidence
+            <= CONFIDENCE_CONFIG["max_confidence"]
+        )
 
 
 class TestConfidenceEvidence:
@@ -176,9 +194,9 @@ class TestConfidenceEvidence:
             duration_diff_ms=2000,
             final_score=82,
         )
-        
+
         result = evidence.as_dict()
-        
+
         assert result["base_score"] == 90
         assert result["title_score"] == -5.0
         assert result["artist_score"] == -2.5
@@ -191,7 +209,7 @@ class TestConfidenceEvidence:
     def test_immutable(self):
         """Test that ConfidenceEvidence is immutable."""
         evidence = ConfidenceEvidence(base_score=90)
-        
+
         with pytest.raises(AttributeError):
             evidence.base_score = 95  # Should not be allowed
 
@@ -202,7 +220,7 @@ class TestMatchResult:
     def test_match_result_creation(self):
         """Test creating a MatchResult."""
         evidence = ConfidenceEvidence(base_score=90, final_score=85)
-        
+
         result = MatchResult(
             track="mock_track",  # Using string for test
             success=True,
@@ -212,7 +230,7 @@ class TestMatchResult:
             service_data={"title": "Test"},
             evidence=evidence,
         )
-        
+
         assert result.success is True
         assert result.connector_id == "spotify:123"
         assert result.confidence == 85
@@ -223,6 +241,6 @@ class TestMatchResult:
     def test_immutable(self):
         """Test that MatchResult is immutable."""
         result = MatchResult(track="mock", success=True)
-        
+
         with pytest.raises(AttributeError):
             result.success = False  # Should not be allowed

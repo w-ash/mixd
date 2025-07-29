@@ -3,7 +3,6 @@
 These tests verify the pure business logic of track matching and confidence scoring.
 """
 
-
 from src.domain.matching.algorithms import (
     calculate_confidence,
     calculate_title_similarity,
@@ -25,7 +24,9 @@ class TestCalculateTitleSimilarity:
 
     def test_live_variation(self):
         """Test that live variations are detected and penalized."""
-        result = calculate_title_similarity("Paranoid Android", "Paranoid Android - Live")
+        result = calculate_title_similarity(
+            "Paranoid Android", "Paranoid Android - Live"
+        )
         assert result == 0.6  # Should detect variation marker
 
     def test_remix_variation(self):

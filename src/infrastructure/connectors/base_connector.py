@@ -142,17 +142,17 @@ class BaseAPIConnector(ABC):
 
     async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
         """Generic playlist fetcher that delegates to connector-specific methods.
-        
+
         Automatically delegates to the appropriate connector-specific method based on
         the connector_name property. This provides a consistent interface for all
         playlist-capable connectors while maintaining DRY principles.
-        
+
         Args:
             playlist_id: The service-specific ID of the playlist to retrieve
-            
+
         Returns:
             ConnectorPlaylist containing the playlist metadata and tracks
-            
+
         Raises:
             NotImplementedError: If the connector doesn't support playlist operations
         """
@@ -161,25 +161,27 @@ class BaseAPIConnector(ABC):
         if hasattr(self, method_name):
             method = getattr(self, method_name)
             return await method(playlist_id)
-        
+
         # Fallback: connector doesn't support playlists
         raise NotImplementedError(
             f"Playlist operations not supported by {self.connector_name} connector"
         )
 
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> "ConnectorTrack":
+    def convert_track_to_connector(
+        self, track_data: dict[str, Any]
+    ) -> "ConnectorTrack":
         """Generic track converter that delegates to connector-specific functions.
-        
+
         Automatically delegates to the appropriate connector-specific conversion function
         based on the connector_name property. This provides a consistent interface for
         all track conversion operations while maintaining DRY principles.
-        
+
         Args:
             track_data: Raw track data from the external service API
-            
+
         Returns:
             ConnectorTrack domain entity with standardized fields
-            
+
         Raises:
             NotImplementedError: If the connector doesn't support track conversion
         """
@@ -188,8 +190,9 @@ class BaseAPIConnector(ABC):
             from src.infrastructure.connectors.spotify import (
                 convert_spotify_track_to_connector,
             )
+
             return convert_spotify_track_to_connector(track_data)
-        
+
         # Fallback: connector doesn't support track conversion
         raise NotImplementedError(
             f"Track conversion not supported by {self.connector_name} connector"

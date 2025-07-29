@@ -34,8 +34,8 @@ def multi_artist_track():
         title="Unknown",
         artists=[
             Artist(name="Versus GT"),
-            Artist(name="Nosaj Thing"), 
-            Artist(name="Jacques Green")
+            Artist(name="Nosaj Thing"),
+            Artist(name="Jacques Green"),
         ],
     )
 
@@ -61,7 +61,7 @@ class TestLastFMMultiArtistFallback:
         """Test that single artist tracks work as before (no fallback needed)."""
         # Mock successful response on first try
         mock_lastfm_connector.get_lastfm_track_info.return_value = successful_track_info
-        
+
         # Simulate the process_track logic for single artist
         track = single_artist_track
         result = await mock_lastfm_connector.get_lastfm_track_info(
@@ -69,12 +69,12 @@ class TestLastFMMultiArtistFallback:
             track_title=track.title,
             lastfm_username=None,
         )
-        
+
         # Verify single call made and succeeded
         assert result.lastfm_url == successful_track_info.lastfm_url
         mock_lastfm_connector.get_lastfm_track_info.assert_called_once_with(
             artist_name="Single Artist",
-            track_title="Test Track", 
+            track_title="Test Track",
             lastfm_username=None,
         )
 
@@ -85,13 +85,13 @@ class TestLastFMMultiArtistFallback:
         # Mock: first artist fails, second artist succeeds
         mock_lastfm_connector.get_lastfm_track_info.side_effect = [
             LastFMTrackInfo.empty(),  # First artist fails
-            successful_track_info,    # Second artist succeeds
+            successful_track_info,  # Second artist succeeds
         ]
-        
+
         # Simulate the multi-artist fallback logic
         track = multi_artist_track
         result = None
-        
+
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
                 artist_name=artist.name,
@@ -100,11 +100,11 @@ class TestLastFMMultiArtistFallback:
             )
             if result and result.lastfm_url:
                 break
-        
+
         # Verify we found the match and made exactly 2 calls
         assert result.lastfm_url == successful_track_info.lastfm_url
         assert mock_lastfm_connector.get_lastfm_track_info.call_count == 2
-        
+
         # Verify the correct artists were tried
         calls = mock_lastfm_connector.get_lastfm_track_info.call_args_list
         assert calls[0][1]["artist_name"] == "Versus GT"
@@ -115,12 +115,14 @@ class TestLastFMMultiArtistFallback:
     ):
         """Test that when all artists fail, we get empty result."""
         # Mock: all artists fail
-        mock_lastfm_connector.get_lastfm_track_info.return_value = LastFMTrackInfo.empty()
-        
+        mock_lastfm_connector.get_lastfm_track_info.return_value = (
+            LastFMTrackInfo.empty()
+        )
+
         # Simulate the multi-artist fallback logic
         track = multi_artist_track
         result = None
-        
+
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
                 artist_name=artist.name,
@@ -129,7 +131,7 @@ class TestLastFMMultiArtistFallback:
             )
             if result and result.lastfm_url:
                 break
-        
+
         # Verify we tried all artists and got empty result
         assert not result or not result.lastfm_url
         assert mock_lastfm_connector.get_lastfm_track_info.call_count == 3
@@ -141,14 +143,14 @@ class TestLastFMMultiArtistFallback:
         # Mock: first two fail, third succeeds
         mock_lastfm_connector.get_lastfm_track_info.side_effect = [
             LastFMTrackInfo.empty(),  # First artist fails
-            LastFMTrackInfo.empty(),  # Second artist fails  
-            successful_track_info,    # Third artist succeeds
+            LastFMTrackInfo.empty(),  # Second artist fails
+            successful_track_info,  # Third artist succeeds
         ]
-        
+
         # Simulate the multi-artist fallback logic
         track = multi_artist_track
         result = None
-        
+
         for artist in track.artists:
             result = await mock_lastfm_connector.get_lastfm_track_info(
                 artist_name=artist.name,
@@ -157,11 +159,11 @@ class TestLastFMMultiArtistFallback:
             )
             if result and result.lastfm_url:
                 break
-        
+
         # Verify we found the match on third try
         assert result.lastfm_url == successful_track_info.lastfm_url
         assert mock_lastfm_connector.get_lastfm_track_info.call_count == 3
-        
+
         # Verify the last call was for third artist
         calls = mock_lastfm_connector.get_lastfm_track_info.call_args_list
         assert calls[2][1]["artist_name"] == "Jacques Green"
@@ -172,16 +174,16 @@ class TestLastFMMultiArtistFallback:
         """Test that MBID lookup succeeds and doesn't try artist fallback."""
         # Add MBID to track
         multi_artist_track.with_connector_track_id("musicbrainz", "test-mbid-123")
-        
+
         # Mock successful MBID lookup
         mock_lastfm_connector.get_lastfm_track_info.return_value = successful_track_info
-        
+
         # Simulate MBID lookup (should succeed immediately)
         result = await mock_lastfm_connector.get_lastfm_track_info(
             mbid="test-mbid-123",
             lastfm_username=None,
         )
-        
+
         # Verify MBID lookup succeeded and no artist fallback needed
         assert result.lastfm_url == successful_track_info.lastfm_url
         mock_lastfm_connector.get_lastfm_track_info.assert_called_once_with(

@@ -1,0 +1,57 @@
+{
+  "workflow_name": "Liked Tracks Hidden Gems",
+  "description": "Ultra-DRY composition: Find tracks you've liked but haven't played recently - perfect for rediscovering forgotten favorites",
+  "tasks": [
+    {
+      "id": "get_likes",
+      "type": "source.liked_tracks",
+      "config": {
+        "limit": 5000,
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_plays",
+      "type": "enricher.play_history", 
+      "upstream": ["get_likes"],
+      "config": {}
+    },
+    {
+      "id": "find_gems",
+      "type": "filter.by_play_history",
+      "upstream": ["enrich_plays"],
+      "config": {
+        "min_plays": 3,
+        "min_days_back": 180,
+        "include_missing": false
+      }
+    },
+    {
+      "id": "sort_by_age",
+      "type": "sorter.by_play_history",
+      "upstream": ["find_gems"], 
+      "config": {
+        "reverse": false
+      }
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "upstream": ["sort_by_age"],
+      "config": {
+        "count": 25,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_selection"],
+      "config": {
+        "name": "Hidden Gems {date}",
+        "description": "Tracks I loved but haven't heard in 6+ months ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

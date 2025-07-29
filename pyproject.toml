@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "narada"
-version = "0.2.5"
+version = "0.2.6"
 description = "Music metadata integration and playlist management platform"
 authors = ["Ash Wright <a@ashwright.net>"]
 homepage = "https://github.com/w-ash/narada"

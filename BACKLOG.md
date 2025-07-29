@@ -1,8 +1,8 @@
 
 # Project Narada Backlog
 
-**Current Development Version**: 0.2.5
-**Current Initiative**: Workflow Transformation Expansion
+**Current Development Version**: 0.2.7
+**Current Initiative**: Advanced Workflow Features
 
 This document is a high level overview of Project Narada's development backlog/roadmap. It's mean to primarily explain the why, at a product manager level, of our future features. It also includes high level architectural decisions, with a focus on the why of those descriptions.
 
@@ -113,61 +113,34 @@ Transform your playlists with intelligent automation. Create sophisticated workf
 - **UnitOfWork Pattern**
   - Consistent transaction boundary management across all playlist operations
 
-### v0.2.5: Workflow Transformation Expansion (In Progress)
+### v0.2.5: Workflow Transformation Expansion 
 Unlock the power of your listening history for intelligent playlist curation. Filter and sort your music based on actual listening patterns and discovery opportunities to create playlists that truly reflect your musical journey.
 
-**Completed Foundation Work**
-- **Import Quality Foundation**
-  - Added "4 minutes OR 50% duration" rule to Spotify imports for consistency with Last.fm
-  - Added incognito mode filtering to exclude non-genuine listening history
-  - Implemented `ImportConfig` with configurable play filtering thresholds
-  - Added comprehensive filtering metrics for import visibility
-- **Database Performance Foundation**
-  - Added critical indexes: `ix_track_plays_track_id`, `ix_track_plays_track_played`, `ix_track_plays_track_service`
-  - Created database migration for existing installations
-- **Import Reliability Fixes**
-  - Fixed import idempotency with unique constraint on `(track_id, service, played_at, ms_played)`
-  - Resolved track deduplication issues with exact content matching (ISRC + normalized metadata)
-  - Added NULL filtering to prevent constraint violations
+**New Features**
+- **Play History Filter and Sort Workflow Nodes**
+  - `filter.by_play_history`: Filter tracks by play count within optional time windows
+  - `sorter.by_play_history`: Sort tracks by play frequency within optional time windows
+  - Support for both relative (days back) and absolute date ranges
 
-**In Progress**
-- **Play History Filter and Sort**
-  - Two new workflow nodes for intelligent track selection based on listening patterns
-  - Time-based filtering (relative and absolute date ranges)
-  - Discovery workflow templates for "hidden gems", "current obsessions", etc.
+**Architecture Improvements**
+- **Foundation Work Completed**
+  - **Import Quality Foundation**: Added "4 minutes OR 50% duration" rule to Spotify imports for consistency with Last.fm, added incognito mode filtering, implemented configurable play filtering thresholds
+  - **Database Performance Foundation**: Added critical indexes (`ix_track_plays_track_id`, `ix_track_plays_track_played`, `ix_track_plays_track_service`) for efficient play history queries
+  - **Import Reliability Fixes**: Fixed import idempotency with unique constraints, resolved track deduplication with exact content matching (ISRC + normalized metadata)
+
+### v0.2.6: Enhanced Playlist Naming 
+Transform playlist organization with intelligent dynamic naming that adapts to your workflow automation needs.
+
+**New Features**
+- **Template-Based Playlist Naming**
+  - Dynamic playlist names and descriptions using `{parameter}` syntax
+  - Template parameters: `{track_count}`, `{date}`, `{time}`, `{datetime}`
+  - Support for both `destination.create_playlist` and `destination.update_playlist` nodes
 ---
 
 ## Planned Roadmap 🚀
 
-### v0.2.5: Workflow Transformation Expansion (Continued)
-Complete the workflow transformation capabilities with remaining features for advanced playlist curation.
-
-- [ ] **Play History Filter and Sort (Remaining Work)**
-    - Status: 🔄 In Progress
-    - Effort: M
-    - What: Complete implementation of workflow nodes for play count analysis and time-based filtering
-    - Why: Enable users to create playlists based on listening patterns like "hidden gems" or "current obsessions"
-    - Dependencies: Foundation work completed
-    - Notes:
-        - **Remaining Tasks**: Implement `filter.by_play_history` and `sorter.by_play_history` workflow nodes
-        - **Discovery Templates**: Create pre-built workflow templates for common use cases
-        - **Architecture**: Extend existing TRANSFORM_REGISTRY with new node types
-
-- [ ] **Enhanced Playlist Naming**
-    - Status: 🔜 Not Started
-    - Effort: M
-    - What: Add update and parameterization capability to destination nodes that create playlists
-    - Why: Enable dynamic playlist naming and descriptions
-    - Dependencies: None
-    - Notes:
-        - Support template parameters in playlist names
-        - Allow using source playlist names in new playlist names/descriptions
-        - Add the ability to append date/time to names and descriptions
-        - Implement metadata insertion into descriptions
-        - Add validation to prevent invalid characters
-    
-
-### v0.2.6: Advanced Workflow Features
+### v0.2.7: Advanced Workflow Features
 Extend workflow capabilities with sophisticated transformation and analysis features.
 
 - [ ] **Narada Data Source Nodes**
@@ -175,7 +148,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Effort: M
     - What: Create workflow source nodes that tap directly into Narada's rich canonical track database
     - Why: Enable workflows based on listening history and preferences without requiring playlist containers
-    - Dependencies: v0.2.5 completion (play history foundation)
+    - Dependencies: v0.2.6 completion (Enhanced Playlist Naming foundation)
     - Notes:
         - **`source.liked_tracks`**: Access liked tracks across all services with optional connector filtering
         - **`source.played_tracks`**: Source tracks from play history with time range and frequency filters
@@ -188,7 +161,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Effort: M
     - What: Implement additional transformer nodes for workflow system
     - Why: More transformation options enable more powerful workflows
-    - Dependencies: v0.2.5 completion
+    - Dependencies: v0.2.6 completion (Enhanced Playlist Naming foundation)
     - Notes:
         - Implement combining operations with different strategies
             - mix in, etc

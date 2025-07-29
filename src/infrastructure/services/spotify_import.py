@@ -357,27 +357,8 @@ class SpotifyImportService(BaseImportService):
     ) -> OperationResult:
         """Override to include Spotify-specific metrics using ResultFactory."""
         _ = track_plays  # Used in resolution results processing below
-        # Collect affected tracks from resolution results
+        # Don't create placeholder tracks for import operations - track details aren't meaningful for play imports
         affected_tracks = []
-        if hasattr(self, "_resolution_results"):
-            # Get unique tracks that were affected by this import
-            unique_track_ids = {
-                resolution.track_id
-                for resolution in self._resolution_results.values()
-                if resolution.track_id is not None
-            }
-
-            # Create minimal Track objects with just IDs for affected tracks
-            from src.domain.entities import Artist, Track
-
-            affected_tracks = [
-                Track(
-                    title="Imported Track",
-                    artists=[Artist(name="Unknown")],
-                    id=track_id,
-                )
-                for track_id in unique_track_ids
-            ]
 
         # Calculate error count from failed imports
         error_count = (

@@ -34,13 +34,13 @@ class TestPlaylistRepository:
         repo.session.flush = AsyncMock()
         repo.session.commit = AsyncMock()
         repo.session.rollback = AsyncMock()
-        
+
         # Mock the transaction helper - since save_playlist uses execute_transaction
         # we need to mock the transaction infrastructure
         repo.execute_transaction = AsyncMock(return_value=playlist)
-        
+
         result = await repo.save_playlist(playlist)
-        
+
         assert result.name == "Test Playlist"
         assert len(result.tracks) == 3
 
@@ -49,10 +49,10 @@ class TestPlaylistRepository:
         """Should find playlist by name using find_by method."""
         # Mock find_by to return the playlist
         repo.find_by = AsyncMock(return_value=[playlist])
-        
+
         result_list = await repo.find_by({"name": "Test Playlist"})
         result = result_list[0] if result_list else None
-        
+
         assert result is not None
         assert result.name == "Test Playlist"
 
@@ -61,7 +61,7 @@ class TestPlaylistRepository:
         """Should return empty list when playlist not found."""
         # Mock find_by to return empty list
         repo.find_by = AsyncMock(return_value=[])
-        
+
         result_list = await repo.find_by({"name": "Nonexistent Playlist"})
-        
+
         assert result_list == []

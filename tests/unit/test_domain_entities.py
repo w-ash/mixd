@@ -39,9 +39,9 @@ class TestTrackEntities:
             artists=[artist],
             album="Hey Jude",
             duration_ms=420000,
-            isrc="GBUM71505078"
+            isrc="GBUM71505078",
         )
-        
+
         assert track.title == "Hey Jude"
         assert len(track.artists) == 1
         assert track.artists[0].name == "The Beatles"
@@ -53,7 +53,7 @@ class TestTrackEntities:
         """Test setting track ID."""
         artist = Artist(name="Artist")
         track = Track(title="Song", artists=[artist])
-        
+
         track_with_id = track.with_id(123)
         assert track_with_id.id == 123
         assert track.id is None  # Original unchanged
@@ -62,19 +62,24 @@ class TestTrackEntities:
         """Test adding connector ID to track."""
         artist = Artist(name="Artist")
         track = Track(title="Song", artists=[artist])
-        
-        track_with_spotify = track.with_connector_track_id("spotify", "4uLU6hMCjMI75M1A2tKUQC")
-        assert track_with_spotify.connector_track_ids["spotify"] == "4uLU6hMCjMI75M1A2tKUQC"
+
+        track_with_spotify = track.with_connector_track_id(
+            "spotify", "4uLU6hMCjMI75M1A2tKUQC"
+        )
+        assert (
+            track_with_spotify.connector_track_ids["spotify"]
+            == "4uLU6hMCjMI75M1A2tKUQC"
+        )
         assert track.connector_track_ids == {}  # Original unchanged
 
     def test_track_like_status(self):
         """Test track like status management."""
         artist = Artist(name="Artist")
         track = Track(title="Song", artists=[artist])
-        
+
         # Initially not liked
         assert not track.is_liked_on("spotify")
-        
+
         # Set liked
         timestamp = datetime.now(UTC)
         liked_track = track.with_like_status("spotify", True, timestamp)
@@ -85,7 +90,7 @@ class TestTrackEntities:
         """Test creating a TrackList."""
         artist = Artist(name="Artist")
         tracks = [Track(title=f"Song {i}", artists=[artist]) for i in range(3)]
-        
+
         track_list = TrackList(tracks=tracks, metadata={"source": "test"})
         assert len(track_list.tracks) == 3
         assert track_list.metadata["source"] == "test"
@@ -95,10 +100,10 @@ class TestTrackEntities:
         artist = Artist(name="Artist")
         original_tracks = [Track(title="Song 1", artists=[artist])]
         new_tracks = [Track(title="Song 2", artists=[artist])]
-        
+
         track_list = TrackList(tracks=original_tracks)
         new_track_list = track_list.with_tracks(new_tracks)
-        
+
         assert len(track_list.tracks) == 1  # Original unchanged
         assert len(new_track_list.tracks) == 1
         assert new_track_list.tracks[0].title == "Song 2"
@@ -111,13 +116,11 @@ class TestPlaylistEntities:
         """Test creating a Playlist."""
         artist = Artist(name="Artist")
         tracks = [Track(title="Song", artists=[artist])]
-        
+
         playlist = Playlist(
-            name="My Playlist",
-            tracks=tracks,
-            description="Test playlist"
+            name="My Playlist", tracks=tracks, description="Test playlist"
         )
-        
+
         assert playlist.name == "My Playlist"
         assert len(playlist.tracks) == 1
         assert playlist.description == "Test playlist"
@@ -125,18 +128,23 @@ class TestPlaylistEntities:
     def test_playlist_with_connector_id(self):
         """Test adding connector ID to playlist."""
         playlist = Playlist(name="Test Playlist")
-        
-        playlist_with_spotify = playlist.with_connector_playlist_id("spotify", "37i9dQZF1DX0XUsuxWHRQd")
-        assert playlist_with_spotify.connector_playlist_ids["spotify"] == "37i9dQZF1DX0XUsuxWHRQd"
+
+        playlist_with_spotify = playlist.with_connector_playlist_id(
+            "spotify", "37i9dQZF1DX0XUsuxWHRQd"
+        )
+        assert (
+            playlist_with_spotify.connector_playlist_ids["spotify"]
+            == "37i9dQZF1DX0XUsuxWHRQd"
+        )
         assert playlist.connector_playlist_ids == {}  # Original unchanged
 
     def test_playlist_connector_id_validation(self):
         """Test that internal connector names are rejected."""
         playlist = Playlist(name="Test Playlist")
-        
+
         with pytest.raises(ValueError):
             playlist.with_connector_playlist_id("db", "123")
-            
+
         with pytest.raises(ValueError):
             playlist.with_connector_playlist_id("internal", "123")
 
@@ -145,9 +153,9 @@ class TestPlaylistEntities:
         item = ConnectorPlaylistItem(
             connector_track_id="4uLU6hMCjMI75M1A2tKUQC",
             position=1,
-            added_at="2023-01-01T00:00:00Z"
+            added_at="2023-01-01T00:00:00Z",
         )
-        
+
         assert item.connector_track_id == "4uLU6hMCjMI75M1A2tKUQC"
         assert item.position == 1
         assert item.added_at == "2023-01-01T00:00:00Z"
@@ -159,15 +167,13 @@ class TestOperationEntities:
     def test_sync_checkpoint(self):
         """Test SyncCheckpoint creation and updates."""
         checkpoint = SyncCheckpoint(
-            user_id="user123",
-            service="spotify",
-            entity_type="likes"
+            user_id="user123", service="spotify", entity_type="likes"
         )
-        
+
         assert checkpoint.user_id == "user123"
         assert checkpoint.service == "spotify"
         assert checkpoint.entity_type == "likes"
-        
+
         # Test update
         timestamp = datetime.now(UTC)
         updated = checkpoint.with_update(timestamp, "cursor123")
@@ -184,9 +190,9 @@ class TestOperationEntities:
             played_at=played_at,
             service="spotify",
             album_name="Album",
-            ms_played=240000
+            ms_played=240000,
         )
-        
+
         assert record.artist_name == "Artist"
         assert record.track_name == "Song"
         assert record.played_at == played_at
@@ -202,11 +208,11 @@ class TestOperationEntities:
             track_name="Song",
             played_at=played_at,
             service="spotify",
-            ms_played=240000
+            ms_played=240000,
         )
-        
+
         track_play = record.to_track_play(track_id=123, import_batch_id="batch1")
-        
+
         assert track_play.track_id == 123
         assert track_play.service == "spotify"
         assert track_play.played_at == played_at
@@ -222,15 +228,15 @@ class TestOperationEntities:
             TrackContextFields.ARTIST_NAME: "Artist Name",
             TrackContextFields.ALBUM_NAME: "Album Name",
         }
-        
+
         track_play = TrackPlay(
             track_id=123,
             service="spotify",
             played_at=datetime.now(UTC),
             ms_played=240000,
-            context=context
+            context=context,
         )
-        
+
         metadata = track_play.to_track_metadata()
         assert metadata["title"] == "Song Title"
         assert metadata["artist"] == "Artist Name"
@@ -244,15 +250,15 @@ class TestOperationEntities:
             TrackContextFields.ARTIST_NAME: "Artist Name",
             TrackContextFields.ALBUM_NAME: "Album Name",
         }
-        
+
         track_play = TrackPlay(
             track_id=123,
             service="spotify",
             played_at=datetime.now(UTC),
             ms_played=240000,
-            context=context
+            context=context,
         )
-        
+
         track = track_play.to_track()
         assert track.title == "Song Title"
         assert track.artists[0].name == "Artist Name"
@@ -263,19 +269,19 @@ class TestOperationEntities:
     def test_operation_result(self):
         """Test OperationResult creation and methods."""
         artist = Artist(name="Artist")
-        tracks = [Track(title="Song 1", artists=[artist]).with_id(1),
-                  Track(title="Song 2", artists=[artist]).with_id(2)]
-        
+        tracks = [
+            Track(title="Song 1", artists=[artist]).with_id(1),
+            Track(title="Song 2", artists=[artist]).with_id(2),
+        ]
+
         result = OperationResult(
-            tracks=tracks,
-            operation_name="test_operation",
-            execution_time=1.5
+            tracks=tracks, operation_name="test_operation", execution_time=1.5
         )
-        
+
         assert len(result.tracks) == 2
         assert result.operation_name == "test_operation"
         assert result.execution_time == 1.5
-        
+
         # Test metrics
         metrics = {1: "processed", 2: "processed"}
         updated_result = result.with_metric("status", metrics)
@@ -292,15 +298,18 @@ class TestOperationEntities:
             album_name="Album",
             lastfm_track_url="https://last.fm/track/123",
             mbid="123-456-789",
-            loved=True
+            loved=True,
         )
-        
+
         assert record.artist_name == "Artist"
         assert record.track_name == "Song"
         assert record.played_at == scrobbled_at
         assert record.service == "lastfm"
         assert record.album_name == "Album"
-        assert record.service_metadata[TrackContextFields.LASTFM_TRACK_URL] == "https://last.fm/track/123"
+        assert (
+            record.service_metadata[TrackContextFields.LASTFM_TRACK_URL]
+            == "https://last.fm/track/123"
+        )
         assert record.service_metadata["mbid"] == "123-456-789"
         assert record.service_metadata["loved"] is True
 
@@ -312,12 +321,12 @@ class TestSharedUtilities:
         """Test UTC timezone enforcement."""
         # Test None input
         assert ensure_utc(None) is None
-        
+
         # Test naive datetime
         naive_dt = datetime(2023, 1, 1, 12, 0, 0)
         utc_dt = ensure_utc(naive_dt)
         assert utc_dt.tzinfo == UTC
-        
+
         # Test already UTC datetime
         already_utc = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         result = ensure_utc(already_utc)
@@ -331,20 +340,20 @@ class TestEntityImmutability:
         """Test Track immutability."""
         artist = Artist(name="Artist")
         track = Track(title="Song", artists=[artist])
-        
+
         with pytest.raises(AttributeError):
             track.title = "New Title"
 
     def test_artist_immutable(self):
         """Test Artist immutability."""
         artist = Artist(name="Artist")
-        
+
         with pytest.raises(AttributeError):
             artist.name = "New Name"
 
     def test_playlist_immutable(self):
         """Test Playlist immutability."""
         playlist = Playlist(name="Playlist")
-        
+
         with pytest.raises(AttributeError):
             playlist.name = "New Name"

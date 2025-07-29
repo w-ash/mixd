@@ -26,7 +26,7 @@ class TestTrackMapper:
         """Test basic DBTrack → Track conversion."""
         # Execute conversion
         domain_track = await TrackMapper.to_domain(persisted_db_track)
-        
+
         # Verify basic fields
         assert isinstance(domain_track, Track)
         assert domain_track.id is not None, "Persisted track should have database ID"
@@ -34,7 +34,7 @@ class TestTrackMapper:
         assert domain_track.album.startswith("Persisted Album")
         assert domain_track.duration_ms == 180000
         assert domain_track.isrc.startswith("PERSIST")
-        
+
         # Verify artists conversion
         assert len(domain_track.artists) == 1
         assert isinstance(domain_track.artists[0], Artist)
@@ -44,15 +44,15 @@ class TestTrackMapper:
     async def test_db_track_to_domain_connector_ids(self, persisted_db_track):
         """Test connector track IDs are properly extracted."""
         domain_track = await TrackMapper.to_domain(persisted_db_track)
-        
+
         # Verify connector track IDs include database ID
         assert "db" in domain_track.connector_track_ids
         assert domain_track.connector_track_ids["db"] == str(persisted_db_track.id)
-        
+
         # Verify direct connector IDs from DBTrack fields
         assert "spotify" in domain_track.connector_track_ids
         assert domain_track.connector_track_ids["spotify"].startswith("spotify_")
-        
+
         assert "musicbrainz" in domain_track.connector_track_ids
         assert domain_track.connector_track_ids["musicbrainz"].startswith("mbid-")
 
@@ -64,9 +64,9 @@ class TestTrackMapper:
             id=1,
             title="Test Track",
             artists={"names": ["Test Artist"]},
-            spotify_id="spotify123"
+            spotify_id="spotify123",
         )
-        
+
         # Create connector track and mapping
         connector_track = DBConnectorTrack(
             id=10,
@@ -74,17 +74,17 @@ class TestTrackMapper:
             connector_track_id="lastfm_track_123",
             title="Test Track",
             artists={"names": ["Test Artist"]},
-            raw_metadata={"lastfm_playcount": 1000}
+            raw_metadata={"lastfm_playcount": 1000},
         )
-        
+
         mapping = DBTrackMapping(
             id=1,
             track_id=1,
             connector_track_id=10,
             match_method="artist_title",
-            confidence=95
+            confidence=95,
         )
-        
+
         # Set up relationships (simulating eager loading)
         mapping.connector_track = connector_track
         db_track.mappings = [mapping]
@@ -92,10 +92,10 @@ class TestTrackMapper:
         db_track.metrics = []
         db_track.plays = []
         db_track.playlist_tracks = []
-        
+
         # Execute conversion
         domain_track = await TrackMapper.to_domain(db_track)
-        
+
         # Verify connector mapping was processed
         assert "lastfm" in domain_track.connector_track_ids
         assert domain_track.connector_track_ids["lastfm"] == "lastfm_track_123"
@@ -106,30 +106,26 @@ class TestTrackMapper:
     async def test_db_track_with_likes(self):
         """Test DBTrack with track likes in connector metadata."""
         # Create DBTrack with like
-        db_track = DBTrack(
-            id=1,
-            title="Liked Track",
-            artists={"names": ["Artist"]}
-        )
-        
+        db_track = DBTrack(id=1, title="Liked Track", artists={"names": ["Artist"]})
+
         like = DBTrackLike(
             id=1,
             track_id=1,
             service="spotify",
             is_liked=True,
-            liked_at=datetime(2023, 1, 1, tzinfo=UTC)
+            liked_at=datetime(2023, 1, 1, tzinfo=UTC),
         )
-        
+
         # Set up relationships
         db_track.mappings = []
         db_track.likes = [like]
         db_track.metrics = []
         db_track.plays = []
         db_track.playlist_tracks = []
-        
+
         # Execute conversion
         domain_track = await TrackMapper.to_domain(db_track)
-        
+
         # Verify like data in connector metadata
         assert "spotify" in domain_track.connector_metadata
         spotify_meta = domain_track.connector_metadata["spotify"]
@@ -142,18 +138,18 @@ class TestTrackMapper:
         """Test Track → DBTrack conversion."""
         # Execute conversion
         db_track = TrackMapper.to_db(persisted_track)
-        
+
         # Verify basic fields
         assert isinstance(db_track, DBTrack)
         # Note: ID is not preserved in to_db conversion - handled by database
         assert db_track.title == "Home"
-        assert db_track.album == "2" 
+        assert db_track.album == "2"
         assert db_track.duration_ms == 210000
         assert db_track.isrc == "USWB11300001"
-        
+
         # Verify artists conversion
         assert db_track.artists == {"names": ["Mac DeMarco"]}
-        
+
         # Verify connector IDs are extracted
         assert db_track.spotify_id == "4jbmgIyjGoXjY01XxatOx6"
 
@@ -162,10 +158,10 @@ class TestTrackMapper:
         """Test DBTrack → Track → DBTrack round trip conversion."""
         # Execute: DBTrack → Track
         domain_track = await TrackMapper.to_domain(db_track_with_relationships)
-        
+
         # Execute: Track → DBTrack
         converted_db_track = TrackMapper.to_db(domain_track)
-        
+
         # Verify: Round trip preserves core data (except ID which is database-managed)
         # Note: ID not compared as to_db doesn't preserve ID
         assert converted_db_track.title == db_track_with_relationships.title
@@ -180,7 +176,7 @@ class TestTrackMapper:
         """Test mapper handles None input gracefully."""
         # Execute: Convert None
         result = await TrackMapper.to_domain(None)
-        
+
         # Verify: Returns None
         assert result is None
 
@@ -189,9 +185,7 @@ class TestTrackMapper:
         """Test mapper handles DBTrack with minimal required fields."""
         # Create minimal DBTrack
         minimal_db_track = DBTrack(
-            id=1,
-            title="Minimal Track",
-            artists={"names": ["Artist"]}
+            id=1, title="Minimal Track", artists={"names": ["Artist"]}
         )
         # Set empty relationships
         minimal_db_track.mappings = []
@@ -199,10 +193,10 @@ class TestTrackMapper:
         minimal_db_track.metrics = []
         minimal_db_track.plays = []
         minimal_db_track.playlist_tracks = []
-        
+
         # Execute conversion
         domain_track = await TrackMapper.to_domain(minimal_db_track)
-        
+
         # Verify: Conversion succeeds with defaults
         assert isinstance(domain_track, Track)
         assert domain_track.id == 1
@@ -217,16 +211,16 @@ class TestTrackMapper:
         """Test mapper follows Clean Architecture conversion patterns."""
         # Execute conversion
         domain_track = await TrackMapper.to_domain(persisted_db_track)
-        
+
         # Verify: Domain entity is immutable (attrs frozen)
         with pytest.raises(Exception):  # attrs.exceptions.FrozenInstanceError
             domain_track.title = "Modified Title"
-        
+
         # Verify: Domain entity has no database-specific concerns
         assert not hasattr(domain_track, "created_at")
         assert not hasattr(domain_track, "updated_at")
         assert not hasattr(domain_track, "is_deleted")
-        
+
         # Verify: Database ID properly set for workflow compliance
         assert domain_track.id is not None
         assert isinstance(domain_track.id, int)
