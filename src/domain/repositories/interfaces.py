@@ -42,18 +42,17 @@ if TYPE_CHECKING:
         async def update_playlist_metadata(
             self, playlist_id: str, metadata: dict[str, Any]
         ) -> dict[str, Any]: ...
-        async def get_playlist_details(
-            self, playlist_id: str
-        ) -> dict[str, Any]: ...
+        async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]: ...
         async def create_playlist(
             self, name: str, tracks: list["Track"], description: str | None = None
         ) -> str: ...
         async def execute_playlist_operations(
-            self, playlist_id: str, operations: list[Any], snapshot_id: str | None = None
+            self,
+            playlist_id: str,
+            operations: list[Any],
+            snapshot_id: str | None = None,
         ) -> str | None: ...
-        async def get_playlist_metadata(
-            self, playlist_id: str
-        ) -> dict[str, Any]: ...
+        async def get_playlist_metadata(self, playlist_id: str) -> dict[str, Any]: ...
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -100,10 +99,10 @@ class PlaylistRepositoryProtocol(Protocol):
 
     def delete_playlist(self, playlist_id: int) -> Awaitable[bool]:
         """Delete playlist by ID.
-        
+
         Args:
             playlist_id: Internal playlist ID to delete
-            
+
         Returns:
             True if playlist was deleted, False if it didn't exist
         """
@@ -179,6 +178,12 @@ class ConnectorRepositoryProtocol(Protocol):
         self, connector: str, connector_id: str
     ) -> Awaitable["Track | None"]:
         """Find track by connector ID."""
+        ...
+
+    def find_connector_track_id(
+        self, connector: str, connector_id: str
+    ) -> Awaitable["int | None"]:
+        """Find connector track database ID by connector name and ID."""
         ...
 
     def ingest_external_track(
@@ -326,6 +331,25 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def set_primary_mapping(
+        self, track_id: int, connector_track_id: int, connector_name: str
+    ) -> Awaitable[bool]:
+        """Set the primary mapping for a track-connector pair.
+
+        This method handles Spotify track relinking and other scenarios where
+        multiple connector tracks map to the same canonical track. It ensures
+        only one mapping per (track_id, connector_name) is marked as primary.
+
+        Args:
+            track_id: Internal canonical track ID
+            connector_track_id: Database ID of the connector track (not external ID)
+            connector_name: Name of the connector (e.g., "spotify")
+
+        Returns:
+            True if the primary mapping was successfully updated, False otherwise
+        """
+        ...
+
 
 class ConnectorPlaylistRepositoryProtocol(Protocol):
     """Repository interface for connector playlist operations."""
@@ -334,10 +358,10 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
         self, connector_playlist: "ConnectorPlaylist"
     ) -> Awaitable["ConnectorPlaylist"]:
         """Upsert a connector playlist directly from a domain model.
-        
+
         Args:
             connector_playlist: ConnectorPlaylist domain model to upsert
-            
+
         Returns:
             Updated ConnectorPlaylist model
         """
@@ -347,11 +371,11 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
         self, connector: str, connector_id: str
     ) -> Awaitable["ConnectorPlaylist | None"]:
         """Get connector playlist by connector and external ID.
-        
+
         Args:
             connector: Connector name (e.g., "spotify")
             connector_id: External playlist ID
-            
+
         Returns:
             ConnectorPlaylist if found, None otherwise
         """
@@ -383,13 +407,13 @@ class MetricsRepositoryProtocol(Protocol):
         max_age_hours: float = 24.0,
     ) -> Awaitable[dict[int, "Any"]]:
         """Get cached metrics with TTL awareness.
-        
+
         Args:
             track_ids: List of track IDs to get metrics for
             metric_type: Type of metric to retrieve
             connector: Connector that provided the metrics
             max_age_hours: Maximum age of metrics to accept (in hours)
-            
+
         Returns:
             Dictionary mapping track IDs to their metric values
         """
@@ -543,7 +567,9 @@ class UnitOfWorkProtocol(Protocol):
         """Get service connector provider for accessing music service connectors."""
         ...
 
-    def get_connector_playlist_repository(self) -> "ConnectorPlaylistRepositoryProtocol":
+    def get_connector_playlist_repository(
+        self,
+    ) -> "ConnectorPlaylistRepositoryProtocol":
         """Get connector playlist repository for playlist-related operations."""
         ...
 

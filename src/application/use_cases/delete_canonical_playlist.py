@@ -19,12 +19,14 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class DeleteCanonicalPlaylistCommand:
     """Command for deleting a canonical playlist.
-    
+
     Encapsulates the identifier and options for deleting a playlist.
     """
 
     playlist_id: str
-    force_delete: bool = False  # Whether to delete even if playlist has external connections
+    force_delete: bool = (
+        False  # Whether to delete even if playlist has external connections
+    )
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
@@ -67,7 +69,7 @@ class DeleteCanonicalPlaylistResult:
 class DeleteCanonicalPlaylistUseCase:
     """Use case for deleting canonical (internal) playlists.
 
-    Handles pure database delete operations following Clean Architecture 
+    Handles pure database delete operations following Clean Architecture
     principles with UnitOfWork pattern:
     - No constructor dependencies (pure domain layer)
     - All repository access through UnitOfWork parameter
@@ -105,7 +107,7 @@ class DeleteCanonicalPlaylistUseCase:
             try:
                 # Step 1: Get current playlist to ensure it exists and collect metadata
                 playlist = await self._get_playlist(command.playlist_id, uow)
-                
+
                 # Step 2: Check for external connections and warn if needed
                 warnings = []
                 if playlist.connector_playlist_ids and not command.force_delete:
@@ -114,7 +116,7 @@ class DeleteCanonicalPlaylistUseCase:
                         f"Playlist is connected to external services: {connected_services}. "
                         "Use force_delete=True to delete anyway."
                     )
-                    
+
                     # For now, we'll proceed but log the warning
                     # In the future, this could be a configurable behavior
                     logger.warning(
@@ -126,8 +128,10 @@ class DeleteCanonicalPlaylistUseCase:
                 # Step 3: Collect metadata before deletion
                 playlist_id = playlist.id
                 if playlist_id is None:
-                    raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
-                    
+                    raise ValueError(
+                        "Playlist has no ID - cannot delete unsaved playlist"
+                    )
+
                 playlist_name = playlist.name
                 tracks_count = len(playlist.tracks)
 
@@ -135,9 +139,11 @@ class DeleteCanonicalPlaylistUseCase:
                 # Note: We're not deleting the tracks themselves as they might be used in other playlists
                 playlist_repo = uow.get_playlist_repository()
                 deletion_successful = await playlist_repo.delete_playlist(playlist_id)
-                
+
                 if not deletion_successful:
-                    raise ValueError(f"Failed to delete playlist {playlist_id} - it may not exist")
+                    raise ValueError(
+                        f"Failed to delete playlist {playlist_id} - it may not exist"
+                    )
 
                 # Step 5: Commit transaction
                 await uow.commit()

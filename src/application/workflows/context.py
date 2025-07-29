@@ -232,10 +232,9 @@ class ConcreteWorkflowContext:
         from src.infrastructure.persistence.repositories.factories import (
             get_unit_of_work,
         )
-        
+
         # Get session from session provider
         async with self.session_provider.get_session() as session:
-
             # Create UnitOfWork from session
             uow = get_unit_of_work(session)
 

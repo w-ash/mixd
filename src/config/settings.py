@@ -107,10 +107,10 @@ class BatchConfig(BaseModel):
 class ImportConfig(BaseModel):
     """Import processing and data quality configuration."""
 
-    # Play filtering thresholds 
+    # Play filtering thresholds
     play_threshold_ms: int = 240000  # 4 minutes fallback threshold
     play_threshold_percentage: float = 0.5  # 50% of track duration
-    
+
     # Import batch processing
     import_batch_size: int = 1000
     import_progress_frequency: int = 100

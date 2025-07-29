@@ -359,20 +359,22 @@ class SpotifyPlayResolver:
                         failure_reason = None
                     else:
                         # Try to find existing canonical track by exact content matching
-                        existing_canonical_track_id = await self._find_canonical_track_by_exact_content(
-                            spotify_data
+                        existing_canonical_track_id = (
+                            await self._find_canonical_track_by_exact_content(
+                                spotify_data
+                            )
                         )
-                        
+
                         if existing_canonical_track_id:
                             # Found existing canonical track - create connector mapping to it
                             internal_track_id = existing_canonical_track_id
                             failure_reason = None
-                            
+
                             # Create connector track and mapping for this Spotify ID
                             await self._create_connector_mapping_for_existing_track(
                                 existing_canonical_track_id, track_id, spotify_data
                             )
-                            
+
                             logger.info(
                                 f"Reused existing canonical track {existing_canonical_track_id} for Spotify ID {track_id}"
                             )
@@ -383,6 +385,49 @@ class SpotifyPlayResolver:
                                 failure_reason,
                             ) = await self._create_track_from_spotify_data(
                                 track_id, spotify_data
+                            )
+
+                    # Handle Spotify track relinking - set primary mapping
+                    if linked_from and internal_track_id and not failure_reason:
+                        # Extract the old Spotify ID from linked_from for logging
+                        old_spotify_id = linked_from.get("id", "unknown")
+
+                        try:
+                            # Find the connector track database ID for the new Spotify track
+                            connector_track_id = await self.connector_repository.find_connector_track_id(
+                                "spotify", track_id
+                            )
+
+                            if connector_track_id:
+                                # Set the new track as primary for this canonical track
+                                success = (
+                                    await self.connector_repository.set_primary_mapping(
+                                        track_id=internal_track_id,
+                                        connector_track_id=connector_track_id,
+                                        connector_name="spotify",
+                                    )
+                                )
+
+                                if success:
+                                    logger.info(
+                                        f"Spotify relinking detected and handled: "
+                                        f"old_id={old_spotify_id} -> new_id={track_id} "
+                                        f"for canonical_track_id={internal_track_id}"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"Failed to set primary mapping for Spotify relinking: "
+                                        f"old_id={old_spotify_id} -> new_id={track_id}"
+                                    )
+                            else:
+                                logger.warning(
+                                    f"Could not find connector track for relinking primary update: "
+                                    f"spotify_id={track_id}"
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                f"Error handling Spotify relinking primary mapping: "
+                                f"old_id={old_spotify_id} -> new_id={track_id}, error={e}"
                             )
 
                     # Determine final resolution method and confidence
@@ -658,26 +703,28 @@ class SpotifyPlayResolver:
             )
             return None, failure_reason
 
-    async def _find_canonical_track_by_exact_content(self, spotify_data: dict) -> int | None:
+    async def _find_canonical_track_by_exact_content(
+        self, spotify_data: dict
+    ) -> int | None:
         """Find existing canonical track by exact content matching.
-        
+
         Uses simple exact matching strategies:
         1. ISRC exact match (highest confidence)
         2. Normalized title + artist exact match
-        
+
         Args:
             spotify_data: Spotify API track data
-            
+
         Returns:
             Existing canonical track ID if found, None otherwise
         """
         title = spotify_data.get("name", "").strip()
         artists_data = spotify_data.get("artists", [])
         isrc = spotify_data.get("external_ids", {}).get("isrc")
-        
+
         if not title or not artists_data:
             return None
-            
+
         # Strategy 1: ISRC exact match (100% reliable)
         if isrc:
             try:
@@ -687,27 +734,29 @@ class SpotifyPlayResolver:
                 from src.infrastructure.persistence.repositories.track.core import (
                     TrackRepository,
                 )
-                
+
                 async with get_session() as session:
                     track_repo = TrackRepository(session)
                     existing_track = await track_repo.find_one_by({"isrc": isrc})
                     if existing_track and existing_track.id:
-                        logger.debug(f"Found canonical track {existing_track.id} by ISRC match: {isrc}")
+                        logger.debug(
+                            f"Found canonical track {existing_track.id} by ISRC match: {isrc}"
+                        )
                         return existing_track.id
             except Exception as e:
                 logger.debug(f"ISRC lookup failed for {isrc}: {e}")
-        
+
         # Strategy 2: Normalized title + artist exact match
         normalized_title = title.lower().strip()
         normalized_artists = {
-            artist["name"].lower().strip() 
-            for artist in artists_data 
+            artist["name"].lower().strip()
+            for artist in artists_data
             if artist.get("name")
         }
-        
+
         if not normalized_artists:
             return None
-            
+
         try:
             from src.infrastructure.persistence.database.db_connection import (
                 get_session,
@@ -715,43 +764,42 @@ class SpotifyPlayResolver:
             from src.infrastructure.persistence.repositories.track.core import (
                 TrackRepository,
             )
-            
+
             async with get_session() as session:
                 track_repo = TrackRepository(session)
-                
+
                 # Get tracks with similar titles for exact matching
                 candidates = await track_repo.find_by([
                     track_repo.model_class.title.ilike(f"%{title}%")
                 ])
-                
+
                 for candidate in candidates:
                     # Check for exact title match (case-insensitive)
                     if candidate.title.lower().strip() != normalized_title:
                         continue
-                        
+
                     # Check for exact artist match (case-insensitive)
                     candidate_artists = {
-                        artist.name.lower().strip() 
-                        for artist in candidate.artists
+                        artist.name.lower().strip() for artist in candidate.artists
                     }
-                    
+
                     if normalized_artists == candidate_artists:
                         logger.debug(
                             f"Found canonical track {candidate.id} by exact title+artist match: "
                             f"{title} by {[a['name'] for a in artists_data]}"
                         )
                         return candidate.id
-                        
+
         except Exception as e:
             logger.debug(f"Content lookup failed for {title}: {e}")
-            
+
         return None
 
     async def _create_connector_mapping_for_existing_track(
         self, canonical_track_id: int, spotify_id: str, spotify_data: dict
     ) -> None:
         """Create connector track and mapping for existing canonical track.
-        
+
         Args:
             canonical_track_id: ID of existing canonical track
             spotify_id: Spotify track ID
@@ -776,15 +824,23 @@ class SpotifyPlayResolver:
             )
 
             # Use connector repository to create the mapping
-            created_tracks = await self.connector_repository.ingest_external_tracks_bulk(
-                "spotify", [connector_track]
+            created_tracks = (
+                await self.connector_repository.ingest_external_tracks_bulk(
+                    "spotify", [connector_track]
+                )
             )
-            
+
             if created_tracks and len(created_tracks) > 0:
-                logger.debug(f"Created connector mapping for existing track {canonical_track_id}")
+                logger.debug(
+                    f"Created connector mapping for existing track {canonical_track_id}"
+                )
             else:
-                logger.warning(f"Failed to create connector mapping for track {canonical_track_id}")
-                
+                logger.warning(
+                    f"Failed to create connector mapping for track {canonical_track_id}"
+                )
+
         except Exception as e:
-            logger.warning(f"Error creating connector mapping for existing track {canonical_track_id}: {e}")
+            logger.warning(
+                f"Error creating connector mapping for existing track {canonical_track_id}: {e}"
+            )
             # Don't raise - we don't want to fail the entire resolution process

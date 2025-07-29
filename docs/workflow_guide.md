@@ -86,6 +86,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
 | `sorter.by_metric` | Sorts tracks by any metric specified in config | `metric_name`: Name of metric to sort by (e.g., "lastfm_user_playcount", "lastfm_global_playcount", "lastfm_listeners", "spotify_popularity")<br>`reverse`: Boolean to reverse sort order |
+| `sorter.by_play_history` | **Sorts tracks by play frequency within optional time windows** | `start_date`: Include tracks played after this ISO date (absolute mode)<br>`end_date`: Include tracks played before this ISO date (absolute mode)<br>`min_days_back`: Start of time window, days from today (relative mode)<br>`max_days_back`: End of time window, days from today (relative mode)<br>`reverse`: Sort order - true for most played first, false for least played first<br>**Note**: Three clear time window modes: None (all-time), Absolute (ISO dates), or Relative (integer days). |
 
 ### Selector Nodes
 

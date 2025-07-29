@@ -29,12 +29,14 @@ class MetricResolverProtocol(Protocol):
 
     CONNECTOR: ClassVar[str]  # Changed from CONNECTOR: str to match implementation
 
-    async def resolve(self, track_ids: list[int], metric_name: str, uow: Any) -> dict[int, Any]:
+    async def resolve(
+        self, track_ids: list[int], metric_name: str, uow: Any
+    ) -> dict[int, Any]:
         """Resolve metrics for tracks.
 
         Args:
             track_ids: List of internal track IDs to resolve metrics for
-            metric_name: Name of the metric to resolve  
+            metric_name: Name of the metric to resolve
             uow: UnitOfWork for database access
 
         Returns:
@@ -74,5 +76,3 @@ def register_metric_resolver(
             connector_metrics[connector] = []
         if metric_name not in connector_metrics[connector]:
             connector_metrics[connector].append(metric_name)
-
-

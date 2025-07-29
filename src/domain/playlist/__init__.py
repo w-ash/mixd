@@ -10,7 +10,7 @@ from .diff_engine import (
 
 __all__ = [
     "PlaylistDiff",
-    "PlaylistOperation", 
+    "PlaylistOperation",
     "PlaylistOperationType",
     "calculate_playlist_diff",
     "sequence_operations_for_spotify",

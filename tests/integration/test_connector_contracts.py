@@ -141,6 +141,31 @@ class TestSpotifyConnectorContract:
             "update_playlist must be async for workflow compatibility"
         )
 
+    def test_spotify_get_playlist_method_exists(self, spotify_connector):
+        """Test get_playlist method exists for workflow compatibility.
+        
+        Prevents: AttributeError when source nodes call get_playlist()
+        """
+        assert hasattr(spotify_connector, "get_playlist")
+        
+        import inspect
+        assert inspect.iscoroutinefunction(spotify_connector.get_playlist), (
+            "get_playlist must be async for workflow compatibility"
+        )
+
+    def test_spotify_convert_track_to_connector_method_exists(self, spotify_connector):
+        """Test convert_track_to_connector method exists for workflow compatibility.
+        
+        Prevents: AttributeError when source nodes call convert_track_to_connector()
+        """
+        assert hasattr(spotify_connector, "convert_track_to_connector")
+        
+        # Should be synchronous conversion method
+        import inspect
+        assert not inspect.iscoroutinefunction(spotify_connector.convert_track_to_connector), (
+            "convert_track_to_connector should be synchronous"
+        )
+
 
 class TestLastFmConnectorContract:
     """Detailed contract tests for Last.fm connector interface."""

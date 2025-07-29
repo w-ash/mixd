@@ -64,28 +64,32 @@ def import_lastfm_cmd(
     ] = True,
 ) -> None:
     """Import play history from Last.fm using the configured account.
-    
+
     This command connects to Last.fm and imports your scrobbled tracks into your local library.
     Different modes allow you to control how much data is imported:
-    
+
     • recent: Import the most recent N plays (specify with --limit)
     • incremental: Import only new plays since your last sync (default, efficient)
     • full: Import your entire play history, resetting any existing sync state
-    
+
     Track resolution improves matching accuracy by looking up additional metadata.
     """
     # Validate mode parameter
     validated_mode = _validate_import_mode(mode)
     if not validated_mode:
-        console.print(f"[red]Invalid mode: {mode}. Must be 'recent', 'incremental', or 'full'[/red]")
+        console.print(
+            f"[red]Invalid mode: {mode}. Must be 'recent', 'incremental', or 'full'[/red]"
+        )
         raise typer.Exit(1)
-    
+
     # Validate limit parameter
     if validated_mode == "recent" and limit is None:
         limit = 100  # Default for recent mode
     elif validated_mode != "recent" and limit is not None:
-        console.print("[yellow]Warning: --limit is only used with 'recent' mode[/yellow]")
-    
+        console.print(
+            "[yellow]Warning: --limit is only used with 'recent' mode[/yellow]"
+        )
+
     # Show confirmation for full mode
     if validated_mode == "full":
         console.print("[yellow]⚠️  Full History Import Warning[/yellow]")
@@ -93,23 +97,23 @@ def import_lastfm_cmd(
         console.print("• Import your entire Last.fm play history")
         console.print("• Reset any existing sync checkpoint")
         console.print("• Make many API calls (may take 10+ minutes)")
-        
+
         if not typer.confirm("Do you want to proceed?"):
             console.print("[dim]Full history import cancelled[/dim]")
             return
-    
+
     # Execute the import
     with console.status(f"[bold blue]Importing {validated_mode} plays from Last.fm..."):
         result = asyncio.run(
             run_import(
                 service="lastfm",
-                mode=validated_mode,  # type: ignore[arg-type] 
+                mode=validated_mode,  # type: ignore[arg-type]
                 limit=limit,
                 resolve_tracks=resolve_tracks,
                 confirm=True,  # Already handled confirmation above
             )
         )
-    
+
     console.print("[bold green]✓ Last.fm import completed![/bold green]")
     if result:
         display_operation_result(result)
@@ -133,13 +137,13 @@ def import_spotify_cmd(
     ] = None,
 ) -> None:
     """Import play history from a Spotify JSON export file.
-    
+
     This command processes JSON files from Spotify's data export feature. To get your data:
     1. Go to Spotify Account Overview → Privacy Settings → Request Data
     2. Wait for Spotify to prepare your data (can take several days)
     3. Download and extract the files
     4. Use the streaming history JSON files with this command
-    
+
     The import will create tracks in your local library and record when you played them.
     Large files are processed in batches to manage memory usage efficiently.
     """
@@ -148,18 +152,22 @@ def import_spotify_cmd(
         console.print(f"[red]File not found: {file_path}[/red]")
         console.print("Make sure the path is correct and the file exists.")
         raise typer.Exit(1)
-    
+
     if not file_path.is_file():
         console.print(f"[red]Path is not a file: {file_path}[/red]")
         raise typer.Exit(1)
-    
+
     # Check file size and warn if very large
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
     if file_size_mb > 100:
-        console.print(f"[yellow]Large file detected ({file_size_mb:.1f}MB). This may take several minutes.[/yellow]")
-    
+        console.print(
+            f"[yellow]Large file detected ({file_size_mb:.1f}MB). This may take several minutes.[/yellow]"
+        )
+
     # Execute the import
-    with console.status(f"[bold blue]Processing Spotify export file: {file_path.name}..."):
+    with console.status(
+        f"[bold blue]Processing Spotify export file: {file_path.name}..."
+    ):
         result = asyncio.run(
             run_import(
                 service="spotify",
@@ -168,7 +176,7 @@ def import_spotify_cmd(
                 batch_size=batch_size,
             )
         )
-    
+
     console.print("[bold green]✓ Spotify file import completed![/bold green]")
     if result:
         display_operation_result(result)
@@ -183,21 +191,25 @@ def _show_interactive_history_menu() -> None:
             border_style="blue",
         )
     )
-    
+
     console.print("\n📥 [bold]Available Import Sources[/bold]:")
-    console.print("  [cyan]1[/cyan]. [bold]Last.fm[/bold] - Import scrobbled play history from your Last.fm account")
-    console.print("  [cyan]2[/cyan]. [bold]Spotify File[/bold] - Import from Spotify data export JSON files")
-    
+    console.print(
+        "  [cyan]1[/cyan]. [bold]Last.fm[/bold] - Import scrobbled play history from your Last.fm account"
+    )
+    console.print(
+        "  [cyan]2[/cyan]. [bold]Spotify File[/bold] - Import from Spotify data export JSON files"
+    )
+
     choice = Prompt.ask(
         "Select import source [1-2] or type 'lastfm'/'spotify'",
         choices=["1", "2", "lastfm", "spotify", "q", "quit", "exit", "cancel"],
         default="",
         show_choices=False,
     ).strip()
-    
+
     if choice in ("", "q", "quit", "exit", "cancel"):
         return
-    
+
     # Handle selection
     if choice in ("1", "lastfm"):
         _interactive_lastfm_import()
@@ -208,7 +220,7 @@ def _show_interactive_history_menu() -> None:
 def _interactive_lastfm_import() -> None:
     """Interactive Last.fm import configuration."""
     console.print("\n[bold]Last.fm Import Configuration[/bold]")
-    
+
     mode_str = Prompt.ask(
         "Import mode",
         choices=["recent", "incremental", "full"],
@@ -218,22 +230,22 @@ def _interactive_lastfm_import() -> None:
     if not mode:
         console.print(f"[red]Invalid mode: {mode_str}[/red]")
         return
-    
+
     limit = None
     if mode == "recent":
         limit_str = Prompt.ask("Number of recent plays to import", default="100")
         limit = int(limit_str)
-    
+
     resolve_str = Prompt.ask(
         "Enable track resolution for better matching?",
         choices=["y", "n"],
         default="y",
     )
     resolve_tracks = resolve_str.lower() == "y"
-    
+
     # Execute with gathered parameters
     console.print(f"\n[green]Starting Last.fm {mode} import...[/green]")
-    
+
     with console.status(f"[bold blue]Importing {mode} plays from Last.fm..."):
         result = asyncio.run(
             run_import(
@@ -244,7 +256,7 @@ def _interactive_lastfm_import() -> None:
                 confirm=mode == "full",  # Auto-confirm for full mode in interactive
             )
         )
-    
+
     console.print("[bold green]✓ Last.fm import completed![/bold green]")
     if result:
         display_operation_result(result)
@@ -253,23 +265,23 @@ def _interactive_lastfm_import() -> None:
 def _interactive_spotify_import() -> None:
     """Interactive Spotify file import configuration."""
     console.print("\n[bold]Spotify File Import Configuration[/bold]")
-    
+
     file_path_str = Prompt.ask("Path to Spotify JSON export file")
     file_path = Path(file_path_str)
-    
+
     if not file_path.exists():
         console.print(f"[red]File not found: {file_path}[/red]")
         return
-    
+
     batch_size_str = Prompt.ask(
         "Batch size (leave empty for default)",
         default="",
     )
     batch_size = int(batch_size_str) if batch_size_str else None
-    
+
     # Execute with gathered parameters
     console.print("\n[green]Starting Spotify file import...[/green]")
-    
+
     with console.status(f"[bold blue]Processing {file_path.name}..."):
         result = asyncio.run(
             run_import(
@@ -279,7 +291,7 @@ def _interactive_spotify_import() -> None:
                 batch_size=batch_size,
             )
         )
-    
+
     console.print("[bold green]✓ Spotify file import completed![/bold green]")
     if result:
         display_operation_result(result)

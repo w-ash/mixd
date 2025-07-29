@@ -1,0 +1,63 @@
+{
+  "id": "rediscovery_candidates",
+  "name": "Rediscovery Candidates",
+  "description": "Find tracks you barely touched - hidden potential in your library",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked_songs",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "YOUR_LIKED_SONGS_PLAYLIST_ID",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays", "last_played_dates"],
+        "period_days": 365
+      },
+      "upstream": ["source_liked_songs"]
+    },
+    {
+      "id": "filter_barely_played",
+      "type": "filter.by_play_history",
+      "config": {
+        "min_plays": 1,
+        "max_plays": 2,
+        "include_missing": false
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "sort_by_date_added",
+      "type": "sorter.by_metric",
+      "config": {
+        "metric_name": "release_date",
+        "reverse": false
+      },
+      "upstream": ["filter_barely_played"]
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 50,
+        "method": "random"
+      },
+      "upstream": ["sort_by_date_added"]
+    },
+    {
+      "id": "create_rediscovery_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Rediscovery Candidates",
+        "description": "Barely touched tracks (1-2 plays ever) waiting for rediscovery",
+        "connector": "spotify"
+      },
+      "upstream": ["limit_selection"]
+    }
+  ]
+}

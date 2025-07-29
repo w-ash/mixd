@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class ReadCanonicalPlaylistCommand:
     """Command for reading a canonical playlist.
-    
+
     Encapsulates the identifier and options for retrieving a playlist.
     """
 
@@ -64,7 +64,7 @@ class ReadCanonicalPlaylistResult:
 class ReadCanonicalPlaylistUseCase:
     """Use case for reading canonical (internal) playlists.
 
-    Handles pure database read operations following Clean Architecture 
+    Handles pure database read operations following Clean Architecture
     principles with UnitOfWork pattern:
     - No constructor dependencies (pure domain layer)
     - All repository access through UnitOfWork parameter
@@ -151,13 +151,19 @@ class ReadCanonicalPlaylistUseCase:
             return playlist
         except ValueError:
             # If not an integer, try as connector ID
-            connector_name = command.connector or "spotify"  # Default for backward compatibility
-            
+            connector_name = (
+                command.connector or "spotify"
+            )  # Default for backward compatibility
+
             playlist = await playlist_repo.get_playlist_by_connector(
                 connector_name, command.playlist_id, raise_if_not_found=True
             )
-            
+
             if playlist is None:
-                connector_info = f" (connector: {command.connector})" if command.connector else ""
-                raise ValueError(f"Playlist with ID {command.playlist_id}{connector_info} not found") from None
+                connector_info = (
+                    f" (connector: {command.connector})" if command.connector else ""
+                )
+                raise ValueError(
+                    f"Playlist with ID {command.playlist_id}{connector_info} not found"
+                ) from None
             return playlist

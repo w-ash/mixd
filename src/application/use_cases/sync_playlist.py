@@ -32,14 +32,16 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class SyncPlaylistCommand:
     """Command for synchronizing a playlist across canonical and connector systems.
-    
+
     Encapsulates all information needed to update both internal database and
     external service playlists with proper coordination.
     """
 
     playlist_id: str
     new_tracklist: TrackList
-    target_connectors: list[str] = field(factory=lambda: ["spotify"])  # Default to Spotify
+    target_connectors: list[str] = field(
+        factory=lambda: ["spotify"]
+    )  # Default to Spotify
     update_canonical: bool = True  # Whether to update internal database
     update_connectors: bool = True  # Whether to update external services
     dry_run: bool = False
@@ -93,12 +95,14 @@ class SyncPlaylistResult:
     @property
     def operation_summary(self) -> dict[str, Any]:
         """Summary of all synchronization operations."""
-        canonical_summary = self.canonical_result.operation_summary if self.canonical_result else {}
+        canonical_summary = (
+            self.canonical_result.operation_summary if self.canonical_result else {}
+        )
         connector_summaries = {
-            connector: result.operation_summary 
+            connector: result.operation_summary
             for connector, result in self.connector_results.items()
         }
-        
+
         return {
             "playlist_id": self.playlist.id,
             "playlist_name": self.playlist.name,
@@ -177,10 +181,12 @@ class SyncPlaylistUseCase:
                     dry_run=command.dry_run,
                     metadata=command.metadata,
                 )
-                
-                canonical_result = await self.canonical_use_case.execute(canonical_command, uow)
+
+                canonical_result = await self.canonical_use_case.execute(
+                    canonical_command, uow
+                )
                 final_playlist = canonical_result.playlist
-                
+
                 logger.info(
                     "Canonical playlist update completed",
                     operations=canonical_result.operations_performed,
@@ -191,7 +197,7 @@ class SyncPlaylistUseCase:
             if command.update_connectors:
                 for connector in command.target_connectors:
                     logger.info(f"Updating {connector} playlist")
-                    
+
                     try:
                         connector_command = UpdateConnectorPlaylistCommand(
                             playlist_id=command.playlist_id,
@@ -203,22 +209,28 @@ class SyncPlaylistUseCase:
                             max_api_calls=command.max_api_calls,
                             metadata=command.metadata,
                         )
-                        
-                        connector_result = await self.connector_use_case.execute(connector_command, uow)
+
+                        connector_result = await self.connector_use_case.execute(
+                            connector_command, uow
+                        )
                         connector_results[connector] = connector_result
-                        
+
                         logger.info(
                             f"{connector} playlist update completed",
                             operations=connector_result.operations_performed,
                             api_calls=connector_result.api_calls_made,
                             execution_time_ms=connector_result.execution_time_ms,
                         )
-                        
+
                     except Exception as e:
                         error_msg = f"Failed to update {connector} playlist: {e!s}"
                         errors.append(error_msg)
-                        logger.error(error_msg, connector=connector, playlist_id=command.playlist_id)
-                        
+                        logger.error(
+                            error_msg,
+                            connector=connector,
+                            playlist_id=command.playlist_id,
+                        )
+
                         # Continue with other connectors instead of failing completely
                         continue
 
@@ -228,21 +240,25 @@ class SyncPlaylistUseCase:
                 async with uow:
                     playlist_repo = uow.get_playlist_repository()
                     try:
-                        final_playlist = await playlist_repo.get_playlist_by_id(int(command.playlist_id))
+                        final_playlist = await playlist_repo.get_playlist_by_id(
+                            int(command.playlist_id)
+                        )
                     except ValueError:
                         final_playlist = await playlist_repo.get_playlist_by_connector(
                             "spotify", command.playlist_id, raise_if_not_found=True
                         )
                         if final_playlist is None:
-                            raise ValueError(f"Playlist {command.playlist_id} not found") from None
+                            raise ValueError(
+                                f"Playlist {command.playlist_id} not found"
+                            ) from None
 
             # Step 4: Calculate comprehensive metrics
             total_operations = 0
             total_api_calls = 0
-            
+
             if canonical_result:
                 total_operations += canonical_result.operations_performed
-            
+
             for connector_result in connector_results.values():
                 total_operations += connector_result.operations_performed
                 total_api_calls += connector_result.api_calls_made
@@ -272,7 +288,9 @@ class SyncPlaylistUseCase:
             logger.info(
                 "Playlist synchronization completed",
                 playlist_id=command.playlist_id,
-                canonical_operations=canonical_result.operations_performed if canonical_result else 0,
+                canonical_operations=canonical_result.operations_performed
+                if canonical_result
+                else 0,
                 connector_results_count=len(connector_results),
                 total_operations=total_operations,
                 total_api_calls=total_api_calls,

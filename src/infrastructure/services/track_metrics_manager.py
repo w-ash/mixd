@@ -1,6 +1,6 @@
 """Track metrics manager service.
 
-Manages track metrics with database-first caching strategy. Uses track_metrics 
+Manages track metrics with database-first caching strategy. Uses track_metrics
 table as primary source, only fetching fresh data when metrics are missing or stale.
 """
 
@@ -38,7 +38,7 @@ class TrackMetricsManager:
         metrics_repo: MetricsRepositoryProtocol,
     ) -> None:
         """Initialize enricher with repository dependencies.
-        
+
         Args:
             track_repo: Core track repository.
             connector_repo: Connector repository for identity and metadata.
@@ -120,16 +120,22 @@ class TrackMetricsManager:
                 mapped_track_ids, connector, requested_metrics, max_age_hours
             )
 
-            logger.info(f"Found existing metrics for {sum(len(values) for values in existing_metrics.values())} metric entries")
+            logger.info(
+                f"Found existing metrics for {sum(len(values) for values in existing_metrics.values())} metric entries"
+            )
 
             # Step 3: Identify tracks missing required metrics
             tracks_needing_refresh = set()
             for metric_name in requested_metrics:
                 existing_values = existing_metrics.get(metric_name, {})
-                missing_track_ids = [tid for tid in mapped_track_ids if tid not in existing_values]
+                missing_track_ids = [
+                    tid for tid in mapped_track_ids if tid not in existing_values
+                ]
                 tracks_needing_refresh.update(missing_track_ids)
                 if missing_track_ids:
-                    logger.info(f"Found {len(missing_track_ids)} tracks missing {metric_name} metric")
+                    logger.info(
+                        f"Found {len(missing_track_ids)} tracks missing {metric_name} metric"
+                    )
 
             # Step 4: Check metadata freshness for tracks needing refresh
             stale_track_ids = []
@@ -137,7 +143,9 @@ class TrackMetricsManager:
                 stale_track_ids = await self.freshness_controller.get_stale_tracks(
                     list(tracks_needing_refresh), connector, max_age_hours
                 )
-                logger.info(f"Found {len(stale_track_ids)} tracks with stale metadata needing refresh")
+                logger.info(
+                    f"Found {len(stale_track_ids)} tracks with stale metadata needing refresh"
+                )
 
             # Step 5: Fetch fresh metadata and extract metrics for stale tracks only
             fresh_metrics = {}
@@ -152,17 +160,19 @@ class TrackMetricsManager:
                     stale_track_ids,
                     **additional_options,
                 )
-                
+
                 if fresh_metadata:
-                    logger.info(f"Fetched fresh metadata for {len(fresh_metadata)} tracks")
-                    
+                    logger.info(
+                        f"Fetched fresh metadata for {len(fresh_metadata)} tracks"
+                    )
+
                     # Extract metrics only for tracks with fresh metadata
                     fresh_metrics = await self._extract_metrics(
                         {tid: identity_mappings[tid] for tid in fresh_metadata},
                         fresh_metadata,
-                        extractors
+                        extractors,
                     )
-                    
+
                     # Persist fresh metrics to database
                     await self._persist_metrics_to_database(fresh_metrics, connector)
 
@@ -170,22 +180,26 @@ class TrackMetricsManager:
             combined_metrics = {}
             for metric_name in requested_metrics:
                 combined_values = {}
-                
+
                 # Add existing metrics
                 if metric_name in existing_metrics:
                     combined_values.update(existing_metrics[metric_name])
-                    
+
                 # Add fresh metrics (will override existing if same track)
                 if metric_name in fresh_metrics:
                     combined_values.update(fresh_metrics[metric_name])
-                    
+
                 if combined_values:
                     combined_metrics[metric_name] = combined_values
 
-            logger.info(f"Combined metrics: {[(name, len(values)) for name, values in combined_metrics.items()]}")
+            logger.info(
+                f"Combined metrics: {[(name, len(values)) for name, values in combined_metrics.items()]}"
+            )
 
             # Step 7: Attach combined metrics to tracklist
-            enriched_tracklist = self._attach_metrics_to_tracklist(track_list, combined_metrics)
+            enriched_tracklist = self._attach_metrics_to_tracklist(
+                track_list, combined_metrics
+            )
 
             logger.info(
                 f"Successfully enriched tracklist with {sum(len(values) for values in combined_metrics.values())} total metric values"
@@ -209,7 +223,7 @@ class TrackMetricsManager:
         Returns:
             Dictionary mapping metric names to track_id -> value mappings.
         """
-        
+
         metrics = {}
 
         for metric_name, extractor in extractors.items():
@@ -243,7 +257,9 @@ class TrackMetricsManager:
                             f"Added {metric_name}={value} for track_id={track_id}"
                         )
                     else:
-                        logger.warning(f"Extracted None value for {metric_name} on track {track_id}")
+                        logger.warning(
+                            f"Extracted None value for {metric_name} on track {track_id}"
+                        )
 
                 except Exception as e:
                     logger.error(
@@ -263,28 +279,30 @@ class TrackMetricsManager:
     async def _get_existing_metrics(
         self,
         track_ids: list[int],
-        connector: str, 
+        connector: str,
         requested_metrics: list[str],
         max_age_hours: float | None = None,
     ) -> dict[str, dict[int, Any]]:
         """Get existing metrics from track_metrics table.
-        
+
         Args:
             track_ids: Track IDs to get metrics for.
             connector: Connector name.
             requested_metrics: List of metric names to retrieve.
             max_age_hours: Maximum age of metrics to consider fresh.
-            
+
         Returns:
             Dictionary mapping metric names to track_id -> value mappings.
         """
         if not track_ids or not requested_metrics:
             return {}
-            
-        logger.debug(f"Getting existing metrics for {len(track_ids)} tracks: {requested_metrics}")
-        
+
+        logger.debug(
+            f"Getting existing metrics for {len(track_ids)} tracks: {requested_metrics}"
+        )
+
         existing_metrics = {}
-        
+
         # Get each requested metric type from the track_metrics table
         for metric_name in requested_metrics:
             try:
@@ -294,16 +312,18 @@ class TrackMetricsManager:
                     connector=connector,
                     max_age_hours=max_age_hours or 24.0,
                 )
-                
+
                 if metric_values:
                     existing_metrics[metric_name] = metric_values
-                    logger.debug(f"Found {len(metric_values)} existing values for {metric_name}")
+                    logger.debug(
+                        f"Found {len(metric_values)} existing values for {metric_name}"
+                    )
                 else:
                     logger.debug(f"No existing values found for {metric_name}")
-                    
+
             except Exception as e:
                 logger.error(f"Error getting existing metrics for {metric_name}: {e}")
-                
+
         logger.debug(f"Retrieved existing metrics: {list(existing_metrics.keys())}")
         return existing_metrics
 

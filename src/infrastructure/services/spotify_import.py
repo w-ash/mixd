@@ -283,17 +283,22 @@ class SpotifyImportService(BaseImportService):
         self._failed_imports = failed_imports
 
         # Log resolution summary with warnings for unresolved tracks
-        unresolved_count = resolution_stats["preserved_metadata"] + resolution_stats["validation_failed"]
+        unresolved_count = (
+            resolution_stats["preserved_metadata"]
+            + resolution_stats["validation_failed"]
+        )
         total_processed = len(raw_data)
-        
+
         if unresolved_count > 0:
             logger.warning(
                 f"Unable to resolve {unresolved_count} tracks from {total_processed} total plays",
                 preserved_metadata=resolution_stats["preserved_metadata"],
                 validation_failed=resolution_stats["validation_failed"],
-                unresolved_rate_percent=round((unresolved_count / total_processed) * 100, 1)
+                unresolved_rate_percent=round(
+                    (unresolved_count / total_processed) * 100, 1
+                ),
             )
-        
+
         logger.info(
             "Track resolution completed",
             total_tracks=total_processed,
@@ -304,7 +309,9 @@ class SpotifyImportService(BaseImportService):
             unresolved_tracks=unresolved_count,
             resolution_rate_percent=round(
                 (resolution_stats["total_with_track_id"] / total_processed) * 100, 1
-            ) if total_processed > 0 else 0,
+            )
+            if total_processed > 0
+            else 0,
         )
 
         # Log filtering summary
@@ -394,8 +401,11 @@ class SpotifyImportService(BaseImportService):
         if hasattr(self, "_resolution_stats"):
             resolution_stats = self._resolution_stats
             total_raw = len(raw_data)
-            unresolved_count = resolution_stats["preserved_metadata"] + resolution_stats["validation_failed"]
-            
+            unresolved_count = (
+                resolution_stats["preserved_metadata"]
+                + resolution_stats["validation_failed"]
+            )
+
             result.play_metrics.update({
                 "resolution_summary": {
                     "total_plays_processed": total_raw,
@@ -403,11 +413,13 @@ class SpotifyImportService(BaseImportService):
                     "unable_to_resolve": unresolved_count,
                     "resolution_rate_percent": round(
                         (resolution_stats["total_with_track_id"] / total_raw) * 100, 1
-                    ) if total_raw > 0 else 0,
+                    )
+                    if total_raw > 0
+                    else 0,
                 },
                 "resolution_breakdown": {
                     "direct_api_lookup": resolution_stats["direct_id"],
-                    "relinked_tracks": resolution_stats["relinked_id"], 
+                    "relinked_tracks": resolution_stats["relinked_id"],
                     "search_fallback": resolution_stats["search_match"],
                     "metadata_preserved": resolution_stats["preserved_metadata"],
                     "validation_failed": resolution_stats["validation_failed"],
@@ -422,10 +434,18 @@ class SpotifyImportService(BaseImportService):
                 "filtering_summary": {
                     "raw_plays": filtering_stats["raw_plays"],
                     "plays_accepted": filtering_stats["accepted_plays"],
-                    "plays_filtered": filtering_stats["raw_plays"] - filtering_stats["accepted_plays"],
+                    "plays_filtered": filtering_stats["raw_plays"]
+                    - filtering_stats["accepted_plays"],
                     "acceptance_rate_percent": round(
-                        (filtering_stats["accepted_plays"] / filtering_stats["raw_plays"]) * 100, 1
-                    ) if filtering_stats["raw_plays"] > 0 else 0,
+                        (
+                            filtering_stats["accepted_plays"]
+                            / filtering_stats["raw_plays"]
+                        )
+                        * 100,
+                        1,
+                    )
+                    if filtering_stats["raw_plays"] > 0
+                    else 0,
                 },
                 "filtering_breakdown": {
                     "duration_too_short": filtering_stats["duration_excluded"],

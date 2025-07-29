@@ -545,7 +545,7 @@ def concatenate(
     def transform(_: TrackList) -> TrackList:
         all_tracks = []
         combined_track_sources = {}
-        
+
         for t in tracklists:
             all_tracks.extend(t.tracks)
             # Merge track source information from each tracklist
@@ -555,9 +555,9 @@ def concatenate(
         return TrackList(
             tracks=all_tracks,
             metadata={
-                "operation": "concatenate", 
+                "operation": "concatenate",
                 "source_count": len(tracklists),
-                "track_sources": combined_track_sources
+                "track_sources": combined_track_sources,
             },
         )
 
@@ -808,25 +808,27 @@ def filter_by_time_criteria(
 def filter_by_play_history(
     min_plays: int | None = None,
     max_plays: int | None = None,
-    after_date: datetime | None = None,
-    before_date: datetime | None = None,
-    days_back: int | None = None,
-    days_forward: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    min_days_back: int | None = None,
+    max_days_back: int | None = None,
     include_missing: bool = False,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
     """Filter tracks by play count and/or listening date constraints.
 
-    Unified filter that combines play count filtering with flexible date range options.
-    Supports both absolute dates and relative time ranges from current time.
+    Unified filter with three clear time window modes:
+    - None: No date fields = all-time play counts
+    - Absolute: start_date/end_date = ISO date strings  
+    - Relative: min_days_back/max_days_back = integer days from today
 
     Args:
         min_plays: Minimum play count (inclusive)
         max_plays: Maximum play count (inclusive)
-        after_date: Include tracks last played after this date
-        before_date: Include tracks last played before this date
-        days_back: Override after_date with relative time (days from now)
-        days_forward: Override before_date with relative time (days from now)
+        start_date: Include tracks played after this ISO date (absolute mode)
+        end_date: Include tracks played before this ISO date (absolute mode)
+        min_days_back: Start of time window, days from today (relative mode)
+        max_days_back: End of time window, days from today (relative mode)
         include_missing: Whether to include tracks with no play data
         tracklist: Optional tracklist to transform immediately
 
@@ -835,17 +837,20 @@ def filter_by_play_history(
 
     Examples:
         # Tracks played 5+ times in last month
-        filter_by_play_history(min_plays=5, days_back=30)
+        filter_by_play_history(min_plays=5, max_days_back=30)
+
+        # Hidden gems: loved but not played recently
+        filter_by_play_history(min_plays=3, min_days_back=180)
 
         # Tracks played 1-3 times between specific dates
         filter_by_play_history(
             min_plays=1, max_plays=3,
-            after_date=datetime(2024, 1, 1),
-            before_date=datetime(2024, 3, 31)
+            start_date="2024-01-01",
+            end_date="2024-03-31"
         )
 
-        # Never played tracks from last 6 months
-        filter_by_play_history(max_plays=0, days_back=180)
+        # Current obsessions: 8+ plays in last month
+        filter_by_play_history(min_plays=8, max_days_back=30)
     """
     from datetime import timedelta
 
@@ -853,32 +858,45 @@ def filter_by_play_history(
     constraints = [
         min_plays is not None,
         max_plays is not None,
-        after_date is not None,
-        before_date is not None,
-        days_back is not None,
-        days_forward is not None,
+        start_date is not None,
+        end_date is not None,
+        min_days_back is not None,
+        max_days_back is not None,
     ]
     if not any(constraints):
         raise ValueError(
             "Must specify at least one constraint: "
-            "min_plays, max_plays, after_date, before_date, days_back, or days_forward"
+            "min_plays, max_plays, start_date, end_date, min_days_back, or max_days_back"
         )
 
     def transform(t: TrackList) -> TrackList:
         """Apply unified play history filtering."""
-        # Calculate effective date range
+        # Calculate effective date range using clearer logic
         effective_after = None
         effective_before = None
 
-        if days_back is not None:
-            effective_after = datetime.now(UTC) - timedelta(days=days_back)
-        elif after_date is not None:
-            effective_after = after_date
+        # Relative time mode takes precedence (clearer for users)
+        # min_days_back = start of time window (furthest back, sets effective_before)
+        # max_days_back = end of time window (closest to today, sets effective_after)
+        if min_days_back is not None:
+            effective_before = datetime.now(UTC) - timedelta(days=min_days_back)
+        elif start_date is not None:
+            try:
+                effective_after = datetime.fromisoformat(start_date)
+                if effective_after.tzinfo is None:
+                    effective_after = effective_after.replace(tzinfo=UTC)
+            except ValueError as e:
+                raise ValueError(f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'") from e
 
-        if days_forward is not None:
-            effective_before = datetime.now(UTC) + timedelta(days=days_forward)
-        elif before_date is not None:
-            effective_before = before_date
+        if max_days_back is not None:
+            effective_after = datetime.now(UTC) - timedelta(days=max_days_back)
+        elif end_date is not None:
+            try:
+                effective_before = datetime.fromisoformat(end_date)
+                if effective_before.tzinfo is None:
+                    effective_before = effective_before.replace(tzinfo=UTC)
+            except ValueError as e:
+                raise ValueError(f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'") from e
 
         # Get play data from metadata (try both nested and flat structure)
         play_counts = t.metadata.get("total_plays", {}) or t.metadata.get(
@@ -912,6 +930,8 @@ def filter_by_play_history(
                 if isinstance(last_played, str):
                     try:
                         last_played = datetime.fromisoformat(last_played)
+                        if last_played.tzinfo is None:
+                            last_played = last_played.replace(tzinfo=UTC)
                     except ValueError:
                         return include_missing
 
@@ -927,19 +947,21 @@ def filter_by_play_history(
         ]
         result = t.with_tracks(filtered_tracks)
 
-        # Add comprehensive filter metadata
+        # Add comprehensive filter metadata with new parameter names
         filter_metadata = {
-            "type": "unified_play_history",
+            "type": "play_history_filter",
             "min_plays": min_plays,
             "max_plays": max_plays,
+            "start_date": start_date,
+            "end_date": end_date,
+            "min_days_back": min_days_back,
+            "max_days_back": max_days_back,
             "effective_after_date": effective_after.isoformat()
             if effective_after
             else None,
             "effective_before_date": effective_before.isoformat()
             if effective_before
             else None,
-            "days_back": days_back,
-            "days_forward": days_forward,
             "include_missing": include_missing,
             "original_count": len(t.tracks),
             "filtered_count": len(filtered_tracks),
@@ -947,5 +969,170 @@ def filter_by_play_history(
         }
 
         return result.with_metadata("play_filter_applied", filter_metadata)
+
+    return transform(tracklist) if tracklist is not None else transform
+
+
+@curry
+def sort_by_play_history(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    min_days_back: int | None = None,
+    max_days_back: int | None = None,
+    reverse: bool = True,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """Sort tracks by play frequency within optional time windows.
+
+    Sorts tracks based on play count within specified time windows using the same
+    clear time window modes as filter_by_play_history:
+    - None: No date fields = all-time play counts
+    - Absolute: start_date/end_date = ISO date strings  
+    - Relative: min_days_back/max_days_back = integer days from today
+
+    Args:
+        start_date: Include tracks played after this ISO date (absolute mode)
+        end_date: Include tracks played before this ISO date (absolute mode)
+        min_days_back: Start of time window, days from today (relative mode)
+        max_days_back: End of time window, days from today (relative mode)
+        reverse: Sort order - True for most played first, False for least played first
+        tracklist: Optional tracklist to transform immediately
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+
+    Examples:
+        # Sort by all-time play count (most played first)
+        sort_by_play_history(reverse=True)
+
+        # Sort by plays in last month (least played first)
+        sort_by_play_history(max_days_back=30, reverse=False)
+
+        # Sort by plays between specific dates
+        sort_by_play_history(
+            start_date="2024-06-01",
+            end_date="2024-08-31",
+            reverse=True
+        )
+
+        # Sort by plays in time window (90-30 days ago)
+        sort_by_play_history(min_days_back=90, max_days_back=30, reverse=True)
+    """
+    from datetime import timedelta
+
+    def transform(t: TrackList) -> TrackList:
+        """Apply play history sorting."""
+        # Calculate effective date range using same logic as filter
+        effective_after = None
+        effective_before = None
+
+        # Relative time mode takes precedence (clearer for users)
+        # min_days_back = start of time window (furthest back, sets effective_before)
+        # max_days_back = end of time window (closest to today, sets effective_after)
+        if min_days_back is not None:
+            effective_before = datetime.now(UTC) - timedelta(days=min_days_back)
+        elif start_date is not None:
+            try:
+                effective_after = datetime.fromisoformat(start_date)
+                if effective_after.tzinfo is None:
+                    effective_after = effective_after.replace(tzinfo=UTC)
+            except ValueError as e:
+                raise ValueError(f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'") from e
+
+        if max_days_back is not None:
+            effective_after = datetime.now(UTC) - timedelta(days=max_days_back)
+        elif end_date is not None:
+            try:
+                effective_before = datetime.fromisoformat(end_date)
+                if effective_before.tzinfo is None:
+                    effective_before = effective_before.replace(tzinfo=UTC)
+            except ValueError as e:
+                raise ValueError(f"Invalid end_date format: {end_date}. Use ISO format like '2024-01-01'") from e
+
+        # Get play data from metadata (try both nested and flat structure)
+        all_play_counts = t.metadata.get("total_plays", {}) or t.metadata.get(
+            "metrics", {}
+        ).get("total_plays", {})
+        last_played_dates = t.metadata.get("last_played_dates", {}) or t.metadata.get(
+            "metrics", {}
+        ).get("last_played_dates", {})
+
+        # Calculate play counts within the time window for each track
+        def get_play_count_for_sorting(track: Track) -> int:
+            """Get play count for a track within the specified time window."""
+            if not track.id:
+                return 0
+
+            # If no time constraints, use total play count
+            if effective_after is None and effective_before is None:
+                return all_play_counts.get(track.id, 0)
+
+            # For time-constrained sorting, we need to check if the track was played
+            # within the time window. Since we only have last_played_dates (not all play dates),
+            # we'll use a heuristic: if the track was played within the window,
+            # use its total play count, otherwise use 0.
+            last_played = last_played_dates.get(track.id)
+            if last_played is None:
+                return 0
+
+            # Convert string to datetime if needed
+            if isinstance(last_played, str):
+                try:
+                    last_played = datetime.fromisoformat(last_played)
+                    if last_played.tzinfo is None:
+                        last_played = last_played.replace(tzinfo=UTC)
+                except ValueError:
+                    return 0
+
+            # Check if last played date is within our time window
+            if effective_after is not None and last_played < effective_after:
+                return 0
+            if effective_before is not None and last_played >= effective_before:
+                return 0
+
+            # Track was played within window, use its total play count as proxy
+            return all_play_counts.get(track.id, 0)
+
+        # Sort tracks by play count
+        sorted_tracks = sorted(
+            t.tracks, 
+            key=get_play_count_for_sorting, 
+            reverse=reverse
+        )
+        result = t.with_tracks(sorted_tracks)
+
+        # Add sorting metadata
+        track_play_counts = {
+            track.id: get_play_count_for_sorting(track)
+            for track in t.tracks
+            if track.id is not None
+        }
+
+        sort_metadata = {
+            "type": "play_history_sort",
+            "start_date": start_date,
+            "end_date": end_date,
+            "min_days_back": min_days_back,
+            "max_days_back": max_days_back,
+            "effective_after_date": effective_after.isoformat()
+            if effective_after
+            else None,
+            "effective_before_date": effective_before.isoformat()
+            if effective_before
+            else None,
+            "reverse": reverse,
+            "track_count": len(t.tracks),
+        }
+
+        # Store play counts in metadata for reference
+        result = result.with_metadata(
+            "metrics",
+            {
+                **result.metadata.get("metrics", {}),
+                "sort_play_counts": track_play_counts,
+            },
+        )
+
+        return result.with_metadata("play_sort_applied", sort_metadata)
 
     return transform(tracklist) if tracklist is not None else transform

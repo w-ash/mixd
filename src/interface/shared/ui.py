@@ -132,14 +132,18 @@ def _display_table_result(
         # Add track rows
         for i, track in enumerate(result.tracks, 1):
             artist_name = track.artists[0].name if track.artists else "Unknown"
-            
+
             # Get source information from tracklist metadata
             source_info = "Unknown"
-            track_sources = result.tracklist.metadata.get("track_sources", {}) if hasattr(result, 'tracklist') and result.tracklist else {}
+            track_sources = (
+                result.tracklist.metadata.get("track_sources", {})
+                if hasattr(result, "tracklist") and result.tracklist
+                else {}
+            )
             if track.id and track.id in track_sources:
                 source_data = track_sources[track.id]
                 source_info = source_data.get("playlist_name", "Unknown")
-            
+
             row = [str(i), artist_name, track.title, source_info]
 
             # Add metric values for this track

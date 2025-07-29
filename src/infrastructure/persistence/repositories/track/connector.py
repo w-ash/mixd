@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar, cast
 
 from attrs import define
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -216,6 +216,22 @@ class TrackConnectorRepository:
         """Find a track by connector name and ID (degenerate case of bulk method)."""
         results = await self.find_tracks_by_connectors([(connector, connector_id)])
         return results.get((connector, connector_id))
+
+    @db_operation("find_connector_track_id")
+    async def find_connector_track_id(
+        self, connector: str, connector_id: str
+    ) -> int | None:
+        """Find connector track database ID by connector name and ID."""
+        stmt = (
+            select(DBConnectorTrack.id)
+            .filter(
+                DBConnectorTrack.connector_name == connector,
+                DBConnectorTrack.connector_track_id == connector_id,
+                DBConnectorTrack.deleted_at.is_(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
@@ -894,3 +910,67 @@ class TrackConnectorRepository:
         except Exception as e:
             logger.error(f"Failed to get metadata timestamps: {e}")
             return {}
+
+    @db_operation("set_primary_mapping")
+    async def set_primary_mapping(
+        self, track_id: int, connector_track_id: int, connector_name: str
+    ) -> bool:
+        """Set the primary mapping for a track-connector pair.
+
+        This method handles Spotify track relinking and other scenarios where
+        multiple connector tracks map to the same canonical track. It ensures
+        only one mapping per (track_id, connector_name) is marked as primary.
+
+        Args:
+            track_id: Internal canonical track ID
+            connector_track_id: Database ID of the connector track (not external ID)
+            connector_name: Name of the connector (e.g., "spotify")
+
+        Returns:
+            True if the primary mapping was successfully updated, False otherwise
+        """
+        try:
+            # Step 1: Reset all primaries for this track-connector pair
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_name == connector_name,
+                    DBTrackMapping.is_deleted == False,  # noqa: E712
+                )
+                .values(is_primary=False)
+            )
+
+            # Step 2: Set the specified mapping as primary
+            result = await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_track_id == connector_track_id,
+                    DBTrackMapping.is_deleted == False,  # noqa: E712
+                )
+                .values(is_primary=True)
+            )
+
+            success = result.rowcount > 0
+            if success:
+                logger.debug(
+                    f"Set primary mapping: track_id={track_id}, "
+                    f"connector_track_id={connector_track_id}, "
+                    f"connector={connector_name}"
+                )
+            else:
+                logger.warning(
+                    f"Failed to set primary mapping - no matching record found: "
+                    f"track_id={track_id}, connector_track_id={connector_track_id}, "
+                    f"connector={connector_name}"
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(
+                f"Error setting primary mapping for track_id={track_id}, "
+                f"connector_track_id={connector_track_id}, connector={connector_name}: {e}"
+            )
+            return False

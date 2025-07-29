@@ -103,9 +103,7 @@ class PlaylistDiff:
 
 
 async def match_tracks_with_db_lookup(
-    current_tracks: list[Track], 
-    target_tracks: list[Track], 
-    uow: UnitOfWorkProtocol
+    current_tracks: list[Track], target_tracks: list[Track], uow: UnitOfWorkProtocol
 ) -> tuple[list[Track], list[Track], list[Track]]:
     """Match tracks between current and target lists using database-first strategy.
 
@@ -114,23 +112,23 @@ async def match_tracks_with_db_lookup(
 
     Args:
         current_tracks: Tracks in current playlist
-        target_tracks: Tracks in target playlist  
+        target_tracks: Tracks in target playlist
         uow: UnitOfWork for database access
 
     Returns:
         Tuple of (matched_tracks, unmatched_current, unmatched_target)
     """
     # Step 1: Collect all track IDs and build lookup maps
-    
+
     all_track_ids = [track.id for track in current_tracks + target_tracks if track.id]
 
     # Step 2: Bulk lookup existing Spotify mappings from database
     connector_repo = uow.get_connector_repository()
     db_mappings = await connector_repo.get_connector_mappings(all_track_ids, "spotify")
-    
+
     # Step 3: Build comprehensive Spotify ID mappings (database only for tracks with IDs)
     spotify_mappings = {}  # track_id -> spotify_id for tracks with IDs
-    
+
     # Add database mappings
     for track_id, connectors in db_mappings.items():
         if "spotify" in connectors:
@@ -140,13 +138,13 @@ async def match_tracks_with_db_lookup(
     matched = []
     unmatched_current = current_tracks.copy()
     unmatched_target = target_tracks.copy()
-    
+
     def get_spotify_id(track):
         """Get Spotify ID from database mapping or in-memory connector_track_ids."""
         if track.id and track.id in spotify_mappings:
             return spotify_mappings[track.id]
         return track.connector_track_ids.get("spotify")
-    
+
     for current_track in current_tracks:
         current_spotify_id = get_spotify_id(current_track)
         if not current_spotify_id:
@@ -174,12 +172,11 @@ async def match_tracks_with_db_lookup(
 
 @curry
 def calculate_remove_operations(
-    unmatched_current_tracks: list[Track],
-    current_playlist: Playlist
+    unmatched_current_tracks: list[Track], current_playlist: Playlist
 ) -> list[PlaylistOperation]:
     """Calculate REMOVE operations for tracks that exist in current but not target."""
     operations = []
-    
+
     for track in unmatched_current_tracks:
         try:
             position = current_playlist.tracks.index(track)
@@ -194,20 +191,21 @@ def calculate_remove_operations(
             )
         except ValueError:
             # Track not found in current playlist, skip
-            logger.warning(f"Track {track.title} not found in current playlist for removal")
+            logger.warning(
+                f"Track {track.title} not found in current playlist for removal"
+            )
             continue
-    
+
     return operations
 
 
 @curry
 def calculate_add_operations(
-    unmatched_target_tracks: list[Track],
-    target_tracklist: TrackList
+    unmatched_target_tracks: list[Track], target_tracklist: TrackList
 ) -> list[PlaylistOperation]:
     """Calculate ADD operations for tracks that exist in target but not current."""
     operations = []
-    
+
     for track in unmatched_target_tracks:
         try:
             # Find the correct target position for this track
@@ -222,31 +220,31 @@ def calculate_add_operations(
             )
         except ValueError:
             # Track not found in target playlist, skip
-            logger.warning(f"Track {track.title} not found in target playlist for addition")
+            logger.warning(
+                f"Track {track.title} not found in target playlist for addition"
+            )
             continue
-    
+
     return operations
 
 
 @curry
 def calculate_move_operations(
-    matched_tracks: list[Track],
-    current_playlist: Playlist,
-    target_tracklist: TrackList
+    matched_tracks: list[Track], current_playlist: Playlist, target_tracklist: TrackList
 ) -> list[PlaylistOperation]:
     """Calculate MOVE operations for matched tracks that need reordering.
-    
+
     Uses simplified approach - can be enhanced with LIS algorithm if needed.
     """
     operations = []
-    
+
     if not matched_tracks:
         return operations
-    
+
     # Create mapping from track to position in current and target playlists
     current_positions = {}
     target_positions = {}
-    
+
     # Map matched tracks to their positions using Spotify ID matching
     for track in matched_tracks:
         # Get Spotify ID for matching
@@ -271,11 +269,15 @@ def calculate_move_operations(
         spotify_id = track.connector_track_ids.get("spotify")
         if not spotify_id:
             continue
-            
+
         current_pos = current_positions.get(spotify_id)
         target_pos = target_positions.get(spotify_id)
-        
-        if current_pos is not None and target_pos is not None and current_pos != target_pos:
+
+        if (
+            current_pos is not None
+            and target_pos is not None
+            and current_pos != target_pos
+        ):
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.MOVE,
@@ -320,8 +322,7 @@ def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
 
 @curry
 def calculate_confidence_score(
-    matched_tracks: list[Track], 
-    operations: list[PlaylistOperation]
+    matched_tracks: list[Track], operations: list[PlaylistOperation]
 ) -> float:
     """Calculate confidence score based on match quality."""
     total_tracks = len(matched_tracks) + len(operations)
@@ -332,9 +333,7 @@ def calculate_confidence_score(
 
 
 async def calculate_playlist_diff(
-    current_playlist: Playlist, 
-    target_tracklist: TrackList,
-    uow: UnitOfWorkProtocol
+    current_playlist: Playlist, target_tracklist: TrackList, uow: UnitOfWorkProtocol
 ) -> PlaylistDiff:
     """Pure functional diff calculation using existing transforms infrastructure.
 
@@ -354,22 +353,26 @@ async def calculate_playlist_diff(
     )
 
     # Step 1: Use sophisticated database-first track matching
-    matched_tracks, unmatched_current, unmatched_target = await match_tracks_with_db_lookup(
+    (
+        matched_tracks,
+        unmatched_current,
+        unmatched_target,
+    ) = await match_tracks_with_db_lookup(
         current_playlist.tracks, target_tracklist.tracks, uow
     )
 
     # Step 2: Calculate operations using functional composition
     remove_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]", 
-        calculate_remove_operations(unmatched_current, current_playlist)
+        "list[PlaylistOperation]",
+        calculate_remove_operations(unmatched_current, current_playlist),
     )
     add_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]", 
-        calculate_add_operations(unmatched_target, target_tracklist)
+        "list[PlaylistOperation]",
+        calculate_add_operations(unmatched_target, target_tracklist),
     )
     move_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]", 
-        calculate_move_operations(matched_tracks, current_playlist, target_tracklist)
+        "list[PlaylistOperation]",
+        calculate_move_operations(matched_tracks, current_playlist, target_tracklist),
     )
 
     # Combine all operations
@@ -377,7 +380,9 @@ async def calculate_playlist_diff(
 
     # Step 3: Calculate metadata
     api_calls: int = cast("int", estimate_api_calls(all_operations))
-    confidence: float = cast("float", calculate_confidence_score(matched_tracks, all_operations))
+    confidence: float = cast(
+        "float", calculate_confidence_score(matched_tracks, all_operations)
+    )
 
     return PlaylistDiff(
         operations=all_operations,
@@ -389,24 +394,26 @@ async def calculate_playlist_diff(
 
 # DRY operation sequencing using toolz
 @curry
-def sequence_operations_for_spotify(operations: list[PlaylistOperation]) -> list[PlaylistOperation]:
+def sequence_operations_for_spotify(
+    operations: list[PlaylistOperation],
+) -> list[PlaylistOperation]:
     """DRY sequencing that preserves Spotify track addition timestamps.
-    
+
     Proper sequencing: remove first (preserve timestamps), then add, then move.
     This prevents accidentally wiping track addition timestamp information.
     """
     if not operations:
         return []
-    
+
     # Partition operations by type using toolz
     def get_operation_priority(op: PlaylistOperation) -> int:
         """Get priority for operation sequencing (lower = first)."""
         priority_map = {
             PlaylistOperationType.REMOVE: 0,
-            PlaylistOperationType.ADD: 1, 
-            PlaylistOperationType.MOVE: 2
+            PlaylistOperationType.ADD: 1,
+            PlaylistOperationType.MOVE: 2,
         }
         return priority_map[op.operation_type]
-    
+
     # Sort operations by priority to achieve proper sequencing
     return sorted(operations, key=get_operation_priority)

@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistCommand:
     """Command for updating a connector playlist.
-    
+
     Encapsulates all information needed to update an external service playlist
     with new tracks using differential operations and proper sequencing.
     """
@@ -38,7 +38,7 @@ class UpdateConnectorPlaylistCommand:
     connector: str  # "spotify", "apple_music", etc.
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
-    playlist_name: str | None = None  # Optional name update  
+    playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
     preserve_timestamps: bool = True  # Whether to use proper sequencing
     batch_size: int = 100  # API batch size limit
@@ -154,7 +154,12 @@ class UpdateConnectorPlaylistUseCase:
                 # Step 2: Handle track updates based on mode
                 if command.append_mode:
                     # Append mode: add new tracks to end of external playlist
-                    api_calls_made, external_metadata, operations_performed, tracks_added = await self._append_tracks_to_connector(
+                    (
+                        api_calls_made,
+                        external_metadata,
+                        operations_performed,
+                        tracks_added,
+                    ) = await self._append_tracks_to_connector(
                         current_playlist, command, uow
                     )
                     tracks_removed = 0
@@ -167,7 +172,9 @@ class UpdateConnectorPlaylistUseCase:
                     )
 
                     if not diff.has_changes:
-                        logger.info("No changes detected, connector playlist already up to date")
+                        logger.info(
+                            "No changes detected, connector playlist already up to date"
+                        )
                         return UpdateConnectorPlaylistResult(
                             playlist_id=command.playlist_id,
                             connector=command.connector,
@@ -179,15 +186,27 @@ class UpdateConnectorPlaylistUseCase:
 
                     # Step 3: Apply proper operation sequencing for external service
                     sequenced_operations: list[PlaylistOperation] = cast(
-                        "list[PlaylistOperation]", 
-                        sequence_operations_for_spotify(diff.operations)
+                        "list[PlaylistOperation]",
+                        sequence_operations_for_spotify(diff.operations),
                     )
-                    
+
                     logger.debug(
                         f"Sequenced {len(sequenced_operations)} operations for {command.connector}",
-                        remove_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.REMOVE),
-                        add_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.ADD),
-                        move_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.MOVE),
+                        remove_ops=sum(
+                            1
+                            for op in sequenced_operations
+                            if op.operation_type == PlaylistOperationType.REMOVE
+                        ),
+                        add_ops=sum(
+                            1
+                            for op in sequenced_operations
+                            if op.operation_type == PlaylistOperationType.ADD
+                        ),
+                        move_ops=sum(
+                            1
+                            for op in sequenced_operations
+                            if op.operation_type == PlaylistOperationType.MOVE
+                        ),
                     )
 
                     # Step 4: Execute operations against external service (if not dry run)
@@ -207,8 +226,8 @@ class UpdateConnectorPlaylistUseCase:
                             tracks_removed,
                             tracks_moved,
                         ) = await self._execute_external_operations(
-                        current_playlist, sequenced_operations, command, uow
-                    )
+                            current_playlist, sequenced_operations, command, uow
+                        )
                     confidence_score = diff.confidence_score
 
                 # Handle metadata updates if specified
@@ -278,14 +297,16 @@ class UpdateConnectorPlaylistUseCase:
         playlist = await playlist_repo.get_playlist_by_connector(
             connector, playlist_id, raise_if_not_found=False
         )
-        
+
         if playlist is None:
             # Auto-create canonical playlist if it doesn't exist
-            logger.info(f"Creating canonical playlist for {connector} playlist {playlist_id}")
+            logger.info(
+                f"Creating canonical playlist for {connector} playlist {playlist_id}"
+            )
             playlist = await self._create_canonical_for_connector_playlist(
                 playlist_id, connector, uow
             )
-            
+
         return playlist
 
     async def _execute_external_operations(
@@ -309,20 +330,28 @@ class UpdateConnectorPlaylistUseCase:
             uow: UnitOfWork for repository access
 
         Returns:
-            Tuple of (api_calls_made, external_metadata, operations_performed, 
+            Tuple of (api_calls_made, external_metadata, operations_performed,
                      tracks_added, tracks_removed, tracks_moved)
         """
-        logger.debug(f"Executing {len(sequenced_operations)} operations against {command.connector}")
+        logger.debug(
+            f"Executing {len(sequenced_operations)} operations against {command.connector}"
+        )
 
         # Count operations by type
         tracks_added = sum(
-            1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.ADD
+            1
+            for op in sequenced_operations
+            if op.operation_type == PlaylistOperationType.ADD
         )
         tracks_removed = sum(
-            1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.REMOVE
+            1
+            for op in sequenced_operations
+            if op.operation_type == PlaylistOperationType.REMOVE
         )
         tracks_moved = sum(
-            1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.MOVE
+            1
+            for op in sequenced_operations
+            if op.operation_type == PlaylistOperationType.MOVE
         )
 
         # Step 1: Execute operations against external API
@@ -371,7 +400,7 @@ class UpdateConnectorPlaylistUseCase:
 
         Uses the existing sophisticated diff engine to apply REMOVE → ADD → MOVE operations
         that preserve Spotify track added_at timestamps and maintain playlist continuity.
-        
+
         Args:
             current_playlist: Current playlist state
             sequenced_operations: REMOVE → ADD → MOVE operations from diff engine
@@ -385,23 +414,35 @@ class UpdateConnectorPlaylistUseCase:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
             connector_provider = uow.get_service_connector_provider()
             connector = connector_provider.get_connector(command.connector)
-            
+
             logger.info(
                 "Executing differential operations on external playlist",
                 connector=command.connector,
                 playlist_id=command.playlist_id,
                 operations_count=len(sequenced_operations),
-                remove_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.REMOVE),
-                add_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.ADD),
-                move_ops=sum(1 for op in sequenced_operations if op.operation_type == PlaylistOperationType.MOVE),
+                remove_ops=sum(
+                    1
+                    for op in sequenced_operations
+                    if op.operation_type == PlaylistOperationType.REMOVE
+                ),
+                add_ops=sum(
+                    1
+                    for op in sequenced_operations
+                    if op.operation_type == PlaylistOperationType.ADD
+                ),
+                move_ops=sum(
+                    1
+                    for op in sequenced_operations
+                    if op.operation_type == PlaylistOperationType.MOVE
+                ),
             )
-            
+
             # Execute sophisticated differential operations to preserve added_at timestamps
             # This uses the existing sophisticated diff engine that maintains track continuity
             final_snapshot_id = await connector.execute_playlist_operations(
                 command.playlist_id, sequenced_operations
             )
-            
+
             # Build response metadata
             external_metadata = {
                 "last_modified": datetime.now(UTC).isoformat(),
@@ -409,11 +450,13 @@ class UpdateConnectorPlaylistUseCase:
                 "tracks_count": len(command.new_tracklist.tracks),
                 "snapshot_id": final_snapshot_id,  # Actual snapshot from differential operations
             }
-            
+
             # Add connector-specific metadata if available
-            if hasattr(connector, 'get_playlist_metadata'):
+            if hasattr(connector, "get_playlist_metadata"):
                 try:
-                    connector_metadata = await connector.get_playlist_metadata(command.playlist_id)
+                    connector_metadata = await connector.get_playlist_metadata(
+                        command.playlist_id
+                    )
                     external_metadata.update(connector_metadata)
                 except Exception as metadata_error:
                     logger.warning(
@@ -433,7 +476,9 @@ class UpdateConnectorPlaylistUseCase:
 
             return {
                 "success": True,
-                "api_calls_made": len(sequenced_operations),  # One call per operation type group
+                "api_calls_made": len(
+                    sequenced_operations
+                ),  # One call per operation type group
                 "metadata": external_metadata,
                 "error": None,
             }
@@ -477,22 +522,24 @@ class UpdateConnectorPlaylistUseCase:
         try:
             # Get connector playlist repository for updating connector_playlist table
             connector_repo = uow.get_connector_playlist_repository()
-            
+
             # Create updated track items list based on desired final state
             updated_items = await self._calculate_updated_playlist_items(
                 current_playlist, applied_operations, command
             )
-            
+
             # Create ConnectorPlaylist domain model for the updated state
-            
+
             # Get current connector playlist if it exists
             existing_connector_playlist = await connector_repo.get_by_connector_id(
                 command.connector, command.playlist_id
             )
-            
+
             # Create updated connector playlist model
             updated_connector_playlist = ConnectorPlaylist(
-                id=existing_connector_playlist.id if existing_connector_playlist else None,
+                id=existing_connector_playlist.id
+                if existing_connector_playlist
+                else None,
                 connector_name=command.connector,
                 connector_playlist_id=command.playlist_id,
                 name=current_playlist.name,
@@ -506,10 +553,10 @@ class UpdateConnectorPlaylistUseCase:
                 raw_metadata=api_metadata,  # Store full API response for future drift detection
                 last_updated=datetime.now(UTC),
             )
-            
+
             # Optimistic update: save immediately based on successful API response
             await connector_repo.upsert_model(updated_connector_playlist)
-            
+
             logger.debug(
                 "Connector playlist table updated optimistically",
                 connector=command.connector,
@@ -531,7 +578,10 @@ class UpdateConnectorPlaylistUseCase:
             )
 
     async def _calculate_updated_playlist_items(
-        self, current_playlist: Playlist, applied_operations: list, command: UpdateConnectorPlaylistCommand
+        self,
+        current_playlist: Playlist,
+        applied_operations: list,
+        command: UpdateConnectorPlaylistCommand,
     ) -> list[ConnectorPlaylistItem]:
         """Calculate the updated playlist items based on desired final state.
 
@@ -549,18 +599,22 @@ class UpdateConnectorPlaylistUseCase:
         # Create items list from desired final state (command.new_tracklist.tracks)
         items = []
         for i, track in enumerate(command.new_tracklist.tracks):
-            if track.connector_track_ids and track.connector_track_ids.get(command.connector):
+            if track.connector_track_ids and track.connector_track_ids.get(
+                command.connector
+            ):
                 item = ConnectorPlaylistItem(
                     connector_track_id=track.connector_track_ids[command.connector],
                     position=i,
-                    added_at=datetime.now(UTC).isoformat(),  # External API determines actual added_at
+                    added_at=datetime.now(
+                        UTC
+                    ).isoformat(),  # External API determines actual added_at
                     added_by_id="narada",  # Could be parameterized
                     extras={
                         "track_uri": f"{command.connector}:track:{track.connector_track_ids[command.connector]}",
                         "local": False,
                         "primary_color": None,
                         "video_thumbnail": None,
-                    }
+                    },
                 )
                 items.append(item)
 
@@ -570,7 +624,7 @@ class UpdateConnectorPlaylistUseCase:
             items_count=len(items),
             operations_applied=len(applied_operations),
         )
-        
+
         return items
 
     def _estimate_api_calls(self, operations: list, batch_size: int) -> int:
@@ -585,11 +639,17 @@ class UpdateConnectorPlaylistUseCase:
         """
         if not operations:
             return 0
-            
+
         # Count operations by type
-        add_ops = sum(1 for op in operations if op.operation_type == PlaylistOperationType.ADD)
-        remove_ops = sum(1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE)  
-        move_ops = sum(1 for op in operations if op.operation_type == PlaylistOperationType.MOVE)
+        add_ops = sum(
+            1 for op in operations if op.operation_type == PlaylistOperationType.ADD
+        )
+        remove_ops = sum(
+            1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE
+        )
+        move_ops = sum(
+            1 for op in operations if op.operation_type == PlaylistOperationType.MOVE
+        )
 
         # Calculate API calls: adds and removes can be batched, moves are individual
         api_calls = 0
@@ -606,50 +666,55 @@ class UpdateConnectorPlaylistUseCase:
         uow: UnitOfWorkProtocol,
     ) -> tuple[int, dict, int, int]:
         """Append new tracks to external connector playlist.
-        
+
         Args:
             current_playlist: Current playlist state
             command: Command with playlist context and configuration
             uow: UnitOfWork for repository access
-            
+
         Returns:
             Tuple of (api_calls_made, external_metadata, operations_performed, tracks_added)
         """
         # Filter out tracks that already exist to avoid duplicates
         existing_track_ids = {track.id for track in current_playlist.tracks if track.id}
         new_tracks = [
-            track for track in command.new_tracklist.tracks
+            track
+            for track in command.new_tracklist.tracks
             if not track.id or track.id not in existing_track_ids
         ]
-        
+
         if not new_tracks:
             logger.info("No new tracks to append to connector playlist")
             return 0, {}, 0, 0
-        
-        logger.info(f"Appending {len(new_tracks)} new tracks to {command.connector} playlist")
-        
+
+        logger.info(
+            f"Appending {len(new_tracks)} new tracks to {command.connector} playlist"
+        )
+
         if command.dry_run:
             # For dry run, estimate API calls without executing
-            estimated_api_calls = (len(new_tracks) + 99) // 100  # Ceiling division for batches
+            estimated_api_calls = (
+                len(new_tracks) + 99
+            ) // 100  # Ceiling division for batches
             return estimated_api_calls, {}, len(new_tracks), len(new_tracks)
-        
+
         # Execute append operation via connector
         connector_provider = uow.get_service_connector_provider()
         connector_instance = connector_provider.get_connector(command.connector)
-        
+
         # Append tracks to external playlist
         api_metadata = await connector_instance.append_tracks_to_playlist(
             command.playlist_id, new_tracks
         )
-        
+
         # Update connector_playlist table optimistically
         await self._update_connector_playlist_optimistic(
             current_playlist, [], api_metadata, command, uow
         )
-        
+
         # Estimate API calls made (typically one API call for batch append)
         api_calls_made = 1
-        
+
         return api_calls_made, api_metadata, len(new_tracks), len(new_tracks)
 
     async def _update_connector_playlist_metadata(
@@ -659,7 +724,7 @@ class UpdateConnectorPlaylistUseCase:
         uow: UnitOfWorkProtocol,
     ) -> None:
         """Update connector playlist metadata (name/description).
-        
+
         Args:
             playlist_id: External playlist ID
             command: Command with metadata updates
@@ -668,20 +733,25 @@ class UpdateConnectorPlaylistUseCase:
         if command.dry_run:
             logger.info("Skipping metadata update in dry run mode")
             return
-            
+
         connector_provider = uow.get_service_connector_provider()
         connector_instance = connector_provider.get_connector(command.connector)
-        
+
         metadata_updates = {}
         if command.playlist_name:
             metadata_updates["name"] = command.playlist_name
         if command.playlist_description:
             metadata_updates["description"] = command.playlist_description
-            
+
         if metadata_updates:
-            logger.info(f"Updating {command.connector} playlist metadata", 
-                       playlist_id=playlist_id, updates=metadata_updates)
-            await connector_instance.update_playlist_metadata(playlist_id, metadata_updates)
+            logger.info(
+                f"Updating {command.connector} playlist metadata",
+                playlist_id=playlist_id,
+                updates=metadata_updates,
+            )
+            await connector_instance.update_playlist_metadata(
+                playlist_id, metadata_updates
+            )
 
     async def _create_canonical_for_connector_playlist(
         self,
@@ -690,44 +760,48 @@ class UpdateConnectorPlaylistUseCase:
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
         """Create canonical playlist for existing connector playlist.
-        
+
         This handles the case where a connector playlist exists but no
         canonical playlist is linked to it.
-        
+
         Args:
             connector_playlist_id: External playlist ID
             connector: Connector name
             uow: UnitOfWork for repository access
-            
+
         Returns:
             Newly created canonical playlist
         """
         # Get connector instance to fetch playlist details
         connector_provider = uow.get_service_connector_provider()
         connector_instance = connector_provider.get_connector(connector)
-        
+
         # Fetch playlist metadata from external service
         connector_playlist_info = await connector_instance.get_playlist_details(
             connector_playlist_id
         )
-        
+
         # Create canonical playlist with fetched info
         canonical_playlist = Playlist(
             name=connector_playlist_info.get("name", f"{connector.title()} Playlist"),
-            description=connector_playlist_info.get("description", f"Imported from {connector.title()}"),
+            description=connector_playlist_info.get(
+                "description", f"Imported from {connector.title()}"
+            ),
             tracks=[],  # Will be populated separately if needed
             connector_playlist_ids={connector: connector_playlist_id},
             metadata={
                 "created_from_connector": connector,
                 "original_connector_id": connector_playlist_id,
                 "auto_created": True,
-            }
+            },
         )
-        
+
         # Save to database
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(canonical_playlist)
-        
-        logger.info(f"Auto-created canonical playlist {saved_playlist.id} for {connector} playlist {connector_playlist_id}")
-        
+
+        logger.info(
+            f"Auto-created canonical playlist {saved_playlist.id} for {connector} playlist {connector_playlist_id}"
+        )
+
         return saved_playlist

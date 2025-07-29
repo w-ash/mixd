@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class CreateConnectorPlaylistCommand:
     """Command for creating a new connector playlist.
-    
+
     Encapsulates all information needed to create a playlist on an external
     service with proper internal database synchronization.
     """
@@ -147,7 +147,9 @@ class CreateConnectorPlaylistUseCase:
                     name=command.playlist_name,
                     description=command.playlist_description,
                     tracks=command.tracklist.tracks,
-                    connector_playlist_ids={command.connector: external_result["playlist_id"]},
+                    connector_playlist_ids={
+                        command.connector: external_result["playlist_id"]
+                    },
                 )
 
             result = CreateConnectorPlaylistResult(
@@ -164,7 +166,9 @@ class CreateConnectorPlaylistUseCase:
                 "Connector playlist creation completed",
                 connector=command.connector,
                 external_playlist_id=external_result["playlist_id"],
-                internal_playlist_id=internal_playlist.id if internal_playlist else None,
+                internal_playlist_id=internal_playlist.id
+                if internal_playlist
+                else None,
                 tracks_created=result.tracks_created,
                 execution_time_ms=execution_time,
             )
@@ -186,7 +190,7 @@ class CreateConnectorPlaylistUseCase:
         """Create playlist on external service using real connector integration.
 
         Replaces simulation logic with actual external API calls via connector provider.
-        
+
         Args:
             command: Creation command with configuration
             uow: UnitOfWork for accessing connector provider
@@ -198,7 +202,7 @@ class CreateConnectorPlaylistUseCase:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
             connector_provider = uow.get_service_connector_provider()
             connector = connector_provider.get_connector(command.connector)
-            
+
             # Create playlist via external API
             logger.info(
                 "Creating external playlist via connector",
@@ -206,13 +210,13 @@ class CreateConnectorPlaylistUseCase:
                 playlist_name=command.playlist_name,
                 tracks_count=len(command.tracklist.tracks),
             )
-            
+
             external_playlist_id = await connector.create_playlist(
                 name=command.playlist_name,
                 tracks=command.tracklist.tracks,
                 description=command.playlist_description,
             )
-            
+
             # Build metadata response (format may vary by connector)
             external_metadata = {
                 "created_at": datetime.now(UTC).isoformat(),
@@ -222,11 +226,13 @@ class CreateConnectorPlaylistUseCase:
                 "follower_count": 0,
                 "external_url": f"https://{command.connector}.com/playlist/{external_playlist_id}",
             }
-            
+
             # Add connector-specific metadata if available
-            if hasattr(connector, 'get_playlist_metadata'):
+            if hasattr(connector, "get_playlist_metadata"):
                 try:
-                    connector_metadata = await connector.get_playlist_metadata(external_playlist_id)
+                    connector_metadata = await connector.get_playlist_metadata(
+                        external_playlist_id
+                    )
                     external_metadata.update(connector_metadata)
                 except Exception as metadata_error:
                     logger.warning(
@@ -293,7 +299,7 @@ class CreateConnectorPlaylistUseCase:
                 # Step 1: Ensure all tracks have database IDs via upsert
                 track_repo = uow.get_track_repository()
                 persisted_tracks = []
-                
+
                 for track in command.tracklist.tracks:
                     try:
                         saved_track = await track_repo.save_track(track)
@@ -366,11 +372,13 @@ class CreateConnectorPlaylistUseCase:
         """
         try:
             connector_repo = uow.get_connector_playlist_repository()
-            
+
             # Create track items list for connector_playlist table
             items = []
             for i, track in enumerate(saved_playlist.tracks):
-                if track.connector_track_ids and track.connector_track_ids.get(command.connector):
+                if track.connector_track_ids and track.connector_track_ids.get(
+                    command.connector
+                ):
                     item = ConnectorPlaylistItem(
                         connector_track_id=track.connector_track_ids[command.connector],
                         position=i,
@@ -381,7 +389,7 @@ class CreateConnectorPlaylistUseCase:
                             "local": False,
                             "primary_color": None,
                             "video_thumbnail": None,
-                        }
+                        },
                     )
                     items.append(item)
 

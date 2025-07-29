@@ -1,0 +1,63 @@
+{
+  "id": "current_obsessions",
+  "name": "Current Obsessions",
+  "description": "Find tracks in heavy recent rotation - your current musical fixations",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked_songs",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "YOUR_LIKED_SONGS_PLAYLIST_ID",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays", "last_played_dates"],
+        "period_days": 30
+      },
+      "upstream": ["source_liked_songs"]
+    },
+    {
+      "id": "filter_current_obsessions",
+      "type": "filter.by_play_history",
+      "config": {
+        "min_plays": 8,
+        "max_days_back": 30,
+        "include_missing": false
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "sort_by_recent_plays",
+      "type": "sorter.by_play_history",
+      "config": {
+        "max_days_back": 30,
+        "reverse": true
+      },
+      "upstream": ["filter_current_obsessions"]
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 20,
+        "method": "first"
+      },
+      "upstream": ["sort_by_recent_plays"]
+    },
+    {
+      "id": "create_obsessions_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Current Obsessions",
+        "description": "Heavy rotation: tracks with 8+ plays in the last 30 days",
+        "connector": "spotify"
+      },
+      "upstream": ["limit_selection"]
+    }
+  ]
+}

@@ -16,11 +16,15 @@ error handling, and batch processing operations.
 from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from aiolimiter import AsyncLimiter
 from attrs import define, field
 import backoff
+
+if TYPE_CHECKING:
+    from src.domain.entities.playlist import ConnectorPlaylist
+    from src.domain.entities.track import ConnectorTrack
 
 from src.config import get_config, get_logger
 from src.infrastructure.connectors.metrics_registry import (
@@ -59,8 +63,8 @@ class BaseMetricResolver:
     CONNECTOR: ClassVar[str] = ""
 
     async def resolve(
-        self, 
-        track_ids: list[int], 
+        self,
+        track_ids: list[int],
         metric_name: str,
         uow: Any,  # UnitOfWorkProtocol - avoiding import for infrastructure layer
     ) -> dict[int, Any]:
@@ -95,7 +99,7 @@ class BaseMetricResolver:
 @define(slots=True)
 class BaseAPIConnector(ABC):
     """Abstract base class for API connectors with common functionality.
-    
+
     Provides standardized configuration access, batch processing setup,
     and common patterns for all external service connectors.
     """
@@ -112,7 +116,9 @@ class BaseAPIConnector(ABC):
             batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
             concurrency_limit=int(self.get_connector_config("CONCURRENCY") or 5),
             retry_count=int(self.get_connector_config("RETRY_COUNT") or 3),
-            retry_base_delay=float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+            retry_base_delay=float(
+                self.get_connector_config("RETRY_BASE_DELAY") or 1.0
+            ),
             retry_max_delay=float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
             request_delay=float(self.get_connector_config("REQUEST_DELAY") or 0.1),
             logger_instance=get_logger(__name__).bind(service=self.connector_name),
@@ -120,19 +126,74 @@ class BaseAPIConnector(ABC):
 
     def get_connector_config(self, key: str, default=None):
         """Get connector-specific configuration value.
-        
+
         Args:
             key: Configuration key (without connector prefix)
             default: Default value if key not found
-            
+
         Returns:
             Configuration value with automatic connector prefixing
-            
+
         Example:
             self.get_connector_config("BATCH_SIZE") -> get_config("SPOTIFY_API_BATCH_SIZE")
         """
         connector_key = f"{self.connector_name.upper()}_API_{key}"
         return get_config(connector_key, default)
+
+    async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
+        """Generic playlist fetcher that delegates to connector-specific methods.
+        
+        Automatically delegates to the appropriate connector-specific method based on
+        the connector_name property. This provides a consistent interface for all
+        playlist-capable connectors while maintaining DRY principles.
+        
+        Args:
+            playlist_id: The service-specific ID of the playlist to retrieve
+            
+        Returns:
+            ConnectorPlaylist containing the playlist metadata and tracks
+            
+        Raises:
+            NotImplementedError: If the connector doesn't support playlist operations
+        """
+        # Try connector-specific method first (more efficient)
+        method_name = f"get_{self.connector_name}_playlist"
+        if hasattr(self, method_name):
+            method = getattr(self, method_name)
+            return await method(playlist_id)
+        
+        # Fallback: connector doesn't support playlists
+        raise NotImplementedError(
+            f"Playlist operations not supported by {self.connector_name} connector"
+        )
+
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> "ConnectorTrack":
+        """Generic track converter that delegates to connector-specific functions.
+        
+        Automatically delegates to the appropriate connector-specific conversion function
+        based on the connector_name property. This provides a consistent interface for
+        all track conversion operations while maintaining DRY principles.
+        
+        Args:
+            track_data: Raw track data from the external service API
+            
+        Returns:
+            ConnectorTrack domain entity with standardized fields
+            
+        Raises:
+            NotImplementedError: If the connector doesn't support track conversion
+        """
+        # Import conversion functions dynamically to avoid circular dependencies
+        if self.connector_name == "spotify":
+            from src.infrastructure.connectors.spotify import (
+                convert_spotify_track_to_connector,
+            )
+            return convert_spotify_track_to_connector(track_data)
+        
+        # Fallback: connector doesn't support track conversion
+        raise NotImplementedError(
+            f"Track conversion not supported by {self.connector_name} connector"
+        )
 
 
 @define(slots=True)

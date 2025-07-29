@@ -34,6 +34,7 @@ def validate_registry():
         "filter.by_metric",
         "filter.by_play_history",
         "sorter.by_metric",
+        "sorter.by_play_history",
         "selector.limit_tracks",
         "combiner.merge_playlists",
         "combiner.concatenate_playlists",

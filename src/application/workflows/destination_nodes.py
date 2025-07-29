@@ -35,21 +35,21 @@ async def create_playlist(
     context: dict,
 ) -> dict:
     """Create a new playlist with optional connector sync.
-    
+
     Always creates canonical playlist, optionally creates on connector.
-    
+
     Config:
         name (str): Required playlist name
-        description (str): Optional playlist description  
+        description (str): Optional playlist description
         connector (str): Optional connector ("spotify", "apple_music", etc.)
     """
     playlist_name = config.get("name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
-    
+
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    
+
     connector = config.get("connector")
     if connector:
         # Create on both canonical and connector
@@ -61,10 +61,9 @@ async def create_playlist(
             create_internal_playlist=True,
         )
         result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_create_connector_playlist_use_case,
-            command
+            workflow_context.use_cases.get_create_connector_playlist_use_case, command
         )
-        
+
         return {
             "operation": "create_playlist",
             "playlist": result.playlist,
@@ -83,10 +82,9 @@ async def create_playlist(
             description=config.get("description", "Created by Narada"),
         )
         result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_create_canonical_playlist_use_case,
-            command
+            workflow_context.use_cases.get_create_canonical_playlist_use_case, command
         )
-        
+
         return {
             "operation": "create_playlist",
             "playlist": result.playlist,
@@ -103,11 +101,11 @@ async def update_playlist(
     context: dict,
 ) -> dict:
     """Update existing playlist with smart ID resolution.
-    
+
     Smart ID resolution:
     - No connector: playlist_id is canonical ID, update canonical only
     - With connector: playlist_id is connector ID, find/create canonical, update both
-    
+
     Config:
         playlist_id (str): Required - canonical OR connector playlist ID
         connector (str): Optional - determines ID interpretation
@@ -118,13 +116,13 @@ async def update_playlist(
     playlist_id = config.get("playlist_id")
     if not playlist_id:
         raise ValueError("Missing required 'playlist_id' for update_playlist operation")
-    
+
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    
+
     connector = config.get("connector")
     append = config.get("append", False)
-    
+
     if connector:
         # playlist_id is connector ID - update connector with optimistic canonical sync
         command = UpdateConnectorPlaylistCommand(
@@ -137,10 +135,9 @@ async def update_playlist(
             preserve_timestamps=not append,  # Use preservation for overwrite
         )
         result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_update_connector_playlist_use_case,
-            command
+            workflow_context.use_cases.get_update_connector_playlist_use_case, command
         )
-        
+
         return {
             "operation": "update_playlist",
             "connector": connector,
@@ -163,10 +160,9 @@ async def update_playlist(
             playlist_description=config.get("description"),  # Optional metadata update
         )
         result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_update_canonical_playlist_use_case,
-            command
+            workflow_context.use_cases.get_update_canonical_playlist_use_case, command
         )
-        
+
         return {
             "operation": "update_playlist",
             "playlist": result.playlist,

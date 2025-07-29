@@ -49,13 +49,34 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         if db_model.mbid:
             connector_track_ids["musicbrainz"] = db_model.mbid
 
-        # Process connector track mappings using AsyncAttrs pattern
+        # Process connector track mappings with primary awareness
+        # First pass: collect all primary mappings
         for mapping in active_mappings:
-            conn_track = await TrackMapper._get_connector_track(mapping)
-            if conn_track and not conn_track.is_deleted:
-                connector_name = conn_track.connector_name
-                connector_track_ids[connector_name] = conn_track.connector_track_id
-                connector_metadata[connector_name] = conn_track.raw_metadata or {}
+            if mapping.is_primary:
+                conn_track = await TrackMapper._get_connector_track(mapping)
+                if conn_track and not conn_track.is_deleted:
+                    connector_name = conn_track.connector_name
+                    connector_track_ids[connector_name] = conn_track.connector_track_id
+                    connector_metadata[connector_name] = conn_track.raw_metadata or {}
+
+        # Second pass: fill in any missing connectors with non-primary mappings (fallback)
+        for mapping in active_mappings:
+            if not mapping.is_primary:
+                conn_track = await TrackMapper._get_connector_track(mapping)
+                if conn_track and not conn_track.is_deleted:
+                    connector_name = conn_track.connector_name
+                    # Only use non-primary if no primary exists for this connector
+                    if connector_name not in connector_track_ids:
+                        connector_track_ids[connector_name] = (
+                            conn_track.connector_track_id
+                        )
+                        connector_metadata[connector_name] = (
+                            conn_track.raw_metadata or {}
+                        )
+                        logger.debug(
+                            f"Using non-primary mapping as fallback for {connector_name} "
+                            f"on track {db_model.id}"
+                        )
 
         # Process likes into connector metadata
         for like in active_likes:

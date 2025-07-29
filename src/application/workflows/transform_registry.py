@@ -27,6 +27,7 @@ from src.domain.transforms.core import (
     interleave,
     select_by_method,
     sort_by_attribute,
+    sort_by_play_history,
 )
 
 # === TRANSFORM STRATEGIES ===
@@ -51,14 +52,14 @@ TRANSFORM_REGISTRY = {
             max_value=cfg.get("max_value"),
             include_missing=cfg.get("include_missing", False),
         ),
-        # Unified play history filter with flexible constraints
+        # Unified play history filter with clear time window modes
         "by_play_history": lambda _ctx, cfg: filter_by_play_history(
             min_plays=cfg.get("min_plays"),
             max_plays=cfg.get("max_plays"),
-            after_date=cfg.get("after_date"),
-            before_date=cfg.get("before_date"),
-            days_back=cfg.get("days_back"),
-            days_forward=cfg.get("days_forward"),
+            start_date=cfg.get("start_date"),
+            end_date=cfg.get("end_date"),
+            min_days_back=cfg.get("min_days_back"),
+            max_days_back=cfg.get("max_days_back"),
             include_missing=cfg.get("include_missing", False),
         ),
     },
@@ -74,6 +75,14 @@ TRANSFORM_REGISTRY = {
             key_fn=lambda track: track.release_date,
             metric_name="release_date",
             reverse=cfg.get("reverse", False),  # Default to oldest first
+        ),
+        # Play history sorter with flexible time window modes
+        "by_play_history": lambda _ctx, cfg: sort_by_play_history(
+            start_date=cfg.get("start_date"),
+            end_date=cfg.get("end_date"),
+            min_days_back=cfg.get("min_days_back"),
+            max_days_back=cfg.get("max_days_back"),
+            reverse=cfg.get("reverse", True),
         ),
     },
     "selector": {

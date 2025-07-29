@@ -107,6 +107,13 @@ node(
     output_type="tracklist",
 )(make_node("sorter", "by_metric"))
 
+node(
+    "sorter.by_play_history",
+    description="Sorts tracks by play frequency within optional time windows",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "by_play_history"))
+
 # === SELECTOR NODES ===
 node(
     "selector.limit_tracks",

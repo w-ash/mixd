@@ -218,7 +218,9 @@ class OperationResult:
     )  # metric_name -> {track_id(int) -> value}
     operation_name: str = field(default="")
     execution_time: float = field(default=0.0)
-    tracklist: "TrackList | None" = field(default=None)  # Optional tracklist with metadata
+    tracklist: "TrackList | None" = field(
+        default=None
+    )  # Optional tracklist with metadata
 
     # Play-based operation support
     plays_processed: int = field(default=0)  # Number of play records processed

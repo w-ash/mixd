@@ -68,5 +68,3 @@ def get_field_name(metric_name: str) -> str:
         Field name in the connector's API response structure
     """
     return FIELD_MAPPINGS.get(metric_name, metric_name)
-
-

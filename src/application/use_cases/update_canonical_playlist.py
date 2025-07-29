@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class UpdateCanonicalPlaylistCommand:
     """Command for updating a canonical playlist.
-    
+
     Encapsulates all information needed to update an internal playlist
     with new tracks and metadata using differential operations.
     """
@@ -104,7 +104,9 @@ class UpdateCanonicalPlaylistUseCase:
     - Simplified testing with single UnitOfWork mock
     """
 
-    metrics_service: MetricsApplicationService = field(factory=MetricsApplicationService)
+    metrics_service: MetricsApplicationService = field(
+        factory=MetricsApplicationService
+    )
 
     async def execute(
         self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
@@ -149,16 +151,22 @@ class UpdateCanonicalPlaylistUseCase:
                 # Step 3: Handle track updates based on mode
                 if command.append_mode:
                     # Append mode: add new tracks to end of existing playlist
-                    result_playlist, operations_performed, tracks_added = await self._append_tracks(
+                    (
+                        result_playlist,
+                        operations_performed,
+                        tracks_added,
+                    ) = await self._append_tracks(
                         current_playlist, command.new_tracklist, uow, command.dry_run
                     )
                     tracks_removed = 0
                     tracks_moved = 0
                     confidence_score = 1.0  # High confidence for simple append
-                    
+
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
-                        await self._extract_track_metrics(command.new_tracklist.tracks, uow)
+                        await self._extract_track_metrics(
+                            command.new_tracklist.tracks, uow
+                        )
                 else:
                     # Overwrite mode: use DRY diff engine with preservation
                     diff = await calculate_playlist_diff(
@@ -187,16 +195,16 @@ class UpdateCanonicalPlaylistUseCase:
                             result_playlist,
                             operations_performed,
                             tracks_added,
-                            tracks_removed, 
+                            tracks_removed,
                             tracks_moved,
-                        ) = await self._execute_operations(
-                            current_playlist, diff, uow
-                        )
+                        ) = await self._execute_operations(current_playlist, diff, uow)
                     confidence_score = diff.confidence_score
-                    
+
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
-                        await self._extract_track_metrics(command.new_tracklist.tracks, uow)
+                        await self._extract_track_metrics(
+                            command.new_tracklist.tracks, uow
+                        )
 
                 # Commit changes if not dry run
                 if not command.dry_run:
@@ -252,12 +260,14 @@ class UpdateCanonicalPlaylistUseCase:
             Current playlist entity
         """
         playlist_repo = uow.get_playlist_repository()
-        
+
         try:
             playlist = await playlist_repo.get_playlist_by_id(int(playlist_id))
             return playlist
         except ValueError:
-            raise ValueError(f"Invalid playlist ID '{playlist_id}' - must be a canonical playlist ID") from None
+            raise ValueError(
+                f"Invalid playlist ID '{playlist_id}' - must be a canonical playlist ID"
+            ) from None
 
     async def _execute_operations(
         self,
@@ -282,24 +292,36 @@ class UpdateCanonicalPlaylistUseCase:
 
         # Count operations by type
         tracks_added = sum(
-            1 for op in diff.operations if op.operation_type == PlaylistOperationType.ADD
+            1
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.ADD
         )
         tracks_removed = sum(
-            1 for op in diff.operations if op.operation_type == PlaylistOperationType.REMOVE
+            1
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.REMOVE
         )
         # MOVE operations not needed for canonical - track order is handled by ADD positions
         tracks_moved = 0
 
         # Apply operations to create the updated track list
-        
+
         # Process REMOVE operations (in reverse order to avoid index shifting)
-        remove_ops = [op for op in diff.operations if op.operation_type == PlaylistOperationType.REMOVE]
+        remove_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.REMOVE
+        ]
         for op in sorted(remove_ops, key=lambda x: x.position, reverse=True):
             if 0 <= op.position < len(updated_tracks):
                 updated_tracks.pop(op.position)
 
-        # Process ADD operations  
-        add_ops = [op for op in diff.operations if op.operation_type == PlaylistOperationType.ADD]
+        # Process ADD operations
+        add_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.ADD
+        ]
         for op in add_ops:
             position = min(op.position, len(updated_tracks))
             updated_tracks.insert(position, op.track)
@@ -312,16 +334,24 @@ class UpdateCanonicalPlaylistUseCase:
                 **current_playlist.metadata,
                 "last_updated": datetime.now(UTC).isoformat(),
                 "update_operations": len(diff.operations),
-            }
+            },
         )
 
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.update_playlist(current_playlist.id, updated_playlist)
+        saved_playlist = await playlist_repo.update_playlist(
+            current_playlist.id, updated_playlist
+        )
 
-        return saved_playlist, len(diff.operations), tracks_added, tracks_removed, tracks_moved
+        return (
+            saved_playlist,
+            len(diff.operations),
+            tracks_added,
+            tracks_removed,
+            tracks_moved,
+        )
 
     async def _update_playlist_metadata(
         self,
@@ -330,12 +360,12 @@ class UpdateCanonicalPlaylistUseCase:
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
         """Update playlist metadata (name/description).
-        
+
         Args:
             current_playlist: Current playlist state
             command: Command with metadata updates
             uow: UnitOfWork for repository access
-            
+
         Returns:
             Updated playlist with new metadata
         """
@@ -344,22 +374,28 @@ class UpdateCanonicalPlaylistUseCase:
             updates["name"] = command.playlist_name
         if command.playlist_description:
             updates["description"] = command.playlist_description
-            
+
         if updates:
-            logger.info("Updating playlist metadata", playlist_id=current_playlist.id, updates=updates)
+            logger.info(
+                "Updating playlist metadata",
+                playlist_id=current_playlist.id,
+                updates=updates,
+            )
             # Preserve connector mappings when updating metadata
             updated_playlist = evolve(
                 current_playlist,
                 connector_playlist_ids=current_playlist.connector_playlist_ids.copy(),
-                **updates
+                **updates,
             )
-            
+
             # Persist metadata changes using update_playlist for existing playlists
             if current_playlist.id is None:
                 raise ValueError("Cannot update playlist without an ID")
             playlist_repo = uow.get_playlist_repository()
-            return await playlist_repo.update_playlist(current_playlist.id, updated_playlist)
-        
+            return await playlist_repo.update_playlist(
+                current_playlist.id, updated_playlist
+            )
+
         return current_playlist
 
     async def _append_tracks(
@@ -370,37 +406,37 @@ class UpdateCanonicalPlaylistUseCase:
         dry_run: bool,
     ) -> tuple[Playlist, int, int]:
         """Append new tracks to the end of existing playlist.
-        
+
         Args:
             current_playlist: Current playlist state
             new_tracklist: Tracks to append
             uow: UnitOfWork for repository access
             dry_run: Whether to actually persist changes
-            
+
         Returns:
             Tuple of (updated_playlist, operations_performed, tracks_added)
         """
         # Filter out tracks that already exist to avoid duplicates
         existing_track_ids = {track.id for track in current_playlist.tracks if track.id}
         new_tracks = [
-            track for track in new_tracklist.tracks
+            track
+            for track in new_tracklist.tracks
             if not track.id or track.id not in existing_track_ids
         ]
-        
+
         if not new_tracks:
             logger.info("No new tracks to append")
             return current_playlist, 0, 0
-        
+
         logger.info(f"Appending {len(new_tracks)} new tracks to playlist")
-        
+
         if dry_run:
             # For dry run, create result without persisting
             result_playlist = evolve(
-                current_playlist,
-                tracks=current_playlist.tracks + new_tracks
+                current_playlist, tracks=current_playlist.tracks + new_tracks
             )
             return result_playlist, len(new_tracks), len(new_tracks)
-        
+
         # Create updated playlist with appended tracks
         updated_playlist = evolve(
             current_playlist,
@@ -409,22 +445,24 @@ class UpdateCanonicalPlaylistUseCase:
                 **current_playlist.metadata,
                 "last_updated": datetime.now(UTC).isoformat(),
                 "tracks_appended": len(new_tracks),
-            }
+            },
         )
-        
+
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.update_playlist(current_playlist.id, updated_playlist)
-        
+        saved_playlist = await playlist_repo.update_playlist(
+            current_playlist.id, updated_playlist
+        )
+
         return saved_playlist, len(new_tracks), len(new_tracks)
 
     async def _extract_track_metrics(
         self, tracks: list["Track"], uow: UnitOfWorkProtocol
     ) -> None:
         """Extract metrics from connector metadata for all tracks.
-        
+
         Args:
             tracks: List of tracks to extract metrics for
             uow: UnitOfWork for transaction management
@@ -437,13 +475,16 @@ class UpdateCanonicalPlaylistUseCase:
             # Find tracks that have metadata for this connector
             tracks_with_metadata = []
             fresh_metadata = {}
-            
+
             for track in tracks:
-                if (track.id and track.connector_metadata 
-                    and connector in track.connector_metadata):
+                if (
+                    track.id
+                    and track.connector_metadata
+                    and connector in track.connector_metadata
+                ):
                     tracks_with_metadata.append(track)
                     fresh_metadata[track.id] = track.connector_metadata[connector]
-            
+
             if fresh_metadata:
                 logger.info(
                     f"Extracting {len(available_metrics)} metrics from {connector} for {len(tracks_with_metadata)} tracks",
@@ -451,7 +492,7 @@ class UpdateCanonicalPlaylistUseCase:
                     metrics=available_metrics,
                     track_count=len(tracks_with_metadata),
                 )
-                
+
                 # Use the metrics service to batch process the fresh metadata
                 await self.metrics_service.batch_process_fresh_metadata(
                     fresh_metadata=fresh_metadata,

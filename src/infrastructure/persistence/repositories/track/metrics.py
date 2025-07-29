@@ -195,5 +195,3 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
 
         # Convert to tuples of (timestamp, value)
         return [(m["collected_at"], m["value"]) for m in metrics]
-
-

@@ -1,8 +1,8 @@
 
 # Project Narada Backlog
 
-**Current Development Version**: 0.2.4
-**Current Initiative**: Playlist Workflow Expansion
+**Current Development Version**: 0.2.5
+**Current Initiative**: Workflow Transformation Expansion
 
 This document is a high level overview of Project Narada's development backlog/roadmap. It's mean to primarily explain the why, at a product manager level, of our future features. It also includes high level architectural decisions, with a focus on the why of those descriptions.
 
@@ -112,49 +112,46 @@ Transform your playlists with intelligent automation. Create sophisticated workf
   - Added comprehensive playlist domain entities with immutable operations
 - **UnitOfWork Pattern**
   - Consistent transaction boundary management across all playlist operations
+
+### v0.2.5: Workflow Transformation Expansion (In Progress)
+Unlock the power of your listening history for intelligent playlist curation. Filter and sort your music based on actual listening patterns and discovery opportunities to create playlists that truly reflect your musical journey.
+
+**Completed Foundation Work**
+- **Import Quality Foundation**
+  - Added "4 minutes OR 50% duration" rule to Spotify imports for consistency with Last.fm
+  - Added incognito mode filtering to exclude non-genuine listening history
+  - Implemented `ImportConfig` with configurable play filtering thresholds
+  - Added comprehensive filtering metrics for import visibility
+- **Database Performance Foundation**
+  - Added critical indexes: `ix_track_plays_track_id`, `ix_track_plays_track_played`, `ix_track_plays_track_service`
+  - Created database migration for existing installations
+- **Import Reliability Fixes**
+  - Fixed import idempotency with unique constraint on `(track_id, service, played_at, ms_played)`
+  - Resolved track deduplication issues with exact content matching (ISRC + normalized metadata)
+  - Added NULL filtering to prevent constraint violations
+
+**In Progress**
+- **Play History Filter and Sort**
+  - Two new workflow nodes for intelligent track selection based on listening patterns
+  - Time-based filtering (relative and absolute date ranges)
+  - Discovery workflow templates for "hidden gems", "current obsessions", etc.
 ---
 
 ## Planned Roadmap 🚀
 
-### v0.2.5: Workflow Transformation Expansion
-Unlock the power of your listening history for intelligent playlist curation. Filter and sort your music based on actual listening patterns and discovery opportunities to create playlists that truly reflect your musical journey.
+### v0.2.5: Workflow Transformation Expansion (Continued)
+Complete the workflow transformation capabilities with remaining features for advanced playlist curation.
 
-- [ ] **Play History Filter and Sort**
+- [ ] **Play History Filter and Sort (Remaining Work)**
     - Status: 🔄 In Progress
     - Effort: M
-    - What: Transform workflows to leverage your listening history for intelligent track selection and ordering
-    - Why: Create personalized playlists based on how you actually listen - find hidden gems you haven't heard in months or tracks you've been obsessing over
-    - Dependencies: n/a
+    - What: Complete implementation of workflow nodes for play count analysis and time-based filtering
+    - Why: Enable users to create playlists based on listening patterns like "hidden gems" or "current obsessions"
+    - Dependencies: Foundation work completed
     - Notes:
-        - **Play Count Filters**: Find frequently played hits (>10 plays) or neglected gems (<5 plays)
-        - **Time-Based Analysis**: Focus on recent activity (last 30 days) or specific time periods
-        - **Discovery Tools**: Identify tracks not played recently for rediscovery playlists
-        - **Smart Sorting**: Order by play recency, frequency, or discovery gaps
-
-- [ ] **Advanced Transformer Workflow nodes**
-    - Status: 🔜 Not Started
-    - Effort: M
-    - What: Implement additional transformer nodes for workflow system
-    - Why: More transformation options enable more powerful workflows
-    - Dependencies: None
-    - Notes:
-        - Implement combining operations with different strategies
-        - Add time-based transformers (seasonal, time of day)
-        - Include randomization with optional weighting for sorting a playlist
-        - Include selection of just the first X or last X from a tracklist
-
-- [ ] **Advanced Track Matching Strategies**
-    - Status: 🔜 Not Started
-    - Effort: M
-    - What: Extend playlist update matching beyond simple Spotify ID matching to include ISRC and metadata strategies
-    - Why: Enable more sophisticated track matching for playlist updates, especially useful when Spotify IDs aren't available or when handling cross-service track resolution
-    - Dependencies: Complete UpdatePlaylistUseCase Implementation
-    - Notes:
-        - Implement ISRC-based matching for high-confidence identity resolution
-        - Add metadata matching (artist/title/album) with confidence scoring
-        - Support fallback strategies when primary matching fails
-        - Maintain existing Spotify ID matching as fastest path
-        - File: `src/application/use_cases/update_playlist.py` (currently uses simple Spotify ID matching)
+        - **Remaining Tasks**: Implement `filter.by_play_history` and `sorter.by_play_history` workflow nodes
+        - **Discovery Templates**: Create pre-built workflow templates for common use cases
+        - **Architecture**: Extend existing TRANSFORM_REGISTRY with new node types
 
 - [ ] **Enhanced Playlist Naming**
     - Status: 🔜 Not Started
@@ -169,16 +166,35 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
         - Implement metadata insertion into descriptions
         - Add validation to prevent invalid characters
     
-- [ ] **Discovery Workflow Templates**
-    - Effort: S
-    - What: Create pre-built workflow templates leveraging new play history capabilities
-    - Why: Reduce complexity for users to access powerful play analysis without workflow construction expertise
-    - Dependencies: Play History Filter and Sort Extensions
-    - Status: Not Started
+
+### v0.2.6: Advanced Workflow Features
+Extend workflow capabilities with sophisticated transformation and analysis features.
+
+- [ ] **Narada Data Source Nodes**
+    - Status: 🔜 Not Started
+    - Effort: M
+    - What: Create workflow source nodes that tap directly into Narada's rich canonical track database
+    - Why: Enable workflows based on listening history and preferences without requiring playlist containers
+    - Dependencies: v0.2.5 completion (play history foundation)
     - Notes:
-        - Common discovery patterns: "Hidden Gems", "Seasonal Favorites", "Rediscovery", "New vs Old"
-        - Templates demonstrate play history node capabilities
-        - Provide starting points for user customization
+        - **`source.liked_tracks`**: Access liked tracks across all services with optional connector filtering
+        - **`source.played_tracks`**: Source tracks from play history with time range and frequency filters
+        - **Performance Safeguards**: Maximum 10,000 tracks per source, configurable limits to prevent overwhelming workflows
+        - **Built-in Filtering**: Basic filters (date ranges, service filters, play count thresholds) to keep initial trackists manageable
+        - **Discovery Enablement**: Unlock workflow patterns like "tracks I loved but haven't heard recently" without playlist management overhead
+
+- [ ] **Advanced Transformer Workflow nodes**
+    - Status: 🔜 Not Started
+    - Effort: M
+    - What: Implement additional transformer nodes for workflow system
+    - Why: More transformation options enable more powerful workflows
+    - Dependencies: v0.2.5 completion
+    - Notes:
+        - Implement combining operations with different strategies
+            - mix in, etc
+        - Include randomization with optional weighting for sorting a playlist
+        - Include selection of just the first X or last X from a tracklist
+        - Sort by date first played, date most receently played
 
 ### v0.3.0: Playlist Ownership & Management
 **Goal**: Empower users with full ownership and control over their Spotify playlists through a secure, local backup and an intelligent synchronization system.
@@ -195,21 +211,20 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
     - Dependencies: Matcher System Modernization
     - Status: Not Started
 
-- [ ] **Track Spotify Playlists**
+- [ ] **Manage Spotify Playlists**
     - Effort: M
-    - What: Implement `narada spotify playlists --track <playlist_ids>` to select playlists for ongoing management by Narada.
+    - What: Implement something like`narada spotify playlists --manage <playlist_ids>` to select playlists for ongoing management by Narada.
     - Why: Enables granular control, focusing Narada's resources on user-selected collections and triggering an initial backup.
     - CLI Design:
         - Allow tracking multiple playlists at once using Spotify playlist IDs.
         - Provide clear feedback on success, including the number of tracks backed up for each playlist.
-        - Handle errors gracefully (e.g., invalid IDs, network issues).
         - Web UI Consideration: This command's logic will translate to a "Track" button or checkbox in the web UI.
     - Dependencies: Discover Spotify Playlists
     - Status: Not Started
 
-- [ ] **Efficiently Sync Tracked Playlists**
+- [ ] **Efficiently Sync Managed Playlists**
     - Effort: L
-    - What: Create `narada sync spotify-playlists` to efficiently update "tracked" playlists with changes from Spotify using the `snapshot_id`.
+    - What: Create `narada sync spotify-playlists` to efficiently update "managed" playlists with changes from Spotify using the `snapshot_id`.
     - Why: Maintains up-to-date backups, protecting against data loss and powering downstream workflows. Efficiency is key for user experience.
     - CLI Design:
         - Use `snapshot_id` to minimize API calls: compare local and remote IDs, fetching full track lists only when necessary.
@@ -219,18 +234,6 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
     - Dependencies: Track Spotify Playlists
     - Status: Not Started
 
-#### Future Enhancement Epics (Consider for later milestones)
-- [ ] **Two-Way Playlist Sync (Advanced)**
-    - Effort: XL
-    - What: Explore and design a system for true two-way synchronization of playlists, handling potential conflicts between local and Spotify versions.
-    - Why: A highly requested feature, but complex due to conflict resolution challenges.
-    - Notes: This would involve careful design decisions around conflict resolution strategies (e.g., last-write-wins, manual override). Consider this a significant undertaking for a later milestone (e.g., v0.6.0 or later).
-
-- [ ] **Playlist Diffing and Merging (Advanced)**
-    - Effort: L
-    - What: Develop tools to visualize differences between local and Spotify playlists and provide options for merging changes selectively.
-    - Why: Empowers users to manage complex playlist evolution scenarios.
-    - Notes: This could be a valuable addition in conjunction with a two-way sync system or as a standalone feature.
 
 ### v0.3.1: User Experience and Reliability
 **Goal**: Polish the user experience and improve system reliability
@@ -248,6 +251,8 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
         - Generate completion scripts for major shells
         - Include dynamic completion for workflows and connectors
 
+#### Data Integrity & Monitoring Epics
+
 - [ ] **Progress Reporting Consistency**
     - Effort: S
     - What: Standardize progress reporting across all long-running operations
@@ -258,25 +263,6 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
         - Use unified progress provider interface
         - Add ETA calculations where possible
         - Include operation-specific progress details
-
----
-
-### v0.4.0: Core Functionality Improvements
-**Goal**: Essential functionality improvements based on user feedback
-
-#### Enhanced Capabilities Epics
-- [ ] **Manual Entity Resolution Override**
-    - Effort: M
-    - What: Add ability for users to manually create and edit track matches
-    - Why: Automatic matching can't handle all edge cases; manual override needed
-    - Dependencies: None
-    - Status: Not Started
-    - Notes:
-        - Allow setting track ID, connector, and connector ID
-        - Set confidence to 100% for manual matches
-        - Support overriding existing matches
-        - Add CLI command for manual match creation
-        - Save metadata about who created the match and when
 
 - [ ] **Matcher Status Feedback**
     - Effort: S
@@ -290,6 +276,34 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
         - Implement optional verbose mode for detailed progress
         - Report service-specific rate limiting information
         - Include estimated completion time
+
+
+- [ ] **Data Integrity Monitoring System**
+    - Effort: M
+    - What: Implement automated health checks and monitoring for data consistency
+    - Why: Need early detection of data integrity issues, especially primary mapping violations
+    - Dependencies: None
+    - Status: Not Started
+    - Notes:
+        - **Primary Mapping Checks**: Monitor for multiple primary mappings per (track_id, connector_name)
+        - **Missing Primary Checks**: Ensure tracks with connector mappings always have exactly one primary
+        - **Orphaned Mapping Detection**: Find mappings referencing non-existent connector tracks
+        - **Duplicate Track Detection**: Identify potential duplicate canonical tracks
+        - **Health Check Commands**: Add `narada status --health` and `narada status --integrity` CLI commands
+        - **Automated Reporting**: Generate summary reports with counts and examples
+        - **Configuration**: Use `settings.py` for monitoring thresholds and schedules
+
+#### Enhanced Mapping Capabilities Epics
+- [ ] **Manual Track Mapping & Data Quality Management**
+    - Effort: L
+    - What: Comprehensive user control over track mapping and library organization
+    - Why: Music services disagree on track identity, regional differences, and catalog changes require user authority over their music library organization
+    - Dependencies: Primary Connector Mapping Foundation (v0.2.5)
+    - Status: Not Started
+    - Notes:
+        - **User Problems Solved**: Service catalog disagreements (remastered vs original), version preferences (explicit vs clean), regional catalog differences, low-confidence automated matches
+        - **Key Capabilities**: Manual mapping override, duplicate track detection and merging, confidence-based review workflows, bulk data cleanup tools
+        - **User Experience**: Interactive wizards for common scenarios, quality metrics dashboard, step-through interfaces for bulk operations
 
 ---
 
@@ -625,11 +639,17 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
     - Why: Improve workflow creation experience with better node discovery
     - Notes: Good quality-of-life improvement
 
-- [ ] **Workflow Templates**
-    - Effort: M
-    - What: Pre-built workflow templates for common scenarios
-    - Why: Accelerate workflow creation and establish best practices
-    - Notes: Could significantly improve onboarding
+- [ ] **Discovery Workflow Templates**
+    - Effort: S
+    - What: Create pre-built workflow templates leveraging new play history capabilities
+    - Why: Reduce complexity for users to access powerful play analysis without workflow construction expertise
+    - Dependencies: Play History Filter and Sort completion
+    - Status: Not Started
+    - Notes:
+        - Common discovery patterns: "Hidden Gems", "Seasonal Favorites", "Rediscovery", "New vs Old"
+        - Templates demonstrate play history node capabilities
+        - Provide starting points for user customization
+
 
 - [ ] **Workflow Debugging Tools**
     - Effort: L
@@ -637,6 +657,11 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
     - Why: Help users identify and fix workflow issues
     - Notes: Important for complex workflow development
 
+- [ ] **Playlist Diffing and Merging (Advanced)**
+    - Effort: L
+    - What: Develop tools to visualize differences between local and Spotify playlists and provide options for merging changes selectively.
+    - Why: Empowers users to manage complex playlist evolution scenarios.
+    - Notes: This could be a valuable addition in conjunction with a two-way sync system or as a standalone feature.
 
 ### Lower Priority Ideas
 - **Advanced Analytics Dashboard**
@@ -661,9 +686,7 @@ Unlock the power of your listening history for intelligent playlist curation. Fi
     - Dependencies: None
     - Status: Deferred
     - Notes:
-        - Create `src/domain/interfaces/logger.py` protocol
-        - Update `src/domain/transforms/core.py` to use dependency injection
-        - Create infrastructure logger adapter
+\        - Create infrastructure logger adapter
         - Not critical for current functionality, defer to focus on performance issues
 
 ---

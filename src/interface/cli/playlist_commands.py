@@ -129,6 +129,7 @@ def _run_workflow(
             from src.application.workflows.prefect import (
                 run_workflow as execute_workflow,
             )
+
             _, result = asyncio.run(execute_workflow(workflow_def))
 
         console.print(

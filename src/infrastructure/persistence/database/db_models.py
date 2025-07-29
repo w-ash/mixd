@@ -164,9 +164,11 @@ class DBTrackMapping(NaradaDBBase):
     connector_track_id: Mapped[int] = mapped_column(
         ForeignKey("connector_tracks.id", ondelete="CASCADE"),
     )
+    connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     match_method: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[int]
     confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     track: Mapped["DBTrack"] = relationship(
@@ -179,8 +181,32 @@ class DBTrackMapping(NaradaDBBase):
     )
 
     __table_args__ = (
+        # Existing unique constraint for mapping integrity
         UniqueConstraint("track_id", "connector_track_id"),
-        Index(None, "track_id", "connector_track_id"),
+        # NEW: Partial unique constraint - only one primary per track-connector pair
+        Index(
+            "uq_primary_mapping",
+            "track_id",
+            "connector_name",
+            unique=True,
+            sqlite_where=text("is_primary = TRUE"),
+        ),
+        # Performance indexes for common lookup patterns
+        Index(
+            "ix_track_mappings_track_lookup",
+            "track_id",
+            sqlite_where=text("is_deleted = FALSE"),
+        ),
+        Index(
+            "ix_track_mappings_connector_lookup",
+            "connector_track_id",
+            sqlite_where=text("is_deleted = FALSE"),
+        ),
+        Index(
+            "ix_track_mappings_connector_name",
+            "connector_name",
+            sqlite_where=text("is_deleted = FALSE"),
+        ),
     )
 
 
@@ -246,8 +272,12 @@ class DBTrackPlay(NaradaDBBase):
         Index("ix_track_plays_import_batch", "import_batch_id"),
         # Critical performance indexes for play history queries
         Index("ix_track_plays_track_id", "track_id"),  # Per-track queries
-        Index("ix_track_plays_track_played", "track_id", "played_at"),  # Time-range filtering
-        Index("ix_track_plays_track_service", "track_id", "service"),  # Service-specific queries
+        Index(
+            "ix_track_plays_track_played", "track_id", "played_at"
+        ),  # Time-range filtering
+        Index(
+            "ix_track_plays_track_service", "track_id", "service"
+        ),  # Service-specific queries
     )
 
     # Core fields
@@ -324,11 +354,21 @@ class DBPlaylistMapping(NaradaDBBase):
     __tablename__ = "playlist_mappings"
     __table_args__ = (
         # Prevent one canonical playlist from having multiple mappings to same connector
-        Index("uq_playlist_connector_active", "playlist_id", "connector_name", 
-              unique=True, sqlite_where=text("is_deleted = 0")),
-        # Prevent multiple canonical playlists from claiming same external playlist  
-        Index("uq_connector_playlist_active", "connector_name", "connector_playlist_id",
-              unique=True, sqlite_where=text("is_deleted = 0")),
+        Index(
+            "uq_playlist_connector_active",
+            "playlist_id",
+            "connector_name",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        # Prevent multiple canonical playlists from claiming same external playlist
+        Index(
+            "uq_connector_playlist_active",
+            "connector_name",
+            "connector_playlist_id",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     playlist_id: Mapped[int] = mapped_column(

@@ -78,13 +78,17 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         # Filter out plays with NULL track_id to prevent constraint violations
         valid_plays = [play for play in plays if play.track_id is not None]
-        
+
         if not valid_plays:
-            logger.warning(f"Filtered out all {len(plays)} plays due to NULL track_id - no plays to insert")
+            logger.warning(
+                f"Filtered out all {len(plays)} plays due to NULL track_id - no plays to insert"
+            )
             return 0
 
         if len(valid_plays) < len(plays):
-            logger.warning(f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)")
+            logger.warning(
+                f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)"
+            )
 
         play_data = [
             {

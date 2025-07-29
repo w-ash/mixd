@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 @define(frozen=True, slots=True)
 class CreateCanonicalPlaylistCommand:
     """Command for creating a canonical playlist.
-    
+
     Encapsulates all information needed to create an internal playlist
     with tracks and metadata.
     """
@@ -88,7 +88,9 @@ class CreateCanonicalPlaylistUseCase:
     - Simplified testing with single UnitOfWork mock
     """
 
-    metrics_service: MetricsApplicationService = field(factory=MetricsApplicationService)
+    metrics_service: MetricsApplicationService = field(
+        factory=MetricsApplicationService
+    )
 
     async def execute(
         self, command: CreateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
@@ -121,7 +123,7 @@ class CreateCanonicalPlaylistUseCase:
                 # Step 1: Ensure all tracks are persisted
                 track_repo = uow.get_track_repository()
                 persisted_tracks = []
-                
+
                 for track in command.tracklist.tracks:
                     # Save track if it doesn't have an ID (not yet persisted)
                     if track.id is None:
@@ -132,15 +134,21 @@ class CreateCanonicalPlaylistUseCase:
 
                 # Step 2: Create playlist entity with optional connector mapping
                 connector_playlist_ids = {}
-                if command.metadata and "connector" in command.metadata and "connector_id" in command.metadata:
+                if (
+                    command.metadata
+                    and "connector" in command.metadata
+                    and "connector_id" in command.metadata
+                ):
                     # Create connector mapping from metadata
-                    connector_playlist_ids[command.metadata["connector"]] = command.metadata["connector_id"]
+                    connector_playlist_ids[command.metadata["connector"]] = (
+                        command.metadata["connector_id"]
+                    )
                     logger.info(
                         "Creating canonical playlist with connector mapping",
                         connector=command.metadata["connector"],
-                        connector_id=command.metadata["connector_id"]
+                        connector_id=command.metadata["connector_id"],
                     )
-                
+
                 playlist = Playlist(
                     name=command.name,
                     tracks=persisted_tracks,
@@ -195,7 +203,7 @@ class CreateCanonicalPlaylistUseCase:
         self, tracks: list["Track"], uow: UnitOfWorkProtocol
     ) -> None:
         """Extract metrics from connector metadata for all tracks.
-        
+
         Args:
             tracks: List of tracks to extract metrics for
             uow: UnitOfWork for transaction management
@@ -208,13 +216,16 @@ class CreateCanonicalPlaylistUseCase:
             # Find tracks that have metadata for this connector
             tracks_with_metadata = []
             fresh_metadata = {}
-            
+
             for track in tracks:
-                if (track.id and track.connector_metadata 
-                    and connector in track.connector_metadata):
+                if (
+                    track.id
+                    and track.connector_metadata
+                    and connector in track.connector_metadata
+                ):
                     tracks_with_metadata.append(track)
                     fresh_metadata[track.id] = track.connector_metadata[connector]
-            
+
             if fresh_metadata:
                 logger.info(
                     f"Extracting {len(available_metrics)} metrics from {connector} for {len(tracks_with_metadata)} tracks",
@@ -222,7 +233,7 @@ class CreateCanonicalPlaylistUseCase:
                     metrics=available_metrics,
                     track_count=len(tracks_with_metadata),
                 )
-                
+
                 # Use the metrics service to batch process the fresh metadata
                 await self.metrics_service.batch_process_fresh_metadata(
                     fresh_metadata=fresh_metadata,

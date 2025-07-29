@@ -37,21 +37,21 @@ logger = get_logger(__name__)
 
 def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) -> dict:
     """Get extractors for a specific connector type.
-    
+
     Args:
         enricher_type: The connector type (e.g., "lastfm", "spotify")
         attribute_names: List of attribute names to extract
-        
+
     Returns:
         Dictionary mapping attribute names to extractor functions
     """
     try:
         if enricher_type == "lastfm":
             from src.infrastructure.connectors.lastfm import get_connector_config
-            
+
             connector_config = get_connector_config()
             available_extractors = connector_config.get("extractors", {})
-            
+
             # Map attribute names to actual extractors
             extractors = {}
             for attr_name in attribute_names:
@@ -66,13 +66,13 @@ def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) ->
                     logger.warning(
                         f"Unknown extractor: {attr_name} for {enricher_type}"
                     )
-                    
+
         elif enricher_type == "spotify":
             from src.infrastructure.connectors.spotify import get_connector_config
-            
+
             connector_config = get_connector_config()
             available_extractors = connector_config.get("extractors", {})
-            
+
             # Map attribute names to actual extractors
             extractors = {}
             for attr_name in attribute_names:
@@ -90,12 +90,9 @@ def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) ->
             # Fallback: create simple extractors for unknown connectors
             def make_extractor(field_name):
                 return lambda obj: getattr(obj, field_name, None)
-            
-            extractors = {
-                attr: make_extractor(attr)
-                for attr in attribute_names
-            }
-            
+
+            extractors = {attr: make_extractor(attr) for attr in attribute_names}
+
     except ImportError as e:
         logger.warning(
             f"Could not import connector config for {enricher_type}: {e}, using fallback"
@@ -103,12 +100,9 @@ def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) ->
 
         def make_extractor(field_name):
             return lambda obj: getattr(obj, field_name, None)
-        
-        extractors = {
-            attr: make_extractor(attr)
-            for attr in attribute_names
-        }
-        
+
+        extractors = {attr: make_extractor(attr) for attr in attribute_names}
+
     return extractors
 
 

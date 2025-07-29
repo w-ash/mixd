@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 @define(slots=True)
 class MetricsApplicationService:
     """Application service for coordinating metric operations.
-    
+
     Orchestrates metric resolution with proper separation of concerns:
     - Uses domain interfaces for data access
     - Implements caching strategy as business logic
@@ -35,7 +35,7 @@ class MetricsApplicationService:
         uow: UnitOfWorkProtocol,
     ) -> dict[int, Any]:
         """Resolve metrics for tracks with caching strategy.
-        
+
         Implements the complete metric resolution workflow:
         1. Check cached values using freshness policy
         2. Identify tracks needing fresh data
@@ -43,14 +43,14 @@ class MetricsApplicationService:
         4. Extract and convert metric values
         5. Persist new metrics for future use
         6. Return complete result set
-        
+
         Args:
             track_ids: List of internal track IDs
             metric_name: Name of the metric to resolve
             connector: Connector name (e.g., 'spotify', 'lastfm')
             field_map: Mapping of metric names to connector fields
             uow: UnitOfWork for transaction management
-            
+
         Returns:
             Dictionary mapping track IDs to their metric values
         """
@@ -68,7 +68,7 @@ class MetricsApplicationService:
             # Step 1: Get cached metrics that aren't stale
             max_age_hours = get_metric_freshness(metric_name)
             metrics_repo = uow.get_metrics_repository()
-            
+
             cached_values = await metrics_repo.get_track_metrics(
                 track_ids,
                 metric_type=metric_name,
@@ -137,14 +137,14 @@ class MetricsApplicationService:
         uow: UnitOfWorkProtocol,
     ) -> dict[str, Any]:
         """Resolve all available metrics for a track from a specific connector.
-        
+
         Args:
             track_id: The track ID to resolve metrics for
             connector: The connector name
             available_metrics: List of metrics this connector supports
             field_map: Field mapping for metric extraction
             uow: UnitOfWork for transaction management
-            
+
         Returns:
             Dictionary of resolved metrics {metric_name: value}
         """
@@ -161,7 +161,9 @@ class MetricsApplicationService:
         async with uow:
             # Get metadata using the same transaction
             connector_repo = uow.get_connector_repository()
-            metadata = await connector_repo.get_connector_metadata([track_id], connector)
+            metadata = await connector_repo.get_connector_metadata(
+                [track_id], connector
+            )
 
             if not metadata or track_id not in metadata:
                 logger.debug(f"No metadata found for track {track_id} from {connector}")
@@ -217,17 +219,17 @@ class MetricsApplicationService:
         uow: UnitOfWorkProtocol,
     ) -> int:
         """Batch process metrics from fresh metadata within existing transaction.
-        
+
         Optimized for processing large amounts of fresh metadata efficiently
         within the calling service's transaction context.
-        
+
         Args:
             fresh_metadata: Dictionary of track_id -> metadata
             connector: Connector name
-            available_metrics: List of metrics this connector supports  
+            available_metrics: List of metrics this connector supports
             field_map: Field mapping for metric extraction
             uow: UnitOfWork for transaction management
-            
+
         Returns:
             Number of metrics processed
         """
@@ -268,7 +270,7 @@ class MetricsApplicationService:
         # Batch save all metrics at once
         if all_metrics_batch:
             metrics_repo = uow.get_metrics_repository()
-            
+
             # Use smaller batch sizes to prevent SQLite locks with large datasets
             max_batch_size = 10
             saved_count = 0
