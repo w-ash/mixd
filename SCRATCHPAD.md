@@ -1,230 +1,153 @@
-# 🎯 Active Work Tracker - v0.2.5 Workflow Transformation Expansion
+# 🎯 Active Work Tracker - v0.2.6 Enhanced Playlist Naming
 
 > [!info] Purpose
 > This file tracks active development work on the current epic/refactor. For strategic roadmap and completed milestones, see [[BACKLOG]].
 
-**Current Initiative**: v0.2.5 Workflow Transformation Expansion  
-**Status**: `#completed` `#play-history` `#v0-2-5`  
+**Current Initiative**: v0.2.6 Enhanced Playlist Naming  
+**Status**: `#completed` `#playlist-naming` `#v0-2-6`  
 **Last Updated**: July 29, 2025
 
 ## Progress Overview
 
-v0.2.5 Workflow Transformation Expansion:
-- [x] **Foundation Work** ✅ (Import Quality, Database Performance, Bug Fixes)
-- [x] **Play History Filter and Sort** ✅ (Complete - Both filter and sorter nodes implemented)
-- [x] **Discovery Workflow Templates** ✅ (Complete - All 4 templates created)
-
-v0.2.6 Planned (moved from v0.2.5):
-- [ ] Advanced Transformer Workflow nodes
-- [ ] Advanced Track Matching Strategies  
-- [ ] Enhanced Playlist Naming
+v0.2.6 Enhanced Playlist Naming:
+- [x] **Enhanced Playlist Naming** ✅ (Completed - Ultra-DRY implementation)
 
 ---
 
-## ✅ COMPLETED Epic: Play History Filter and Sort `#completed`
+## ✅ COMPLETED Epic: Enhanced Playlist Naming `#completed`
 
-**Effort**: Medium (M) - Cross-module feature with existing architecture integration  
-**Goal**: Transform workflows to leverage your listening history for intelligent track selection and ordering
-
-> [!todo] Next Actions
-> 1. Implement `filter.by_play_history` workflow node
-> 2. Implement `sorter.by_play_history` workflow node
-> 3. Create discovery workflow templates
+**Effort**: Extra Small (XS) - Ultra-DRY single utility function + 2 lines in destination nodes  
+**Goal**: Add update and parameterization capability to destination nodes that create playlists for dynamic naming and descriptions
 
 ### Scope & Requirements
 
-**What**: Two new workflow nodes for play count analysis on TrackPlay records (NOT Last.fm user playcount)
-- **`filter.by_play_history`**: Filter tracks by play count within optional time windows  
-- **`sorter.by_play_history`**: Sort tracks by play frequency within optional time windows
-- **Flexible date filtering**: None, absolute dates, or relative time periods
-- **Discovery through workflows**: JSON compositions create "hidden gems", "current obsessions", etc.
+**What**: Enhanced playlist naming and description capabilities for destination workflow nodes
+- **Template Parameters**: Support parameterized playlist names (no source names - simplified)
+- **Timestamp Support**: Add ability to append date/time to names and descriptions  
+- **Metadata Insertion**: Implement track count and workflow name in descriptions
+- **Lean Implementation**: Simple string replacement, no validation (let connectors handle)
 
-**Why**: Users need filtering based on their actual listening patterns from our TrackPlay database, not external metrics.
+**Why**: Users need more control over playlist naming when creating playlists through workflows, especially for automated playlist generation that should reflect source context and creation time.
 
 ### Implementation Status
 
-✅ **COMPLETED - Foundation Work** (All prerequisite work finished)
-- [x] **Research Phase** - Architecture analysis and pattern identification
-- [x] **Import Quality Foundation** - Play filtering thresholds and metrics
-- [x] **Database Performance Foundation** - Critical indexes for play history queries  
-- [x] **Import Reliability Fixes** - Idempotency and deduplication issues resolved
+✅ **COMPLETED - Ultra-DRY Implementation**
+- [x] **Created template utility function** - Single `render_playlist_config_templates()` function
+- [x] **Updated destination nodes** - Added template rendering calls to both `create_playlist` and `update_playlist`
+- [x] **Verified functionality** - All template parameters work correctly with comprehensive testing
+- [x] **Created test workflow** - `template_test.json` demonstrates all template features
+- [x] **Zero architectural changes** - No Command or use case modifications needed
 
-✅ **COMPLETED - Workflow Node Implementation**
-- [x] **Build `filter.by_play_history` node** - filter by play counts within time windows
-- [x] **Build `sorter.by_play_history` node** - sort by play frequency within time windows  
-- [x] **Add to TRANSFORM_REGISTRY** - extend existing filter/sorter patterns
-- [x] **Simple integer-based date logic** - no string parsing complexity
+### **Enhanced Playlist Naming Specifications**
 
-✅ **COMPLETED - Discovery Templates**
-- [x] `hidden_gems.json` - min 3 plays, no plays in 6+ months
-- [x] `current_obsessions.json` - 8+ plays in last month
-- [x] `summer_2024_favorites.json` - absolute date range example
-- [x] `rediscovery_candidates.json` - 1-2 plays ever
-
-## **New Workflow Node Specifications**
-
-> [!info] Architecture Decision - Two Simple Workflow Nodes 
-> **Final Design**: Build two focused workflow nodes with simple, clear configuration
-> - **`filter.by_play_history`**: Filter tracks by play count within optional time windows
-> - **`sorter.by_play_history`**: Sort tracks by play frequency within optional time windows
-> - **Discovery via JSON workflows**: Templates compose these nodes for specific use cases
-> - **Integer-based dates**: Simple `days_back` integers instead of string parsing
+> [!info] Architecture Decision - Template-Based Naming System
+> **Design Approach**: Extend existing destination nodes with optional template-based naming
+> - **Template Syntax**: Use `{parameter}` syntax for variable substitution
+> - **Source Context**: Access source playlist metadata in templates
+> - **Timestamp Support**: Built-in date/time formatting functions
+> - **Fallback Behavior**: Graceful degradation when templates fail
+> - **Validation**: Pre-creation validation of generated names
 >
-> **Time Window Modes**: Clear, unambiguous configuration
-> - **None**: No date fields = all-time play counts  
-> - **Absolute**: `start_date`/`end_date` = ISO date strings
-> - **Relative**: `min_days_back`/`max_days_back` = integer days from today
+> **Supported Parameters (Simplified)**:
+> - **`{date}`**: Current date (YYYY-MM-DD format)
+> - **`{time}`**: Current time (HH:MM format)
+> - **`{datetime}`**: Combined date and time
+> - **`{track_count}`**: Number of tracks in resulting playlist
+> - **`{workflow_name}`**: Name of the workflow (if available)
 >
-> **Benefits**: No string parsing, explicit modes, clear validation, simpler implementation
+> **Benefits**: Flexible naming without complex configuration, clear parameter syntax, extensible for future metadata
 
-### **1. `filter.by_play_history` Node**
+### **Example Enhanced Destination Node Configurations**
 
-Filter tracks based on play count criteria within optional time windows.
-
-**Configuration:**
+**Basic Template Usage**:
 ```json
 {
-  "type": "filter.by_play_history",
+  "type": "destination.spotify_playlist",
   "config": {
-    // Play count constraints (at least one required)
-    "min_plays": 5,        // minimum plays (inclusive)
-    "max_plays": 20,       // maximum plays (inclusive)
-    
-    // Time window - RELATIVE (optional)
-    "min_days_back": 90,   // start of window, days from today  
-    "max_days_back": 30,   // end of window, days from today
-    
-    // Time window - ABSOLUTE (optional, alternative to relative)
-    "start_date": "2024-01-01",  // ISO date string
-    "end_date": "2024-03-31"     // ISO date string
+    "name_template": "{source_name} - Filtered ({date})",
+    "description_template": "Filtered version of '{source_name}' created on {datetime}. Contains {track_count} tracks.",
+    "connector_name": "spotify"
   }
 }
 ```
 
-### **2. `sorter.by_play_history` Node**
-
-Sort tracks by play frequency within optional time windows.
-
-**Configuration:**
+**Advanced Naming with Metadata**:
 ```json
 {
-  "type": "sorter.by_play_history",
+  "type": "destination.spotify_playlist",
   "config": {
-    // Time window - RELATIVE (optional)
-    "min_days_back": 90,   // start of window, days from today
-    "max_days_back": 30,   // end of window, days from today
-    
-    // Time window - ABSOLUTE (optional, alternative to relative) 
-    "start_date": "2024-06-01",  // ISO date string
-    "end_date": "2024-08-31",    // ISO date string
-    
-    // Sort direction
-    "reverse": true        // true = most played first, false = least played first
+    "name_template": "Hidden Gems from {source_name}",
+    "description_template": "Rediscovered tracks from '{source_name}' - tracks with 3+ plays but not heard in 6+ months. Generated by {workflow_name} workflow on {date}.",
+    "connector_name": "spotify",
+    "validation": {
+      "max_name_length": 100,
+      "allowed_chars_only": true
+    }
   }
 }
 ```
 
-### **Example Discovery Workflows**
-
-**Hidden Gems** (loved but neglected):
+**Timestamp-Based Naming**:
 ```json
 {
-  "type": "filter.by_play_history",
+  "type": "destination.spotify_playlist",
   "config": {
-    "min_plays": 3,        // At least 3 total plays (lifetime)
-    "max_days_back": 180   // But not played in last 6 months
+    "name_template": "Weekly Obsessions - {date}",
+    "description_template": "Current obsessions as of {datetime} - tracks with 8+ plays in the last 30 days.",
+    "connector_name": "spotify"
   }
 }
 ```
 
-**Current Obsessions** (recent heavy rotation):
+**Fallback Configuration**:
 ```json
 {
-  "type": "filter.by_play_history", 
+  "type": "destination.spotify_playlist",
   "config": {
-    "min_plays": 8,
-    "max_days_back": 30    // 8+ plays in last 30 days
+    "name_template": "{source_name} - Processed",
+    "name_fallback": "Generated Playlist",
+    "description_template": "Processed playlist from {source_name}",
+    "description_fallback": "Generated by Narada workflow",
+    "connector_name": "spotify"
   }
 }
 ```
 
-**Summer 2024 Favorites** (absolute date range):
-```json
-{
-  "type": "sorter.by_play_history",
-  "config": {
-    "start_date": "2024-06-01",
-    "end_date": "2024-08-31", 
-    "reverse": true
-  }
-}
-```
+### **Clean Architecture Implementation**
 
-**Rediscovery Candidates** (barely touched):
-```json
-{
-  "type": "filter.by_play_history",
-  "config": {
-    "min_plays": 1,
-    "max_plays": 2         // Played 1-2 times ever (no time window)
-  }
-}
-```
+**Template Rendering in Use Cases (Business Logic)**:
+- **Template function**: Simple `{param}` string replacement in each use case
+- **Context from business data**: Extract date/time/track_count from existing use case data
+- **Fallback to static**: If template fails, use original static name/description
+- **No validation**: Keep lean - let connectors handle name validation
+
+**Integration Points**:
+- **Use case changes**: Add template rendering to 4 use cases before name/description usage
+- **Destination node pass-through**: Accept `name_template`/`description_template` and pass to use cases
+- **Command object extension**: Add template fields to existing Command classes
+- **Context from existing data**: Use track counts, timestamps already available in use cases
 
 ### **Key Design Benefits**
 
-1. **Simple Date Logic**: Integer `days_back` eliminates string parsing complexity
-2. **Clear Intent**: `min_days_back`/`max_days_back` makes time windows explicit  
-3. **Flexible Modes**: Relative integers OR absolute dates, never mixed
-4. **Easy Validation**: Simple numeric comparisons and date format checks
-5. **Better Names**: `play_history` distinguishes from Last.fm playcount metrics
+1. **Intuitive Syntax**: `{parameter}` syntax is familiar and easy to understand
+2. **Extensible Design**: Easy to add new template parameters in the future
+3. **Validation Integration**: Prevents creation of playlists with invalid names
+4. **Fallback Safety**: Always produces valid playlist names even when templates fail
+5. **Backward Compatibility**: Existing workflows continue working without changes
+6. **Rich Metadata**: Access to source context enables descriptive playlist information
 
-### Files to Modify (Next Steps)
-- `src/application/workflows/transform_registry.py` - **Add new filter/sorter nodes**
-- `src/domain/transforms/core.py` - **Add play history transforms using toolz**
-- Workflow definition files for discovery templates
+### Files to Modify (Clean Architecture Implementation)
+- `src/application/use_cases/create_canonical_playlist.py` - **Add template rendering to Command and use case**
+- `src/application/use_cases/create_connector_playlist.py` - **Add template rendering to Command and use case**
+- `src/application/use_cases/update_canonical_playlist.py` - **Add template rendering to Command and use case**
+- `src/application/use_cases/update_connector_playlist.py` - **Add template rendering to Command and use case**
+- `src/application/workflows/destination_nodes.py` - **Pass template configs to use case Commands**
+- Workflow definition files - **Update examples to demonstrate naming features (optional)**
 
 ### Architecture Patterns (Reference)
-- Extend existing filter/sorter patterns in `TRANSFORM_REGISTRY`
-- Use toolz functional patterns for play history aggregation
-- Repository methods for counting plays within date ranges already exist
-
----
-
-## ✅ Foundation Work Completed
-
-All prerequisite work for implementing play history workflow nodes has been completed:
-
-### Primary Connector Mapping Foundation ✅ **COMPLETED**
-- **Schema Enhancement**: Added `is_primary` flag and `connector_name` to `track_mappings` table
-- **Migration Success**: Processed 33,742 mappings, created 32,163 primary mappings with perfect 1:1 ratio
-- **Spotify Relinking**: Integrated automatic primary mapping updates when Spotify relinks tracks
-- **Data Integrity**: Database constraint enforces one primary per track-connector pair
-- **Performance**: Added optimized indexes for mapping lookups and primary queries
-
-**Files**: `src/infrastructure/persistence/database/db_models.py`, migration `520a98e0da93`, `src/infrastructure/services/spotify_play_resolver.py`
-
-### Import Quality Foundation
-- **Play Filtering**: Added "4 minutes OR 50% duration" rule to Spotify imports for consistency with Last.fm
-- **Incognito Filtering**: Exclude incognito mode plays from imports
-- **Configuration**: Added `ImportConfig` with `play_threshold_ms` and `play_threshold_percentage`
-- **Metrics**: Track raw vs filtered play counts for import visibility
-
-**Files**: `src/config/settings.py`, `src/infrastructure/services/spotify_import.py`
-
-### Database Performance Foundation  
-- **Indexes**: Added `ix_track_plays_track_id`, `ix_track_plays_track_played`, `ix_track_plays_track_service`
-- **Migration**: `f6ce27d69ce9_add_performance_indexes_to_track_plays_.py`
-- **Repository**: Confirmed existing efficient batch query methods in `TrackPlayRepository`
-
-**Files**: `src/infrastructure/persistence/database/db_models.py`, `alembic/env.py`
-
-### Import Reliability Fixes
-- **Import Idempotency**: Added unique constraint on `(track_id, service, played_at, ms_played)`
-- **Track Deduplication**: Added NULL filtering in repository and exact content matching in resolver
-- **Content Matching**: ISRC exact match + normalized title/artist exact match
-
-**Migrations**: `1127d60f4cad_add_unique_constraint_track_plays_.py`  
-**Files**: `src/infrastructure/persistence/repositories/track/plays.py`, `src/infrastructure/services/spotify_play_resolver.py`
+- Extend existing destination node patterns with optional naming configuration
+- Use template rendering system similar to existing workflow parameter handling
+- Integrate with existing playlist creation use cases for seamless functionality
+- Maintain backward compatibility with current destination node configurations
 
 ---

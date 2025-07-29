@@ -106,8 +106,8 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `destination.create_playlist` | **Creates playlists with optional connector sync** | `name`: Playlist name (required)<br>`description`: Optional playlist description<br>`connector`: Optional connector name ("spotify", "apple_music", etc.) - auto-creates on connector if specified |
-| `destination.update_playlist` | **Updates playlists with smart ID resolution and flexible options** | `playlist_id`: Playlist ID (required) - canonical OR connector ID<br>`connector`: Optional connector name - determines ID interpretation and auto-syncs<br>`append`: Boolean - true=append tracks, false=overwrite with preservation (default: false)<br>`name`: Optional - update playlist name<br>`description`: Optional - update playlist description |
+| `destination.create_playlist` | **Creates playlists with optional connector sync and template naming** | `name`: Playlist name (required) - supports templates<br>`description`: Optional playlist description - supports templates<br>`connector`: Optional connector name ("spotify", "apple_music", etc.) - auto-creates on connector if specified<br><br>**Template Support:**<br>Use `{template_param}` syntax for dynamic naming:<br>• `{track_count}`: Number of tracks in playlist<br>• `{date}`: Current date (YYYY-MM-DD)<br>• `{time}`: Current time (HH:MM)<br>• `{datetime}`: Combined date and time |
+| `destination.update_playlist` | **Updates playlists with smart ID resolution, flexible options, and template naming** | `playlist_id`: Playlist ID (required) - canonical OR connector ID<br>`connector`: Optional connector name - determines ID interpretation and auto-syncs<br>`append`: Boolean - true=append tracks, false=overwrite with preservation (default: false)<br>`name`: Optional - update playlist name - supports templates<br>`description`: Optional - update playlist description - supports templates<br><br>**Template Support:**<br>Same template parameters as create_playlist |
 
 ## Workflow Patterns
 
@@ -187,13 +187,20 @@ This pattern uses sophisticated differential operations to update existing playl
 5. **Error Handling** - Design for graceful degradation when nodes fail
 6. **Idempotent Design** - Workflows should produce the same result when executed multiple times
 
+### Template Naming Best Practices
+7. **Use Descriptive Templates** - Include context like `"Weekly Mix - {date}"` rather than just `"{date}"`
+8. **Combine Multiple Parameters** - `"{track_count} tracks updated {datetime}"` provides rich context
+9. **Consistent Formatting** - Use standardized date/time formats across all workflows
+10. **Fallback Content** - Always include static text so templates never produce empty names
+11. **Avoid Over-Templating** - Don't template every field; use judiciously for timestamp and count info
+
 ### Advanced Playlist Updates
-7. **Preview First** - Use `dry_run: true` to preview changes before execution
-8. **Conservative Conflict Resolution** - Start with `local_wins` for predictable behavior
-9. **Comprehensive Matching** - Use `track_matching_strategy: "comprehensive"` for cross-platform reliability
-10. **Preserve Order** - Set `preserve_order: true` to maintain existing playlist structure where possible
-11. **Monitor Performance** - Check API call estimates for large playlists to stay within rate limits
-12. **Test Extensively** - Validate workflows with representative data before production use
+12. **Preview First** - Use `dry_run: true` to preview changes before execution
+13. **Conservative Conflict Resolution** - Start with `local_wins` for predictable behavior
+14. **Comprehensive Matching** - Use `track_matching_strategy: "comprehensive"` for cross-platform reliability
+15. **Preserve Order** - Set `preserve_order: true` to maintain existing playlist structure where possible
+16. **Monitor Performance** - Check API call estimates for large playlists to stay within rate limits
+17. **Test Extensively** - Validate workflows with representative data before production use
 
 ## Extending the System
 
@@ -266,8 +273,8 @@ This example demonstrates the new play history enrichment and filtering capabili
       "id": "create_rediscovery_playlist",
       "type": "destination.create_playlist",
       "config": {
-        "name": "Rediscovered Favorites",
-        "description": "Tracks you loved but haven't played in 6+ months",
+        "name": "Rediscovered Favorites - {date}",
+        "description": "Tracks you loved but haven't played in 6+ months. Generated on {datetime} with {track_count} tracks.",
         "connector": "spotify"
       },
       "upstream": ["limit_selection"]
@@ -280,6 +287,7 @@ This workflow demonstrates:
 - **Play History Enrichment**: Adds comprehensive listening data to track metadata
 - **Flexible Time Filtering**: Finds tracks not played in the last 180 days but with high historical play counts
 - **Intelligence-Driven Discovery**: Uses your own listening patterns to surface forgotten favorites
+- **Dynamic Naming**: Templates create timestamped playlists with metadata (track count, generation time)
 - **Automated Curation**: Creates a new playlist ready for immediate listening
 
 ## Example: Universal Playlist Source
@@ -387,8 +395,8 @@ Key Features Demonstrated:
       "id": "destination",
       "type": "destination.create_playlist",
       "config": {
-        "name": "Discovery Mix (90 days)",
-        "description": "Recent releases sorted by play count",
+        "name": "Discovery Mix ({date})",
+        "description": "Recent releases sorted by play count. Updated {datetime} with {track_count} tracks.",
         "connector": "spotify"
       },
       "upstream": ["limit"]
@@ -469,8 +477,8 @@ This example demonstrates using the new generic metric filter and sorter nodes:
       "id": "destination",
       "type": "destination.create_playlist",
       "config": {
-        "name": "Popular Gems to Discover",
-        "description": "Popular tracks you haven't listened to much yet",
+        "name": "Popular Gems to Discover - {date}",
+        "description": "Popular tracks you haven't listened to much yet. Generated {datetime} with {track_count} discoveries.",
         "connector": "spotify"
       },
       "upstream": ["limit"]
@@ -554,7 +562,9 @@ This example demonstrates sophisticated playlist updates with differential opera
       "config": {
         "playlist_id": "YOUR_TARGET_SPOTIFY_PLAYLIST_ID",
         "connector": "spotify",
-        "append": false
+        "append": false,
+        "name": "Smart Sync - Updated {date}",
+        "description": "Auto-synced popular unplayed tracks. Last updated {datetime} with {track_count} tracks."
       },
       "upstream": ["limit_selection"]
     }
@@ -567,6 +577,7 @@ This workflow demonstrates:
 - **Sophisticated sorting**: Uses global play counts for discovery potential  
 - **Smart ID resolution**: Automatically resolves Spotify playlist IDs to canonical playlists
 - **Overwrite with preservation**: Uses differential algorithm to minimize changes and preserve metadata
+- **Dynamic metadata updates**: Templates update both playlist name and description with current data
 - **Clean configuration**: Simple, intuitive destination node setup
 
 ## Example: Dry-Run Preview Workflow
@@ -655,13 +666,15 @@ The destination nodes provide intuitive playlist management with sophisticated a
 - **Always Creates Canonical**: Internal database playlist created for all operations
 - **Optional Connector Sync**: Specify `connector` to auto-create on external services
 - **Automatic Linking**: Canonical and connector playlists are automatically linked
+- **Template Support**: Dynamic name and description generation with timestamp and metadata
 - **Clean Configuration**: Just name, description, and optional connector
 
 #### Intelligent Playlist Updates (`destination.update_playlist`)
 - **Smart ID Resolution**: Automatically determines whether playlist ID is canonical or connector-based
 - **Append vs Overwrite**: Choose between adding tracks (`append: true`) or replacement with preservation (`append: false`)
-- **Metadata Updates**: Optional name and description updates in same operation
+- **Metadata Updates**: Optional name and description updates in same operation with template support
 - **Auto-Creation**: Missing canonical playlists are automatically created when updating connector playlists
+- **Dynamic Templates**: Update playlist metadata with current timestamp and track count information
 
 #### Under the Hood: Advanced Algorithms
 - **Differential Engine**: Sophisticated diff algorithm minimizes API calls and preserves metadata
@@ -687,7 +700,75 @@ The destination nodes provide intuitive playlist management with sophisticated a
 - **Intuitive Configuration**: Simple parameters hide complex implementation details
 - **Smart Defaults**: Sensible defaults for all optional parameters
 - **Consistent Behavior**: Predictable create/update operations across all connectors
+- **Template Naming**: Dynamic playlist names with timestamps and metadata for better organization
 - **Comprehensive Logging**: Structured logs for debugging and auditing
+
+## Template Naming Example
+
+Here's a complete example showing the new template naming capabilities:
+
+```json
+{
+  "id": "weekly_obsessions_templated",
+  "name": "Weekly Obsessions with Dynamic Naming",
+  "description": "Demonstrates template-based playlist naming with timestamps and metadata",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "YOUR_LIKED_SONGS_ID",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "enrich_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays"],
+        "period_days": 7
+      },
+      "upstream": ["source_liked"]
+    },
+    {
+      "id": "filter_obsessions",
+      "type": "filter.by_play_history",
+      "config": {
+        "min_plays": 5,
+        "days_back": 7
+      },
+      "upstream": ["enrich_history"]
+    },
+    {
+      "id": "create_weekly_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Weekly Obsessions - {date}",
+        "description": "Your most played tracks this week! Generated on {datetime} with {track_count} obsessions. Created at {time}.",
+        "connector": "spotify"
+      },
+      "upstream": ["filter_obsessions"]
+    }
+  ]
+}
+```
+
+**Template Output Examples:**
+- **Name**: `"Weekly Obsessions - 2025-07-29"`
+- **Description**: `"Your most played tracks this week! Generated on 2025-07-29 05:40 with 23 obsessions. Created at 05:40."`
+
+**Available Template Parameters:**
+- `{track_count}`: Number of tracks in the final playlist
+- `{date}`: Current date in YYYY-MM-DD format  
+- `{time}`: Current time in HH:MM format
+- `{datetime}`: Combined date and time in YYYY-MM-DD HH:MM format
+
+**Benefits of Template Naming:**
+- **Organization**: Easily identify when playlists were created and their content scale
+- **Automation-Friendly**: Perfect for scheduled workflows that run regularly
+- **User Context**: Rich descriptions help understand playlist purpose and freshness
+- **Zero Configuration**: Templates work automatically with existing workflows
 
 ## Implementation Architecture
 

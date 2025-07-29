@@ -25,6 +25,7 @@ from src.config import get_logger
 from src.domain.entities.track import TrackList
 
 from .node_context import NodeContext
+from .template_utils import render_playlist_config_templates
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,9 @@ async def create_playlist(
         description (str): Optional playlist description
         connector (str): Optional connector ("spotify", "apple_music", etc.)
     """
+    # Render any template strings in config
+    config = render_playlist_config_templates(config, len(tracklist.tracks))
+
     playlist_name = config.get("name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
@@ -113,6 +117,9 @@ async def update_playlist(
         name (str): Optional - update playlist name
         description (str): Optional - update playlist description
     """
+    # Render any template strings in config
+    config = render_playlist_config_templates(config, len(tracklist.tracks))
+
     playlist_id = config.get("playlist_id")
     if not playlist_id:
         raise ValueError("Missing required 'playlist_id' for update_playlist operation")
