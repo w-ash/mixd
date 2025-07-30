@@ -1,16 +1,25 @@
-"""Base connector module providing shared functionality for music service connectors.
+"""Base classes for music service API connectors.
 
-This module defines common abstractions and utilities for music service connectors
-including standardized metric resolution, batch processing, and error handling.
+Provides shared functionality for integrating with external music services like Spotify,
+Last.fm, MusicBrainz, etc. Child connectors inherit from these base classes to get
+standardized configuration loading, batch processing, and metric resolution.
 
-Key Components:
-- BaseMetricResolver: Abstract base class for resolving service-specific metrics
-- BatchProcessor: Generic utility for batch processing with concurrency control
-- register_metrics: Function to register metric resolvers with the global registry
+Classes:
+    BaseMetricResolver: Retrieves track metrics (popularity, play counts) from connector metadata
+    BaseAPIConnector: Abstract base for service-specific API clients (inherit for Spotify, Last.fm)
+    BatchProcessor: Processes large lists with automatic retries and rate limiting
 
-These components establish a consistent foundation for all connector implementations,
-reducing code duplication while enforcing standardized patterns for metric resolution,
-error handling, and batch processing operations.
+Functions:
+    register_metrics: Register metric resolvers for use by the application layer
+
+Example:
+    ```python
+    class SpotifyConnector(BaseAPIConnector):
+        @property
+        def connector_name(self) -> str:
+            return "spotify"
+        # Implement service-specific methods...
+    ```
 """
 
 from abc import ABC, abstractmethod
@@ -45,15 +54,15 @@ R = TypeVar("R")
 
 @define(frozen=True, slots=True)
 class BaseMetricResolver:
-    """Base class for resolving service metrics with Clean Architecture compliance.
+    """Retrieves track metrics from connector metadata stored in database.
 
-    Simplified implementation that delegates to MetricsApplicationService
-    for all business logic and database operations. Focuses purely on
-    field mapping and connector identification.
+    Looks up track metrics like Spotify popularity or Last.fm play counts by querying
+    the connector_metadata table. Child classes define which metadata fields map to
+    which metric names via FIELD_MAP and CONNECTOR class variables.
 
     Attributes:
-        FIELD_MAP: Mapping of metric names to connector metadata fields
-        CONNECTOR: Identifier for the connector (overridden by subclasses)
+        FIELD_MAP: Maps metric names to connector metadata field names
+        CONNECTOR: Service identifier (e.g., "spotify", "lastfm")
     """
 
     # To be defined by subclasses - maps metric names to connector metadata fields
@@ -68,18 +77,15 @@ class BaseMetricResolver:
         metric_name: str,
         uow: Any,  # UnitOfWorkProtocol - avoiding import for infrastructure layer
     ) -> dict[int, Any]:
-        """Resolve a metric for multiple tracks using Application Service.
-
-        Delegates to MetricsApplicationService for all business logic
-        following Clean Architecture dependency rules.
+        """Retrieve metric values for multiple tracks from database.
 
         Args:
-            track_ids: List of internal track IDs to resolve metrics for
-            metric_name: Name of the metric to resolve
-            uow: UnitOfWork for transaction management
+            track_ids: Internal track IDs to get metrics for
+            metric_name: Name of metric to retrieve (e.g., "spotify_popularity")
+            uow: Database unit of work for transaction management
 
         Returns:
-            Dictionary mapping track IDs to their metric values
+            Track ID to metric value mapping
         """
         # Import at runtime to avoid circular dependencies
         from src.application.services.metrics_application_service import (
@@ -98,20 +104,30 @@ class BaseMetricResolver:
 
 @define(slots=True)
 class BaseAPIConnector(ABC):
-    """Abstract base class for API connectors with common functionality.
+    """Abstract base for music service API clients.
 
-    Provides standardized configuration access, batch processing setup,
-    and common patterns for all external service connectors.
+    Inherit from this class to create connectors for specific services like Spotify, Last.fm,
+    MusicBrainz, etc. Provides common configuration loading, batch processing setup, and
+    delegation patterns for playlist/track operations.
+
+    Child classes must implement:
+        - connector_name property (returns service name like "spotify")
+        - Service-specific API methods as needed
+
+    Automatically provides:
+        - Configuration loading with service-specific prefixes
+        - Pre-configured batch processor with retry logic
+        - Generic playlist/track conversion that delegates to service methods
     """
 
     @property
     @abstractmethod
     def connector_name(self) -> str:
-        """The name of this connector (e.g., 'spotify', 'lastfm')."""
+        """Service identifier for this connector (e.g., 'spotify', 'lastfm')."""
 
     @property
     def batch_processor(self) -> "BatchProcessor":
-        """Get configured batch processor for this connector's operations."""
+        """Get pre-configured batch processor with service-specific settings."""
         return BatchProcessor(
             batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
             concurrency_limit=int(self.get_connector_config("CONCURRENCY") or 5),
@@ -125,36 +141,38 @@ class BaseAPIConnector(ABC):
         )
 
     def get_connector_config(self, key: str, default=None):
-        """Get connector-specific configuration value.
+        """Load configuration value with automatic service-specific prefixing.
 
         Args:
-            key: Configuration key (without connector prefix)
-            default: Default value if key not found
+            key: Configuration key without service prefix
+            default: Fallback value if key not found
 
         Returns:
-            Configuration value with automatic connector prefixing
+            Configuration value from environment/config files
 
         Example:
-            self.get_connector_config("BATCH_SIZE") -> get_config("SPOTIFY_API_BATCH_SIZE")
+            If connector_name="spotify" and key="BATCH_SIZE":
+            Looks up "SPOTIFY_API_BATCH_SIZE" in configuration
         """
         connector_key = f"{self.connector_name.upper()}_API_{key}"
         return get_config(connector_key, default)
 
     async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
-        """Generic playlist fetcher that delegates to connector-specific methods.
+        """Fetch playlist from service by delegating to service-specific method.
 
-        Automatically delegates to the appropriate connector-specific method based on
-        the connector_name property. This provides a consistent interface for all
-        playlist-capable connectors while maintaining DRY principles.
+        Automatically calls the appropriate method based on connector_name:
+        - spotify connector -> calls get_spotify_playlist()
+        - lastfm connector -> calls get_lastfm_playlist()
+        - etc.
 
         Args:
-            playlist_id: The service-specific ID of the playlist to retrieve
+            playlist_id: Service-specific playlist identifier
 
         Returns:
-            ConnectorPlaylist containing the playlist metadata and tracks
+            Playlist with tracks converted to standard format
 
         Raises:
-            NotImplementedError: If the connector doesn't support playlist operations
+            NotImplementedError: If service doesn't support playlists
         """
         # Try connector-specific method first (more efficient)
         method_name = f"get_{self.connector_name}_playlist"
@@ -170,20 +188,19 @@ class BaseAPIConnector(ABC):
     def convert_track_to_connector(
         self, track_data: dict[str, Any]
     ) -> "ConnectorTrack":
-        """Generic track converter that delegates to connector-specific functions.
+        """Convert raw API track data to standardized ConnectorTrack format.
 
-        Automatically delegates to the appropriate connector-specific conversion function
-        based on the connector_name property. This provides a consistent interface for
-        all track conversion operations while maintaining DRY principles.
+        Delegates to service-specific conversion functions based on connector_name.
+        Currently supports Spotify; extensible to other services.
 
         Args:
-            track_data: Raw track data from the external service API
+            track_data: Raw track data from service API response
 
         Returns:
-            ConnectorTrack domain entity with standardized fields
+            Standardized track object with normalized fields
 
         Raises:
-            NotImplementedError: If the connector doesn't support track conversion
+            NotImplementedError: If service doesn't have conversion function
         """
         # Import conversion functions dynamically to avoid circular dependencies
         if self.connector_name == "spotify":
@@ -201,21 +218,20 @@ class BaseAPIConnector(ABC):
 
 @define(slots=True)
 class BatchProcessor[T, R]:
-    """Generic batch processor with concurrency control and rate limiting capabilities.
+    """Processes large lists with automatic retries, rate limiting, and progress tracking.
 
-    This utility simplifies batch processing operations across all connectors,
-    standardizing concurrency control, rate limiting, batching logic and error handling.
-    Uses configuration values from config.py.
+    Splits work into batches to avoid memory issues and API rate limits. Automatically
+    retries failed items with exponential backoff. Emits progress events for UI updates.
 
-    Attributes:
-        batch_size: Maximum number of items to process in a single batch
-        concurrency_limit: Maximum number of concurrent processing tasks
-        retry_count: Maximum number of retry attempts on failure
-        retry_base_delay: Base delay between retries (seconds)
+    Args:
+        batch_size: Items per batch (prevents memory issues)
+        concurrency_limit: Max concurrent operations (respects API limits)
+        retry_count: Max retry attempts per failed item
+        retry_base_delay: Starting delay between retries (seconds)
         retry_max_delay: Maximum delay between retries (seconds)
-        request_delay: Delay between individual requests (seconds)
-        rate_limiter: Optional rate limiter for controlling request start rate
-        logger_instance: Logger for recording processing events
+        request_delay: Minimum delay between requests (seconds)
+        rate_limiter: Optional external rate limiter
+        logger_instance: Logger for progress and error reporting
     """
 
     batch_size: int
@@ -228,7 +244,7 @@ class BatchProcessor[T, R]:
     logger_instance: Any = field(factory=lambda: get_logger(__name__))
 
     def _on_backoff(self, details):
-        """Log backoff event."""
+        """Log retry attempt with delay information."""
         wait = details["wait"]
         tries = details["tries"]
         target = details["target"].__name__
@@ -243,7 +259,7 @@ class BatchProcessor[T, R]:
         )
 
     def _on_giveup(self, details):
-        """Log when we give up retrying."""
+        """Log final failure after all retry attempts exhausted."""
         target = details["target"].__name__
         tries = details["tries"]
         elapsed = details["elapsed"]
@@ -264,17 +280,21 @@ class BatchProcessor[T, R]:
         progress_task_name: str = "batch_processing",
         progress_description: str = "Processing items",
     ) -> list[R]:
-        """Process items in batches with controlled concurrency and exponential backoff.
+        """Process items in batches with automatic retries and progress tracking.
+
+        Splits items into batches, processes each batch concurrently while respecting
+        rate limits, retries failures with exponential backoff, and emits progress
+        events for UI updates.
 
         Args:
-            items: List of items to process
-            process_func: Async function that processes a single item
-            progress_callback: Optional callback for progress updates
-            progress_task_name: Task name for progress tracking
-            progress_description: Human-readable description for progress
+            items: Items to process
+            process_func: Async function that processes one item
+            progress_callback: Optional function to receive progress events
+            progress_task_name: Identifier for progress tracking
+            progress_description: Human-readable task description
 
         Returns:
-            List of results in the same order as input items
+            Results in same order as input items (failed items excluded)
         """
         if not items:
             return []
@@ -309,11 +329,7 @@ class BatchProcessor[T, R]:
             on_giveup=self._on_giveup,
         )
         async def process_with_backoff(item: T) -> R:
-            """Process an item with automatic backoff on failures.
-
-            Uses rate limiter if provided for controlling request start rate,
-            or falls back to semaphore-based concurrency limiting.
-            """
+            """Process item with automatic retry on failure and rate limiting."""
             if self.rate_limiter:
                 # Use rate limiter for controlling request start rate
                 async with self.rate_limiter:
@@ -357,7 +373,7 @@ class BatchProcessor[T, R]:
                 batch_start: int = batch_start_items,
                 batch_num: int = current_batch,
             ) -> R:
-                """Process item and emit progress event."""
+                """Process item and emit progress events for UI updates."""
                 result = await process_with_backoff(item)
 
                 # Emit individual item progress based on config frequency
@@ -461,11 +477,14 @@ def register_metrics(
     metric_resolver: MetricResolverProtocol,
     field_map: dict[str, str],
 ) -> None:
-    """Register all metrics defined in field_map with the given resolver.
+    """Register metric resolver for all metrics defined in field_map.
+
+    Connects metric names to resolver instances so the application layer can
+    look up track metrics like popularity or play counts.
 
     Args:
-        metric_resolver: The resolver instance to register
-        field_map: Mapping of metric names to connector fields
+        metric_resolver: Resolver instance that can fetch metric values
+        field_map: Maps metric names to connector metadata field names
     """
     for metric_name in field_map:
         register_metric_resolver(metric_name, metric_resolver)

@@ -1,10 +1,8 @@
-"""
-Universal progress integration for Narada services and CLI operations.
+"""Progress tracking utilities for music data operations.
 
-Provides decorators and utilities for seamless progress tracking
-across async operations, batch processing, and CLI commands.
-
-Clean Architecture compliant - uses dependency injection for external concerns.
+Decorators and context managers that add visual progress bars to long-running
+operations like importing playlists, matching tracks, and syncing with APIs.
+Handles both single operations and batch processing with automatic completion.
 """
 
 import asyncio
@@ -26,20 +24,20 @@ P = ParamSpec("P")
 U = TypeVar("U")
 
 
-# Protocols for dependency injection (Clean Architecture compliance)
+# Protocols for dependency injection
 class Console(Protocol):
-    """Protocol for console output."""
+    """Terminal output interface for progress messages."""
 
     def print(self, text: str) -> None:
-        """Print text to console."""
+        """Print text to terminal."""
         ...
 
 
 class SessionProvider(Protocol):
-    """Protocol for database session management."""
+    """Database session factory interface."""
 
     async def __aenter__(self) -> Any:
-        """Async context manager entry."""
+        """Create and return database session."""
         ...
 
     async def __aexit__(
@@ -48,12 +46,12 @@ class SessionProvider(Protocol):
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Async context manager exit."""
+        """Close database session."""
         ...
 
 
 class UIProvider(Protocol):
-    """Protocol for UI operations."""
+    """User interface for displaying operation results."""
 
     def display_operation_result(
         self,
@@ -61,7 +59,7 @@ class UIProvider(Protocol):
         title: str | None = None,
         next_step_message: str | None = None,
     ) -> None:
-        """Display operation result."""
+        """Show operation summary with success/failure stats."""
         ...
 
 
@@ -74,28 +72,32 @@ def with_progress(
     console: Console | None = None,
     progress_provider_factory: Callable[[], ProgressProvider] | None = None,
 ) -> Callable[[Callable[P, Awaitable[U]]], Callable[P, Awaitable[U]]]:
-    """Universal progress decorator for async operations.
+    """Add progress bar to any async function.
 
-    Automatically manages progress tracking for any async operation,
-    with optional smart total estimation and item extraction.
+    Wraps functions with automatic progress tracking. Shows spinning indicator
+    or percentage completion if total items can be estimated. Displays success
+    message when complete.
 
     Args:
-        description: Human-readable operation description
-        estimate_total: Optional function to estimate total items from args
-        extract_items: Optional function to extract items list from args
-        success_text: Success message to display on completion
-        console: Optional console for output (injected dependency)
-        progress_provider_factory: Optional factory for progress provider
+        description: What operation is being performed (e.g. "Importing tracks")
+        estimate_total: Function to guess total items from first argument
+        extract_items: Function to extract item list from first argument
+        success_text: Message shown on successful completion
+        console: Where to print success messages
+        progress_provider_factory: Custom progress display factory
+
+    Returns:
+        Decorated function with automatic progress tracking
 
     Examples:
         @with_progress("Matching tracks to LastFM")
         async def match_tracks(tracks: list[Track]) -> MatchResults:
-            # Progress automatically tracked
+            # Progress bar shows while function runs
 
         @with_progress("Processing playlist",
                       estimate_total=lambda playlist: len(playlist.tracks))
         async def process_playlist(playlist: Playlist) -> Result:
-            # Total estimated from playlist size
+            # Shows percentage based on track count
     """
 
     def decorator(func: Callable[P, Awaitable[U]]) -> Callable[P, Awaitable[U]]:
@@ -158,22 +160,20 @@ def with_progress(
 
 
 class DatabaseProgressContext:
-    """Async context manager for database operations with progress tracking.
+    """Progress tracking for database operations that prevents SQLite locks.
 
-    Prevents SQLite lock errors by using session-per-operation pattern instead
-    of holding sessions for entire operation duration like @with_db_progress.
-
-    Maintains all progress tracking and result display functionality while
-    following SQLAlchemy 2.0 async best practices.
+    Context manager that shows progress while avoiding database lock errors.
+    Creates fresh database sessions for each operation instead of holding
+    connections open during long-running tasks. Shows results summary when done.
 
     Usage:
         async with DatabaseProgressContext(
             description="Importing tracks...",
             display_title="Import Results"
         ) as progress:
-            # Each repository call gets its own short-lived session
-            # Sessions released immediately after each operation
-            # Progress tracked separately from database lifecycle
+            # Each database call gets its own session
+            # Progress updates shown to user
+            # Results displayed when complete
     """
 
     def __init__(
@@ -185,15 +185,15 @@ class DatabaseProgressContext:
         console: Console | None = None,
         ui_provider: UIProvider | None = None,
     ):
-        """Initialize progress context.
+        """Initialize database progress context.
 
         Args:
-            description: Operation description for progress display
-            success_text: Success message to show on completion
-            display_title: Optional title for result display
-            next_step_message: Optional next step hint
-            console: Optional console for output (injected dependency)
-            ui_provider: Optional UI provider for result display
+            description: What operation is being performed
+            success_text: Message to show when operation succeeds
+            display_title: Title for results summary display
+            next_step_message: Hint about what user should do next
+            console: Where to print success messages
+            ui_provider: Where to display detailed results
         """
         self.description = description
         self.success_text = success_text
@@ -207,7 +207,7 @@ class DatabaseProgressContext:
         self._result: OperationResult | None = None
 
     async def __aenter__(self) -> "DatabaseProgressContext":
-        """Start progress tracking and return context for operations."""
+        """Start showing progress and return context for database operations."""
         # Create and start progress operation
         operation = create_operation(self.description)
         self._provider = get_progress_provider()
@@ -221,7 +221,7 @@ class DatabaseProgressContext:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Complete progress tracking and display results."""
+        """Stop progress tracking and show results if operation succeeded."""
         # Complete progress operation
         if self._provider and self._operation_id:
             self._provider.complete_operation(self._operation_id)
@@ -239,7 +239,7 @@ class DatabaseProgressContext:
                 )
 
     def set_result(self, result: OperationResult) -> None:
-        """Set the operation result for display on exit."""
+        """Store operation results for display when context exits."""
         self._result = result
 
     async def run_with_repositories(
@@ -250,20 +250,20 @@ class DatabaseProgressContext:
         *args,
         **kwargs,
     ) -> OperationResult:
-        """Execute an operation with fresh repository instances.
+        """Execute database operation with fresh session to prevent SQLite locks.
 
-        Creates repositories with session-per-operation pattern to prevent
-        SQLite locks that occur with long-held sessions.
+        Creates new database session and repositories for the operation,
+        preventing locks that occur when sessions are held too long.
 
         Args:
-            operation_func: Async function that takes repositories as first arg
-            session_factory: Factory function for creating database sessions
-            repository_factory: Factory function for creating repositories
-            *args: Additional positional arguments
-            **kwargs: Additional keyword arguments
+            operation_func: Function that performs database operations
+            session_factory: Creates new database sessions
+            repository_factory: Creates repository instances from sessions
+            *args: Additional arguments for operation_func
+            **kwargs: Additional keyword arguments for operation_func
 
         Returns:
-            Operation result
+            Result of the database operation
         """
         # Create fresh session and repositories for this operation using injected factories
         async with session_factory() as session:
@@ -286,19 +286,21 @@ def batch_progress_wrapper(
     batch_size: int = 50,
     progress_provider: ProgressProvider | None = None,
 ) -> Callable[[], Awaitable[dict[int, Any]]]:
-    """Create a progress-aware batch processing wrapper.
+    """Create function that processes large lists in chunks with progress updates.
 
-    Replaces existing process_in_batches function with unified progress.
+    Splits large item lists into smaller batches to avoid memory issues and
+    provide regular progress updates. Shows current batch number and overall
+    completion percentage.
 
     Args:
-        items: Items to process
-        process_func: Async function to process batches
-        operation_description: Description for progress display
-        batch_size: Size of each batch
-        progress_provider: Optional progress provider (injected dependency)
+        items: List of items to process in batches
+        process_func: Function that processes each batch
+        operation_description: Description shown in progress bar
+        batch_size: Number of items per batch
+        progress_provider: Custom progress display
 
     Returns:
-        Async function that processes items with progress tracking
+        Async function that processes all items with progress tracking
     """
 
     async def process_with_progress() -> dict[int, Any]:

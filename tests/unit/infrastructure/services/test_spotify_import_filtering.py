@@ -5,7 +5,7 @@ to ensure the filtering logic correctly distinguishes between legitimate
 listens and skips/partial plays.
 """
 
-from src.infrastructure.services.spotify_import import should_include_play
+from src.infrastructure.services.spotify_play_importer import should_include_play
 
 
 class TestPlayFilteringRealMusicScenarios:

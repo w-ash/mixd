@@ -1,12 +1,8 @@
-"""
-Simplified destination node implementations for workflow pipelines.
+"""Workflow endpoints for creating and updating playlists across music platforms.
 
-Destination nodes provide clean, intuitive interfaces for playlist operations:
-- create_playlist: Always creates canonical, optionally creates on connector
-- update_playlist: Smart ID resolution with append/overwrite and metadata updates
-
-These nodes are thin wrappers that delegate business logic to use cases,
-maintaining clear separation of concerns and DRY principles.
+Handles playlist operations in workflow pipelines by routing requests to appropriate
+use cases. Supports both local canonical playlists and external platform playlists
+(Spotify, Apple Music, etc.) with automatic ID resolution and metadata templating.
 """
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -35,14 +31,21 @@ async def create_playlist(
     config: dict,
     context: dict,
 ) -> dict:
-    """Create a new playlist with optional connector sync.
+    """Create new playlist from track list with optional platform sync.
 
-    Always creates canonical playlist, optionally creates on connector.
+    Creates local canonical playlist first, then optionally creates matching
+    playlist on external platform (Spotify, Apple Music) if connector specified.
 
-    Config:
-        name (str): Required playlist name
-        description (str): Optional playlist description
-        connector (str): Optional connector ("spotify", "apple_music", etc.)
+    Args:
+        tracklist: Collection of tracks to add to playlist.
+        config: Configuration containing name, description, and optional connector.
+        context: Workflow execution context for database and platform access.
+
+    Returns:
+        Dictionary with playlist details, track count, and platform sync results.
+
+    Raises:
+        ValueError: If required 'name' field missing from config.
     """
     # Render any template strings in config
     config = render_playlist_config_templates(config, len(tracklist.tracks))
@@ -104,18 +107,26 @@ async def update_playlist(
     config: dict,
     context: dict,
 ) -> dict:
-    """Update existing playlist with smart ID resolution.
+    """Update existing playlist with track replacement or appending.
 
-    Smart ID resolution:
-    - No connector: playlist_id is canonical ID, update canonical only
-    - With connector: playlist_id is connector ID, find/create canonical, update both
+    Interprets playlist_id based on connector presence:
+    - Without connector: Updates local canonical playlist by ID
+    - With connector: Updates platform playlist, syncs to local canonical
 
-    Config:
-        playlist_id (str): Required - canonical OR connector playlist ID
-        connector (str): Optional - determines ID interpretation
-        append (bool): True=append tracks, False=overwrite with preservation
-        name (str): Optional - update playlist name
-        description (str): Optional - update playlist description
+    Supports append mode (add tracks) or overwrite mode (replace all tracks
+    while preserving creation timestamps).
+
+    Args:
+        tracklist: New tracks to add or replace existing tracks.
+        config: Must contain playlist_id; optionally connector, append flag,
+               name and description updates.
+        context: Workflow execution context for database and platform access.
+
+    Returns:
+        Dictionary with operation details, track counts, and sync results.
+
+    Raises:
+        ValueError: If required 'playlist_id' field missing from config.
     """
     # Render any template strings in config
     config = render_playlist_config_templates(config, len(tracklist.tracks))

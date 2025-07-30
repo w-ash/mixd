@@ -97,34 +97,35 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             self.model_class.service == service,
             self.model_class.is_liked == is_liked,
         ]
-        
+
         # Handle special sorting cases that require custom queries
         if sort_by in ["title_asc", "random"]:
             from sqlalchemy import func, select
+
             from src.infrastructure.persistence.database.db_models import DBTrack
-            
+
             stmt = select(self.model_class)
             for condition in conditions:
                 stmt = stmt.where(condition)
-            
+
             if sort_by == "title_asc":
                 # Join with tracks table for title sorting
                 stmt = stmt.join(DBTrack, self.model_class.track_id == DBTrack.id)
                 stmt = stmt.order_by(DBTrack.title)
             elif sort_by == "random":
                 stmt = stmt.order_by(func.random())
-            
+
             result = await self.session.execute(stmt)
             db_models = result.scalars().all()
             return [await self.mapper.to_domain(model) for model in db_models]
-        
+
         # Use base repository for simple field sorting
         order_by = None
         if sort_by == "liked_at_desc":
             order_by = ("liked_at", False)  # DESC
         elif sort_by == "liked_at_asc":
-            order_by = ("liked_at", True)   # ASC
-        
+            order_by = ("liked_at", True)  # ASC
+
         return await self.find_by(conditions, order_by=order_by)
 
     @db_operation("get_unsynced_likes")

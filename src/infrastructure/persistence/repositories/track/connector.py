@@ -1,4 +1,8 @@
-"""Track connector repository for mapping tracks to external services."""
+"""Manages track connections between internal database and external music services.
+
+Handles track ingestion from Spotify, Last.fm, and other music platforms, maps external
+tracks to canonical internal tracks, and stores service-specific metadata and IDs.
+"""
 
 from datetime import UTC, datetime
 from typing import Any, TypeVar, cast
@@ -27,11 +31,18 @@ T = TypeVar("T")
 
 @define(frozen=True, slots=True)
 class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
-    """Maps between DBConnectorTrack and dictionary representation."""
+    """Converts external service track data between database and domain formats."""
 
     @staticmethod
     async def to_domain(db_model: DBConnectorTrack) -> dict[str, Any]:
-        """Convert DB connector track to dictionary."""
+        """Convert database connector track to dictionary format.
+
+        Args:
+            db_model: Database model instance.
+
+        Returns:
+            Dictionary with track data from external service.
+        """
         if not db_model:
             return {}
 
@@ -51,7 +62,14 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
 
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBConnectorTrack:
-        """Convert dictionary to DB connector track."""
+        """Convert dictionary to database connector track.
+
+        Args:
+            domain_model: Dictionary with track data.
+
+        Returns:
+            Database model instance ready for persistence.
+        """
         return DBConnectorTrack(
             connector_name=domain_model.get("connector_name"),
             connector_track_id=domain_model.get("connector_track_id"),
@@ -67,17 +85,24 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
 
     @staticmethod
     def get_default_relationships() -> list[str]:
-        """Get default relationships to load for connector tracks."""
+        """Get related entities to load when querying connector tracks."""
         return ["mappings"]
 
 
 @define(frozen=True, slots=True)
 class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
-    """Maps between DBTrackMapping and dictionary representation."""
+    """Converts track-to-service mapping data between database and domain formats."""
 
     @staticmethod
     async def to_domain(db_model: DBTrackMapping) -> dict[str, Any]:
-        """Convert DB mapping to dictionary."""
+        """Convert database mapping to dictionary format.
+
+        Args:
+            db_model: Database mapping instance.
+
+        Returns:
+            Dictionary with mapping data including confidence scores.
+        """
         if not db_model:
             return {}
 
@@ -92,7 +117,14 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
 
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBTrackMapping:
-        """Convert dictionary to DB mapping."""
+        """Convert dictionary to database mapping.
+
+        Args:
+            domain_model: Dictionary with mapping data.
+
+        Returns:
+            Database mapping instance ready for persistence.
+        """
         return DBTrackMapping(
             track_id=domain_model.get("track_id"),
             connector_track_id=domain_model.get("connector_track_id"),
@@ -103,15 +135,15 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
 
     @staticmethod
     def get_default_relationships() -> list[str]:
-        """Get default relationships to load for track mappings."""
+        """Get related entities to load when querying track mappings."""
         return ["track", "connector_track"]
 
 
 class ConnectorTrackRepository(BaseRepository[DBConnectorTrack, dict[str, Any]]):
-    """Repository for connector track operations."""
+    """Manages external service track data storage and retrieval."""
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session and mapper."""
+        """Initialize with database session and data mapper."""
         super().__init__(
             session=session,
             model_class=DBConnectorTrack,
@@ -120,10 +152,10 @@ class ConnectorTrackRepository(BaseRepository[DBConnectorTrack, dict[str, Any]])
 
 
 class TrackMappingRepository(BaseRepository[DBTrackMapping, dict[str, Any]]):
-    """Repository for track mapping operations."""
+    """Manages track-to-service mapping storage and retrieval."""
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session and mapper."""
+        """Initialize with database session and data mapper."""
         super().__init__(
             session=session,
             model_class=DBTrackMapping,
@@ -132,15 +164,15 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, dict[str, Any]]):
 
 
 class TrackConnectorRepository:
-    """Repository for track connector operations.
+    """Connects internal tracks with external music services like Spotify and Last.fm.
 
-    Implements batch-first repository operations for connecting tracks
-    to external music services. All single-item operations are implemented
-    as degenerate cases of their bulk counterparts.
+    Handles ingesting tracks from external APIs, mapping them to canonical internal
+    tracks, and managing service-specific metadata. Optimized for bulk operations
+    to efficiently process large playlists and libraries.
     """
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session."""
+        """Initialize with database session and dependent repositories."""
         self.session = session
         self.track_mapper = TrackMapper()
         self.connector_repo = ConnectorTrackRepository(session)
@@ -151,13 +183,13 @@ class TrackConnectorRepository:
     async def find_tracks_by_connectors(
         self, connections: list[tuple[str, str]]
     ) -> dict[tuple[str, str], Track]:
-        """Find tracks by connector name and ID in bulk.
+        """Find internal tracks by their external service IDs.
 
         Args:
-            connections: List of (connector, connector_id) tuples
+            connections: List of (service_name, external_id) pairs to lookup.
 
         Returns:
-            Dictionary mapping (connector, connector_id) tuples to Track objects
+            Dictionary mapping (service_name, external_id) to Track objects.
         """
         if not connections:
             return {}
@@ -213,7 +245,7 @@ class TrackConnectorRepository:
     async def find_track_by_connector(
         self, connector: str, connector_id: str
     ) -> Track | None:
-        """Find a track by connector name and ID (degenerate case of bulk method)."""
+        """Find an internal track by its external service ID."""
         results = await self.find_tracks_by_connectors([(connector, connector_id)])
         return results.get((connector, connector_id))
 
@@ -221,7 +253,7 @@ class TrackConnectorRepository:
     async def find_connector_track_id(
         self, connector: str, connector_id: str
     ) -> int | None:
-        """Find connector track database ID by connector name and ID."""
+        """Get database ID for an external service track record."""
         stmt = select(DBConnectorTrack.id).filter(
             DBConnectorTrack.connector_name == connector,
             DBConnectorTrack.connector_track_id == connector_id,
@@ -235,14 +267,14 @@ class TrackConnectorRepository:
         self,
         mappings: list[tuple[Track, str, str, str, int, dict | None, dict | None]],
     ) -> list[Track]:
-        """Map multiple tracks to connectors in a single bulk operation.
+        """Link existing internal tracks to external service IDs with confidence scores.
 
         Args:
-            mappings: List of tuples with (track, connector, connector_id, match_method,
-                    confidence, metadata, confidence_evidence)
+            mappings: List of (track, service_name, external_id, match_method,
+                    confidence, metadata, confidence_evidence) tuples.
 
         Returns:
-            List of updated Track objects
+            List of Track objects updated with external service connections.
         """
         if not mappings:
             return []
@@ -385,7 +417,7 @@ class TrackConnectorRepository:
         metadata: dict | None = None,
         confidence_evidence: dict | None = None,
     ) -> Track:
-        """Map an existing track to a connector (degenerate case of bulk method)."""
+        """Link an existing internal track to an external service ID."""
         if track.id is None:
             raise ValueError("Cannot map track with no ID")
 
@@ -415,17 +447,17 @@ class TrackConnectorRepository:
         connector: str,
         tracks: list[ConnectorTrack],
     ) -> list[Track]:
-        """Bulk ingest multiple tracks from external connector.
+        """Import tracks from external music services into the internal database.
 
-        This is the primary method for track ingestion, optimized for bulk operations.
-        Single-track operations are implemented as a special case of this method.
+        Creates new tracks or updates existing ones, stores service-specific metadata,
+        and establishes mappings. Optimized for processing large batches like playlists.
 
         Args:
-            connector: Connector name (e.g., "spotify")
-            tracks: List of connector tracks to ingest
+            connector: Service name (e.g., "spotify", "lastfm").
+            tracks: External track data to import.
 
         Returns:
-            List of domain Track models
+            List of internal Track objects created or updated.
         """
         if not tracks:
             return []
@@ -555,25 +587,24 @@ class TrackConnectorRepository:
         isrc: str | None = None,
         added_at: str | None = None,
     ) -> Track | None:
-        """Ingest a single track from external source.
+        """Import a single track from an external music service.
 
-        This is implemented as a special case of ingest_external_tracks_bulk
-        for DRY purposes. All the logic is in the bulk method.
+        Convenience method that uses the bulk ingestion logic internally.
 
         Args:
-            connector: Connector name (e.g., "spotify")
-            connector_id: ID of the track in the external service
-            metadata: Raw metadata from the external service
-            title: Track title
-            artists: List of artist names
-            album: Album name
-            duration_ms: Duration in milliseconds
-            release_date: Release date of the track
-            isrc: ISRC code for the track
-            added_at: Timestamp when the track was added to a playlist
+            connector: Service name (e.g., "spotify", "lastfm").
+            connector_id: Track ID in the external service.
+            metadata: Raw metadata from the external service API.
+            title: Track title.
+            artists: List of artist names.
+            album: Album name.
+            duration_ms: Track length in milliseconds.
+            release_date: When the track was released.
+            isrc: International Standard Recording Code.
+            added_at: When track was added to a playlist.
 
         Returns:
-            Domain Track model
+            Internal Track object created or updated.
         """
         # Ensure we have a metadata dictionary
         actual_metadata = metadata or {}
@@ -606,10 +637,9 @@ class TrackConnectorRepository:
     async def create_track_from_connector_data(
         self, track: Track, connector: str
     ) -> Track | None:
-        """Create a track directly from connector data.
+        """Create an internal track using data from an external service.
 
-        This is a convenience method that leverages the bulk ingest operation
-        under the hood for consistency.
+        Convenience method that uses the ingestion logic internally.
         """
         if not track.title or not track.artists:
             raise ValueError("Track must have title and artists")
@@ -617,7 +647,7 @@ class TrackConnectorRepository:
         if connector not in track.connector_track_ids:
             raise ValueError(f"Track doesn't have an ID for connector {connector}")
 
-        # Use the ingest method for consistency
+        # Use the ingest method to avoid duplicating logic
         connector_id = track.connector_track_ids[connector]
         metadata = (
             track.connector_metadata.get(connector, {})
@@ -647,7 +677,15 @@ class TrackConnectorRepository:
         track_ids: list[int],
         connector: str | None = None,
     ) -> dict[int, dict[str, str]]:
-        """Get mappings between tracks and external connectors."""
+        """Get external service IDs for internal tracks.
+
+        Args:
+            track_ids: Internal track IDs to lookup.
+            connector: Optional service filter (e.g., "spotify").
+
+        Returns:
+            Dict mapping track_id to {service_name: external_id}.
+        """
         if not track_ids:
             return {}
 
@@ -691,7 +729,16 @@ class TrackConnectorRepository:
         connector: str,
         metadata_field: str | None = None,
     ) -> dict[int, dict[str, Any] | Any]:
-        """Get connector metadata for tracks."""
+        """Get service-specific metadata for tracks.
+
+        Args:
+            track_ids: Internal track IDs to lookup.
+            connector: Service name (e.g., "spotify").
+            metadata_field: Optional specific field to extract.
+
+        Returns:
+            Dict mapping track_id to metadata or specific field value.
+        """
         if not track_ids:
             return {}
 
@@ -733,7 +780,7 @@ class TrackConnectorRepository:
         track_ids: list[int],
         connector: str,
     ) -> dict[int, dict[str, Any]]:
-        """Get connector metadata for tracks with last_updated timestamps."""
+        """Get service metadata for tracks with last update timestamps."""
         if not track_ids:
             return {}
 
@@ -777,7 +824,7 @@ class TrackConnectorRepository:
         confidence_evidence: dict | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Save confidence information to the track mapping."""
+        """Update confidence score for track-to-service mapping."""
         # Find the connector track first
         connector_track = await self.connector_repo.find_one_by({
             "connector_name": connector,
@@ -827,7 +874,7 @@ class TrackConnectorRepository:
     async def get_mapping_info(
         self, track_id: int, connector: str, connector_id: str
     ) -> dict:
-        """Get mapping information including confidence and method."""
+        """Get confidence score and match method for a track-service mapping."""
         # Find connector track
         connector_track = await self.connector_repo.find_one_by({
             "connector_name": connector,
@@ -856,14 +903,14 @@ class TrackConnectorRepository:
     async def get_metadata_timestamps(
         self, track_ids: list[int], connector: str
     ) -> dict[int, datetime]:
-        """Get most recent metadata collection timestamps for tracks.
+        """Get when metadata was last collected from an external service.
 
         Args:
-            track_ids: Track IDs to check timestamps for.
-            connector: Connector name to filter by.
+            track_ids: Internal track IDs to check.
+            connector: Service name to filter by.
 
         Returns:
-            Dictionary mapping track_id to most recent collected_at timestamp.
+            Dict mapping track_id to most recent collection timestamp.
         """
         if not track_ids:
             return {}
@@ -912,19 +959,18 @@ class TrackConnectorRepository:
     async def set_primary_mapping(
         self, track_id: int, connector_track_id: int, connector_name: str
     ) -> bool:
-        """Set the primary mapping for a track-connector pair.
+        """Mark one external track as the primary mapping for a service.
 
-        This method handles Spotify track relinking and other scenarios where
-        multiple connector tracks map to the same canonical track. It ensures
-        only one mapping per (track_id, connector_name) is marked as primary.
+        Handles cases like Spotify track relinking where multiple external tracks
+        map to the same internal track. Ensures only one mapping per service is primary.
 
         Args:
-            track_id: Internal canonical track ID
-            connector_track_id: Database ID of the connector track (not external ID)
-            connector_name: Name of the connector (e.g., "spotify")
+            track_id: Internal canonical track ID.
+            connector_track_id: Database ID of the external track record.
+            connector_name: Service name (e.g., "spotify").
 
         Returns:
-            True if the primary mapping was successfully updated, False otherwise
+            True if primary mapping was successfully updated.
         """
         try:
             # Step 1: Reset all primaries for this track-connector pair

@@ -1,7 +1,7 @@
 """MusicBrainz provider for track matching.
 
 This provider handles communication with the MusicBrainz API and transforms
-MusicBrainz track data into our domain MatchResult objects.
+MusicBrainz track data into raw provider matches without business logic.
 """
 
 from typing import Any
@@ -9,7 +9,7 @@ from typing import Any
 from src.application.utilities.simple_batching import process_in_batches
 from src.config import get_logger
 from src.domain.entities import Track
-from src.domain.matching.types import MatchResult, MatchResultsById
+from src.domain.matching.types import RawProviderMatch
 
 logger = get_logger(__name__)
 
@@ -30,12 +30,12 @@ class MusicBrainzProvider:
         """Service identifier."""
         return "musicbrainz"
 
-    async def find_potential_matches(
+    async def fetch_raw_matches_for_tracks(
         self,
         tracks: list[Track],
         **additional_options: Any,
-    ) -> MatchResultsById:
-        """Find track matches in MusicBrainz using batch ISRC and search APIs.
+    ) -> dict[int, RawProviderMatch]:
+        """Fetch raw track matches from MusicBrainz using batch ISRC and search APIs.
 
         Prioritizes batch ISRC lookup for efficiency, then falls back to
         individual artist/title searches.
@@ -45,7 +45,7 @@ class MusicBrainzProvider:
             **additional_options: Additional options (unused).
 
         Returns:
-            Track IDs mapped to MatchResult objects.
+            Track IDs mapped to raw match data without business logic applied.
         """
         # Acknowledge additional options to satisfy linter
         _ = additional_options
@@ -79,9 +79,9 @@ class MusicBrainzProvider:
 
                     if track.isrc in isrc_results:
                         mbid = isrc_results[track.isrc]
-                        match_result = self._create_isrc_match_result(track, mbid)
-                        if match_result:
-                            results[track.id] = match_result
+                        raw_match = self._create_isrc_raw_match(mbid)
+                        if raw_match:
+                            results[track.id] = raw_match
 
                 logger.info(f"Found {len(isrc_results)} matches from ISRCs")
 
@@ -102,63 +102,42 @@ class MusicBrainzProvider:
             logger.info(f"Found {len(results)} matches from {len(tracks)} tracks")
             return results
 
-    def _create_isrc_match_result(self, track: Track, mbid: str) -> MatchResult | None:
-        """Create a MatchResult for an ISRC-based match.
+    def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
+        """Create raw match data for ISRC-based matches.
+
+        This method creates raw provider data without applying any business logic,
+        confidence scoring, or match decisions.
 
         Args:
-            track: Internal Track object
             mbid: MusicBrainz recording ID
 
         Returns:
-            MatchResult or None if match creation fails
+            Raw provider match data or None if creation fails
         """
         try:
-            # Create minimal service data for ISRC matches
+            # Create minimal service data for ISRC matches - no business logic
             service_data = {
-                "title": track.title,
                 "mbid": mbid,
-                "isrc": track.isrc,
+                "title": "",  # ISRC matches don't provide track metadata directly
+                "artist": "",
+                "artists": [],
+                "duration_ms": None,
             }
 
-            # Use domain layer to calculate confidence
-            from src.domain.matching.algorithms import calculate_confidence
-
-            # For ISRC matches, we use empty track_data since we trust the ISRC
-            confidence, evidence = calculate_confidence(
-                internal_track_data={},
-                service_track_data={},
-                match_method="isrc",
-            )
-
-            # Log successful match
-            artist_name = track.artists[0].name if track.artists else "Unknown"
-
-            logger.info(
-                f"Matched: {track.title} by {artist_name} → MusicBrainz via ISRC ({confidence}%)",
-                track_id=track.id,
-                connector="musicbrainz",
-                match_method="isrc",
-                confidence=confidence,
-            )
-
-            return MatchResult(
-                track=track.with_connector_track_id("musicbrainz", mbid),
-                success=True,
+            # Return raw data - no confidence calculation or business logic
+            return RawProviderMatch(
                 connector_id=mbid,
-                confidence=confidence,
                 match_method="isrc",
                 service_data=service_data,
-                evidence=evidence,
             )
 
         except Exception as e:
-            logger.warning(
-                f"Failed to create MusicBrainz ISRC match result: {e}",
-                track_id=track.id,
-            )
+            logger.warning(f"Failed to create MusicBrainz ISRC raw match: {e}")
             return None
 
-    async def _process_artist_title_batch(self, batch: list[Track]) -> MatchResultsById:
+    async def _process_artist_title_batch(
+        self, batch: list[Track]
+    ) -> dict[int, RawProviderMatch]:
         """Process a batch of tracks using artist/title matching.
 
         Args:
@@ -179,39 +158,40 @@ class MusicBrainzProvider:
                 )
 
                 if recording and "id" in recording:
-                    match_result = self._create_artist_title_match_result(
-                        track=track,
+                    raw_match = self._create_artist_title_raw_match(
                         recording=recording,
-                        original_artist=artist,
                     )
-                    if match_result:
-                        batch_results[track.id] = match_result
+                    if raw_match:
+                        batch_results[track.id] = raw_match
 
             except Exception as e:
                 logger.warning(f"Artist/title match failed: {e}", track_id=track.id)
 
         return batch_results
 
-    def _create_artist_title_match_result(
-        self, track: Track, recording: dict[str, Any], original_artist: str
-    ) -> MatchResult | None:
-        """Create a MatchResult from MusicBrainz recording data.
+    def _create_artist_title_raw_match(
+        self, recording: dict[str, Any]
+    ) -> RawProviderMatch | None:
+        """Create raw match data from MusicBrainz recording data.
+
+        This method extracts and formats data from MusicBrainz API without applying
+        any business logic, confidence scoring, or match decisions.
 
         Args:
-            track: Internal Track object
             recording: MusicBrainz recording data
-            original_artist: Original artist name used for searching
 
         Returns:
-            MatchResult or None if match creation fails
+            Raw provider match data or None if creation fails
         """
         try:
             mbid = recording["id"]
 
-            # Extract service data
+            # Extract service data without any business logic
             service_data = {
                 "title": recording.get("title", ""),
                 "mbid": mbid,
+                "artists": [],
+                "duration_ms": recording.get("length"),  # MusicBrainz duration
             }
 
             # Add artists if available
@@ -222,53 +202,13 @@ class MusicBrainzProvider:
                     if isinstance(credit, dict) and "name" in credit
                 ]
 
-            # Use domain layer to calculate confidence
-            from src.domain.matching.algorithms import calculate_confidence
-
-            # Prepare track data for confidence calculation
-            internal_track_data = {
-                "title": track.title,
-                "artists": [artist.name for artist in track.artists]
-                if track.artists
-                else [],
-                "duration_ms": track.duration_ms,
-            }
-
-            track_data = {
-                "title": recording.get("title", ""),
-                "artist": original_artist,  # Use our original artist as proxy
-            }
-
-            confidence, evidence = calculate_confidence(
-                internal_track_data=internal_track_data,
-                service_track_data=track_data,
-                match_method="artist_title",
-            )
-
-            # Log successful match
-            artist_name = track.artists[0].name if track.artists else "Unknown"
-
-            logger.info(
-                f"Matched: {track.title} by {artist_name} → MusicBrainz via artist/title ({confidence}%)",
-                track_id=track.id,
-                connector="musicbrainz",
-                match_method="artist_title",
-                confidence=confidence,
-            )
-
-            return MatchResult(
-                track=track.with_connector_track_id("musicbrainz", mbid),
-                success=True,
+            # Return raw data - no confidence calculation or business logic
+            return RawProviderMatch(
                 connector_id=mbid,
-                confidence=confidence,
                 match_method="artist_title",
                 service_data=service_data,
-                evidence=evidence,
             )
 
         except Exception as e:
-            logger.warning(
-                f"Failed to create MusicBrainz artist/title match result: {e}",
-                track_id=track.id,
-            )
+            logger.warning(f"Failed to create MusicBrainz artist/title raw match: {e}")
             return None

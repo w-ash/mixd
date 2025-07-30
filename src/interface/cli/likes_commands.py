@@ -1,4 +1,4 @@
-"""Liked tracks import/export commands for Narada CLI - following Clean Architecture."""
+"""CLI commands for importing, exporting, and syncing liked tracks across services."""
 
 import asyncio
 from typing import Annotated

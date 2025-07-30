@@ -1,7 +1,7 @@
-"""WorkflowContext implementation for dependency injection.
+"""Dependency injection container for playlist workflow operations.
 
-Provides concrete implementations of all workflow dependencies following
-Clean Architecture principles.
+Manages configuration, logging, music service connectors, database sessions,
+and business logic use cases needed for playlist synchronization workflows.
 """
 
 from dataclasses import dataclass
@@ -25,57 +25,108 @@ from .protocols import (
 
 
 class ConfigProviderImpl:
-    """Configuration provider implementation."""
+    """Provides access to application configuration values.
+
+    Wraps the global config system to make configuration values available
+    to workflow operations without direct coupling to the config module.
+    """
 
     def __init__(self):
-        """Initialize configuration provider."""
+        """Initialize the configuration provider."""
         from src.config import get_config as _get_config
 
         self._get_config = _get_config
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value by key."""
+        """Retrieve a configuration value by key.
+
+        Args:
+            key: Configuration key to look up
+            default: Value to return if key is not found
+
+        Returns:
+            Configuration value or default if not found
+        """
         return self._get_config(key, default)
 
 
 class LoggerProviderImpl:
-    """Logger provider implementation."""
+    """Provides structured logging for workflow operations.
+
+    Wraps the application logger to provide consistent logging interface
+    for tracking workflow progress, errors, and debugging information.
+    """
 
     def __init__(self, name: str = __name__):
-        """Initialize logger provider."""
+        """Initialize the logger provider.
+
+        Args:
+            name: Logger name, defaults to current module
+        """
         self._logger = get_logger(name)
 
     def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
+        """Log informational message.
+
+        Args:
+            message: Message to log
+            **kwargs: Additional structured data to include
+        """
         self._logger.info(message, **kwargs)
 
     def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
+        """Log debug message for troubleshooting.
+
+        Args:
+            message: Message to log
+            **kwargs: Additional structured data to include
+        """
         self._logger.debug(message, **kwargs)
 
     def warning(self, message: str, **kwargs: Any) -> None:
-        """Log warning message."""
+        """Log warning message for potential issues.
+
+        Args:
+            message: Message to log
+            **kwargs: Additional structured data to include
+        """
         self._logger.warning(message, **kwargs)
 
     def error(self, message: str, **kwargs: Any) -> None:
-        """Log error message."""
+        """Log error message for failures.
+
+        Args:
+            message: Message to log
+            **kwargs: Additional structured data to include
+        """
         self._logger.error(message, **kwargs)
 
 
-# WorkflowConnectorAdapter removed - violates 2025 clean architecture principles
-# Connectors are now injected directly without wrapper adapters
-
-
 class ConnectorRegistryImpl:
-    """Connector registry implementation using direct connector access."""
+    """Registry for music service API connectors.
+
+    Manages access to connectors for music services like Spotify, Last.fm,
+    and MusicBrainz. Automatically discovers available connectors and provides
+    factory access to create configured connector instances.
+    """
 
     def __init__(self):
-        """Initialize connector registry."""
+        """Initialize connector registry and discover available connectors."""
         discover_connectors()
         self._connectors = CONNECTORS
 
     def get_connector(self, name: str):
-        """Get connector by name - direct access without provider wrapper."""
+        """Create a connector instance for the specified music service.
+
+        Args:
+            name: Name of the connector (e.g., 'spotify', 'lastfm')
+
+        Returns:
+            Configured connector instance
+
+        Raises:
+            ValueError: If connector name is not registered
+        """
         if name not in self._connectors:
             raise ValueError(f"Unknown connector: {name}")
 
@@ -83,51 +134,91 @@ class ConnectorRegistryImpl:
         return connector_config["factory"]({})
 
     def list_connectors(self) -> list[str]:
-        """List available connector names."""
+        """List names of all available music service connectors.
+
+        Returns:
+            List of connector names
+        """
         return list(self._connectors.keys())
 
 
 class DatabaseSessionProviderImpl:
-    """Database session provider implementation."""
+    """Provides database sessions for playlist data operations.
+
+    Creates new database sessions for accessing playlist, track, and
+    synchronization data stored in the application database.
+    """
 
     def get_session(self):
-        """Get database session."""
+        """Create a new database session.
+
+        Returns:
+            New database session for data operations
+        """
         return get_session()
 
 
 class SharedSessionProvider:
-    """Shared session provider for workflow-scoped database access.
+    """Manages a single database session shared across workflow tasks.
 
-    This provider manages a single AsyncSession that is shared across
-    all workflow tasks to prevent SQLite database locks caused by
-    concurrent sessions.
+    Prevents SQLite database locks by ensuring all tasks in a workflow
+    use the same database session instead of creating concurrent sessions
+    that would conflict with SQLite's locking behavior.
     """
 
     def __init__(self, session):
-        """Initialize with a shared session."""
+        """Initialize with an existing database session.
+
+        Args:
+            session: Pre-opened database session to share
+        """
         self._session = session
 
     def get_session(self):
-        """Get the shared session (already opened)."""
+        """Get the shared database session.
+
+        Returns:
+            The pre-opened shared session
+        """
         return self._session
 
     async def __aenter__(self):
-        """Async context manager entry - session already opened."""
+        """Return the shared session for async context management.
+
+        Returns:
+            The shared database session
+        """
         return self._session
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit - do nothing, session managed by workflow."""
+        """Exit async context without closing session.
+
+        The session is managed by the workflow and should not be closed here.
+        """
 
 
 class UseCaseProviderImpl:
-    """Use case provider implementation with dependency injection."""
+    """Factory for playlist and track management business logic.
+
+    Creates instances of use cases that handle playlist operations like
+    creating playlists, matching tracks between services, enriching track
+    metadata, and synchronizing playlists across music services.
+    """
 
     def __init__(self, shared_session=None):
-        """Initialize with optional shared session."""
+        """Initialize the use case provider.
+
+        Args:
+            shared_session: Optional shared database session for workflows
+        """
         self._shared_session = shared_session
 
     async def get_create_canonical_playlist_use_case(self):
-        """Get CreateCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        """Create use case for creating master playlist definitions.
+
+        Returns:
+            Use case instance for creating canonical playlists
+        """
         from src.application.use_cases.create_canonical_playlist import (
             CreateCanonicalPlaylistUseCase,
         )
@@ -137,7 +228,11 @@ class UseCaseProviderImpl:
         return CreateCanonicalPlaylistUseCase()
 
     async def get_create_connector_playlist_use_case(self):
-        """Get CreateConnectorPlaylistUseCase with UnitOfWork pattern."""
+        """Create use case for creating service-specific playlist instances.
+
+        Returns:
+            Use case instance for creating connector playlists
+        """
         from src.application.use_cases.create_connector_playlist import (
             CreateConnectorPlaylistUseCase,
         )
@@ -146,33 +241,45 @@ class UseCaseProviderImpl:
         # UnitOfWork will be passed as parameter during execution
         return CreateConnectorPlaylistUseCase()
 
-    async def get_track_identity_use_case(self):
-        """Get ResolveTrackIdentityUseCase with UnitOfWork pattern."""
-        from src.application.use_cases.resolve_track_identity import (
-            ResolveTrackIdentityUseCase,
-        )
-
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
-        return ResolveTrackIdentityUseCase()
-
     async def get_enrich_tracks_use_case(self):
-        """Get EnrichTracksUseCase with injected dependencies."""
+        """Create use case for enriching track metadata from external services.
+
+        Returns:
+            Use case instance for track enrichment
+        """
         from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
 
         # EnrichTracksUseCase follows UnitOfWork pattern - no constructor dependencies
         return EnrichTracksUseCase()
 
+    async def get_match_and_identify_tracks_use_case(self):
+        """Create use case for track matching and identification.
+        
+        Returns:
+            Use case instance for track matching and identification
+        """
+        from src.application.use_cases.match_and_identify_tracks import (
+            MatchAndIdentifyTracksUseCase,
+        )
+        
+        return MatchAndIdentifyTracksUseCase()
+        
     async def get_match_tracks_use_case(self):
-        """Get MatchTracksUseCase with UnitOfWork pattern."""
-        from src.application.use_cases.match_tracks import MatchTracksUseCase
-
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
-        return MatchTracksUseCase()
+        """Create use case for track matching (legacy method name compatibility).
+        
+        Returns the new MatchAndIdentifyTracksUseCase for backward compatibility.
+        
+        Returns:
+            Use case instance for track matching and identification
+        """
+        return await self.get_match_and_identify_tracks_use_case()
 
     async def get_update_canonical_playlist_use_case(self):
-        """Get UpdateCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        """Create use case for updating master playlist definitions.
+
+        Returns:
+            Use case instance for updating canonical playlists
+        """
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistUseCase,
         )
@@ -182,7 +289,11 @@ class UseCaseProviderImpl:
         return UpdateCanonicalPlaylistUseCase()
 
     async def get_update_connector_playlist_use_case(self):
-        """Get UpdateConnectorPlaylistUseCase with UnitOfWork pattern."""
+        """Create use case for updating service-specific playlist instances.
+
+        Returns:
+            Use case instance for updating connector playlists
+        """
         from src.application.use_cases.update_connector_playlist import (
             UpdateConnectorPlaylistUseCase,
         )
@@ -192,7 +303,11 @@ class UseCaseProviderImpl:
         return UpdateConnectorPlaylistUseCase()
 
     async def get_read_canonical_playlist_use_case(self):
-        """Get ReadCanonicalPlaylistUseCase with UnitOfWork pattern."""
+        """Create use case for reading master playlist definitions.
+
+        Returns:
+            Use case instance for reading canonical playlists
+        """
         from src.application.use_cases.read_canonical_playlist import (
             ReadCanonicalPlaylistUseCase,
         )
@@ -202,12 +317,14 @@ class UseCaseProviderImpl:
         return ReadCanonicalPlaylistUseCase()
 
 
-# RepositoryProviderImpl removed - Clean Architecture: use cases handle dependency injection
-
-
 @dataclass
 class ConcreteWorkflowContext:
-    """Concrete implementation of WorkflowContext."""
+    """Central dependency container for playlist workflow operations.
+
+    Aggregates all services needed for playlist synchronization workflows
+    including configuration, logging, music service connectors, database
+    access, and business logic use cases.
+    """
 
     config: ConfigProvider
     logger: LoggerProvider
@@ -216,17 +333,17 @@ class ConcreteWorkflowContext:
     session_provider: DatabaseSessionProvider
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
-        """Execute use case with UnitOfWork pattern.
+        """Execute a business logic use case with proper resource management.
 
-        This method provides a single entry point for all workflow use case execution,
-        handling UnitOfWork creation, session management, and cleanup automatically.
+        Handles database session lifecycle, unit of work creation, and
+        cleanup automatically for any workflow use case execution.
 
         Args:
             use_case_getter: Async function that returns a use case instance
-            command: Command object to pass to the use case
+            command: Command object containing operation parameters
 
         Returns:
-            Result from use case execution
+            Result from the executed use case
         """
         # Import UnitOfWork factory locally to avoid circular imports
         from src.infrastructure.persistence.repositories.factories import (
@@ -246,15 +363,23 @@ class ConcreteWorkflowContext:
 
 
 def create_workflow_context(shared_session=None) -> WorkflowContext:
-    """Create a WorkflowContext with real dependencies wired up."""
+    """Create a complete workflow context with all dependencies configured.
+
+    Factory function that instantiates and wires together all the services
+    needed for playlist workflow operations including configuration, logging,
+    music service connectors, database access, and business logic.
+
+    Args:
+        shared_session: Optional pre-opened database session to share
+
+    Returns:
+        Configured workflow context ready for use
+    """
     config = ConfigProviderImpl()
     logger = LoggerProviderImpl()
     connectors = ConnectorRegistryImpl()
     session_provider = DatabaseSessionProviderImpl()
     use_cases = UseCaseProviderImpl(shared_session)
-
-    # Repository provider removed - use cases handle their own dependency injection
-    # Clean Architecture: Context provides use cases, not repositories directly
 
     return ConcreteWorkflowContext(
         config=config,

@@ -1,4 +1,4 @@
-"""Setup and configuration commands for Narada CLI - following Clean Architecture."""
+"""CLI commands for service authentication and configuration setup."""
 
 from rich.console import Console
 import typer

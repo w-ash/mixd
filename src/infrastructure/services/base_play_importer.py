@@ -1,4 +1,4 @@
-"""Base import service implementing Template Method pattern."""
+"""Base class for importing music listening data from external sources."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -14,24 +14,31 @@ from src.domain.repositories.interfaces import PlaysRepositoryProtocol
 logger = get_logger(__name__)
 
 
-class BaseImportService(ABC):
-    """Abstract base service implementing Template Method pattern for data imports.
+class BasePlayImporter(ABC):
+    """Base class for importing music listening data from external sources.
 
-    This class defines the skeleton of the import algorithm while allowing subclasses
-    to override specific steps. The template method ensures consistent workflow across
-    all import services while eliminating code duplication.
+    Provides common workflow for importing track plays from sources like Spotify, Last.fm,
+    or local files. Handles database persistence, progress tracking, and error handling
+    while letting subclasses implement source-specific data fetching and parsing.
 
-    Template Method Pattern:
-    1. Generate batch ID and timestamp
-    2. Fetch raw data (abstract - service-specific)
-    3. Process data into TrackPlay objects (abstract - service-specific)
-    4. Save data to database (concrete - always the same)
-    5. Handle checkpoints (abstract - strategy-specific)
-    6. Return OperationResult (concrete - standardized format)
+    Each import creates a batch with unique ID for tracking and rollback purposes.
+    Automatically deduplicates plays already in the database.
+
+    Workflow:
+        1. Generate batch ID and timestamp
+        2. Fetch raw data from source (implemented by subclass)
+        3. Convert to TrackPlay objects (implemented by subclass)
+        4. Save to database with deduplication
+        5. Update sync checkpoints (implemented by subclass)
+        6. Return import statistics
     """
 
     def __init__(self, plays_repository: PlaysRepositoryProtocol) -> None:
-        """Initialize with repository access following Clean Architecture."""
+        """Initialize with database repository for saving track plays.
+
+        Args:
+            plays_repository: Repository for persisting TrackPlay objects.
+        """
         self.plays_repository = plays_repository
         self.operation_name = "Base Import"  # Override in subclasses
 
@@ -41,23 +48,22 @@ class BaseImportService(ABC):
         progress_callback: Callable[[int, int, str], None] | None = None,
         **kwargs,
     ) -> OperationResult:
-        """Template method defining the import workflow skeleton.
+        """Import music listening data from external source to database.
 
-        This method orchestrates the complete import process:
-        1. Setup (batch ID, timestamp)
-        2. Data fetching (delegated to subclass)
-        3. Data processing (delegated to subclass)
-        4. Database persistence (standardized)
-        5. Checkpoint handling (delegated to subclass)
-        6. Result creation (standardized)
+        Orchestrates the complete import process: fetches data from source, converts
+        to TrackPlay objects, saves to database with deduplication, and updates sync
+        checkpoints. Provides progress tracking and handles errors gracefully.
 
         Args:
-            import_batch_id: Optional batch ID for tracking related imports
-            progress_callback: Optional callback for progress updates (current, total, message)
-            **kwargs: Additional parameters passed to template steps
+            import_batch_id: Optional batch ID for grouping related imports. Generated
+                if not provided.
+            progress_callback: Optional function called with (current, total, message)
+                for UI progress updates.
+            **kwargs: Source-specific parameters passed to fetch/process methods.
 
         Returns:
-            OperationResult with import statistics
+            OperationResult containing import statistics and any TrackPlay objects
+            that were processed.
         """
         # Step 1: Setup import context
         batch_id = import_batch_id or str(uuid4())
@@ -99,13 +105,25 @@ class BaseImportService(ABC):
             if progress_callback:
                 progress_callback(60, 100, f"Processing {len(raw_data)} records...")
 
-            track_plays = await self._process_data(
-                raw_data=raw_data,
-                batch_id=batch_id,
-                import_timestamp=import_timestamp,
-                progress_callback=progress_callback,
-                **kwargs,
+            # Import UnitOfWork here to avoid circular dependencies
+            from src.infrastructure.persistence.database.db_connection import (
+                get_session,
             )
+            from src.infrastructure.persistence.repositories.factories import (
+                get_unit_of_work,
+            )
+
+            # Create UnitOfWork context for track resolution and processing
+            async with get_session() as session:
+                uow = get_unit_of_work(session)
+                track_plays = await self._process_data(
+                    raw_data=raw_data,
+                    batch_id=batch_id,
+                    import_timestamp=import_timestamp,
+                    progress_callback=progress_callback,
+                    uow=uow,
+                    **kwargs,
+                )
 
             # Step 4: Save to database (Template - always the same)
             if progress_callback:
@@ -152,17 +170,18 @@ class BaseImportService(ABC):
     async def _fetch_data(
         self, progress_callback: Callable[[int, int, str], None] | None = None, **kwargs
     ) -> list[Any]:
-        """Fetch raw data from external source.
+        """Fetch raw listening data from external source.
 
-        This method implements the data acquisition strategy specific to each service.
-        It should return a list of raw data objects that will be processed in the next step.
+        Implemented by each subclass to retrieve data from their specific source
+        (e.g., Spotify API, Last.fm API, CSV files). Should return raw data objects
+        that will be processed into TrackPlay objects.
 
         Args:
-            progress_callback: Optional callback for progress updates
-            **kwargs: Service-specific parameters
+            progress_callback: Optional function for progress updates.
+            **kwargs: Source-specific parameters (API keys, file paths, date ranges).
 
         Returns:
-            List of raw data objects
+            Raw data objects from the source, ready for processing.
         """
 
     @abstractmethod
@@ -172,47 +191,47 @@ class BaseImportService(ABC):
         batch_id: str,
         import_timestamp: datetime,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
         **kwargs,
     ) -> list[TrackPlay]:
-        """Process raw data into TrackPlay objects.
+        """Convert raw source data into standardized TrackPlay objects.
 
-        This method implements the data transformation strategy specific to each service.
-        It should convert raw data objects into standardized TrackPlay objects.
+        Implemented by each subclass to parse their specific data format and create
+        TrackPlay objects with normalized track/artist names, play timestamps, and
+        metadata. Should handle data cleaning and validation.
 
         Args:
-            raw_data: List of raw data objects from _fetch_data
-            batch_id: Unique identifier for this import batch
-            import_timestamp: When this import was initiated
-            progress_callback: Optional callback for progress updates
-            **kwargs: Service-specific parameters
+            raw_data: Raw data objects returned from _fetch_data.
+            batch_id: Unique identifier for this import batch.
+            import_timestamp: When this import was initiated.
+            progress_callback: Optional function for progress updates.
+            **kwargs: Source-specific processing parameters.
 
         Returns:
-            List of TrackPlay objects ready for database insertion
+            TrackPlay objects ready for database insertion.
         """
 
     @abstractmethod
     async def _handle_checkpoints(self, raw_data: list[Any], **kwargs) -> None:
-        """Handle checkpoint updates for incremental imports.
+        """Update sync checkpoints to track import progress for incremental syncs.
 
-        This method implements the checkpoint strategy specific to each service.
-        It should update sync checkpoints based on the imported data.
+        Implemented by each subclass to store markers (timestamps, cursor values, etc.)
+        that indicate how much data has been imported. Used to resume imports from the
+        last successful point rather than re-importing all historical data.
 
         Args:
-            raw_data: List of raw data objects that were processed
-            **kwargs: Service-specific parameters including strategy
+            raw_data: Data that was successfully processed in this import.
+            **kwargs: Source-specific checkpoint parameters and strategies.
         """
 
     async def _save_data(self, track_plays: list[TrackPlay]) -> int:
-        """Save TrackPlay objects to database (Template - concrete implementation).
-
-        This method is the same for all import services, implementing the standard
-        database persistence workflow.
+        """Save track plays to database with automatic deduplication.
 
         Args:
-            track_plays: List of TrackPlay objects to save
+            track_plays: TrackPlay objects to persist.
 
         Returns:
-            Number of plays actually imported (after deduplication)
+            Number of new plays actually inserted (after deduplication).
         """
         if not track_plays:
             return 0
@@ -226,7 +245,17 @@ class BaseImportService(ABC):
         imported_count: int,
         batch_id: str,
     ) -> OperationResult:
-        """Create standardized success result using unified ResultFactory."""
+        """Create success result with import statistics.
+
+        Args:
+            raw_data: Raw data that was processed.
+            track_plays: TrackPlay objects that were created.
+            imported_count: Number of new plays saved to database.
+            batch_id: Unique identifier for this import batch.
+
+        Returns:
+            OperationResult indicating successful import with statistics.
+        """
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,
@@ -239,7 +268,14 @@ class BaseImportService(ABC):
         )
 
     def _create_empty_result(self, batch_id: str) -> OperationResult:
-        """Create standardized empty result using unified ResultFactory."""
+        """Create result when no data was available to import.
+
+        Args:
+            batch_id: Unique identifier for this import batch.
+
+        Returns:
+            OperationResult indicating no data was imported.
+        """
         import_data = ImportResultData(
             raw_data_count=0,
             imported_count=0,
@@ -251,7 +287,15 @@ class BaseImportService(ABC):
         )
 
     def _create_error_result(self, error_msg: str, batch_id: str) -> OperationResult:
-        """Create standardized error result using unified ResultFactory."""
+        """Create result when import failed due to an error.
+
+        Args:
+            error_msg: Description of what went wrong.
+            batch_id: Unique identifier for this import batch.
+
+        Returns:
+            OperationResult indicating import failure with error details.
+        """
         return ResultFactory.create_error_result(
             operation_name=self.operation_name,
             error_message=error_msg,

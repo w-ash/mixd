@@ -172,8 +172,15 @@ class TestTrackMetricsWorkflowIntegration:
         saved_track = await track_repo.save_track(test_track)
         track_id = saved_track.id
 
-        # Set up connector mapping
-        await self._setup_connector_mappings(connector_repo, [saved_track])
+        # Set up connector mapping with the same ID as the track
+        await connector_repo.map_track_to_connector(
+            track=saved_track,
+            connector="spotify",
+            connector_id=f"spotify:track:robust{unique_id}",
+            match_method="exact", 
+            confidence=1.0,
+            metadata={},
+        )
 
         # Create real TrackMetricsManager
         metrics_manager = TrackMetricsManager(track_repo, connector_repo, metrics_repo)

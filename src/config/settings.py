@@ -85,6 +85,8 @@ class APIConfig(BaseModel):
     spotify_retry_base_delay: float = 0.5
     spotify_retry_max_delay: float = 30.0
     spotify_request_delay: float = 0.1
+    spotify_request_timeout: int = 15  # HTTP request timeout in seconds
+    spotify_retries: int = 5  # Number of retries for failed requests
     spotify_market: str = "US"  # Default market for API requests
 
     # MusicBrainz API Configuration
@@ -284,6 +286,8 @@ _LEGACY_KEY_MAP = {
     "SPOTIFY_API_RETRY_BASE_DELAY": lambda: settings.api.spotify_retry_base_delay,
     "SPOTIFY_API_RETRY_MAX_DELAY": lambda: settings.api.spotify_retry_max_delay,
     "SPOTIFY_API_REQUEST_DELAY": lambda: settings.api.spotify_request_delay,
+    "SPOTIFY_API_REQUEST_TIMEOUT": lambda: settings.api.spotify_request_timeout,
+    "SPOTIFY_RETRIES": lambda: settings.api.spotify_retries,
     "SPOTIFY_MARKET": lambda: settings.api.spotify_market,
     # MusicBrainz API settings
     "MUSICBRAINZ_API_BATCH_SIZE": lambda: settings.api.musicbrainz_batch_size,

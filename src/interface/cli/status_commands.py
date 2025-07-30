@@ -1,4 +1,4 @@
-"""Service status commands for Narada CLI - following Clean Architecture."""
+"""CLI commands for checking service connection status and health."""
 
 from typing import Annotated
 

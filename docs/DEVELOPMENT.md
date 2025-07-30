@@ -42,8 +42,10 @@ See `CLAUDE.md` for the complete reference. Key commands:
 ```bash
 # Development
 poetry run pytest                               # Run all tests
-poetry run pytest tests/unit/                  # Run unit tests only
-poetry run pytest tests/integration/           # Run integration tests only
+poetry run pytest tests/unit/                  # Run unit tests (fast, heavy mocking)
+poetry run pytest tests/integration/           # Run integration tests (slower, real implementations)
+poetry run pytest tests/unit/domain/           # Run domain tests only (fastest, >95% coverage)
+poetry run pytest tests/unit/application/      # Run application tests (mock UnitOfWork)
 poetry run pytest --cov=narada --cov-report=html # Coverage report
 
 # Code Quality
@@ -119,7 +121,7 @@ class Track:
     artists: list[str]
     
 # Application (depends on domain)
-class ImportTracksUseCase:
+class ImportPlayHistoryUseCase:
     def __init__(self, repository: TrackRepository):
         self.repository = repository
     
@@ -183,60 +185,95 @@ class SpotifyTrackMatcher:
 ### Test Structure
 ```
 tests/
-├── unit/                     # Fast, isolated tests
-│   ├── test_domain_*.py      # Domain layer tests (zero dependencies)
-│   ├── test_application_*.py # Application layer tests
-│   └── test_services/        # Legacy service tests
-├── integration/              # Integration tests with external services
-│   └── test_*.py
-└── cli/                      # CLI command tests
-    └── test_*.py
+├── unit/                     # Fast, isolated tests (<1s per file)
+│   ├── domain/              # Pure business logic (zero dependencies)
+│   │   ├── entities/        # Entity validation and methods
+│   │   ├── services/        # Domain services (heavy mocking)
+│   │   └── matching/        # Pure matching algorithms
+│   ├── application/         # Use case orchestration (mock UnitOfWork)
+│   │   └── use_cases/       # Application layer coordination
+│   ├── infrastructure/      # Service logic (mock external deps)
+│   │   ├── connectors/      # Connector logic (mocked APIs)
+│   │   └── services/        # Infrastructure services
+│   └── interface/           # CLI command logic (mock use cases)
+│       └── cli/             # CLI commands
+├── integration/             # Integration tests (1-10s per file)
+│   ├── database/           # Repository + real aiosqlite in-memory
+│   ├── workflows/          # End-to-end business flows
+│   ├── connectors/         # Real/sophisticated API mocks
+│   └── end_to_end/         # Full CLI-to-database flows
+└── fixtures/                # Shared test data and utilities
+    └── models.py
 ```
 
 ### Testing Patterns
 
-#### Domain Tests (Fastest)
+#### Unit Tests: Domain Layer (Fastest, >95% Coverage)
 ```python
+# tests/unit/domain/services/test_track_matching_service.py
 def test_track_matching_confidence():
-    # Pure unit tests, no dependencies
-    algorithm = TrackMatchingAlgorithm()
-    result = algorithm.calculate_confidence(track1, track2)
-    assert result.confidence >= 0.8
+    # Pure business logic, zero dependencies
+    service = TrackMatchingService()
+    raw_matches = {1: RawProviderMatch(...)}
+    result = service.evaluate_raw_provider_matches(tracks, raw_matches, "spotify")
+    assert result[1].confidence >= 0.8
 ```
 
-#### Application Tests (Mock Repository Interfaces)
+#### Unit Tests: Application Layer (Mock UnitOfWork, >90% Coverage)
 ```python
+# tests/unit/application/use_cases/test_match_tracks_use_case.py
 @pytest.fixture
-def mock_repository():
-    return AsyncMock(spec=TrackRepository)
+def mock_uow():
+    uow = MagicMock()
+    identity_service = AsyncMock()
+    identity_service._get_existing_identity_mappings.return_value = {}
+    identity_service.get_raw_external_matches.return_value = {...}
+    uow.get_track_identity_service.return_value = identity_service
+    return uow
 
-async def test_import_tracks_use_case(mock_repository):
-    use_case = ImportTracksUseCase(mock_repository)
-    result = await use_case.execute(tracks)
-    assert result.success
+async def test_match_tracks_use_case(mock_uow):
+    use_case = MatchTracksUseCase()
+    result = await use_case.execute(command, mock_uow)
+    assert result.resolved_count > 0
 ```
 
-#### Infrastructure Tests (Real Database, Mock External APIs)
+#### Unit Tests: Infrastructure Layer (Mock External Dependencies)
 ```python
-@pytest.mark.infrastructure
-async def test_track_service(real_track_repository):
-    # Use real repositories with test database
-    service = TrackService(real_track_repository)
-    with patch('external_api.get_track_data') as mock_api:
-        mock_api.return_value = {"title": "Test"}
-        result = await service.process_track(track)
-        assert result.success
+# tests/unit/infrastructure/connectors/test_spotify_provider.py
+async def test_spotify_provider_raw_matches():
+    # Mock Spotify API, test raw data extraction
+    with patch('spotify_connector.search_tracks') as mock_api:
+        mock_api.return_value = [{"id": "123", "name": "Test"}]
+        provider = SpotifyProvider(mock_connector)
+        result = await provider.find_potential_matches(tracks)
+        assert result[1].connector_id == "123"
+        assert result[1].service_data["name"] == "Test"
 ```
 
-#### Integration Tests (Mock Only External Boundaries)
+#### Integration Tests: Database Layer (Real aiosqlite in-memory)
 ```python
+# tests/integration/database/test_track_repository.py
 @pytest.mark.integration
-async def test_workflow_e2e():
-    # Use real workflow context, mock only external APIs
-    with patch('src.connectors.spotify.SpotifyConnector.get_playlist') as mock_api:
-        mock_api.return_value = mock_playlist_data
-        result = await workflow.execute(config)
+async def test_track_repository_with_real_db(real_track_repository):
+    # Use real SQLAlchemy repository with aiosqlite in-memory
+    tracks = await real_track_repository.create_batch([track1, track2])
+    found = await real_track_repository.find_tracks_by_ids([t.id for t in tracks])
+    assert len(found) == 2
+```
+
+#### Integration Tests: End-to-End Workflows (Real DB, Mock APIs)
+```python
+# tests/integration/workflows/test_track_matching_workflow.py
+@pytest.mark.integration
+async def test_track_matching_end_to_end():
+    # Real domain service + real repository + mocked external APIs
+    with patch('spotify_api.search') as mock_spotify:
+        mock_spotify.return_value = {"tracks": [{"id": "123"}]}
+        result = await complete_track_matching_workflow(tracks)
         assert result.success
+        # Verify data was persisted to real database
+        mappings = await repo.get_connector_mappings([1], "spotify")
+        assert len(mappings) > 0
 ```
 
 ### Test Utilities

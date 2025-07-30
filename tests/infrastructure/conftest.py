@@ -124,7 +124,7 @@ def db_playlist():
 def persisted_track():
     """Track entity with database ID for identity/metadata service testing.
 
-    Used by: TrackIdentityResolver, ConnectorMetadataManager
+    Used by: ConnectorMetadataManager
     Architecture: These services work with persisted domain entities.
     """
     return Track(

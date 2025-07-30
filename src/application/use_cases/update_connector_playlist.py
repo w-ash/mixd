@@ -1,8 +1,7 @@
-"""UpdateConnectorPlaylistUseCase for external service playlist updates.
+"""Synchronizes Spotify/Apple Music playlists with local track collections.
 
-This use case handles updates to external service playlists (like Spotify) using
-the DRY diff engine with proper operation sequencing to preserve track addition
-timestamps and minimize API calls.
+Calculates minimal track changes (add/remove/move) to update external service
+playlists while preserving track timestamps and minimizing API calls.
 """
 
 from datetime import UTC, datetime
@@ -27,10 +26,10 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistCommand:
-    """Command for updating a connector playlist.
+    """Input parameters for updating a Spotify/Apple Music playlist.
 
-    Encapsulates all information needed to update an external service playlist
-    with new tracks using differential operations and proper sequencing.
+    Contains the target playlist ID, desired track list, and update options
+    like append-only mode vs full synchronization.
     """
 
     playlist_id: str
@@ -47,10 +46,10 @@ class UpdateConnectorPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if playlist ID, tracks, and API limits are valid.
 
         Returns:
-            True if command is valid for execution
+            True if command can be executed safely.
         """
         if not self.playlist_id:
             return False
@@ -69,10 +68,10 @@ class UpdateConnectorPlaylistCommand:
 
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistResult:
-    """Result of connector playlist update operation.
+    """Playlist update outcome with operation counts and timing metrics.
 
-    Contains the update status, operation statistics, and performance
-    metrics for monitoring and debugging purposes.
+    Reports how many tracks were added/removed/moved, API calls made,
+    and execution time for monitoring playlist sync performance.
     """
 
     playlist_id: str
@@ -89,7 +88,7 @@ class UpdateConnectorPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of operations performed."""
+        """Dictionary of operation counts and success status for logging."""
         return {
             "playlist_id": self.playlist_id,
             "connector": self.connector,
@@ -106,30 +105,30 @@ class UpdateConnectorPlaylistResult:
 
 @define(slots=True)
 class UpdateConnectorPlaylistUseCase:
-    """Use case for updating external service playlists using DRY diff engine.
+    """Synchronizes external music service playlists with local track data.
 
-    Handles external service API operations with proper sequencing following
-    Clean Architecture principles:
-    - Uses DRY diff engine from domain layer
-    - Applies proper operation sequencing (remove→add→move) to preserve timestamps
-    - Handles external service API calls and batching
-    - No direct database modifications (canonical operations handle that)
+    Calculates minimal changes (remove→add→move operations) to update Spotify/Apple
+    Music playlists efficiently. Preserves track timestamps and handles API batching.
+    Updates local database after successful external API calls.
     """
 
     async def execute(
         self, command: UpdateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> UpdateConnectorPlaylistResult:
-        """Execute connector playlist update operation.
+        """Updates Spotify/Apple Music playlist with new track collection.
+
+        Calculates minimal changes between current and desired playlists,
+        executes API operations in optimal order, and updates local database.
 
         Args:
-            command: Command with playlist update context
-            uow: UnitOfWork for transaction management and repository access
+            command: Playlist update parameters and options.
+            uow: Database transaction manager and repository access.
 
         Returns:
-            Result with update status and operational metadata
+            Operation results with counts, timing, and success status.
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command validation fails.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -166,7 +165,7 @@ class UpdateConnectorPlaylistUseCase:
                     tracks_moved = 0
                     confidence_score = 1.0  # High confidence for simple append
                 else:
-                    # Overwrite mode: use DRY diff engine with preservation
+                    # Overwrite mode: use diff engine with preservation
                     diff = await calculate_playlist_diff(
                         current_playlist, command.new_tracklist, uow
                     )
@@ -278,18 +277,18 @@ class UpdateConnectorPlaylistUseCase:
     async def _get_current_playlist(
         self, playlist_id: str, connector: str, uow: UnitOfWorkProtocol
     ) -> Playlist:
-        """Retrieve current playlist state from internal database.
+        """Retrieves playlist from local database using external service ID.
 
-        For connector use cases, playlist_id is always the connector ID,
-        so we resolve it to the canonical playlist.
+        Resolves Spotify/Apple Music playlist ID to internal playlist record.
+        Auto-creates local playlist if it doesn't exist.
 
         Args:
-            playlist_id: Connector playlist ID to resolve
-            connector: Connector name (spotify, apple_music, etc.)
-            uow: UnitOfWork for repository access
+            playlist_id: External service playlist ID.
+            connector: Service name ("spotify", "apple_music").
+            uow: Database access manager.
 
         Returns:
-            Current canonical playlist entity
+            Local playlist entity with current track list.
         """
         playlist_repo = uow.get_playlist_repository()
 
@@ -316,22 +315,20 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> tuple[int, dict[str, Any], int, int, int, int]:
-        """Execute operations against external service API with optimistic connector_playlist updates.
+        """Executes playlist changes on external service then updates local database.
 
-        This method implements the 2025 best practice of optimistic updates:
-        1. Execute external API operations with proper sequencing
-        2. If successful, immediately update connector_playlist table based on API response
-        3. Use API response metadata for version tracking and drift detection
+        Applies remove/add/move operations to Spotify/Apple Music playlist via API,
+        then immediately updates local database with the new state for consistency.
 
         Args:
-            current_playlist: Current playlist state
-            sequenced_operations: Operations in proper sequence (remove→add→move)
-            command: Update command with configuration
-            uow: UnitOfWork for repository access
+            current_playlist: Current playlist state before changes.
+            sequenced_operations: Ordered remove→add→move operations to apply.
+            command: Update parameters and configuration.
+            uow: Database access manager.
 
         Returns:
             Tuple of (api_calls_made, external_metadata, operations_performed,
-                     tracks_added, tracks_removed, tracks_moved)
+                     tracks_added, tracks_removed, tracks_moved).
         """
         logger.debug(
             f"Executing {len(sequenced_operations)} operations against {command.connector}"
@@ -396,19 +393,19 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> dict[str, Any]:
-        """Execute operations against external service API using sophisticated differential operations.
+        """Applies remove/add/move operations to external music service playlist.
 
-        Uses the existing sophisticated diff engine to apply REMOVE → ADD → MOVE operations
-        that preserve Spotify track added_at timestamps and maintain playlist continuity.
+        Executes sequenced operations against Spotify/Apple Music API to update
+        playlist while preserving track timestamps and maintaining continuity.
 
         Args:
-            current_playlist: Current playlist state
-            sequenced_operations: REMOVE → ADD → MOVE operations from diff engine
-            command: Update command with configuration
-            uow: UnitOfWork for accessing connector provider
+            current_playlist: Current playlist state before operations.
+            sequenced_operations: Remove→add→move operations from diff calculation.
+            command: Update configuration and limits.
+            uow: Database access for connector service lookup.
 
         Returns:
-            Dict with success status, metadata, and API call count
+            Dict with success status, API metadata, and call count.
         """
         try:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
@@ -506,18 +503,17 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
-        """Update connector_playlist table optimistically based on successful API response.
+        """Updates local database immediately after successful external API calls.
 
-        This implements the optimistic update pattern where we immediately update
-        our database based on successful API response, using API metadata for
-        version tracking and future drift detection.
+        Synchronizes local connector_playlist table with external service state
+        using API response metadata for version tracking and drift detection.
 
         Args:
-            current_playlist: Current playlist state before operations
-            applied_operations: Operations that were successfully applied
-            api_metadata: Metadata from successful API response (snapshot_id, etc.)
-            command: Update command with configuration
-            uow: UnitOfWork for repository access
+            current_playlist: Playlist state before operations.
+            applied_operations: Operations that succeeded on external service.
+            api_metadata: Response metadata from external API (snapshot_id, etc.).
+            command: Update configuration.
+            uow: Database access manager.
         """
         try:
             # Get connector playlist repository for updating connector_playlist table
@@ -583,18 +579,18 @@ class UpdateConnectorPlaylistUseCase:
         applied_operations: list,
         command: UpdateConnectorPlaylistCommand,
     ) -> list[ConnectorPlaylistItem]:
-        """Calculate the updated playlist items based on desired final state.
+        """Creates playlist items list from desired final track collection.
 
-        With the DRY approach from Priority 1, we replace the entire external playlist,
-        so we can simply create items from the desired final state instead of applying operations.
+        Converts target track list into connector playlist items with proper
+        positioning and external service track IDs for database storage.
 
         Args:
-            current_playlist: Original playlist state (for metadata reference)
-            applied_operations: Operations that were applied (for logging/metrics)
-            command: Update command containing the desired final state
+            current_playlist: Original playlist (for metadata reference).
+            applied_operations: Operations applied (for logging/metrics).
+            command: Update command containing desired final state.
 
         Returns:
-            Updated list of playlist items for connector_playlist table
+            Ordered list of playlist items for connector_playlist table.
         """
         # Create items list from desired final state (command.new_tracklist.tracks)
         items = []
@@ -628,14 +624,14 @@ class UpdateConnectorPlaylistUseCase:
         return items
 
     def _estimate_api_calls(self, operations: list, batch_size: int) -> int:
-        """Estimate API calls needed for operations.
+        """Calculates expected API calls for given operations and batch size.
 
         Args:
-            operations: List of operations to execute
-            batch_size: API batch size limit
+            operations: Operations to execute.
+            batch_size: Maximum items per API call.
 
         Returns:
-            Estimated number of API calls
+            Estimated number of API calls needed.
         """
         if not operations:
             return 0
@@ -665,15 +661,18 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> tuple[int, dict, int, int]:
-        """Append new tracks to external connector playlist.
+        """Adds new tracks to end of external playlist without removing existing ones.
+
+        Filters out duplicate tracks and appends only new ones to preserve
+        existing playlist content and user-added tracks.
 
         Args:
-            current_playlist: Current playlist state
-            command: Command with playlist context and configuration
-            uow: UnitOfWork for repository access
+            current_playlist: Current playlist state.
+            command: Update command with new tracks and configuration.
+            uow: Database access manager.
 
         Returns:
-            Tuple of (api_calls_made, external_metadata, operations_performed, tracks_added)
+            Tuple of (api_calls_made, external_metadata, operations_performed, tracks_added).
         """
         # Filter out tracks that already exist to avoid duplicates
         existing_track_ids = {track.id for track in current_playlist.tracks if track.id}
@@ -723,12 +722,12 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
-        """Update connector playlist metadata (name/description).
+        """Updates playlist name and description on external service.
 
         Args:
-            playlist_id: External playlist ID
-            command: Command with metadata updates
-            uow: UnitOfWork for repository access
+            playlist_id: External playlist ID.
+            command: Command with metadata updates.
+            uow: Database access manager.
         """
         if command.dry_run:
             logger.info("Skipping metadata update in dry run mode")
@@ -759,18 +758,18 @@ class UpdateConnectorPlaylistUseCase:
         connector: str,
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
-        """Create canonical playlist for existing connector playlist.
+        """Creates local playlist record for external service playlist.
 
-        This handles the case where a connector playlist exists but no
-        canonical playlist is linked to it.
+        Fetches playlist metadata from Spotify/Apple Music and creates
+        corresponding local database record for tracking and synchronization.
 
         Args:
-            connector_playlist_id: External playlist ID
-            connector: Connector name
-            uow: UnitOfWork for repository access
+            connector_playlist_id: External service playlist ID.
+            connector: Service name ("spotify", "apple_music").
+            uow: Database access manager.
 
         Returns:
-            Newly created canonical playlist
+            Newly created local playlist entity.
         """
         # Get connector instance to fetch playlist details
         connector_provider = uow.get_service_connector_provider()

@@ -1,12 +1,10 @@
-"""Track enrichment use case implementing Clean Architecture patterns.
+"""Enriches tracks with metadata from external APIs and internal play history.
 
-This module contains the core business logic for enriching tracks with metrics
-from both external services (Spotify, LastFM) and internal data (play history).
-Follows Clean Architecture principles with ruthlessly DRY implementation:
-- Single use case for all enrichment types (batch-first design)
-- Uses TrackIdentityUseCase for identity resolution
-- Command pattern for rich context encapsulation
-- Strategy pattern for different enrichment types
+Supports two types of enrichment:
+- External metadata: Fetch track details from Spotify, LastFM, MusicBrainz
+- Play history: Add play counts, last played dates from database
+
+Processes multiple tracks efficiently in batches.
 """
 
 from typing import Any, Literal
@@ -28,8 +26,8 @@ ConnectorType = Literal["spotify", "lastfm", "musicbrainz"]
 class EnrichmentConfig:
     """Configuration for track enrichment operations.
 
-    Unified configuration supporting both external metadata and internal
-    play history enrichment with proper validation and defaults.
+    Specifies enrichment type (external metadata or play history) and
+    required parameters for each type. Validates configuration on creation.
     """
 
     enrichment_type: EnrichmentType
@@ -73,8 +71,8 @@ class EnrichmentConfig:
 class EnrichTracksCommand:
     """Command for track enrichment operations.
 
-    Encapsulates all context needed for enriching tracks with metrics
-    from various sources (external services or internal data).
+    Contains tracks to enrich and configuration specifying the enrichment
+    type and parameters. Allows empty tracklists.
     """
 
     tracklist: TrackList
@@ -89,8 +87,8 @@ class EnrichTracksCommand:
 class EnrichTracksResult:
     """Result of track enrichment operation.
 
-    Contains enriched tracklist with metrics and operation metadata
-    for monitoring and downstream processing.
+    Contains enriched tracks with added metadata, operation statistics
+    (counts, timing), and any errors encountered during processing.
     """
 
     enriched_tracklist: TrackList
@@ -103,40 +101,34 @@ class EnrichTracksResult:
 
 @define(slots=True)
 class EnrichTracksUseCase:
-    """Use case for track enrichment with metrics from various sources.
+    """Enriches tracks with metadata from external APIs or internal play data.
 
-    This use case serves as the single source of truth for all track enrichment
-    in the system, handling both external metadata (LastFM, Spotify) and internal
-    data (play history) through a unified interface.
+    Supports two enrichment types:
+    - External metadata: Fetches track details from Spotify, LastFM, MusicBrainz
+    - Play history: Adds play counts and timestamps from database
 
-    Architectural principles:
-    - Ruthlessly DRY: Single use case for all enrichment types
-    - Batch-first: Designed for N tracks, single track is degenerate case
-    - Strategy pattern: Different enrichment strategies based on type
+    Processes multiple tracks in batches for efficiency. Filters out tracks
+    without database IDs as they cannot be enriched. Returns detailed results
+    including operation statistics and any errors.
 
-    Used by:
-    - Workflow enricher nodes (external metadata enrichment)
-    - Play history enrichment workflows (internal data enrichment)
-    - Any operation requiring track metrics for sorting/filtering
-
-    Migrated to UnitOfWork pattern for pure Clean Architecture compliance:
-    - No constructor dependencies (pure domain layer)
-    - Explicit transaction control through UnitOfWork parameter
-    - Simplified testing with single UnitOfWork mock
-    - Consistent pattern with all other use cases
+    Used by workflow enrichment nodes and play history workflows.
     """
 
     async def execute(
         self, command: EnrichTracksCommand, uow: UnitOfWorkProtocol
     ) -> EnrichTracksResult:
-        """Execute track enrichment operation.
+        """Enriches tracks with metadata based on configuration.
+
+        Filters tracks to those with database IDs, then delegates to either
+        external metadata or play history enrichment based on config type.
+        Returns detailed results including operation statistics.
 
         Args:
-            command: Rich command with operation context and configuration.
-            uow: UnitOfWork for transaction management and repository access.
+            command: Enrichment command with tracks and configuration.
+            uow: Unit of work for repository and service access.
 
         Returns:
-            Result containing enriched tracklist and operation metadata.
+            Result with enriched tracks, metrics added, and operation stats.
         """
         import time
 
@@ -226,15 +218,15 @@ class EnrichTracksUseCase:
     async def _enrich_external_metadata(
         self, tracklist: TrackList, config: EnrichmentConfig, uow: UnitOfWorkProtocol
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
-        """Enrich tracks with external service metadata.
+        """Enriches tracks with metadata from external APIs.
 
-        Uses the external metadata service from UoW to fetch and extract
-        metrics from external services through proper Clean Architecture boundaries.
+        Fetches track details from Spotify, LastFM, or MusicBrainz using the
+        configured connector and extractors. Requires tracks to have database IDs.
 
         Args:
             tracklist: Tracks to enrich (must have database IDs).
-            config: External metadata enrichment configuration.
-            uow: UnitOfWork for accessing external metadata service.
+            config: External metadata configuration with connector and extractors.
+            uow: Unit of work for accessing external metadata service.
 
         Returns:
             Tuple of (enriched_tracklist, metrics_dictionary).
@@ -266,15 +258,15 @@ class EnrichTracksUseCase:
     async def _enrich_play_history(
         self, tracklist: TrackList, config: EnrichmentConfig, uow: UnitOfWorkProtocol
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
-        """Enrich tracks with internal play history data.
+        """Enriches tracks with play history data from database.
 
-        Directly accesses play history data from the database without
-        requiring identity resolution (internal data).
+        Adds play counts, last played dates, and optionally period-specific
+        play counts. Calculates date ranges if period_days is specified.
 
         Args:
             tracklist: Tracks to enrich (must have database IDs).
-            config: Play history enrichment configuration.
-            uow: UnitOfWork for accessing plays repository.
+            config: Play history configuration with metrics and optional period.
+            uow: Unit of work for accessing plays repository.
 
         Returns:
             Tuple of (enriched_tracklist, metrics_dictionary).

@@ -1,14 +1,9 @@
-"""Pure functional playlist diff engine leveraging transforms/core.py infrastructure.
+"""Calculates minimal operations to synchronize playlists between different states.
 
-This module provides DRY playlist differential algorithms that reuse existing
-sophisticated sorting, filtering, and transformation capabilities instead of
-reimplementing basic algorithms.
-
-Key principles:
-- Pure functional approach using toolz
-- Leverages transforms/core.py infrastructure
-- Reusable across canonical and connector operations
-- Immutable transformations with no side effects
+Compares current and target playlist states to generate the smallest set of add, remove,
+and move operations needed for synchronization. Optimizes for Spotify API constraints
+like batch limits and rate limits. Uses database-first track matching to avoid expensive
+re-identification of tracks that already have known Spotify mappings.
 """
 
 from enum import Enum
@@ -26,7 +21,7 @@ logger = get_logger(__name__)
 
 
 class PlaylistOperationType(Enum):
-    """Types of operations that can be performed on playlist tracks."""
+    """Operations that can be performed on playlist tracks for synchronization."""
 
     ADD = "add"
     REMOVE = "remove"
@@ -35,10 +30,10 @@ class PlaylistOperationType(Enum):
 
 @define(frozen=True, slots=True)
 class PlaylistOperation:
-    """Represents a single operation to be performed on a playlist.
+    """Single track operation needed to synchronize playlists.
 
-    Encapsulates the atomic operations needed for differential playlist updates,
-    optimized for external API constraints and minimal API calls.
+    Represents an atomic add, remove, or move operation with position information
+    and Spotify URI. Includes methods to convert to Spotify API request format.
     """
 
     operation_type: PlaylistOperationType
@@ -48,10 +43,10 @@ class PlaylistOperation:
     spotify_uri: str | None = None
 
     def to_spotify_format(self) -> dict[str, Any]:
-        """Convert operation to Spotify API request format.
+        """Convert operation to Spotify Web API request parameters.
 
         Returns:
-            Dictionary formatted for Spotify API requests
+            Dictionary with parameters for Spotify playlist modification endpoints.
         """
         if self.operation_type == PlaylistOperationType.ADD:
             return {
@@ -77,10 +72,10 @@ class PlaylistOperation:
 
 @define(frozen=True, slots=True)
 class PlaylistDiff:
-    """Result of comparing two playlist states.
+    """Result of comparing current and target playlist states.
 
-    Contains the minimal set of operations needed to transform one playlist
-    into another, with cost estimation for API planning.
+    Contains operations needed to transform current playlist to match target,
+    plus metadata like API call estimates and confidence scores for planning.
     """
 
     operations: list[PlaylistOperation] = field(factory=list)
@@ -90,12 +85,12 @@ class PlaylistDiff:
 
     @property
     def has_changes(self) -> bool:
-        """Check if any operations are needed."""
+        """True if any operations are needed to synchronize playlists."""
         return len(self.operations) > 0
 
     @property
     def operation_summary(self) -> dict[str, int]:
-        """Summary of operations by type."""
+        """Count of operations by type (add, remove, move)."""
         summary = {op_type.value: 0 for op_type in PlaylistOperationType}
         for op in self.operations:
             summary[op.operation_type.value] += 1
@@ -105,18 +100,19 @@ class PlaylistDiff:
 async def match_tracks_with_db_lookup(
     current_tracks: list[Track], target_tracks: list[Track], uow: UnitOfWorkProtocol
 ) -> tuple[list[Track], list[Track], list[Track]]:
-    """Match tracks between current and target lists using database-first strategy.
+    """Find matching tracks between playlists using database Spotify ID mappings.
 
-    Uses efficient bulk database lookup to find existing Spotify mappings before
-    falling back to expensive track identity resolution for unmatched tracks.
+    Bulk-loads existing Spotify mappings from database to identify which tracks
+    are the same between current and target playlists. Avoids expensive track
+    re-identification for tracks that already have known Spotify IDs.
 
     Args:
-        current_tracks: Tracks in current playlist
-        target_tracks: Tracks in target playlist
-        uow: UnitOfWork for database access
+        current_tracks: Tracks in current playlist state.
+        target_tracks: Tracks in desired playlist state.
+        uow: Database access for loading existing Spotify mappings.
 
     Returns:
-        Tuple of (matched_tracks, unmatched_current, unmatched_target)
+        Tuple of (matched_tracks, unmatched_current, unmatched_target).
     """
     # Step 1: Collect all track IDs and build lookup maps
 
@@ -140,7 +136,7 @@ async def match_tracks_with_db_lookup(
     unmatched_target = target_tracks.copy()
 
     def get_spotify_id(track):
-        """Get Spotify ID from database mapping or in-memory connector_track_ids."""
+        """Get Spotify ID from database mapping or track's connector_track_ids."""
         if track.id and track.id in spotify_mappings:
             return spotify_mappings[track.id]
         return track.connector_track_ids.get("spotify")
@@ -174,7 +170,7 @@ async def match_tracks_with_db_lookup(
 def calculate_remove_operations(
     unmatched_current_tracks: list[Track], current_playlist: Playlist
 ) -> list[PlaylistOperation]:
-    """Calculate REMOVE operations for tracks that exist in current but not target."""
+    """Generate REMOVE operations for tracks in current but not target playlist."""
     operations = []
 
     for track in unmatched_current_tracks:
@@ -203,7 +199,7 @@ def calculate_remove_operations(
 def calculate_add_operations(
     unmatched_target_tracks: list[Track], target_tracklist: TrackList
 ) -> list[PlaylistOperation]:
-    """Calculate ADD operations for tracks that exist in target but not current."""
+    """Generate ADD operations for tracks in target but not current playlist."""
     operations = []
 
     for track in unmatched_target_tracks:
@@ -232,9 +228,10 @@ def calculate_add_operations(
 def calculate_move_operations(
     matched_tracks: list[Track], current_playlist: Playlist, target_tracklist: TrackList
 ) -> list[PlaylistOperation]:
-    """Calculate MOVE operations for matched tracks that need reordering.
+    """Generate MOVE operations for tracks that exist in both but need reordering.
 
-    Uses simplified approach - can be enhanced with LIS algorithm if needed.
+    Compares positions of matched tracks between current and target playlists.
+    Creates move operations for tracks that need to change position.
     """
     operations = []
 
@@ -297,9 +294,10 @@ def calculate_move_operations(
 
 @curry
 def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
-    """Estimate number of API calls needed for operations.
+    """Estimate Spotify API calls needed to execute operations.
 
-    Accounts for Spotify's 100-track batch limits.
+    Accounts for Spotify's 100-track batch limits for add/remove operations.
+    Move operations require individual API calls.
     """
     add_ops = sum(
         1 for op in operations if op.operation_type == PlaylistOperationType.ADD
@@ -324,7 +322,7 @@ def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
 def calculate_confidence_score(
     matched_tracks: list[Track], operations: list[PlaylistOperation]
 ) -> float:
-    """Calculate confidence score based on match quality."""
+    """Calculate confidence score as ratio of matched to total tracks."""
     total_tracks = len(matched_tracks) + len(operations)
     if total_tracks == 0:
         return 1.0
@@ -335,18 +333,19 @@ def calculate_confidence_score(
 async def calculate_playlist_diff(
     current_playlist: Playlist, target_tracklist: TrackList, uow: UnitOfWorkProtocol
 ) -> PlaylistDiff:
-    """Pure functional diff calculation using existing transforms infrastructure.
+    """Calculate minimal operations to transform current playlist to match target.
 
-    This is the main DRY diff engine that leverages transforms/core.py and toolz
-    instead of reimplementing basic algorithms.
+    Main diff calculation function. Matches tracks, generates add/remove/move
+    operations, and estimates API costs. Optimized to minimize Spotify API calls
+    by reusing existing track mappings from database.
 
     Args:
-        current_playlist: Current playlist state
-        target_tracklist: Desired playlist state
-        uow: UnitOfWork for database access during track matching
+        current_playlist: Current state of the playlist.
+        target_tracklist: Desired final state of the playlist.
+        uow: Database access for track matching optimization.
 
     Returns:
-        PlaylistDiff with minimal operations
+        PlaylistDiff containing operations and metadata.
     """
     logger.debug(
         f"Calculating diff: {len(current_playlist.tracks)} → {len(target_tracklist.tracks)} tracks"
@@ -392,22 +391,23 @@ async def calculate_playlist_diff(
     )
 
 
-# DRY operation sequencing using toolz
+# Operation sequencing for Spotify API compatibility
 @curry
 def sequence_operations_for_spotify(
     operations: list[PlaylistOperation],
 ) -> list[PlaylistOperation]:
-    """DRY sequencing that preserves Spotify track addition timestamps.
+    """Order operations to preserve Spotify track metadata during synchronization.
 
-    Proper sequencing: remove first (preserve timestamps), then add, then move.
-    This prevents accidentally wiping track addition timestamp information.
+    Sequences operations as: remove first, then add, then move. This prevents
+    losing track addition timestamps when Spotify treats add+remove of same
+    track as modification rather than replacement.
     """
     if not operations:
         return []
 
     # Partition operations by type using toolz
     def get_operation_priority(op: PlaylistOperation) -> int:
-        """Get priority for operation sequencing (lower = first)."""
+        """Return priority for operation sequencing (lower number = execute first)."""
         priority_map = {
             PlaylistOperationType.REMOVE: 0,
             PlaylistOperationType.ADD: 1,

@@ -1,4 +1,10 @@
-"""Refactored Last.fm import service using BaseImportService template method pattern."""
+"""Downloads Last.fm scrobble history and optionally matches tracks to local music library.
+
+Provides three import modes:
+1. Recent: Downloads last N scrobbles without duplicate checking
+2. Recent with resolution: Downloads and matches track names to local library
+3. Incremental: Downloads only new scrobbles since last import, with timestamp tracking
+"""
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -7,12 +13,9 @@ from typing import Any
 from src.application.utilities.results import ImportResultData, ResultFactory
 from src.config import get_logger
 from src.domain.entities import (
-    Artist,
     OperationResult,
     PlayRecord,
     SyncCheckpoint,
-    Track,
-    TrackList,
     TrackPlay,
 )
 from src.domain.repositories.interfaces import (
@@ -22,14 +25,19 @@ from src.domain.repositories.interfaces import (
     TrackRepositoryProtocol,
 )
 from src.infrastructure.connectors.lastfm import LastFMConnector
-from src.infrastructure.services.base_import import BaseImportService
-from src.infrastructure.services.track_identity_resolver import TrackIdentityResolver
+from src.infrastructure.services.base_play_importer import BasePlayImporter
 
 logger = get_logger(__name__)
 
 
-class LastfmImportService(BaseImportService):
-    """Service for importing Last.fm play history via API using template method pattern."""
+class LastfmPlayImporter(BasePlayImporter):
+    """Downloads Last.fm scrobbles and saves them as play records with optional track matching.
+
+    Supports three import strategies:
+    - Recent: Get latest N scrobbles
+    - Recent with resolution: Get scrobbles and match artist/title to local tracks
+    - Incremental: Get only new scrobbles since last checkpoint, prevents duplicates
+    """
 
     def __init__(
         self,
@@ -39,7 +47,7 @@ class LastfmImportService(BaseImportService):
         track_repository: TrackRepositoryProtocol,
         lastfm_connector: LastFMConnector | None = None,
     ) -> None:
-        """Initialize with repository access following Clean Architecture."""
+        """Initialize Last.fm import service with required database repositories."""
         super().__init__(plays_repository)
         self.operation_name = "Last.fm Recent Plays Import"
         self.lastfm_connector = lastfm_connector or LastFMConnector()
@@ -47,23 +55,21 @@ class LastfmImportService(BaseImportService):
         self.connector_repository = connector_repository
         self.track_repository = track_repository
 
-    # Public interface methods - delegate to template method with strategies
-
     async def import_recent_plays(
         self,
         limit: int = 1000,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> OperationResult:
-        """Import recent plays from Last.fm API.
+        """Download most recent scrobbles from Last.fm without checking for duplicates.
 
         Args:
-            limit: Maximum number of plays to import
+            limit: Maximum number of scrobbles to download
             import_batch_id: Optional batch ID for tracking related imports
             progress_callback: Optional callback for progress updates (current, total, message)
 
         Returns:
-            OperationResult with play processing statistics
+            OperationResult with import statistics and unresolved track references
         """
         return await self.import_data(
             strategy="recent",
@@ -78,15 +84,15 @@ class LastfmImportService(BaseImportService):
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> OperationResult:
-        """Import recent plays from Last.fm API with track resolution.
+        """Download recent scrobbles and match artist/title names to tracks in local library.
 
         Args:
-            limit: Maximum number of plays to import
+            limit: Maximum number of scrobbles to download
             import_batch_id: Optional batch ID for tracking related imports
             progress_callback: Optional callback for progress updates
 
         Returns:
-            OperationResult with play processing and resolution statistics
+            OperationResult with import and track matching statistics
         """
         return await self.import_data(
             strategy="recent",
@@ -103,16 +109,16 @@ class LastfmImportService(BaseImportService):
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> OperationResult:
-        """Import plays incrementally since last checkpoint.
+        """Download only scrobbles since last checkpoint timestamp to avoid duplicates.
 
         Args:
             user_id: Last.fm username (defaults to LASTFM_USERNAME env var)
-            resolve_tracks: Whether to resolve tracks to internal IDs (default: True)
+            resolve_tracks: Whether to match tracks to local library (default: True)
             import_batch_id: Optional batch ID for tracking related imports
             progress_callback: Optional callback for progress updates
 
         Returns:
-            OperationResult with incremental import statistics
+            OperationResult with import statistics and updated checkpoint timestamp
         """
         # Reset incremental state
         self._incremental_from_timestamp = None
@@ -156,15 +162,13 @@ class LastfmImportService(BaseImportService):
 
         return result
 
-    # Template method implementations - Strategy pattern
-
     async def _fetch_data(
         self,
         progress_callback: Callable[[int, int, str], None] | None = None,
         strategy: str = "recent",
         **kwargs,
     ) -> list[PlayRecord]:
-        """Fetch raw play data using specified strategy."""
+        """Route to appropriate fetch strategy based on import mode."""
         if strategy == "recent":
             return await self._fetch_recent_strategy(
                 progress_callback=progress_callback, **kwargs
@@ -182,7 +186,7 @@ class LastfmImportService(BaseImportService):
         progress_callback: Callable[[int, int, str], None] | None = None,
         **additional_options,
     ) -> list[PlayRecord]:
-        """Fetch recent plays strategy - gets latest N plays."""
+        """Download latest N scrobbles using Last.fm API pagination (200 tracks per page)."""
         _ = additional_options  # Reserved for future extensibility
         page_size = min(200, limit)  # Last.fm API max is 200
         all_play_records = []
@@ -229,7 +233,7 @@ class LastfmImportService(BaseImportService):
         progress_callback: Callable[[int, int, str], None] | None = None,
         **additional_options,
     ) -> list[PlayRecord]:
-        """Fetch incremental plays strategy - gets plays since last checkpoint."""
+        """Download scrobbles since last checkpoint timestamp, stores checkpoint info for later update."""
         _ = additional_options  # Reserved for future extensibility
         username = user_id or self.lastfm_connector.lastfm_username
         if not username:
@@ -297,10 +301,11 @@ class LastfmImportService(BaseImportService):
         batch_id: str,
         import_timestamp: datetime,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,  # noqa: ARG002
         resolve_tracks: bool = False,
         **kwargs,
     ) -> list[TrackPlay]:
-        """Process play records into TrackPlay objects with optional track resolution."""
+        """Convert Last.fm scrobbles to database format, optionally matching to local tracks."""
         if resolve_tracks:
             return await self._process_with_resolution(
                 raw_data, batch_id, import_timestamp, progress_callback, **kwargs
@@ -318,7 +323,7 @@ class LastfmImportService(BaseImportService):
         progress_callback: Callable[[int, int, str], None] | None = None,
         **additional_options,
     ) -> list[TrackPlay]:
-        """Process plays without track resolution (basic import)."""
+        """Convert scrobbles to TrackPlay records with null track_id (no local track matching)."""
         _ = progress_callback  # Reserved for future progress tracking
         strategy = additional_options.get("strategy", "recent")
 
@@ -353,54 +358,39 @@ class LastfmImportService(BaseImportService):
         progress_callback: Callable[[int, int, str], None] | None = None,
         **kwargs,
     ) -> list[TrackPlay]:
-        """Process plays with track resolution (enhanced import)."""
+        """Convert scrobbles to TrackPlay records and populate track_id by matching artist/title to local tracks."""
         strategy = kwargs.get("strategy", "recent")
 
         if progress_callback:
-            progress_callback(60, 100, "Resolving tracks to internal IDs...")
-
-        resolution_map = await self._resolve_tracks_from_play_records(play_records)
-
-        if progress_callback:
-            progress_callback(75, 100, "Creating play records with resolved IDs...")
+            progress_callback(60, 100, "Creating play records...")
 
         track_plays = []
-        resolved_count = 0
-        unresolved_count = 0
+        # NOTE: Identity resolution is now handled by the application layer
+        # Infrastructure layer only handles data import coordination
 
-        for i, record in enumerate(play_records):
-            resolved_track = resolution_map.get(i)
-            track_id = resolved_track.id if resolved_track else None
-
-            if track_id and resolved_track:
-                resolved_count += 1
-                await self._create_connector_mapping(record, resolved_track)
-            else:
-                unresolved_count += 1
-
+        for record in play_records:
             context = {
                 "service": record.service,
                 "album_name": record.album_name,
                 **record.service_metadata,
                 "api_page": record.api_page,
-                "resolution_status": "resolved" if track_id else "unresolved",
+                "artist_name": record.artist_name,
+                "track_name": record.track_name,
             }
 
             track_play = TrackPlay(
-                track_id=track_id,
+                track_id=None,  # Identity resolution handled by application layer
                 service="lastfm",
                 played_at=record.played_at,
                 ms_played=record.ms_played,
                 context=context,
                 import_timestamp=import_timestamp,
-                import_source=f"lastfm_api_{strategy}_resolved",
+                import_source=f"lastfm_api_{strategy}",
                 import_batch_id=batch_id,
             )
             track_plays.append(track_play)
 
-        logger.info(
-            f"Track resolution completed: {resolved_count} resolved, {unresolved_count} unresolved"
-        )
+        logger.info(f"Created {len(track_plays)} play records from Last.fm data")
         return track_plays
 
     async def _handle_checkpoints(
@@ -410,7 +400,7 @@ class LastfmImportService(BaseImportService):
         user_id: str | None = None,
         **additional_options,
     ) -> None:
-        """Handle checkpoint updates based on strategy."""
+        """Update incremental sync checkpoint with latest scrobble timestamp for next import."""
         _ = additional_options  # Reserved for future extensibility
         if strategy == "incremental":
             username = user_id or self.lastfm_connector.lastfm_username
@@ -452,86 +442,6 @@ class LastfmImportService(BaseImportService):
                     # Store for result creation
                     self._incremental_from_timestamp = from_timestamp
                     self._incremental_to_timestamp = current_time
-        # For "recent" strategy, no checkpoint updates needed
-
-    # Helper methods extracted from original implementation
-
-    async def _resolve_tracks_from_play_records(
-        self, play_records: list[PlayRecord]
-    ) -> dict[int, Track]:
-        """Resolve Last.fm play records to internal Track IDs."""
-        if not play_records:
-            return {}
-
-        # Convert PlayRecords to Track objects for matching
-        tracks_for_matching = []
-        for record in play_records:
-            artists = [Artist(name=record.artist_name)]
-
-            track = Track(
-                title=record.track_name,
-                artists=artists,
-                album=record.album_name,
-                duration_ms=None,  # Last.fm doesn't provide duration in play records
-            )
-
-            # Add Last.fm metadata as connector info
-            lastfm_url = record.service_metadata.get("lastfm_track_url")
-            if lastfm_url:
-                track = track.with_connector_track_id("lastfm", lastfm_url)
-
-            tracks_for_matching.append(track)
-
-        if not tracks_for_matching:
-            return {}
-
-        # Use TrackIdentityResolver for clean architecture
-        track_list = TrackList(tracks=tracks_for_matching)
-        identity_resolver = TrackIdentityResolver(
-            self.track_repository, self.connector_repository
-        )
-        match_results = await identity_resolver.resolve_track_identities(
-            track_list=track_list,
-            connector="lastfm",
-            connector_instance=self.lastfm_connector,
-        )
-
-        # Build index-based mapping
-        resolution_map = {}
-        for i, track in enumerate(tracks_for_matching):
-            if track.id in match_results:
-                match_result = match_results[track.id]
-                if match_result.success:
-                    resolution_map[i] = match_result.track
-
-        logger.info(
-            f"Resolved {len(resolution_map)} out of {len(play_records)} play records"
-        )
-        return resolution_map
-
-    async def _create_connector_mapping(
-        self, play_record: PlayRecord, resolved_track: Track
-    ) -> None:
-        """Create Last.fm connector track mapping for future efficiency."""
-        lastfm_url = play_record.service_metadata.get("lastfm_track_url")
-        if not lastfm_url or resolved_track.id is None:
-            return
-
-        try:
-            # Create mapping with confidence and metadata
-            await self.connector_repository.map_track_to_connector(
-                track=resolved_track,
-                connector="lastfm",
-                connector_id=lastfm_url,
-                match_method="track_resolution",
-                confidence=85,  # Default confidence for resolved tracks
-                metadata=play_record.service_metadata.copy(),
-            )
-        except Exception as e:
-            # Don't fail the entire import if connector mapping fails
-            logger.warning(
-                f"Failed to create connector mapping for track {resolved_track.id}: {e}"
-            )
 
     def _create_success_result(
         self,
@@ -540,7 +450,7 @@ class LastfmImportService(BaseImportService):
         imported_count: int,
         batch_id: str,
     ) -> OperationResult:
-        """Override to include Last.fm-specific metrics using ResultFactory."""
+        """Build import result with resolved/unresolved track counts if track matching was performed."""
         # Check if this was a resolution import
         has_resolution = any(
             play.import_source and "resolved" in play.import_source
@@ -580,7 +490,7 @@ class LastfmImportService(BaseImportService):
         from_timestamp: datetime | None = None,
         to_timestamp: datetime | None = None,
     ) -> OperationResult:
-        """Create result with incremental-specific metrics using ResultFactory."""
+        """Build import result with checkpoint timestamps for tracking incremental sync progress."""
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,

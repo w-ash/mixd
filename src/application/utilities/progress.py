@@ -1,11 +1,8 @@
-"""
-Universal progress tracking abstraction for Narada.
+"""Progress tracking for long-running operations.
 
-Provides a DRY, type-safe progress tracking system that works across
-CLI, workflows, and future web interfaces. Follows 2025 best practices
-for async operations and Rich library integration.
-
-Clean Architecture compliant - no external dependencies.
+Displays progress bars and spinners during data imports, API calls, and bulk operations.
+Supports both determinate progress (X of Y items) and indeterminate spinners.
+Allows swapping display implementations for CLI vs web UI without changing business logic.
 """
 
 from datetime import UTC, datetime
@@ -17,7 +14,11 @@ from attrs import define, field
 
 @define(frozen=True, slots=True)
 class ProgressOperation:
-    """Immutable progress operation descriptor."""
+    """Represents a single trackable operation with progress state.
+
+    Tracks operations like "Importing 500 tracks" or "Syncing playlists"
+    with current/total counts, timestamps, and metadata.
+    """
 
     operation_id: str = field(factory=lambda: str(uuid4()))
     description: str = "Processing..."
@@ -28,12 +29,16 @@ class ProgressOperation:
 
     @property
     def is_indeterminate(self) -> bool:
-        """True if this is an indeterminate (spinner-only) operation."""
+        """Whether operation shows spinner vs progress bar."""
         return self.total_items is None
 
     @property
     def progress_percentage(self) -> float:
-        """Calculate progress percentage (0-100)."""
+        """Current progress as percentage (0-100).
+
+        Returns:
+            Progress percentage, clamped to 100.0 max.
+        """
         if self.is_indeterminate or self.total_items == 0:
             return 0.0
         # Type guard: self.total_items is not None here due to checks above
@@ -43,27 +48,27 @@ class ProgressOperation:
 
     @property
     def is_complete(self) -> bool:
-        """True if operation is complete."""
+        """Whether current >= total items (determinate operations only)."""
         if self.is_indeterminate:
             return False
         return self.current_items >= (self.total_items or 0)
 
 
 class ProgressProvider(Protocol):
-    """Protocol for progress display providers.
+    """Interface for displaying progress to users.
 
-    Enables multiple implementations (Rich CLI, web UI, notifications)
-    while maintaining consistent interface across the application.
+    Implementations handle CLI progress bars, web UI updates, notifications, etc.
+    Allows business logic to track progress without coupling to specific display code.
     """
 
     def start_operation(self, operation: ProgressOperation) -> str:
-        """Start tracking a new operation.
+        """Begin displaying progress for an operation.
 
         Args:
-            operation: Operation descriptor
+            operation: Operation details and initial state.
 
         Returns:
-            Operation ID for future updates
+            Unique ID for subsequent progress updates.
         """
         ...
 
@@ -74,47 +79,47 @@ class ProgressProvider(Protocol):
         total: int | None = None,
         description: str | None = None,
     ) -> None:
-        """Update progress for an existing operation.
+        """Update progress display with new current/total values.
 
         Args:
-            operation_id: ID returned from start_operation
-            current: Current progress value
-            total: Total items (can update from indeterminate to determinate)
-            description: Optional description update
+            operation_id: ID from start_operation().
+            current: Items completed so far.
+            total: Total items (updates indeterminate to determinate).
+            description: New operation description text.
         """
         ...
 
     def set_description(self, operation_id: str, description: str) -> None:
-        """Update operation description.
+        """Change displayed operation description.
 
         Args:
-            operation_id: Operation ID
-            description: New description text
+            operation_id: Operation to update.
+            description: New description text.
         """
         ...
 
     def complete_operation(self, operation_id: str) -> None:
-        """Mark operation as complete and clean up.
+        """Finish and hide progress display.
 
         Args:
-            operation_id: Operation ID to complete
+            operation_id: Operation to complete.
         """
         ...
 
     def is_long_running_operation(self, operation: ProgressOperation) -> bool:
-        """Determine if operation should show detailed progress.
+        """Whether to show detailed progress vs simple spinner.
 
         Args:
-            operation: Operation to evaluate
+            operation: Operation to evaluate.
 
         Returns:
-            True if operation should show progress bar vs simple spinner
+            True for progress bar, False for simple spinner.
         """
         ...
 
 
 class NoOpProgressProvider:
-    """No-operation progress provider for headless/testing scenarios."""
+    """Silent progress provider for headless scripts and tests."""
 
     def start_operation(self, operation: ProgressOperation) -> str:
         return operation.operation_id
@@ -143,20 +148,20 @@ _global_provider: ProgressProvider | None = None
 
 
 def set_progress_provider(provider: ProgressProvider) -> None:
-    """Set the global progress provider.
+    """Configure global progress display implementation.
 
     Args:
-        provider: Progress provider implementation
+        provider: Display implementation (CLI, web UI, etc).
     """
     global _global_provider
     _global_provider = provider
 
 
 def get_progress_provider() -> ProgressProvider:
-    """Get current global progress provider.
+    """Get currently configured progress display.
 
     Returns:
-        Current progress provider (defaults to NoOp if none set)
+        Active provider or silent no-op if none configured.
     """
     return _global_provider or NoOpProgressProvider()
 
@@ -166,15 +171,15 @@ def create_operation(
     total_items: int | None = None,
     **metadata: Any,
 ) -> ProgressOperation:
-    """Create a new progress operation descriptor.
+    """Create a trackable operation instance.
 
     Args:
-        description: Human-readable operation description
-        total_items: Total items to process (None for indeterminate)
-        **metadata: Additional metadata for the operation
+        description: User-visible operation name like "Importing tracks".
+        total_items: Expected item count (None for indeterminate spinner).
+        **metadata: Additional data for logging/debugging.
 
     Returns:
-        New progress operation
+        Operation ready for progress tracking.
     """
     return ProgressOperation(
         description=description,

@@ -1,6 +1,6 @@
 {
   "id": "sort_by_lastfm_global_playcount",
-  "name": "Sort by LastFM Global Playcount",
+  "name": "Sort Glowy by LastFM Global Playcount",
   "description": "Sort a Spotify playlist by Last.fm play counts and create a ranked version",
   "version": "1.2",
   "tasks": [
@@ -8,7 +8,7 @@
       "id": "source",
       "type": "source.playlist",
       "config": {
-        "playlist_id": "03xJ28l0eGh3UfZPOtPEl7",
+        "playlist_id": "3nrJJedRPJVO3wDXiKyRcs",
         "connector": "spotify"
       }
     },
@@ -34,7 +34,7 @@
       "id": "destination",
       "type": "destination.create_playlist",
       "config": {
-        "name": "Sorted by Play Count",
+        "name": "Glowy sorted by LastFM {datetime}",
         "description": "Tracks sorted by Last.fm play count (most played first)",
         "connector": "spotify"
       },

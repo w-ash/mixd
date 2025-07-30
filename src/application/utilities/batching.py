@@ -1,9 +1,11 @@
-"""Unified batch processor to eliminate duplicate batch processing patterns.
+"""Prevents memory overflows and API rate limiting when processing thousands of music items.
 
-This module provides a configurable batch processing system with different strategies,
-replacing the multiple batch processing implementations scattered across services.
+Splits large collections into manageable chunks for three operations:
+- Importing: Parse music files/playlists into database records
+- Matching: Find tracks on Spotify/Last.fm/MusicBrainz using search APIs
+- Syncing: Transfer playlists/likes between music services
 
-Clean Architecture compliant - no external dependencies, uses dependency injection.
+Tracks per-batch success rates and provides real-time progress updates.
 """
 
 from abc import ABC, abstractmethod
@@ -12,23 +14,31 @@ from typing import Any, Protocol
 
 from attrs import define, field
 
-# Removed RepositoryProvider import - was unused after Clean Architecture refactor
+# Removed RepositoryProvider import - was unused after refactor
 
 
-# Protocols for dependency injection (Clean Architecture compliance)
+# Protocols for dependency injection
 class ConfigProvider(Protocol):
-    """Protocol for configuration access."""
+    """Supplies batch sizes and API rate limits from app configuration."""
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value."""
+        """Gets configuration value by key.
+
+        Args:
+            key: Configuration key to look up.
+            default: Value to return if key is not found.
+
+        Returns:
+            The configuration value or default if not found.
+        """
         ...
 
 
 class Logger(Protocol):
-    """Protocol for logging."""
+    """Records batch processing progress and errors for debugging."""
 
     def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
+        """Log informational message."""
         ...
 
     def debug(self, message: str, **kwargs: Any) -> None:
@@ -36,13 +46,22 @@ class Logger(Protocol):
         ...
 
     def exception(self, message: str, **kwargs: Any) -> None:
-        """Log exception message."""
+        """Log error with exception details."""
         ...
 
 
 @define(frozen=True)
 class BatchResult:
-    """Result of batch processing operation with aggregated metrics."""
+    """Success rates and detailed outcomes from processing music items in batches.
+
+    Aggregates results across all batches to show total items processed,
+    success/error counts, and processing statistics for user feedback.
+
+    Attributes:
+        total_items: Total number of items submitted for processing.
+        processed_count: Number of items that were processed (success or failure).
+        batch_results: Detailed results from each batch, containing status and data.
+    """
 
     total_items: int
     processed_count: int
@@ -50,7 +69,7 @@ class BatchResult:
 
     @property
     def success_count(self) -> int:
-        """Count of successfully processed items."""
+        """Items successfully imported, processed, or synced."""
         return (
             self.get_status_count("imported")
             + self.get_status_count("processed")
@@ -59,23 +78,23 @@ class BatchResult:
 
     @property
     def error_count(self) -> int:
-        """Count of items that failed processing."""
+        """Items that failed due to API errors or data issues."""
         return self.get_status_count("error")
 
     @property
     def skipped_count(self) -> int:
-        """Count of items that were skipped."""
+        """Items deliberately skipped (duplicates, invalid data, etc.)."""
         return self.get_status_count("skipped")
 
     @property
     def success_rate(self) -> float:
-        """Calculate success rate as percentage."""
+        """Success rate as percentage (0.0 to 100.0)."""
         if self.processed_count == 0:
             return 0.0
         return round((self.success_count / self.processed_count) * 100, 2)
 
     def get_status_count(self, status: str) -> int:
-        """Get count of items with specific status."""
+        """Counts items with specific status across all batches."""
         count = 0
         for batch in self.batch_results:
             for result in batch:
@@ -85,26 +104,34 @@ class BatchResult:
 
 
 class BatchStrategy[T](ABC):
-    """Abstract base class for batch processing strategies."""
+    """Template for processing batches of music items with operation-specific logic.
+
+    Subclasses define batch sizes and processing methods for imports,
+    API matching, or service syncing operations.
+    """
 
     def __init__(
         self, batch_size: int | None = None, config: ConfigProvider | None = None
     ):
-        """Initialize strategy with batch size and config provider."""
+        """Initializes with batch size and configuration access."""
         self.config = config
         self.batch_size = batch_size or self._get_default_batch_size()
 
     @abstractmethod
     def _get_default_batch_size(self) -> int:
-        """Get default batch size for this strategy."""
+        """Returns strategy-specific default batch size."""
 
     @abstractmethod
     async def process_batch(self, items: Sequence[T]) -> list[dict]:
-        """Process a batch of items according to strategy."""
+        """Processes batch of items, returning status dictionaries for each."""
 
 
 class ImportStrategy[T](BatchStrategy[T]):
-    """Strategy for import operations on individual items."""
+    """Parses music files and playlists into database records.
+
+    Processes each item individually through a custom function,
+    catching import errors to continue processing the batch.
+    """
 
     def __init__(
         self,
@@ -113,19 +140,26 @@ class ImportStrategy[T](BatchStrategy[T]):
         config: ConfigProvider | None = None,
         logger: Logger | None = None,
     ):
-        """Initialize import strategy."""
+        """Initializes import strategy with processing function.
+
+        Args:
+            processor_func: Async function that processes a single import item.
+            batch_size: Items per batch, uses config default if None.
+            config: Configuration provider for settings.
+            logger: Logger for capturing import progress and errors.
+        """
         self.processor_func = processor_func
         self.logger = logger
         super().__init__(batch_size, config)
 
     def _get_default_batch_size(self) -> int:
-        """Get default batch size for import operations."""
+        """Returns 50 items per batch for import operations."""
         if self.config:
             return self.config.get("DEFAULT_IMPORT_BATCH_SIZE", 50)
         return 50
 
     async def process_batch(self, items: Sequence[T]) -> list[dict]:
-        """Process batch of items for import."""
+        """Processes each item individually, returning success/error status for each."""
         results = []
         for item in items:
             try:
@@ -142,7 +176,11 @@ class ImportStrategy[T](BatchStrategy[T]):
 
 
 class MatchStrategy[T](BatchStrategy[T]):
-    """Strategy for matching operations with external connectors."""
+    """Finds tracks on Spotify, Last.fm, and MusicBrainz using search APIs.
+
+    Respects API rate limits and applies confidence thresholds to ensure
+    high-quality matches for music track identification.
+    """
 
     def __init__(
         self,
@@ -155,7 +193,17 @@ class MatchStrategy[T](BatchStrategy[T]):
         config: ConfigProvider | None = None,
         logger: Logger | None = None,
     ):
-        """Initialize match strategy."""
+        """Initializes matching strategy with API connector.
+
+        Args:
+            connector: API connector for external music service.
+            batch_size: Items per batch, uses connector-specific default if None.
+            confidence_threshold: Minimum match confidence score (0-100).
+            connector_type: Service type for config lookup (e.g., 'spotify', 'lastfm').
+            processor_func: Custom function for batch matching logic.
+            config: Configuration provider for API settings.
+            logger: Logger for capturing match results and errors.
+        """
         self.connector = connector
         self.confidence_threshold = confidence_threshold
         self.connector_type = connector_type
@@ -164,7 +212,7 @@ class MatchStrategy[T](BatchStrategy[T]):
         super().__init__(batch_size, config)
 
     def _get_default_batch_size(self) -> int:
-        """Get default batch size for matching operations."""
+        """Returns 30 items per batch to respect API rate limits."""
         if self.config and self.connector_type:
             config_key = f"{self.connector_type.upper()}_API_BATCH_SIZE"
             return self.config.get(
@@ -175,7 +223,7 @@ class MatchStrategy[T](BatchStrategy[T]):
         return 30
 
     async def process_batch(self, items: Sequence[T]) -> list[dict]:
-        """Process batch of items for matching."""
+        """Match tracks using the processor function and connector."""
         if self.processor_func:
             try:
                 return await self.processor_func(list(items), self.connector)
@@ -185,11 +233,18 @@ class MatchStrategy[T](BatchStrategy[T]):
                 return [{"status": "error", "error": str(e)} for _ in items]
 
         # No default matching implementation - must provide match_func
-        raise NotImplementedError("match_func must be provided for matching operations")
+        raise NotImplementedError(
+            "processor_func must be provided for matching operations"
+        )
 
 
 class SyncStrategy[T](BatchStrategy[T]):
-    """Strategy for synchronization operations between services."""
+    """Synchronizes music data between different services.
+
+    Transfers playlists, likes, or other music data from one service to another
+    (e.g., Spotify to Last.fm). Handles API rate limits and service-specific
+    formatting requirements.
+    """
 
     def __init__(
         self,
@@ -201,7 +256,17 @@ class SyncStrategy[T](BatchStrategy[T]):
         config: ConfigProvider | None = None,
         logger: Logger | None = None,
     ):
-        """Initialize sync strategy."""
+        """Initialize sync strategy for transferring data between services.
+
+        Args:
+            source_service: Name of the service to sync from (e.g., 'spotify')
+            target_service: Name of the service to sync to (e.g., 'lastfm')
+            batch_size: Items per batch, uses target service limits if None
+            sync_func: Custom function for syncing logic
+            connector: API connector for the target service
+            config: Configuration provider for service settings
+            logger: Logger for capturing sync progress and errors
+        """
         self.source_service = source_service
         self.target_service = target_service
         self.sync_func = sync_func
@@ -210,7 +275,7 @@ class SyncStrategy[T](BatchStrategy[T]):
         super().__init__(batch_size, config)
 
     def _get_default_batch_size(self) -> int:
-        """Get default batch size for sync operations."""
+        """Default batch size based on target service API limits (20 items)."""
         if self.config:
             # Use target service config for API rate limiting
             config_key = f"{self.target_service.upper()}_API_BATCH_SIZE"
@@ -220,7 +285,7 @@ class SyncStrategy[T](BatchStrategy[T]):
         return 20
 
     async def process_batch(self, items: Sequence[T]) -> list[dict]:
-        """Process batch of items for synchronization."""
+        """Sync items using the sync function."""
         if self.sync_func:
             try:
                 return await self.sync_func(list(items))
@@ -234,19 +299,19 @@ class SyncStrategy[T](BatchStrategy[T]):
 
 
 class BatchProcessor[T]:
-    """Unified batch processor that eliminates duplicate processing patterns.
+    """Processes large collections of music data in configurable chunks.
 
-    Provides configurable strategies for different types of batch operations,
-    replacing the scattered batch processing implementations across services.
-
-    Clean Architecture compliant - uses dependency injection for external concerns.
+    Handles importing music files, matching tracks against APIs, and syncing data
+    between music services. Prevents memory overflow and respects API rate limits
+    by processing items in batches. Provides progress tracking and detailed
+    success/failure metrics.
     """
 
     def __init__(
         self,
         logger: Logger | None = None,
     ):
-        """Initialize with injected dependencies."""
+        """Initialize with optional logger."""
         self.logger = logger
 
     async def process_with_strategy(
@@ -255,15 +320,15 @@ class BatchProcessor[T]:
         strategy: BatchStrategy[T],
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> BatchResult:
-        """Process items using the specified strategy.
+        """Process a collection of items using the specified processing strategy.
 
         Args:
-            items: List of items to process
-            strategy: Batch processing strategy to use
-            progress_callback: Optional progress callback function
+            items: Collection of music data items to process
+            strategy: Processing strategy (import, match, or sync)
+            progress_callback: Optional function to report progress updates
 
         Returns:
-            BatchResult with aggregated processing metrics
+            Detailed results including success/failure counts and processing metrics
         """
         if not items:
             if self.logger:
@@ -328,7 +393,7 @@ class BatchProcessor[T]:
         batch_size: int | None = None,
         config: ConfigProvider | None = None,
     ) -> ImportStrategy[T]:
-        """Create an import strategy with the specified processor."""
+        """Create import strategy for processing music data files."""
         return ImportStrategy(
             processor_func=processor_func,
             batch_size=batch_size,
@@ -346,7 +411,19 @@ class BatchProcessor[T]:
         | None = None,
         config: ConfigProvider | None = None,
     ) -> MatchStrategy[T]:
-        """Create a match strategy with the specified connector."""
+        """Create a strategy for matching tracks against external music APIs.
+
+        Args:
+            connector: API connector for the music service
+            confidence_threshold: Minimum match confidence score (0-100)
+            connector_type: Service type for config lookup (e.g., 'spotify')
+            batch_size: Items per batch, uses connector default if None
+            processor_func: Custom matching function
+            config: Configuration provider for API settings
+
+        Returns:
+            Match strategy ready for use with process_with_strategy
+        """
         return MatchStrategy(
             connector=connector,
             batch_size=batch_size,
@@ -366,7 +443,7 @@ class BatchProcessor[T]:
         connector: Any = None,
         config: ConfigProvider | None = None,
     ) -> SyncStrategy[T]:
-        """Create a sync strategy with the specified services."""
+        """Create sync strategy for transferring data between music services."""
         return SyncStrategy(
             source_service=source_service,
             target_service=target_service,

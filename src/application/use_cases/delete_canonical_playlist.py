@@ -1,7 +1,8 @@
-"""DeleteCanonicalPlaylistUseCase for removing internal database playlists.
+"""Deletes playlists from the internal database with transaction safety.
 
-This use case handles deletion of canonical (internal) playlists from the database
-following Clean Architecture principles.
+Handles deletion of playlists stored in the application's database, including
+validation of playlist existence, optional warnings for external connections,
+and atomic transaction management to ensure data consistency.
 """
 
 from datetime import UTC, datetime
@@ -18,9 +19,12 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class DeleteCanonicalPlaylistCommand:
-    """Command for deleting a canonical playlist.
+    """Input parameters for playlist deletion operation.
 
-    Encapsulates the identifier and options for deleting a playlist.
+    Args:
+        playlist_id: Internal database ID or external connector ID of playlist to delete.
+        force_delete: Whether to delete playlist even if it has external service connections.
+        timestamp: When the deletion command was created (defaults to current UTC time).
     """
 
     playlist_id: str
@@ -30,19 +34,25 @@ class DeleteCanonicalPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Validates that required command parameters are present.
 
         Returns:
-            True if command is valid for execution
+            True if playlist_id is provided, False otherwise.
         """
         return bool(self.playlist_id)
 
 
 @define(frozen=True, slots=True)
 class DeleteCanonicalPlaylistResult:
-    """Result of canonical playlist deletion operation.
+    """Results and metadata from a completed playlist deletion operation.
 
-    Contains information about the deleted playlist and operation metadata.
+    Args:
+        deleted_playlist_id: Database ID of the deleted playlist.
+        deleted_playlist_name: Name of the deleted playlist.
+        tracks_count: Number of tracks that were in the deleted playlist.
+        execution_time_ms: Time taken to complete the deletion operation in milliseconds.
+        warnings: List of warning messages generated during deletion.
+        errors: List of error messages if deletion failed.
     """
 
     deleted_playlist_id: int
@@ -54,7 +64,7 @@ class DeleteCanonicalPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of the deletion operation."""
+        """Returns a structured summary of the deletion operation for logging or APIs."""
         return {
             "deleted_playlist_id": self.deleted_playlist_id,
             "deleted_playlist_name": self.deleted_playlist_name,
@@ -67,30 +77,31 @@ class DeleteCanonicalPlaylistResult:
 
 @define(slots=True)
 class DeleteCanonicalPlaylistUseCase:
-    """Use case for deleting canonical (internal) playlists.
+    """Orchestrates safe deletion of playlists from the internal database.
 
-    Handles pure database delete operations following Clean Architecture
-    principles with UnitOfWork pattern:
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Explicit transaction control in business logic
-    - Simplified testing with single UnitOfWork mock
+    Provides atomic playlist deletion with validation, metadata collection,
+    and optional warnings for playlists connected to external services.
+    Accepts either internal database IDs or external service IDs for lookup.
     """
 
     async def execute(
         self, command: DeleteCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> DeleteCanonicalPlaylistResult:
-        """Execute canonical playlist deletion operation.
+        """Deletes a playlist from the database with transaction safety.
+
+        Validates playlist existence, collects metadata, optionally warns about
+        external connections, and atomically removes the playlist while preserving
+        any tracks that may be used in other playlists.
 
         Args:
-            command: Command with playlist deletion context
-            uow: UnitOfWork for transaction management and repository access
+            command: Deletion parameters including playlist ID and options.
+            uow: Unit of work for transaction management and repository access.
 
         Returns:
-            Result with deletion confirmation and operational metadata
+            Result containing deletion confirmation and operation metadata.
 
         Raises:
-            ValueError: If command validation fails or playlist not found
+            ValueError: If command validation fails or playlist not found.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -184,17 +195,20 @@ class DeleteCanonicalPlaylistUseCase:
     async def _get_playlist(
         self, playlist_id: str, uow: UnitOfWorkProtocol
     ) -> Playlist:
-        """Retrieve playlist from database.
+        """Retrieves a playlist by internal ID or external connector ID.
+
+        Attempts to find playlist by internal database ID first, then falls back
+        to searching by Spotify connector ID if the input is not numeric.
 
         Args:
-            playlist_id: ID of playlist to retrieve
-            uow: UnitOfWork for repository access
+            playlist_id: Internal database ID (numeric) or external service ID.
+            uow: Unit of work for repository access.
 
         Returns:
-            Playlist entity
+            The found playlist entity.
 
         Raises:
-            ValueError: If playlist not found
+            ValueError: If no playlist found with the given ID.
         """
         playlist_repo = uow.get_playlist_repository()
 

@@ -3,9 +3,21 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
-from typing import Any
+from typing import Any, TypedDict
 
 from attrs import define, field
+
+
+class RawProviderMatch(TypedDict):
+    """Raw match data from external service providers.
+
+    This structure contains the raw service data without any business logic applied.
+    Infrastructure providers return this format, which is then processed by domain services.
+    """
+
+    connector_id: str  # External service ID (e.g., Spotify track ID)
+    match_method: str  # How the match was found ("isrc", "artist_title", "mbid")
+    service_data: dict[str, Any]  # Raw data from external service
 
 
 @define(frozen=True, slots=True)

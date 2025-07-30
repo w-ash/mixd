@@ -1,9 +1,9 @@
-"""
-Prefect v3 integration layer for workflow execution.
+"""Executes music playlist workflows using the Prefect v3 orchestration engine.
 
-This module provides a thin adapter between Narada's node system
-and Prefect's execution engine, enabling declarative workflows to be
-executed with enterprise-grade reliability.
+Converts declarative workflow definitions (JSON configs) into executable Prefect flows.
+Handles playlist transformations like fetching tracks, applying filters, enriching metadata,
+and creating/updating playlists across music platforms. Provides progress tracking, error
+recovery, and database session management for long-running playlist operations.
 """
 
 from collections.abc import Callable
@@ -18,7 +18,7 @@ from prefect.artifacts import create_progress_artifact, update_progress_artifact
 from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
 
-# Prefect logging is configured through dependency injection in WorkflowContext
+# Use Narada's standard logger for module-level logging; Prefect tasks use get_run_logger()
 from src.config.logging import get_logger
 from src.domain.entities.operations import WorkflowResult
 
@@ -33,13 +33,13 @@ _simple_callback: Callable | None = None
 
 
 def register_simple_progress_callback(callback: Callable) -> None:
-    """Register a simple callback for basic CLI feedback."""
+    """Registers callback function for CLI progress updates during workflow execution."""
     global _simple_callback
     _simple_callback = callback
 
 
 def _emit_simple_event(event_type: str, event_data: dict[str, Any]) -> None:
-    """Emit a simple progress event if callback is registered."""
+    """Sends workflow progress events to registered callback function if available."""
     if _simple_callback:
         try:
             _simple_callback(event_type, event_data)
@@ -51,12 +51,11 @@ def _emit_simple_event(event_type: str, event_data: dict[str, Any]) -> None:
 
 
 def _should_show_progress_for_node(node_type: str) -> bool:
-    """Determine if a node type should show progress artifacts.
+    """Returns True for node types that process large datasets or make many API calls.
 
-    Only show progress for operations that are likely to:
-    - Process large amounts of data (>100 items)
-    - Take significant time (>5 seconds)
-    - Have meaningful incremental progress
+    Shows progress artifacts for:
+    - source.playlist nodes (fetch large playlists)
+    - enricher.* nodes (multiple API requests for metadata)
     """
     # Source nodes that fetch large playlists
     if node_type.startswith("source.playlist"):
@@ -67,7 +66,7 @@ def _should_show_progress_for_node(node_type: str) -> bool:
 
 
 class TaskResult(TypedDict):
-    """Type definition for task results."""
+    """Prefect task execution result structure."""
 
     success: bool
     result: Any
@@ -81,7 +80,20 @@ class TaskResult(TypedDict):
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
 async def execute_node(node_type: str, context: dict, config: dict) -> dict:
-    """Execute a single workflow node as a Prefect task."""
+    """Executes a single workflow node (source, filter, enricher, etc.) as a Prefect task.
+
+    Wraps node execution with Prefect's retry logic, logging, and progress tracking.
+    Creates progress artifacts for long-running operations like playlist fetching
+    and metadata enrichment.
+
+    Args:
+        node_type: Node identifier (e.g., "source.playlist", "enricher.spotify")
+        context: Shared workflow context including database session and upstream results
+        config: Node-specific configuration parameters
+
+    Returns:
+        Node execution result (typically containing processed tracklist)
+    """
     # Use Prefect's run logger to get task context
     task_logger = get_run_logger()
 
@@ -135,14 +147,25 @@ async def execute_node(node_type: str, context: dict, config: dict) -> dict:
 
 
 def generate_flow_run_name(flow_name: str) -> str:
-    """Generate a dynamic flow run name with a timestamp."""
+    """Creates timestamped flow run name for Prefect UI identification."""
     return (
         f"{flow_name}-{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d-%H%M%S')}"
     )
 
 
 def build_flow(workflow_def: dict) -> Any:
-    """Build an executable Prefect flow from a workflow definition."""
+    """Converts workflow definition JSON into executable Prefect flow function.
+
+    Performs topological sort of tasks based on dependencies, creates shared database
+    session, and builds dynamic flow that executes nodes in correct order while
+    passing results between dependent tasks.
+
+    Args:
+        workflow_def: JSON workflow definition with tasks, dependencies, and config
+
+    Returns:
+        Async Prefect flow function ready for execution
+    """
 
     # Extract workflow metadata
     flow_name = workflow_def.get("name", "unnamed_workflow")
@@ -151,7 +174,7 @@ def build_flow(workflow_def: dict) -> Any:
 
     # Create a topological sort of tasks based on dependencies
     def topological_sort(tasks):
-        """Sort tasks to ensure dependencies execute first."""
+        """Orders tasks by dependencies to ensure upstream tasks execute first."""
         # Create a dependency graph
         graph = {task["id"]: task.get("upstream", []) for task in tasks}
 
@@ -181,7 +204,7 @@ def build_flow(workflow_def: dict) -> Any:
         flow_run_name=generate_flow_run_name(flow_name),
     )
     async def workflow_flow(**parameters):
-        """Dynamically generated Prefect flow from workflow definition."""
+        """Executes workflow tasks in dependency order with shared database session."""
         # Use Prefect's run logger to get flow context
         flow_logger = get_run_logger()
         flow_logger.info("Starting workflow")
@@ -205,7 +228,7 @@ def build_flow(workflow_def: dict) -> Any:
             # Initialize execution context with shared session provider
             context = {
                 "parameters": parameters,
-                "use_cases": workflow_context.use_cases,  # Clean Architecture: use case dependency injection
+                "use_cases": workflow_context.use_cases,  # Database operations and business logic
                 "connectors": workflow_context.connectors,
                 "config": workflow_context.config,
                 "logger": workflow_context.logger,
@@ -304,7 +327,21 @@ async def extract_workflow_result(  # noqa: RUF029
     flow_run_name: str,
     execution_time: float,
 ) -> WorkflowResult:
-    """Extract final workflow result with metrics from task results."""
+    """Extracts final tracklist and aggregates metrics from all workflow tasks.
+
+    Finds the destination task (playlist creation/update) to get the final filtered
+    tracklist, then combines metrics from all intermediate tasks (play counts,
+    popularity scores, etc.) into a comprehensive result structure.
+
+    Args:
+        workflow_def: Original workflow definition
+        task_results: Results from all executed tasks
+        flow_run_name: Prefect flow run identifier
+        execution_time: Total workflow execution time in seconds
+
+    Returns:
+        Structured result with final tracks, aggregated metrics, and timing info
+    """
 
     # Find the destination task - it should be the last one in the workflow
     destination_task = next(
@@ -391,17 +428,18 @@ async def extract_workflow_result(  # noqa: RUF029
 
 @flow(name="run_workflow")
 async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, WorkflowResult]:
-    """Execute a workflow definition with dynamic parameters.
+    """Executes complete playlist workflow from JSON definition to final result.
 
-    Orchestrates workflow execution including flow construction,
-    parameter passing, and metrics collection.
+    Main entry point for workflow execution. Builds Prefect flow from definition,
+    executes all tasks with proper dependency ordering, times execution, and
+    extracts final results with aggregated metrics.
 
     Args:
-        workflow_def: Workflow definition dictionary
-        **parameters: Dynamic parameters for workflow nodes
+        workflow_def: JSON workflow definition with tasks and dependencies
+        **parameters: Dynamic parameters passed to workflow tasks
 
     Returns:
-        Tuple of (execution context, structured result)
+        Tuple of (execution context with all task results, structured final result)
     """
 
     logger = get_run_logger()

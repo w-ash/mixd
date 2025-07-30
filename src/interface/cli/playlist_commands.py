@@ -1,4 +1,4 @@
-"""Playlist workflow commands for Narada CLI - following Clean Architecture."""
+"""CLI commands for playlist workflow execution and management."""
 
 import asyncio
 import json

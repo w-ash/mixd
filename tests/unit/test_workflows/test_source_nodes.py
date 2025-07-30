@@ -261,10 +261,10 @@ class TestSourceLikedTracks(TestSourceNodes):
     def mock_liked_tracks_context(self, sample_tracks):
         """Mock context for liked tracks testing."""
         context = {}
-        
+
         # Mock workflow context
         workflow_context = MagicMock()
-        
+
         # Mock successful use case execution
         async def mock_execute_use_case(use_case_func):
             mock_result = GetLikedTracksResult(
@@ -275,31 +275,35 @@ class TestSourceLikedTracks(TestSourceNodes):
                         "connector_filter": None,
                         "sort_by": "liked_at_desc",
                         "track_count": len(sample_tracks),
-                    }
+                    },
                 ),
-                execution_time_ms=100
+                execution_time_ms=100,
             )
             return mock_result
-            
+
         workflow_context.execute_use_case = mock_execute_use_case
-        
+
         # Mock NodeContext
-        with patch("src.application.workflows.source_nodes.NodeContext") as MockNodeContext:
+        with patch(
+            "src.application.workflows.source_nodes.NodeContext"
+        ) as MockNodeContext:
             mock_ctx = MagicMock()
             mock_ctx.extract_workflow_context.return_value = workflow_context
             MockNodeContext.return_value = mock_ctx
-            
+
             yield context
 
-    async def test_source_liked_tracks_default_config(self, mock_liked_tracks_context, sample_tracks):
+    async def test_source_liked_tracks_default_config(
+        self, mock_liked_tracks_context, sample_tracks
+    ):
         """Test source_liked_tracks with default configuration."""
         from src.application.workflows.source_nodes import source_liked_tracks
-        
+
         config = {}  # Use all defaults
         context = {}
-        
+
         result = await source_liked_tracks(context, config)
-        
+
         assert result["operation"] == "source_liked_tracks"
         assert result["track_count"] == 2
         assert result["sort_by"] == "liked_at_desc"  # Default
@@ -310,45 +314,45 @@ class TestSourceLikedTracks(TestSourceNodes):
     async def test_source_liked_tracks_with_sorting(self, mock_liked_tracks_context):
         """Test source_liked_tracks with different sort options."""
         from src.application.workflows.source_nodes import source_liked_tracks
-        
+
         sort_options = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
-        
+
         for sort_option in sort_options:
             config = {"sort_by": sort_option, "limit": 1000}
             context = {}
-            
+
             result = await source_liked_tracks(context, config)
-            
+
             assert result["sort_by"] == sort_option
             assert result["operation"] == "source_liked_tracks"
 
-    async def test_source_liked_tracks_with_connector_filter(self, mock_liked_tracks_context):
+    async def test_source_liked_tracks_with_connector_filter(
+        self, mock_liked_tracks_context
+    ):
         """Test source_liked_tracks with connector filter."""
         from src.application.workflows.source_nodes import source_liked_tracks
-        
-        config = {
-            "connector_filter": "spotify",
-            "limit": 500,
-            "sort_by": "title_asc"
-        }
+
+        config = {"connector_filter": "spotify", "limit": 500, "sort_by": "title_asc"}
         context = {}
-        
+
         result = await source_liked_tracks(context, config)
-        
+
         assert result["connector_filter"] == "spotify"
         assert result["sort_by"] == "title_asc"
         assert result["operation"] == "source_liked_tracks"
 
-    async def test_source_liked_tracks_enforces_limit_maximum(self, mock_liked_tracks_context):
+    async def test_source_liked_tracks_enforces_limit_maximum(
+        self, mock_liked_tracks_context
+    ):
         """Test that source_liked_tracks enforces maximum limit."""
         from src.application.workflows.source_nodes import source_liked_tracks
-        
+
         config = {"limit": 15000}  # Exceeds max of 10000
         context = {}
-        
+
         # Should not raise error, but limit to max
         result = await source_liked_tracks(context, config)
-        
+
         assert result["operation"] == "source_liked_tracks"
         # The actual limit enforcement happens in the command validation
 
@@ -360,10 +364,10 @@ class TestSourcePlayedTracks(TestSourceNodes):
     def mock_played_tracks_context(self, sample_tracks):
         """Mock context for played tracks testing."""
         context = {}
-        
+
         # Mock workflow context
         workflow_context = MagicMock()
-        
+
         # Mock successful use case execution
         async def mock_execute_use_case(use_case_func):
             mock_result = GetPlayedTracksResult(
@@ -376,32 +380,36 @@ class TestSourcePlayedTracks(TestSourceNodes):
                         "sort_by": "played_at_desc",
                         "track_count": len(sample_tracks),
                         "total_plays": {1: 5, 2: 3},
-                        "last_played_dates": {}
-                    }
+                        "last_played_dates": {},
+                    },
                 ),
-                execution_time_ms=150
+                execution_time_ms=150,
             )
             return mock_result
-            
+
         workflow_context.execute_use_case = mock_execute_use_case
-        
+
         # Mock NodeContext
-        with patch("src.application.workflows.source_nodes.NodeContext") as MockNodeContext:
+        with patch(
+            "src.application.workflows.source_nodes.NodeContext"
+        ) as MockNodeContext:
             mock_ctx = MagicMock()
             mock_ctx.extract_workflow_context.return_value = workflow_context
             MockNodeContext.return_value = mock_ctx
-            
+
             yield context
 
-    async def test_source_played_tracks_default_config(self, mock_played_tracks_context, sample_tracks):
+    async def test_source_played_tracks_default_config(
+        self, mock_played_tracks_context, sample_tracks
+    ):
         """Test source_played_tracks with default configuration."""
         from src.application.workflows.source_nodes import source_played_tracks
-        
+
         config = {}  # Use all defaults
         context = {}
-        
+
         result = await source_played_tracks(context, config)
-        
+
         assert result["operation"] == "source_played_tracks"
         assert result["track_count"] == 2
         assert result["sort_by"] == "played_at_desc"  # Default
@@ -410,20 +418,22 @@ class TestSourcePlayedTracks(TestSourceNodes):
         assert "execution_time_ms" in result
         assert len(result["tracklist"].tracks) == 2
 
-    async def test_source_played_tracks_with_all_options(self, mock_played_tracks_context):
+    async def test_source_played_tracks_with_all_options(
+        self, mock_played_tracks_context
+    ):
         """Test source_played_tracks with all configuration options."""
         from src.application.workflows.source_nodes import source_played_tracks
-        
+
         config = {
             "limit": 1000,
             "days_back": 30,
             "connector_filter": "spotify",
-            "sort_by": "total_plays_desc"
+            "sort_by": "total_plays_desc",
         }
         context = {}
-        
+
         result = await source_played_tracks(context, config)
-        
+
         assert result["operation"] == "source_played_tracks"
         assert result["sort_by"] == "total_plays_desc"
         assert result["days_back"] == 30
@@ -432,34 +442,36 @@ class TestSourcePlayedTracks(TestSourceNodes):
     async def test_source_played_tracks_sort_options(self, mock_played_tracks_context):
         """Test source_played_tracks with different sort options."""
         from src.application.workflows.source_nodes import source_played_tracks
-        
+
         sort_options = [
-            "played_at_desc", "total_plays_desc", "last_played_desc", 
-            "first_played_asc", "title_asc", "random"
+            "played_at_desc",
+            "total_plays_desc",
+            "last_played_desc",
+            "first_played_asc",
+            "title_asc",
+            "random",
         ]
-        
+
         for sort_option in sort_options:
             config = {"sort_by": sort_option}
             context = {}
-            
+
             result = await source_played_tracks(context, config)
-            
+
             assert result["sort_by"] == sort_option
             assert result["operation"] == "source_played_tracks"
 
-    async def test_source_played_tracks_with_time_window(self, mock_played_tracks_context):
+    async def test_source_played_tracks_with_time_window(
+        self, mock_played_tracks_context
+    ):
         """Test source_played_tracks with days_back time window."""
         from src.application.workflows.source_nodes import source_played_tracks
-        
-        config = {
-            "days_back": 90,
-            "sort_by": "last_played_desc",
-            "limit": 2000
-        }
+
+        config = {"days_back": 90, "sort_by": "last_played_desc", "limit": 2000}
         context = {}
-        
+
         result = await source_played_tracks(context, config)
-        
+
         assert result["days_back"] == 90
         assert result["sort_by"] == "last_played_desc"
         assert result["operation"] == "source_played_tracks"

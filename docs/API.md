@@ -396,7 +396,7 @@ class TrackRepository(Protocol):
         ...
 
 # Usage in use cases
-class ImportTracksUseCase:
+class ImportPlayHistoryUseCase:
     def __init__(self, repository: TrackRepository):
         self.repository = repository
     
@@ -412,7 +412,7 @@ Business logic is organized into use cases with command objects:
 ```python
 # Command object
 @dataclass
-class ImportTracksCommand:
+class ImportPlayHistoryCommand:
     tracks: list[Track]
     batch_size: int = 100
     update_existing: bool = True
@@ -424,8 +424,8 @@ class ImportTracksCommand:
             raise ValueError("Batch size must be positive")
 
 # Use case
-class ImportTracksUseCase:
-    async def execute(self, command: ImportTracksCommand) -> ImportResult:
+class ImportPlayHistoryUseCase:
+    async def execute(self, command: ImportPlayHistoryCommand) -> ImportResult:
         command.validate()
         # ... implementation
 ```
@@ -545,7 +545,7 @@ Structured output for programmatic consumption:
 
 ```json
 {
-  "operation": "import_tracks",
+  "operation": "import_play_history",
   "status": "completed",
   "results": {
     "total_tracks": 1234,

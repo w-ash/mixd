@@ -13,7 +13,7 @@ from src.application.use_cases.get_liked_tracks import (
     GetLikedTracksCommand,
     GetLikedTracksUseCase,
 )
-from src.domain.entities import Track, TrackLike, TrackList
+from src.domain.entities import Track, TrackLike
 from src.domain.entities.track import Artist
 
 
@@ -30,7 +30,7 @@ class TestGetLikedTracksCommand:
     def test_valid_command_with_sorting(self):
         """Test valid command with all supported sort options."""
         valid_sorts = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
-        
+
         for sort_option in valid_sorts:
             command = GetLikedTracksCommand(limit=1000, sort_by=sort_option)
             assert command.validate() is True, f"Failed for sort option: {sort_option}"
@@ -68,13 +68,13 @@ class TestGetLikedTracksUseCase:
                 id=1,
                 title="Track 1",
                 artists=[Artist(name="Artist 1")],
-                album="Album 1"
+                album="Album 1",
             ),
             Track(
                 id=2,
-                title="Track 2", 
+                title="Track 2",
                 artists=[Artist(name="Artist 2")],
-                album="Album 2"
+                album="Album 2",
             ),
         ]
 
@@ -86,13 +86,13 @@ class TestGetLikedTracksUseCase:
                 track_id=1,
                 service="spotify",
                 is_liked=True,
-                liked_at=datetime(2024, 1, 1, tzinfo=UTC)
+                liked_at=datetime(2024, 1, 1, tzinfo=UTC),
             ),
             TrackLike(
                 track_id=2,
-                service="spotify", 
+                service="spotify",
                 is_liked=True,
-                liked_at=datetime(2024, 1, 2, tzinfo=UTC)
+                liked_at=datetime(2024, 1, 2, tzinfo=UTC),
             ),
         ]
 
@@ -100,30 +100,33 @@ class TestGetLikedTracksUseCase:
     def mock_uow(self, sample_tracks, sample_likes):
         """Mock UnitOfWork with repositories."""
         uow = AsyncMock()
-        
+
         # Mock like repository
         like_repo = AsyncMock()
         like_repo.get_all_liked_tracks.return_value = sample_likes
         uow.get_like_repository = MagicMock(return_value=like_repo)
-        
+
         # Mock track repository
         track_repo = AsyncMock()
-        track_repo.find_tracks_by_ids.return_value = {1: sample_tracks[0], 2: sample_tracks[1]}
+        track_repo.find_tracks_by_ids.return_value = {
+            1: sample_tracks[0],
+            2: sample_tracks[1],
+        }
         uow.get_track_repository = MagicMock(return_value=track_repo)
-        
+
         return uow
 
     async def test_execute_with_valid_command(self, mock_uow, sample_tracks):
         """Test successful execution with valid command."""
         command = GetLikedTracksCommand(
-            limit=1000, 
-            sort_by="liked_at_desc", 
-            connector_filter="spotify"  # Use filter to avoid duplicate tracks
+            limit=1000,
+            sort_by="liked_at_desc",
+            connector_filter="spotify",  # Use filter to avoid duplicate tracks
         )
         use_case = GetLikedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         assert result.tracklist.tracks == sample_tracks
         assert result.execution_time_ms >= 0  # Can be 0 in fast tests
         assert len(result.errors) == 0
@@ -134,9 +137,9 @@ class TestGetLikedTracksUseCase:
         """Test that sort_by parameter is passed to repository."""
         command = GetLikedTracksCommand(sort_by="title_asc", connector_filter="spotify")
         use_case = GetLikedTracksUseCase()
-        
+
         await use_case.execute(command, mock_uow)
-        
+
         # Verify repository was called with sort_by parameter
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
@@ -147,13 +150,13 @@ class TestGetLikedTracksUseCase:
         """Test that multiple services are queried when no connector filter."""
         command = GetLikedTracksCommand(sort_by="liked_at_desc")
         use_case = GetLikedTracksUseCase()
-        
+
         await use_case.execute(command, mock_uow)
-        
+
         # Verify repository was called for each service
         like_repo = mock_uow.get_like_repository.return_value
         assert like_repo.get_all_liked_tracks.call_count == 2  # spotify and lastfm
-        
+
         # Check calls included sort_by
         calls = like_repo.get_all_liked_tracks.call_args_list
         for call in calls:
@@ -165,12 +168,12 @@ class TestGetLikedTracksUseCase:
         many_likes = sample_likes * 10  # 20 likes total
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.return_value = many_likes
-        
+
         command = GetLikedTracksCommand(limit=5)
         use_case = GetLikedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         # Should only request 5 tracks from track repository
         track_repo = mock_uow.get_track_repository.return_value
         track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]
@@ -180,7 +183,7 @@ class TestGetLikedTracksUseCase:
         """Test that invalid command raises ValueError."""
         command = GetLikedTracksCommand(limit=0)  # Invalid
         use_case = GetLikedTracksUseCase()
-        
+
         with pytest.raises(ValueError, match="Invalid command"):
             await use_case.execute(command, mock_uow)
 
@@ -188,13 +191,17 @@ class TestGetLikedTracksUseCase:
         """Test graceful handling when some tracks don't exist."""
         # Track repository only returns one track
         track_repo = mock_uow.get_track_repository.return_value
-        track_repo.find_tracks_by_ids.return_value = {1: Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])}
-        
-        command = GetLikedTracksCommand(connector_filter="spotify")  # Use filter to avoid duplicates
+        track_repo.find_tracks_by_ids.return_value = {
+            1: Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
+        }
+
+        command = GetLikedTracksCommand(
+            connector_filter="spotify"
+        )  # Use filter to avoid duplicates
         use_case = GetLikedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         # Should only include existing tracks
         assert len(result.tracklist.tracks) == 1
         assert result.tracklist.tracks[0].id == 1
@@ -202,14 +209,12 @@ class TestGetLikedTracksUseCase:
     async def test_result_includes_operation_metadata(self, mock_uow):
         """Test that result includes proper metadata for composition."""
         command = GetLikedTracksCommand(
-            limit=100, 
-            connector_filter="spotify", 
-            sort_by="liked_at_desc"
+            limit=100, connector_filter="spotify", sort_by="liked_at_desc"
         )
         use_case = GetLikedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         metadata = result.tracklist.metadata
         assert metadata["operation"] == "get_liked_tracks"
         assert metadata["connector_filter"] == "spotify"

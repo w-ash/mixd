@@ -1,70 +1,75 @@
 """Protocol definitions for workflow dependency injection.
 
-These protocols define contracts for external dependencies needed by workflows,
-enabling Clean Architecture compliance through dependency inversion.
+These protocols define the contracts between the application and infrastructure
+layers, implementing dependency inversion for Clean Architecture compliance.
+Workflows depend on these abstractions rather than concrete implementations,
+enabling cross-service operations without tight coupling.
+
+The protocols allow infrastructure components (database repositories, API
+connectors, external services) to be swapped without changing workflow logic
+and enable comprehensive testing through dependency injection. They aggregate
+into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
 from typing import Any, Protocol
 
 from src.domain.entities.track import Track, TrackList
 
-# RepositoryProvider removed - Clean Architecture uses dependency injection through use cases
-
 
 class ConfigProvider(Protocol):
-    """Protocol for configuration access."""
+    """Abstracts configuration access for testing and deployment flexibility."""
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value by key."""
+        """Retrieve configuration value by key."""
         ...
 
 
 class LoggerProvider(Protocol):
-    """Protocol for logging services."""
+    """Abstracts logging for testable structured logging with context."""
 
     def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
+        """Log informational message with optional context."""
         ...
 
     def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
+        """Log debug message with optional context."""
         ...
 
     def warning(self, message: str, **kwargs: Any) -> None:
-        """Log warning message."""
+        """Log warning message with optional context."""
         ...
 
     def error(self, message: str, **kwargs: Any) -> None:
-        """Log error message."""
+        """Log error message with optional context."""
         ...
 
 
 class ConnectorProvider(Protocol):
-    """Protocol for external service connectors."""
+    """Abstracts music service connections for unified cross-service operations."""
 
     async def get_tracks(self, **kwargs: Any) -> list[Track]:
-        """Get tracks from external service."""
+        """Retrieve tracks from external music service."""
         ...
 
     async def get_playlists(self, **kwargs: Any) -> list[Any]:
-        """Get playlists from external service."""
+        """Retrieve playlists from external music service."""
         ...
 
 
 class ConnectorRegistry(Protocol):
-    """Protocol for connector management."""
+    """Dynamic access to multiple music service connectors (Spotify, Last.fm, MusicBrainz)."""
 
     def get_connector(self, name: str) -> ConnectorProvider:
-        """Get connector by name."""
+        """Get specific music service connector."""
         ...
 
     def list_connectors(self) -> list[str]:
-        """List available connector names."""
+        """Get names of all available connectors."""
         ...
 
 
 class DatabaseSessionProvider(Protocol):
-    """Protocol for database session management."""
+    """Abstracts database session creation for UnitOfWork pattern."""
 
     def get_session(self) -> Any:
         """Get database session context manager."""
@@ -72,66 +77,59 @@ class DatabaseSessionProvider(Protocol):
 
 
 class UseCaseProvider(Protocol):
-    """Protocol for providing configured use cases with dependency injection."""
+    """Provides business logic use cases with dependency injection."""
 
     async def get_create_canonical_playlist_use_case(self) -> Any:
-        """Get CreateCanonicalPlaylistUseCase with injected dependencies."""
+        """Get use case for creating master playlist definitions."""
         ...
 
     async def get_create_connector_playlist_use_case(self) -> Any:
-        """Get CreateConnectorPlaylistUseCase with injected dependencies."""
-        ...
-
-    async def get_track_identity_use_case(self) -> Any:
-        """Get ResolveTrackIdentityUseCase with injected dependencies."""
+        """Get use case for creating service-specific playlists."""
         ...
 
     async def get_enrich_tracks_use_case(self) -> Any:
-        """Get EnrichTracksUseCase with injected dependencies."""
+        """Get use case for enriching tracks with cross-service metadata."""
         ...
 
-    async def get_match_tracks_use_case(self) -> Any:
-        """Get MatchTracksUseCase with injected dependencies."""
+    async def get_match_and_identify_tracks_use_case(self) -> Any:
+        """Get use case for matching and identifying tracks between music services."""
         ...
 
 
 class WorkflowContext(Protocol):
-    """Complete workflow execution context with all dependencies."""
+    """Central dependency container enabling complex cross-service operations."""
 
     @property
     def config(self) -> ConfigProvider:
-        """Configuration provider."""
+        """Configuration access."""
         ...
 
     @property
     def logger(self) -> LoggerProvider:
-        """Logger provider."""
+        """Structured logging."""
         ...
 
     @property
     def connectors(self) -> ConnectorRegistry:
-        """Connector registry."""
+        """Music service API access."""
         ...
 
     @property
     def use_cases(self) -> UseCaseProvider:
-        """Use case provider with dependency injection."""
+        """Business logic with transaction control."""
         ...
 
     @property
     def session_provider(self) -> DatabaseSessionProvider:
-        """Database session provider."""
+        """Database access."""
         ...
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
-        """Execute use case with UnitOfWork pattern.
-
-        This method provides a single entry point for all workflow use case execution,
-        handling UnitOfWork creation, session management, and cleanup automatically.
+        """Execute business logic with automatic transaction management.
 
         Args:
-            use_case_getter: Async function that returns a use case instance
-            command: Command object to pass to the use case
+            use_case_getter: Async function that returns configured use case
+            command: Command object containing operation parameters
 
         Returns:
             Result from use case execution
@@ -140,7 +138,7 @@ class WorkflowContext(Protocol):
 
 
 class TransformFunction(Protocol):
-    """Protocol for workflow transform functions."""
+    """Pure track list transformations for functional composition."""
 
     def __call__(self, track_list: TrackList, context: dict[str, Any]) -> TrackList:
         """Apply transformation to track list."""
@@ -148,26 +146,26 @@ class TransformFunction(Protocol):
 
 
 class WorkflowNode(Protocol):
-    """Protocol for workflow execution nodes."""
+    """Contract for workflow execution steps enabling declarative composition."""
 
     async def execute(self, context: WorkflowContext, **kwargs: Any) -> Any:
-        """Execute workflow node with given context."""
+        """Execute workflow step with access to all dependencies."""
         ...
 
 
 class WorkflowNodeFactory(Protocol):
-    """Protocol for creating workflow nodes."""
+    """Creates workflow nodes for dynamic workflow construction from configuration."""
 
     def create_source_node(self, node_type: str, **config: Any) -> WorkflowNode:
-        """Create source node by type."""
+        """Create data source node (playlist, album, library, play history)."""
         ...
 
     def create_transform_node(self, transform_name: str, **config: Any) -> WorkflowNode:
-        """Create transform node by name."""
+        """Create transformation node (filter, sort, enrich, dedupe)."""
         ...
 
     def create_destination_node(
         self, destination_type: str, **config: Any
     ) -> WorkflowNode:
-        """Create destination node by type."""
+        """Create output destination node (playlist update, file export)."""
         ...

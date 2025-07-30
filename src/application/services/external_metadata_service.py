@@ -1,8 +1,4 @@
-"""External metadata service interface for Clean Architecture compliance.
-
-This module defines the interface for external metadata enrichment services,
-enabling proper dependency injection and testability.
-"""
+"""Protocol for external metadata enrichment services."""
 
 from typing import Any, Protocol
 
@@ -10,11 +6,7 @@ from src.domain.entities.track import TrackList
 
 
 class ExternalMetadataService(Protocol):
-    """Protocol for external metadata enrichment services.
-
-    This protocol defines the interface that infrastructure services
-    must implement to provide external metadata enrichment capabilities.
-    """
+    """Interface for services that enrich tracks with external metadata."""
 
     async def fetch_and_extract_metadata(
         self,
@@ -25,7 +17,7 @@ class ExternalMetadataService(Protocol):
         max_age_hours: float | None = None,
         **additional_options: Any,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
-        """Fetch external metadata and extract metrics.
+        """Enriches tracks with external metadata and extracts metrics.
 
         Args:
             tracklist: Tracks to enrich with external metadata.

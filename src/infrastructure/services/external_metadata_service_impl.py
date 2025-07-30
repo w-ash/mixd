@@ -1,7 +1,7 @@
-"""Concrete implementation of external metadata service.
+"""Service for enriching music tracks with external metadata from streaming platforms.
 
-This module provides the infrastructure implementation of external metadata
-enrichment, wrapping the existing TrackMetadataEnricher functionality.
+Fetches missing track metadata (audio features, play counts, etc.) from external
+APIs like Spotify and Last.fm, then extracts and stores metrics for analysis.
 """
 
 from typing import Any
@@ -21,10 +21,10 @@ logger = get_logger(__name__)
 
 
 class ExternalMetadataServiceImpl(ExternalMetadataService):
-    """Infrastructure implementation of external metadata service.
+    """Enriches tracks with external metadata from streaming platforms.
 
-    This service wraps the existing TrackMetadataEnricher to provide
-    Clean Architecture compliance through proper interface abstraction.
+    Coordinates fetching metadata from APIs like Spotify/Last.fm and extracting
+    metrics (audio features, popularity scores) for music analysis workflows.
     """
 
     def __init__(
@@ -33,12 +33,12 @@ class ExternalMetadataServiceImpl(ExternalMetadataService):
         connector_repo: ConnectorRepositoryProtocol,
         metrics_repo: MetricsRepositoryProtocol,
     ) -> None:
-        """Initialize with individual repository interfaces.
+        """Initialize service with data access repositories.
 
         Args:
-            track_repo: Core track repository for database operations.
-            connector_repo: Connector repository for identity and metadata operations.
-            metrics_repo: Metrics repository for storing calculated metrics.
+            track_repo: Repository for track database operations.
+            connector_repo: Repository for external API identity mapping.
+            metrics_repo: Repository for storing calculated metrics.
         """
         self.enricher = TrackMetricsManager(track_repo, connector_repo, metrics_repo)
 
@@ -51,21 +51,22 @@ class ExternalMetadataServiceImpl(ExternalMetadataService):
         max_age_hours: float | None = None,
         **additional_options: Any,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
-        """Fetch external metadata and extract metrics.
+        """Fetch external metadata and extract metrics for music tracks.
 
-        Delegates to the existing TrackMetadataEnricher for the actual work,
-        providing a clean interface for the application layer.
+        Gets missing metadata from streaming APIs (Spotify audio features, Last.fm
+        play counts, etc.) and extracts metrics for analysis. Uses cached data
+        when available to minimize API calls.
 
         Args:
-            tracklist: Tracks to enrich with external metadata.
-            connector: Connector name (e.g., 'spotify', 'lastfm').
-            connector_instance: Connector implementation instance.
-            extractors: Metric extractors for this connector.
-            max_age_hours: Override freshness policy.
-            **additional_options: Options forwarded to services.
+            tracklist: Tracks needing metadata enrichment.
+            connector: API source name ('spotify', 'lastfm', etc.).
+            connector_instance: Configured API client instance.
+            extractors: Functions to extract metrics from API responses.
+            max_age_hours: Override default cache expiration policy.
+            **additional_options: Connector-specific configuration.
 
         Returns:
-            Tuple of (enriched_tracklist, metrics_dictionary).
+            Tuple of enriched tracks and extracted metrics by track ID.
         """
         return await self.enricher.enrich_tracks(
             tracklist,

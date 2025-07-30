@@ -1,7 +1,8 @@
-"""Connector metadata management service.
+"""Manages track metadata from music service APIs (Spotify, Last.fm, etc).
 
-This service handles fetching, storing, and retrieving connector-specific track metadata.
-It focuses solely on metadata operations without any identity resolution or freshness decisions.
+Fetches fresh metadata from external APIs, stores it in the database with timestamps,
+and retrieves cached metadata. Optimizes API calls by using existing track mappings
+instead of expensive re-matching when possible.
 """
 
 from collections.abc import Awaitable, Callable
@@ -18,24 +19,17 @@ BatchTrackInfoMethod = Callable[..., Awaitable[dict[int, Any]]]
 
 
 class ConnectorMetadataManager:
-    """Manages connector-specific track metadata operations.
+    """Fetches and caches track metadata from music service APIs.
 
-    This service is responsible only for metadata operations:
-    - Fetching fresh metadata from connector APIs
-    - Storing metadata with timestamps in the database
-    - Retrieving cached metadata for tracks
-
-    It does NOT handle:
-    - Track identity resolution
-    - Freshness policy decisions
-    - Confidence scores or matching evidence
+    Reduces API calls by using direct lookups when tracks are already mapped
+    to external services, falling back to cached data when API calls fail.
     """
 
     def __init__(self, connector_repo: ConnectorRepositoryProtocol) -> None:
-        """Initialize with connector repository interface.
+        """Initialize metadata manager.
 
         Args:
-            connector_repo: Connector repository for metadata operations.
+            connector_repo: Database access for track metadata operations.
         """
         self.connector_repo = connector_repo
 
@@ -47,19 +41,20 @@ class ConnectorMetadataManager:
         track_ids_to_refresh: list[int],
         **additional_options: Any,
     ) -> tuple[dict[int, dict[str, Any]], set[int]]:
-        """Fetch fresh metadata from connector API for specific tracks.
+        """Update track metadata by calling the music service API.
+
+        Uses existing track mappings to make efficient direct API calls rather than
+        re-matching tracks. Stores successful results in database.
 
         Args:
-            identity_mappings: Track identity mappings from TrackIdentityResolver.
-            connector: Connector name.
-            connector_instance: Connector implementation.
-            track_ids_to_refresh: Track IDs that need fresh metadata.
-            **additional_options: Options forwarded to connector.
+            identity_mappings: Tracks mapped to external service IDs.
+            connector: Music service name (e.g., 'spotify', 'lastfm').
+            connector_instance: API client for the music service.
+            track_ids_to_refresh: Internal track IDs needing fresh metadata.
+            **additional_options: Extra parameters passed to API client.
 
         Returns:
-            Tuple of:
-            - Dictionary mapping track IDs to fresh metadata for successful fetches
-            - Set of track IDs that failed to fetch fresh metadata (for fallback to cached)
+            Fresh metadata dict by track ID and set of failed track IDs.
         """
         if not track_ids_to_refresh:
             return {}, set()
@@ -116,14 +111,14 @@ class ConnectorMetadataManager:
         track_ids: list[int],
         connector: str,
     ) -> dict[int, dict[str, Any]]:
-        """Get cached metadata for tracks from database.
+        """Retrieve previously stored track metadata from database.
 
         Args:
-            track_ids: Track IDs to get metadata for.
-            connector: Connector name.
+            track_ids: Internal track IDs to get metadata for.
+            connector: Music service name.
 
         Returns:
-            Dictionary mapping track IDs to cached metadata.
+            Metadata dict by track ID.
         """
         if not track_ids:
             return {}
@@ -152,16 +147,16 @@ class ConnectorMetadataManager:
         fresh_metadata: dict[int, dict[str, Any]] | None = None,
         failed_fresh_track_ids: set[int] | None = None,
     ) -> dict[int, dict[str, Any]]:
-        """Get all metadata for tracks, combining fresh and cached data with intelligent fallback.
+        """Combine fresh and cached metadata, using cached as fallback for API failures.
 
         Args:
-            track_ids: Track IDs to get metadata for.
-            connector: Connector name.
-            fresh_metadata: Fresh metadata to merge with cached data.
-            failed_fresh_track_ids: Track IDs that failed fresh fetch (should use cached only).
+            track_ids: Internal track IDs to get metadata for.
+            connector: Music service name.
+            fresh_metadata: Recently fetched metadata to merge.
+            failed_fresh_track_ids: Tracks that failed fresh fetch (use cached only).
 
         Returns:
-            Dictionary mapping track IDs to complete metadata.
+            Complete metadata dict by track ID.
         """
         if not track_ids:
             return {}
@@ -227,11 +222,11 @@ class ConnectorMetadataManager:
         fresh_metadata: dict[int, dict[str, Any]],
         connector: str,
     ) -> None:
-        """Store fresh metadata in database with current timestamp.
+        """Save newly fetched metadata to database with current timestamp.
 
         Args:
-            fresh_metadata: Fresh metadata to store.
-            connector: Connector name.
+            fresh_metadata: Metadata dict by track ID to store.
+            connector: Music service name.
         """
         if not fresh_metadata:
             return
@@ -345,16 +340,16 @@ class ConnectorMetadataManager:
     def _convert_track_info_results(
         self, track_info_results: dict[int, Any]
     ) -> dict[int, dict[str, Any]]:
-        """Convert track info objects to metadata dictionaries.
+        """Convert API response objects to standardized metadata dictionaries.
 
-        Single source of truth for metadata conversion logic.
-        Handles both to_dict() methods and attrs classes.
+        Handles different object types (attrs classes, dict objects, to_dict() methods)
+        returned by various music service APIs.
 
         Args:
-            track_info_results: Dictionary mapping track IDs to track info objects
+            track_info_results: Raw API response objects by track ID.
 
         Returns:
-            Dictionary mapping track IDs to metadata dictionaries
+            Standardized metadata dictionaries by track ID.
         """
         metadata = {}
 
@@ -383,20 +378,19 @@ class ConnectorMetadataManager:
         connector_instance: Any,
         **additional_options: Any,
     ) -> dict[int, dict[str, Any]]:
-        """Fetch metadata directly using connector IDs, bypassing expensive matching.
+        """Call music service API directly using existing track mappings.
 
-        This method is the key performance optimization - instead of running expensive
-        matching for tracks that already have connector mappings, we use direct API
-        calls with the existing connector IDs.
+        Avoids expensive track matching by using stored external service IDs.
+        Makes batch API calls for better performance and rate limit management.
 
         Args:
-            tracks_to_refresh: Dict of track_id -> MatchResult for tracks needing refresh
-            connector: Connector name
-            connector_instance: Connector implementation
-            **additional_options: Additional options forwarded to connector
+            tracks_to_refresh: Tracks needing refresh with their match results.
+            connector: Music service name.
+            connector_instance: API client for the music service.
+            **additional_options: Extra parameters passed to API client.
 
         Returns:
-            Dictionary mapping track IDs to fresh metadata
+            Fresh metadata dict by track ID.
         """
         if not tracks_to_refresh:
             return {}
@@ -434,9 +428,12 @@ class ConnectorMetadataManager:
                     connector_id = existing_mappings[track_id][connector]
                     track_id_to_connector_id[track_id] = connector_id
 
-                    # Use the track from the MatchResult
+                    # Use the track from the MatchResult - with null safety
                     track = result.track
-                    tracks_for_api.append(track)
+                    if track is not None:
+                        tracks_for_api.append(track)
+                    else:
+                        logger.warning(f"Skipping track_id {track_id} - MatchResult.track is None")
 
             if not tracks_for_api:
                 logger.warning(f"No valid connector mappings found for {connector}")

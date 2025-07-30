@@ -1,7 +1,7 @@
-"""GetLikedTracksUseCase for retrieving liked tracks from canonical database.
+"""Retrieves user's liked tracks from music database.
 
-This use case handles reading liked tracks from the database following Clean Architecture
-principles and the ultra-DRY approach of providing simple data without complex filtering.
+Fetches tracks that users have marked as liked on music services (Spotify, Last.fm).
+Supports filtering by service, sorting options, and limiting results count.
 """
 
 from datetime import UTC, datetime
@@ -18,36 +18,45 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class GetLikedTracksCommand:
-    """Command for retrieving liked tracks from canonical database.
+    """Configuration for retrieving liked tracks.
 
-    Follows ultra-DRY principle - minimal config with composition through transforms.
+    Attributes:
+        limit: Maximum number of tracks to return (1-10000).
+        connector_filter: Optional service name to filter by ("spotify", "lastfm").
+        sort_by: Optional sort method ("liked_at_desc", "liked_at_asc", "title_asc", "random").
+        timestamp: When the command was created.
     """
 
     limit: int = 10000  # Maximum tracks to retrieve
-    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    connector_filter: str | None = (
+        None  # Optional service filter ("spotify", "lastfm", etc.)
+    )
     sort_by: str | None = None  # Optional sorting method
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if command parameters are valid.
 
         Returns:
-            True if command is valid for execution
+            True if limit is 1-10000 and sort_by is a valid option.
         """
         valid_limit = self.limit > 0 and self.limit <= 10000
-        
+
         # Validate sort_by if provided
         valid_sort_options = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
         valid_sort = self.sort_by is None or self.sort_by in valid_sort_options
-        
+
         return valid_limit and valid_sort
 
 
 @define(frozen=True, slots=True)
 class GetLikedTracksResult:
-    """Result of liked tracks retrieval operation.
+    """Result of liked tracks retrieval.
 
-    Contains the retrieved tracklist and operation metadata.
+    Attributes:
+        tracklist: Retrieved tracks with metadata.
+        execution_time_ms: How long the operation took in milliseconds.
+        errors: List of error messages if any occurred.
     """
 
     tracklist: TrackList
@@ -56,7 +65,7 @@ class GetLikedTracksResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of the retrieval operation."""
+        """Summary stats for the retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),
             "connector_filter": self.tracklist.metadata.get("connector_filter"),
@@ -67,32 +76,26 @@ class GetLikedTracksResult:
 
 @define(slots=True)
 class GetLikedTracksUseCase:
-    """Use case for retrieving liked tracks from canonical database.
+    """Service for retrieving user's liked tracks from music database.
 
-    Follows ultra-DRY principle by providing simple data retrieval without
-    complex filtering. Users compose complex behavior using existing transforms
-    from src/domain/transforms/core.py.
-
-    Clean Architecture compliance:
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Business logic separated from workflow orchestration
+    Fetches tracks marked as liked on music services, with optional filtering by
+    service (Spotify/Last.fm) and sorting. Returns up to 10,000 tracks per request.
     """
 
     async def execute(
         self, command: GetLikedTracksCommand, uow: UnitOfWorkProtocol
     ) -> GetLikedTracksResult:
-        """Execute liked tracks retrieval operation.
+        """Retrieves liked tracks based on command criteria.
 
         Args:
-            command: Command with retrieval criteria
-            uow: UnitOfWork for repository access
+            command: Configuration for which tracks to retrieve.
+            uow: Database connection manager.
 
         Returns:
-            Result with tracklist and operational metadata
+            Retrieved tracks with execution metadata.
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command validation fails.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -141,14 +144,14 @@ class GetLikedTracksUseCase:
     async def _get_liked_tracks(
         self, command: GetLikedTracksCommand, uow: UnitOfWorkProtocol
     ) -> TrackList:
-        """Retrieve liked tracks from database.
+        """Fetches liked tracks from database repositories.
 
         Args:
-            command: Command with retrieval criteria
-            uow: UnitOfWork for repository access
+            command: Configuration for which tracks to retrieve.
+            uow: Database connection manager.
 
         Returns:
-            TrackList with liked tracks and metadata
+            TrackList with liked tracks and operation metadata.
         """
         like_repo = uow.get_like_repository()
         track_repo = uow.get_track_repository()
@@ -178,7 +181,9 @@ class GetLikedTracksUseCase:
 
         # Get tracks in bulk
         tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
-        tracks = [tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict]
+        tracks = [
+            tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict
+        ]
 
         # Create tracklist with metadata for composition
         tracklist = TrackList(

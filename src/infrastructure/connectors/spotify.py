@@ -126,7 +126,7 @@ class SpotifyConnector(BaseAPIConnector):
         return str(get_config("SPOTIFY_MARKET", "US"))
 
     def __attrs_post_init__(self) -> None:
-        """Initialize Spotify client with OAuth configuration."""
+        """Initialize Spotify client with OAuth configuration and timeout settings."""
         logger.debug("Initializing Spotify connector")
         self.client = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
@@ -140,6 +140,8 @@ class SpotifyConnector(BaseAPIConnector):
                 open_browser=True,
                 cache_handler=spotipy.CacheFileHandler(cache_path=".spotify_cache"),
             ),
+            requests_timeout=self.get_connector_config("REQUEST_TIMEOUT", 15),
+            retries=self.get_connector_config("RETRIES", 5),
         )
 
     @resilient_operation("get_spotify_tracks_by_ids")

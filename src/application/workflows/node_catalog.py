@@ -1,8 +1,12 @@
-"""
-Workflow nodes for the Narada transformation pipeline.
+"""Register workflow nodes for music data processing pipeline.
 
-This module registers all available nodes using a declarative pattern,
-focusing on node definition rather than implementation details.
+This module defines all available nodes that process track collections through
+import, enrichment, filtering, sorting, and export stages. Each node handles
+specific music data operations like fetching playlists from Spotify, adding
+Last.fm play counts, filtering by release date, or creating new playlists.
+
+The registration pattern maps node IDs (e.g., "source.playlist") to their
+implementations, enabling workflow composition through configuration files.
 """
 
 from .node_factories import (
@@ -21,7 +25,7 @@ node(
     output_type="tracklist",
 )(playlist_source)
 
-# Ultra-DRY data source nodes for composition with existing transforms
+# Basic data sources that work with filter and sorter nodes
 node(
     "source.liked_tracks",
     description="Retrieves liked tracks from canonical database for composition with filters/sorters",
@@ -29,7 +33,7 @@ node(
 )(source_liked_tracks)
 
 node(
-    "source.played_tracks", 
+    "source.played_tracks",
     description="Retrieves tracks from play history for composition with filters/sorters",
     output_type="tracklist",
 )(source_played_tracks)

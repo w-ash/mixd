@@ -64,7 +64,7 @@ narada playlist list
 
 ## Workflow System
 
-Narada uses a powerful workflow system to create and transform playlists. Workflows are defined in JSON files and processed through a directed acyclic graph (DAG) of nodes.
+Narada uses a customizable workflow system to create and transform playlists. Workflows are defined in JSON files and processed through a directed acyclic graph (DAG) of nodes.
 
 ### Running Workflows
 

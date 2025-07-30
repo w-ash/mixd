@@ -1,8 +1,7 @@
-"""SyncPlaylistUseCase for orchestrating canonical and connector playlist operations.
+"""Synchronizes playlist track changes across local database and external services.
 
-This use case coordinates updates between internal (canonical) playlists and
-external service (connector) playlists, ensuring proper sequencing and
-transaction management across both systems.
+Updates both the internal database (canonical) and external platforms like Spotify
+with new track lists, handling failures gracefully and providing detailed operation metrics.
 """
 
 from datetime import UTC, datetime
@@ -31,10 +30,20 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class SyncPlaylistCommand:
-    """Command for synchronizing a playlist across canonical and connector systems.
+    """Parameters for updating a playlist across local database and external services.
 
-    Encapsulates all information needed to update both internal database and
-    external service playlists with proper coordination.
+    Args:
+        playlist_id: Unique identifier for the playlist to update.
+        new_tracklist: Complete list of tracks to set as the playlist content.
+        target_connectors: External services to update (defaults to ["spotify"]).
+        update_canonical: Whether to update the local database.
+        update_connectors: Whether to update external services.
+        dry_run: If True, simulate changes without making actual updates.
+        preserve_timestamps: Whether to maintain track ordering for external services.
+        batch_size: Maximum tracks per API request (max 100 for Spotify).
+        max_api_calls: Maximum API requests allowed per external service.
+        metadata: Additional context data for the operation.
+        timestamp: When this command was created.
     """
 
     playlist_id: str
@@ -52,10 +61,10 @@ class SyncPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Validates command parameters meet business requirements.
 
         Returns:
-            True if command is valid for execution
+            True if all validation rules pass, False otherwise.
         """
         if not self.playlist_id:
             return False
@@ -77,10 +86,17 @@ class SyncPlaylistCommand:
 
 @define(frozen=True, slots=True)
 class SyncPlaylistResult:
-    """Result of playlist synchronization operation.
+    """Detailed results from updating a playlist across local database and external services.
 
-    Contains results from both canonical and connector operations with
-    comprehensive metadata for monitoring and debugging.
+    Args:
+        playlist: Final state of the playlist after all updates.
+        canonical_result: Results from updating the local database (None if skipped).
+        connector_results: Results from each external service, keyed by service name.
+        total_operations_performed: Sum of all database and API operations.
+        total_api_calls_made: Total external API requests across all services.
+        execution_time_ms: How long the entire operation took in milliseconds.
+        errors: List of error messages from failed operations.
+        warnings: List of warning messages from partial failures.
     """
 
     playlist: Playlist
@@ -94,7 +110,7 @@ class SyncPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of all synchronization operations."""
+        """Creates a structured summary of all sync operations for logging and monitoring."""
         canonical_summary = (
             self.canonical_result.operation_summary if self.canonical_result else {}
         )
@@ -118,14 +134,15 @@ class SyncPlaylistResult:
 
 @define(slots=True)
 class SyncPlaylistUseCase:
-    """Use case for synchronizing playlists across canonical and connector systems.
+    """Updates playlist tracks in both local database and external services like Spotify.
 
-    Orchestrates updates between internal database and external services following
-    Clean Architecture principles:
-    - Coordinates canonical and connector use cases
-    - Ensures proper transaction boundaries
-    - Provides comprehensive error handling and reporting
-    - Maintains consistency across systems
+    Coordinates playlist updates across multiple systems, handling partial failures
+    gracefully and providing detailed metrics for monitoring. Updates the local
+    database first, then external services, collecting results from each operation.
+
+    Args:
+        canonical_use_case: Handles updates to the local database.
+        connector_use_case: Handles updates to external services.
     """
 
     canonical_use_case: UpdateCanonicalPlaylistUseCase = field(
@@ -138,17 +155,17 @@ class SyncPlaylistUseCase:
     async def execute(
         self, command: SyncPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> SyncPlaylistResult:
-        """Execute playlist synchronization operation.
+        """Updates playlist tracks in local database and external services.
 
         Args:
-            command: Command with synchronization context
-            uow: UnitOfWork for transaction management and repository access
+            command: Parameters specifying what to update and how.
+            uow: Database transaction manager and repository access.
 
         Returns:
-            Result with comprehensive synchronization status
+            Detailed results including operation counts, timing, and any errors.
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command validation fails.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")

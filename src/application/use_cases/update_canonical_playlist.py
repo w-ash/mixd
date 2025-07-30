@@ -1,8 +1,8 @@
-"""UpdateCanonicalPlaylistUseCase for pure internal database playlist updates.
+"""Updates internal playlists by adding, removing, or reordering tracks.
 
-This use case handles updates to canonical (internal) playlists using the DRY
-diff engine without external service dependencies. It focuses purely on
-database operations following Clean Architecture principles.
+Manages playlist modifications in the local database without syncing to external
+music services. Supports both append mode (add tracks to end) and differential
+mode (calculate minimal changes to transform current playlist into target state).
 """
 
 from datetime import UTC, datetime
@@ -32,10 +32,17 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class UpdateCanonicalPlaylistCommand:
-    """Command for updating a canonical playlist.
+    """Command containing all data needed to update a playlist.
 
-    Encapsulates all information needed to update an internal playlist
-    with new tracks and metadata using differential operations.
+    Args:
+        playlist_id: Internal database ID of playlist to modify
+        new_tracklist: Target tracks the playlist should contain after update
+        dry_run: If True, calculate changes but don't save to database
+        append_mode: If True, add tracks to end; if False, replace entire playlist
+        playlist_name: New name for playlist (optional)
+        playlist_description: New description for playlist (optional)
+        metadata: Additional custom metadata to store
+        timestamp: When this command was created
     """
 
     playlist_id: str
@@ -48,10 +55,10 @@ class UpdateCanonicalPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if command has required data for execution.
 
         Returns:
-            True if command is valid for execution
+            True if playlist_id exists and tracklist has tracks
         """
         if not self.playlist_id:
             return False
@@ -61,10 +68,17 @@ class UpdateCanonicalPlaylistCommand:
 
 @define(frozen=True, slots=True)
 class UpdateCanonicalPlaylistResult:
-    """Result of canonical playlist update operation.
+    """Results from a playlist update operation.
 
-    Contains the updated playlist, operation statistics, and performance
-    metrics for monitoring and debugging purposes.
+    Attributes:
+        playlist: The updated playlist entity
+        operations_performed: Total number of database operations executed
+        tracks_added: Number of tracks added to playlist
+        tracks_removed: Number of tracks removed from playlist
+        tracks_moved: Number of tracks that changed position
+        execution_time_ms: How long the operation took in milliseconds
+        confidence_score: How confident the diff algorithm was (0.0-1.0)
+        errors: List of error messages if any operations failed
     """
 
     playlist: Playlist
@@ -78,7 +92,7 @@ class UpdateCanonicalPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of operations performed."""
+        """Returns operation statistics as a dictionary."""
         return {
             "playlist_id": self.playlist.id,
             "operations_performed": self.operations_performed,
@@ -93,15 +107,14 @@ class UpdateCanonicalPlaylistResult:
 
 @define(slots=True)
 class UpdateCanonicalPlaylistUseCase:
-    """Use case for updating canonical (internal) playlists using DRY diff engine.
+    """Updates playlists stored in the local database.
 
-    Handles pure database operations for playlist updates following
-    Clean Architecture principles with UnitOfWork pattern:
-    - Uses DRY diff engine from domain layer
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Explicit transaction control in business logic
-    - Simplified testing with single UnitOfWork mock
+    Handles two update modes:
+    1. Append mode: Adds new tracks to the end of existing playlist
+    2. Differential mode: Calculates minimal changes to transform current
+       playlist into target state, preserving as many existing tracks as possible
+
+    Also extracts music metadata from track connector data for analytics.
     """
 
     metrics_service: MetricsApplicationService = field(
@@ -111,17 +124,17 @@ class UpdateCanonicalPlaylistUseCase:
     async def execute(
         self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> UpdateCanonicalPlaylistResult:
-        """Execute canonical playlist update operation.
+        """Updates a playlist with new tracks and optionally new metadata.
 
         Args:
-            command: Command with playlist update context
-            uow: UnitOfWork for transaction management and repository access
+            command: Contains playlist ID, target tracks, and update options
+            uow: Database transaction manager and repository access
 
         Returns:
-            Result with updated playlist and operational metadata
+            Result containing updated playlist and operation statistics
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command validation fails or playlist ID is invalid
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -168,7 +181,7 @@ class UpdateCanonicalPlaylistUseCase:
                             command.new_tracklist.tracks, uow
                         )
                 else:
-                    # Overwrite mode: use DRY diff engine with preservation
+                    # Overwrite mode: use diff engine with preservation
                     diff = await calculate_playlist_diff(
                         current_playlist, command.new_tracklist, uow
                     )
@@ -248,16 +261,17 @@ class UpdateCanonicalPlaylistUseCase:
     async def _get_current_playlist(
         self, playlist_id: str, uow: UnitOfWorkProtocol
     ) -> Playlist:
-        """Retrieve current playlist state from database.
-
-        For canonical use case, playlist_id is always a canonical/internal ID.
+        """Loads playlist from database by its internal ID.
 
         Args:
-            playlist_id: Internal playlist ID
-            uow: UnitOfWork for repository access
+            playlist_id: Internal database ID of playlist
+            uow: Database transaction manager
 
         Returns:
             Current playlist entity
+
+        Raises:
+            ValueError: If playlist_id is not a valid integer
         """
         playlist_repo = uow.get_playlist_repository()
 
@@ -275,15 +289,16 @@ class UpdateCanonicalPlaylistUseCase:
         diff: PlaylistDiff,
         uow: UnitOfWorkProtocol,
     ) -> tuple[Playlist, int, int, int, int]:
-        """Execute the differential operations on the playlist.
+        """Applies calculated add/remove operations to transform playlist.
 
         Args:
-            current_playlist: Current playlist state
-            diff: Calculated operations to perform
-            uow: UnitOfWork for repository access
+            current_playlist: Playlist before changes
+            diff: Calculated operations to apply (adds and removes)
+            uow: Database transaction manager
 
         Returns:
-            Tuple of (updated_playlist, operations_performed, tracks_added, tracks_removed, tracks_moved)
+            Tuple of (updated_playlist, operations_performed, tracks_added,
+                     tracks_removed, tracks_moved)
         """
         logger.debug(f"Executing {len(diff.operations)} operations")
 
@@ -359,15 +374,15 @@ class UpdateCanonicalPlaylistUseCase:
         command: UpdateCanonicalPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
-        """Update playlist metadata (name/description).
+        """Updates playlist name and/or description if provided in command.
 
         Args:
-            current_playlist: Current playlist state
-            command: Command with metadata updates
-            uow: UnitOfWork for repository access
+            current_playlist: Playlist to update
+            command: Contains optional new name and description
+            uow: Database transaction manager
 
         Returns:
-            Updated playlist with new metadata
+            Playlist with updated metadata, or unchanged playlist if no updates
         """
         updates = {}
         if command.playlist_name:
@@ -405,13 +420,15 @@ class UpdateCanonicalPlaylistUseCase:
         uow: UnitOfWorkProtocol,
         dry_run: bool,
     ) -> tuple[Playlist, int, int]:
-        """Append new tracks to the end of existing playlist.
+        """Adds new unique tracks to the end of the playlist.
+
+        Filters out tracks that already exist in the playlist to prevent duplicates.
 
         Args:
-            current_playlist: Current playlist state
-            new_tracklist: Tracks to append
-            uow: UnitOfWork for repository access
-            dry_run: Whether to actually persist changes
+            current_playlist: Playlist to append tracks to
+            new_tracklist: Tracks to add (duplicates will be filtered out)
+            uow: Database transaction manager
+            dry_run: If True, calculate result but don't save to database
 
         Returns:
             Tuple of (updated_playlist, operations_performed, tracks_added)
@@ -461,11 +478,14 @@ class UpdateCanonicalPlaylistUseCase:
     async def _extract_track_metrics(
         self, tracks: list["Track"], uow: UnitOfWorkProtocol
     ) -> None:
-        """Extract metrics from connector metadata for all tracks.
+        """Extracts analytics metrics from track metadata for each music service.
+
+        Processes connector metadata (from Spotify, Last.fm, etc.) to extract
+        standardized metrics like popularity, energy, and danceability for storage.
 
         Args:
-            tracks: List of tracks to extract metrics for
-            uow: UnitOfWork for transaction management
+            tracks: Tracks containing connector metadata to process
+            uow: Database transaction manager
         """
         if not tracks:
             return

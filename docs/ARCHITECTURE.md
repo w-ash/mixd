@@ -41,7 +41,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 #### Application Layer (`src/application/`)
 - **Purpose**: Orchestration and transaction boundary management
 - **Contents**: Use case implementations, workflow definitions, business services
-- **Examples**: ImportTracksUseCase, WorkflowExecutor, PlaylistOrchestrator
+- **Examples**: ImportPlayHistoryUseCase, WorkflowExecutor, PlaylistOrchestrator
 - **Responsibilities**: 
   - **Orchestrates business processes**: Coordinates the steps involved in complex operations (fetching, comparing, filtering, saving)
   - **Controls transaction boundaries**: Decides when transactions begin, commit, or rollback based on business logic
@@ -82,8 +82,8 @@ The application layer serves as the conductor of business operations, coordinati
 The application layer owns transaction control logic:
 
 ```python
-class ImportTracksUseCase:
-    async def execute(self, command: ImportTracksCommand, uow: UnitOfWork):
+class ImportPlayHistoryUseCase:
+    async def execute(self, command: ImportPlayHistoryCommand, uow: UnitOfWork):
         async with uow:
             track_repo = uow.get_track_repository()
             connector_repo = uow.get_connector_repository()
@@ -588,7 +588,7 @@ async with DatabaseProgressContext(...) as progress:
     # Each operation gets its own short-lived session
     async def _import_operation(repositories: TrackRepositories) -> OperationResult:
         # Session created and closed automatically
-        return await service.import_tracks(...)
+        return await service.import_play_history(...)
     
     return await progress.run_with_repositories(_import_operation)
 ```

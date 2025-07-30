@@ -1,8 +1,9 @@
-"""Consolidated like service for all like-related operations.
+"""Synchronizes liked tracks between Spotify and Last.fm.
 
-Provides unified interface for importing, exporting, and synchronizing
-track likes between different music services. Handles progress reporting
-and checkpoint management for incremental sync operations.
+Imports liked tracks from Spotify user libraries and exports them to Last.fm as "loved" tracks.
+Supports incremental syncing with checkpoints to resume interrupted operations and avoid
+re-processing previously synced tracks. Handles batch processing for API rate limits
+and provides detailed progress reporting.
 """
 
 from collections.abc import Callable, Coroutine
@@ -18,10 +19,16 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-# Command classes for Clean Architecture use case pattern
+# Command classes for use case operations
 @define(frozen=True, slots=True)
 class ImportSpotifyLikesCommand:
-    """Command for importing liked tracks from Spotify."""
+    """Parameters for importing liked tracks from a Spotify user's library.
+
+    Args:
+        user_id: Spotify user identifier for the import operation
+        limit: Maximum tracks to fetch per API request (defaults to config value)
+        max_imports: Total limit on tracks to import (unlimited if None)
+    """
 
     user_id: str
     limit: int | None = None
@@ -30,33 +37,41 @@ class ImportSpotifyLikesCommand:
 
 @define(frozen=True, slots=True)
 class ExportLastFmLikesCommand:
-    """Command for exporting liked tracks to Last.fm."""
+    """Parameters for exporting liked tracks to Last.fm as "loved" tracks.
+
+    Args:
+        user_id: Last.fm user identifier for the export operation
+        batch_size: Number of tracks to process per batch (defaults to config value)
+        max_exports: Total limit on tracks to export (unlimited if None)
+    """
 
     user_id: str
     batch_size: int | None = None
     max_exports: int | None = None
 
 
-# Service connector protocols are now defined in domain layer interfaces
-
-
-# LikeImportResult and LikeExportResult classes removed
-# All functionality is now available in the unified OperationResult class
-
-
-# Clean Architecture Use Cases - Replacing LikeService with proper use case pattern
+# Use case implementations
 @define(slots=True)
 class ImportSpotifyLikesUseCase:
-    """Use case for importing liked tracks from Spotify.
+    """Imports liked tracks from Spotify user libraries into the local database.
 
-    Follows Clean Architecture pattern with UnitOfWork parameter injection.
-    No constructor dependencies - pure domain layer compliance.
+    Fetches tracks from Spotify's liked songs API, stores new tracks in the database,
+    and marks them as liked for both Spotify and Narada services. Uses pagination
+    to handle large libraries and checkpoints for resumable operations.
     """
 
     async def execute(
         self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Execute Spotify likes import with explicit transaction control."""
+        """Imports Spotify liked tracks with database transaction management.
+
+        Args:
+            command: Import parameters including user ID and limits
+            uow: Database transaction and repository access
+
+        Returns:
+            Results including count of imported tracks and already synced tracks
+        """
         async with uow:
             return await self._import_spotify_likes_internal(
                 command.user_id, uow, command.limit, command.max_imports
@@ -69,7 +84,21 @@ class ImportSpotifyLikesUseCase:
         limit: int | None = None,
         max_imports: int | None = None,
     ) -> OperationResult:
-        """Internal implementation of Spotify likes import."""
+        """Fetches and stores Spotify liked tracks in batches with pagination.
+
+        Processes tracks from Spotify API, checks for existing tracks to avoid duplicates,
+        ingests new tracks with metadata, and marks all tracks as liked. Stops early
+        when encountering mostly previously synced tracks for efficiency.
+
+        Args:
+            user_id: Spotify user identifier
+            uow: Database transaction and repository access
+            limit: Maximum tracks per API batch
+            max_imports: Total import limit
+
+        Returns:
+            Import results with counts of processed tracks
+        """
         # Get optimal batch size from config
         api_batch_size = limit or get_config("SPOTIFY_API_BATCH_SIZE", 50) or 50
 
@@ -214,10 +243,13 @@ class ImportSpotifyLikesUseCase:
         )
 
     def _get_spotify_connector(self, uow: UnitOfWorkProtocol) -> Any:
-        """Get Spotify connector from UnitOfWork.
+        """Retrieves Spotify API connector for fetching liked tracks.
+
+        Args:
+            uow: Database transaction and repository access
 
         Returns:
-            Spotify connector instance (expected to have get_liked_tracks method)
+            Spotify connector with get_liked_tracks method
         """
         service_connector_provider = uow.get_service_connector_provider()
         return service_connector_provider.get_connector("spotify")
@@ -229,7 +261,17 @@ class ImportSpotifyLikesUseCase:
         entity_type: Literal["likes", "plays"],
         uow: UnitOfWorkProtocol,
     ) -> SyncCheckpoint:
-        """Get existing checkpoint or create a new one."""
+        """Retrieves existing sync checkpoint or creates new one for resumable operations.
+
+        Args:
+            user_id: User identifier for the sync operation
+            service: Music service name (spotify, lastfm, etc.)
+            entity_type: Type of data being synced (likes or plays)
+            uow: Database transaction and repository access
+
+        Returns:
+            Checkpoint tracking sync progress and pagination state
+        """
         checkpoint_repo = uow.get_checkpoint_repository()
         checkpoint = await checkpoint_repo.get_sync_checkpoint(
             user_id=user_id,
@@ -253,7 +295,17 @@ class ImportSpotifyLikesUseCase:
         cursor: str | None = None,
         uow: UnitOfWorkProtocol | None = None,
     ) -> SyncCheckpoint:
-        """Update the checkpoint with new timestamp and cursor."""
+        """Updates sync checkpoint with new progress timestamp and pagination cursor.
+
+        Args:
+            checkpoint: Existing checkpoint to update
+            timestamp: New sync timestamp (defaults to current time)
+            cursor: API pagination cursor for next request
+            uow: Database transaction and repository access
+
+        Returns:
+            Updated checkpoint saved to database
+        """
         updated = checkpoint.with_update(
             timestamp=timestamp or datetime.now(UTC),
             cursor=cursor,
@@ -272,7 +324,15 @@ class ImportSpotifyLikesUseCase:
         services: list[str] | None = None,
         uow: UnitOfWorkProtocol | None = None,
     ) -> None:
-        """Save like status to multiple services at once."""
+        """Records track like status across multiple music services.
+
+        Args:
+            track_id: Database ID of the track to mark as liked
+            timestamp: When the like was recorded (defaults to current time)
+            is_liked: Whether track is liked (True) or unliked (False)
+            services: List of service names to update (defaults to ["narada"])
+            uow: Database transaction and repository access
+        """
         services = services or ["narada"]
         now = timestamp or datetime.now(UTC)
 
@@ -294,7 +354,16 @@ class ImportSpotifyLikesUseCase:
         services: list[str],
         uow: UnitOfWorkProtocol,
     ) -> bool:
-        """Check if track is already liked in all specified services."""
+        """Checks if track is already marked as liked in all specified services.
+
+        Args:
+            track_id: Database ID of the track to check
+            services: List of service names to check
+            uow: Database transaction and repository access
+
+        Returns:
+            True if track is liked in all services, False otherwise
+        """
         like_repo = uow.get_like_repository()
         for service in services:
             likes = await like_repo.get_track_likes(
@@ -308,16 +377,25 @@ class ImportSpotifyLikesUseCase:
 
 @define(slots=True)
 class ExportLastFmLikesUseCase:
-    """Use case for exporting liked tracks to Last.fm.
+    """Exports locally liked tracks to Last.fm as "loved" tracks.
 
-    Follows Clean Architecture pattern with UnitOfWork parameter injection.
-    No constructor dependencies - pure domain layer compliance.
+    Finds tracks liked in the local database but not yet marked as loved on Last.fm,
+    then uses Last.fm API to love them. Supports incremental syncing to only process
+    tracks liked since the last export operation.
     """
 
     async def execute(
         self, command: ExportLastFmLikesCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Execute Last.fm likes export with explicit transaction control."""
+        """Exports liked tracks to Last.fm with database transaction management.
+
+        Args:
+            command: Export parameters including user ID and limits
+            uow: Database transaction and repository access
+
+        Returns:
+            Results including count of exported tracks and skipped tracks
+        """
         async with uow:
             return await self._export_likes_to_lastfm_internal(
                 command.user_id, uow, command.batch_size, command.max_exports
@@ -330,7 +408,21 @@ class ExportLastFmLikesUseCase:
         batch_size: int | None = None,
         max_exports: int | None = None,
     ) -> OperationResult:
-        """Internal implementation of Last.fm likes export."""
+        """Finds unsynced liked tracks and exports them to Last.fm in batches.
+
+        Identifies tracks liked locally but not on Last.fm, then calls Last.fm API
+        to love each track. Processes in batches to respect API rate limits and
+        updates sync checkpoints for resumable operations.
+
+        Args:
+            user_id: Last.fm user identifier
+            uow: Database transaction and repository access
+            batch_size: Number of tracks per API batch
+            max_exports: Total export limit
+
+        Returns:
+            Export results with counts of processed tracks
+        """
         # Use Last.fm specific batch size from config
         api_batch_size = batch_size or get_config("LASTFM_API_BATCH_SIZE", 20) or 20
 
@@ -448,10 +540,13 @@ class ExportLastFmLikesUseCase:
         )
 
     def _get_lastfm_connector(self, uow: UnitOfWorkProtocol) -> Any:
-        """Get Last.fm connector from UnitOfWork.
+        """Retrieves Last.fm API connector for loving tracks.
+
+        Args:
+            uow: Database transaction and repository access
 
         Returns:
-            Last.fm connector instance (expected to have love_track method)
+            Last.fm connector with love_track method
         """
         service_connector_provider = uow.get_service_connector_provider()
         return service_connector_provider.get_connector("lastfm")
@@ -463,7 +558,17 @@ class ExportLastFmLikesUseCase:
         entity_type: Literal["likes", "plays"],
         uow: UnitOfWorkProtocol,
     ) -> SyncCheckpoint:
-        """Get existing checkpoint or create a new one."""
+        """Retrieves existing sync checkpoint or creates new one for resumable operations.
+
+        Args:
+            user_id: User identifier for the sync operation
+            service: Music service name (spotify, lastfm, etc.)
+            entity_type: Type of data being synced (likes or plays)
+            uow: Database transaction and repository access
+
+        Returns:
+            Checkpoint tracking sync progress and pagination state
+        """
         checkpoint_repo = uow.get_checkpoint_repository()
         checkpoint = await checkpoint_repo.get_sync_checkpoint(
             user_id=user_id,
@@ -487,7 +592,17 @@ class ExportLastFmLikesUseCase:
         cursor: str | None = None,
         uow: UnitOfWorkProtocol | None = None,
     ) -> SyncCheckpoint:
-        """Update the checkpoint with new timestamp and cursor."""
+        """Updates sync checkpoint with new progress timestamp and pagination cursor.
+
+        Args:
+            checkpoint: Existing checkpoint to update
+            timestamp: New sync timestamp (defaults to current time)
+            cursor: API pagination cursor for next request
+            uow: Database transaction and repository access
+
+        Returns:
+            Updated checkpoint saved to database
+        """
         updated = checkpoint.with_update(
             timestamp=timestamp or datetime.now(UTC),
             cursor=cursor,
@@ -506,7 +621,18 @@ class ExportLastFmLikesUseCase:
         since_timestamp: datetime | None = None,
         uow: UnitOfWorkProtocol | None = None,
     ) -> list[Any]:
-        """Get tracks that need like status syncing."""
+        """Finds tracks liked in source service but not target service.
+
+        Args:
+            source_service: Service to get liked tracks from (e.g., "narada")
+            target_service: Service to check for missing likes (e.g., "lastfm")
+            is_liked: Whether to find liked (True) or unliked (False) tracks
+            since_timestamp: Only include tracks liked since this time
+            uow: Database transaction and repository access
+
+        Returns:
+            List of track like records that need syncing
+        """
         if uow is None:
             raise ValueError("UnitOfWork is required for getting unsynced likes")
         like_repo = uow.get_like_repository()
@@ -526,7 +652,17 @@ class ExportLastFmLikesUseCase:
         ],
         uow: UnitOfWorkProtocol,
     ) -> list[dict]:
-        """Unified batch processor that replaces duplicate processing patterns."""
+        """Processes tracks in a batch using a specified processing function.
+
+        Args:
+            tracks: List of tracks to process
+            connector: Music service API connector
+            processor_func: Function to apply to each track
+            uow: Database transaction and repository access
+
+        Returns:
+            List of results for each processed track with status information
+        """
         results = []
 
         for track in tracks:
@@ -546,12 +682,15 @@ class ExportLastFmLikesUseCase:
     async def _love_track_on_lastfm(
         self, track: Track, connector: Any, uow: UnitOfWorkProtocol
     ) -> dict:
-        """Process a single track for Last.fm loving.
+        """Calls Last.fm API to love a track and records the result.
 
         Args:
             track: Track to love on Last.fm
-            connector: Music service connector (expected to have love_track method)
-            uow: Unit of work for transaction management
+            connector: Last.fm API connector with love_track method
+            uow: Database transaction and repository access
+
+        Returns:
+            Dict with track_id, status ("exported", "skipped", "error"), and optional error message
         """
         if not track.artists:
             return {
@@ -602,7 +741,15 @@ class ExportLastFmLikesUseCase:
         services: list[str] | None = None,
         uow: UnitOfWorkProtocol | None = None,
     ) -> None:
-        """Save like status to multiple services at once."""
+        """Records track like status across multiple music services.
+
+        Args:
+            track_id: Database ID of the track to mark as liked
+            timestamp: When the like was recorded (defaults to current time)
+            is_liked: Whether track is liked (True) or unliked (False)
+            services: List of service names to update (defaults to ["narada"])
+            uow: Database transaction and repository access
+        """
         services = services or ["narada"]
         now = timestamp or datetime.now(UTC)
 
@@ -625,11 +772,10 @@ async def run_spotify_likes_import(
     limit: int | None = None,
     max_imports: int | None = None,
 ) -> OperationResult:
-    """Application layer interface for Spotify likes import.
+    """Imports Spotify liked tracks into the local database.
 
-    Provides a clean boundary between CLI and use case layers by handling
-    command object creation, use case instantiation, and session management.
-    This follows Clean Architecture patterns for interface layers.
+    Creates database session and executes Spotify import use case with the provided
+    parameters. Handles session management and dependency injection automatically.
 
     Args:
         user_id: Spotify user ID for the import operation
@@ -656,11 +802,10 @@ async def run_lastfm_likes_export(
     batch_size: int | None = None,
     max_exports: int | None = None,
 ) -> OperationResult:
-    """Application layer interface for Last.fm likes export.
+    """Exports locally liked tracks to Last.fm as loved tracks.
 
-    Provides a clean boundary between CLI and use case layers by handling
-    command object creation, use case instantiation, and session management.
-    This follows Clean Architecture patterns for interface layers.
+    Creates database session and executes Last.fm export use case with the provided
+    parameters. Handles session management and dependency injection automatically.
 
     Args:
         user_id: Last.fm user ID for the export operation

@@ -1,7 +1,7 @@
 """Narada domain layer - pure business logic with zero external dependencies."""
 
 # Export all domain components
-from . import entities, matching, transforms
+from . import entities, matching, services, transforms
 
 # Re-export key types for convenience
 from .entities import (
@@ -21,6 +21,8 @@ from .matching import (
     calculate_confidence,
     calculate_title_similarity,
 )
+
+# TrackMatchingService has been replaced by TrackMatchEvaluationService in matching module
 from .transforms import (
     Transform,
     concatenate,
@@ -33,9 +35,7 @@ from .transforms import (
 )
 
 __all__ = [
-    # Key domain types
     "Artist",
-    # Matching types
     "ConfidenceEvidence",
     "MatchResult",
     "OperationResult",
@@ -45,20 +45,19 @@ __all__ = [
     "Track",
     "TrackList",
     "TrackPlay",
-    # Transform functions
     "Transform",
     "WorkflowResult",
     "calculate_confidence",
     "calculate_title_similarity",
     "concatenate",
     "create_pipeline",
-    # Modules
     "entities",
     "filter_by_predicate",
     "filter_duplicates",
     "limit",
     "matching",
     "rename",
+    "services",
     "sort_by_attribute",
     "transforms",
 ]

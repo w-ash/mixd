@@ -1,10 +1,17 @@
-"""
-Factory system for workflow nodes with unified patterns.
+"""Node factories for building music data processing workflows.
 
-This module provides a declarative, configuration-driven approach to node creation
-that minimizes code surface area while maintaining maximum flexibility.
+This module creates workflow nodes that process track collections through different
+stages like filtering, enrichment, transformation, and output. Each node takes
+track data, applies specific operations, and passes results to the next stage.
 
-Clean Architecture compliant - uses dependency injection for external concerns.
+Key components:
+- Transform nodes: Filter, sort, deduplicate track collections
+- Enricher nodes: Add metadata from external services (Last.fm, Spotify) or internal database
+- Destination nodes: Output tracks to files, playlists, or other formats
+- Combiner nodes: Merge multiple track collections using set operations
+
+The factories handle configuration parsing and dependency setup so workflow
+definitions can focus on data flow rather than implementation details.
 """
 
 from collections.abc import Awaitable, Callable
@@ -19,8 +26,7 @@ from src.application.use_cases.enrich_tracks import (
 from src.config import get_config, get_logger
 from src.domain.entities.track import TrackList
 
-# WorkflowRepositoryAdapter removed - violates 2025 clean architecture principles
-# All dependencies now injected directly through protocols
+# WorkflowRepositoryAdapter removed - dependencies now injected through protocols
 from .destination_nodes import DESTINATION_HANDLERS
 from .node_context import NodeContext
 from .protocols import WorkflowContext
@@ -36,11 +42,14 @@ logger = get_logger(__name__)
 
 
 def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) -> dict:
-    """Get extractors for a specific connector type.
+    """Build extractor functions for retrieving metadata from music service APIs.
+
+    Maps generic attribute names to service-specific extraction logic since each
+    connector (Last.fm, Spotify) has different response formats.
 
     Args:
-        enricher_type: The connector type (e.g., "lastfm", "spotify")
-        attribute_names: List of attribute names to extract
+        enricher_type: Music service identifier ("lastfm", "spotify", etc.)
+        attribute_names: Metadata fields to extract ("user_playcount", "artist_tags", etc.)
 
     Returns:
         Dictionary mapping attribute names to extractor functions
@@ -110,10 +119,19 @@ def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) ->
 
 
 class WorkflowNodeFactory:
-    """Factory for creating workflow nodes with dependency injection."""
+    """Creates workflow processing nodes with shared dependencies and configuration.
+
+    Attributes:
+        context: Workflow execution environment with database connections and external services
+        logger: Logging instance for tracking node operations
+    """
 
     def __init__(self, context: WorkflowContext):
-        """Initialize factory with workflow context."""
+        """Initialize factory with workflow execution context.
+
+        Args:
+            context: Execution environment with database connections and external services
+        """
         self.context = context
         self.logger = context.logger
 
@@ -123,10 +141,15 @@ class WorkflowNodeFactory:
         node_type: str,
         operation_name: str | None = None,
     ) -> NodeFn:
-        """
-        Create a node function from registry configuration using shared implementation.
+        """Create a track processing node from registered transform operations.
 
-        This eliminates code duplication by delegating to the shared transform node implementation.
+        Args:
+            category: Transform category ("filter", "sort", "combiner", etc.)
+            node_type: Specific operation within category ("by_playcount", "union", etc.)
+            operation_name: Optional custom name for logging and debugging
+
+        Returns:
+            Async function that processes track collections
         """
         return _create_transform_node_impl(category, node_type, operation_name)
 
@@ -137,7 +160,17 @@ class WorkflowNodeFactory:
 
 
 def create_destination_node(destination_type: str) -> NodeFn:
-    """Create a destination node using handler registry."""
+    """Create a node that outputs track collections to files, playlists, or other formats.
+
+    Args:
+        destination_type: Output format identifier that maps to a registered handler
+
+    Returns:
+        Async function that writes track collections to the specified destination
+
+    Raises:
+        ValueError: If the destination type is not supported
+    """
     if destination_type not in DESTINATION_HANDLERS:
         raise ValueError(f"Unsupported destination type: {destination_type}")
 
@@ -163,10 +196,20 @@ def create_destination_node(destination_type: str) -> NodeFn:
 def _create_transform_node_impl(
     category: str, node_type: str, operation_name: str | None = None
 ) -> NodeFn:
-    """
-    Shared implementation for creating transform nodes from registry.
+    """Build a track collection transform node from registry configuration.
 
-    This eliminates duplication between WorkflowNodeFactory.make_node and make_node.
+    Handles both standard transforms (single input) and combiners (multiple inputs).
+
+    Args:
+        category: Transform category ("filter", "sort", "combiner", etc.)
+        node_type: Specific operation within category ("by_playcount", "union", etc.)
+        operation_name: Optional custom name for logging and debugging
+
+    Returns:
+        Async function that processes track collections
+
+    Raises:
+        ValueError: If category or node_type is not found in the registry
     """
     if category not in TRANSFORM_REGISTRY:
         raise ValueError(f"Unknown node category: {category}")
@@ -235,41 +278,39 @@ def _create_transform_node_impl(
 def make_node(
     category: str, node_type: str, operation_name: str | None = None
 ) -> NodeFn:
-    """
-    Create a node function from registry configuration.
+    """Create a track collection transform node from registry configuration.
 
-    This is a lightweight wrapper around the shared implementation.
+    Convenience function for simple workflows that don't need shared dependencies.
+
+    Args:
+        category: Transform category ("filter", "sort", "combiner", etc.)
+        node_type: Specific operation within category ("by_playcount", "union", etc.)
+        operation_name: Optional custom name for logging and debugging
+
+    Returns:
+        Async function that processes track collections
     """
     return _create_transform_node_impl(category, node_type, operation_name)
 
 
 def create_enricher_node(config: dict) -> NodeFn:
-    """Create an enricher node for metadata extraction and attachment.
+    """Create a node that adds metadata from external music services to tracks.
 
-    Architectural separation of concerns:
-    - Matcher: Resolves identity ("Is internal track X the same as connector track X?")
-    - Integration: Handles external API communication
-    - Repository: Manages persistence of identified tracks
-    - Enricher: Coordinates the process and extracts/attaches metadata
-
-    This clean architecture ensures:
-    1. Each component has a single responsibility
-    2. Components can evolve independently
-    3. Testing can be performed in isolation
-
-    Workflow steps:
-    1. Extract tracks from input tracklist
-    2. Resolve track identity across services via matcher
-    3. Extract valuable metadata attributes
-    4. Attach metrics to tracklist for downstream operations
+    Fetches additional track information from services like Last.fm or Spotify
+    and attaches it to each track (play counts, artist tags, audio features, etc.).
 
     Args:
-        config: Configuration dictionary containing:
-            - connector: Service to extract data from (e.g., "lastfm", "spotify")
-            - attributes: Metadata fields to extract and attach
+        config: Configuration with required keys:
+            - connector: External service name ("lastfm", "spotify")
+            - attributes: List of metadata fields to extract
+            Optional:
+            - max_age_hours: How old cached data can be before refreshing
 
     Returns:
-        Workflow node function with standard (context, config) -> dict signature
+        Async function that enriches track collections with external metadata
+
+    Raises:
+        ValueError: If connector type is not specified in config
     """
     enricher_type = config.get("connector")
     if not enricher_type:
@@ -283,10 +324,10 @@ def create_enricher_node(config: dict) -> NodeFn:
             f"Starting {enricher_type} enrichment for {len(tracklist.tracks)} tracks"
         )
 
-        # Initialize connector instance using DRY helper function
+        # Initialize connector instance
         connector_instance = ctx.get_connector(enricher_type)
 
-        # Use case dependency injection - 2025 clean architecture pattern
+        # Get use case dependencies
         use_cases = ctx.extract_use_cases()
 
         # Get freshness configuration for this enricher
@@ -301,7 +342,7 @@ def create_enricher_node(config: dict) -> NodeFn:
                 f"Using data freshness requirement: {max_age_hours} hours for {enricher_type}"
             )
 
-        # Use EnrichTracksUseCase for Clean Architecture compliance - already extracted above
+        # Use EnrichTracksUseCase - already extracted above
 
         # Get extractors from connector configuration
         # The config may specify attribute names, but we need actual extractor functions
@@ -312,7 +353,7 @@ def create_enricher_node(config: dict) -> NodeFn:
         # Get extractors using helper function
         extractors = _get_connector_extractors(enricher_type, attribute_names)
 
-        # Create enrichment command using Clean Architecture pattern
+        # Create enrichment command
 
         enrichment_config = EnrichmentConfig(
             enrichment_type="external_metadata",
@@ -326,7 +367,7 @@ def create_enricher_node(config: dict) -> NodeFn:
             tracklist=tracklist, enrichment_config=enrichment_config
         )
 
-        # Execute enrichment through use case with UnitOfWork pattern
+        # Execute enrichment through use case
         workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
             use_cases.get_enrich_tracks_use_case, enrichment_command
@@ -346,13 +387,15 @@ def create_enricher_node(config: dict) -> NodeFn:
 
 
 def create_play_history_enricher_node() -> NodeFn:
-    """Create a play history enricher node following Clean Architecture principles.
+    """Create a node that adds listening history metrics from the internal database.
 
-    This node enriches tracklists with play history data from the internal database,
-    using dependency injection for repository access and proper separation of concerns.
+    Enriches tracks with local play history data like total play counts, last played
+    dates, or play frequency over time periods. Useful for filtering overplayed
+    songs or creating playlists based on personal listening patterns.
 
     Returns:
-        Workflow node function with standard (context, config) -> dict signature
+        Async function that enriches track collections with play history data.
+        Config options: metrics (list), period_days (int)
     """
 
     async def node_impl(context: dict, config: dict) -> dict:
@@ -367,10 +410,10 @@ def create_play_history_enricher_node() -> NodeFn:
             f"Starting play history enrichment for {len(tracklist.tracks)} tracks"
         )
 
-        # Use EnrichTracksUseCase for Clean Architecture compliance
+        # Use EnrichTracksUseCase
         use_cases = ctx.extract_use_cases()
 
-        # Create enrichment command using Clean Architecture pattern
+        # Create enrichment command
 
         enrichment_config = EnrichmentConfig(
             enrichment_type="play_history", metrics=metrics, period_days=period_days
@@ -380,7 +423,7 @@ def create_play_history_enricher_node() -> NodeFn:
             tracklist=tracklist, enrichment_config=enrichment_config
         )
 
-        # Execute enrichment through use case with UnitOfWork pattern
+        # Execute enrichment through use case
         workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
             use_cases.get_enrich_tracks_use_case, enrichment_command

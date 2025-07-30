@@ -1,8 +1,8 @@
-"""WorkflowExecutor use case following Clean Architecture patterns.
+"""Executes playlist synchronization workflows from declarative definitions.
 
-This module implements workflow execution as a proper use case that manages
-infrastructure concerns (database sessions) through the workflow context.
-It provides a clean interface for workflow execution without direct session management.
+Runs multi-step playlist operations like syncing between music services,
+matching tracks across platforms, and enriching metadata. Provides a
+business logic layer between user interfaces and the workflow engine.
 """
 
 from datetime import UTC, datetime
@@ -18,13 +18,22 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class WorkflowCommand:
-    """Command for workflow execution with rich context."""
+    """Parameters for executing a playlist synchronization workflow.
+
+    Contains the workflow definition (steps to execute) and runtime
+    parameters needed to customize the execution for specific playlists
+    or music services.
+    """
 
     workflow_def: dict[str, Any]
     parameters: dict[str, Any]
 
     def validate(self) -> bool:
-        """Validate command business rules."""
+        """Check if the workflow command contains required data.
+
+        Returns:
+            True if command has valid workflow definition with tasks
+        """
         if not self.workflow_def:
             return False
         return "tasks" in self.workflow_def
@@ -32,7 +41,11 @@ class WorkflowCommand:
 
 @define(frozen=True, slots=True)
 class WorkflowExecutionResult:
-    """Result of workflow execution with operational metadata."""
+    """Outcome of a playlist workflow execution with performance metrics.
+
+    Contains the execution context, results from workflow tasks, timing
+    information, and error details if the workflow failed.
+    """
 
     context: dict[str, Any]
     workflow_result: WorkflowResult
@@ -42,24 +55,27 @@ class WorkflowExecutionResult:
 
 
 class WorkflowExecutor:
-    """Use case for workflow execution with Clean Architecture compliance.
+    """Runs playlist synchronization workflows with error handling and metrics.
 
-    This use case coordinates workflow execution and provides a clean interface
-    for different presentation layers (CLI, API, etc.). It delegates to the
-    workflow engine while managing the overall execution lifecycle.
+    Executes multi-step playlist operations defined declaratively, manages
+    the execution lifecycle including timing and error handling, and provides
+    a consistent interface for CLI and API clients.
     """
 
     async def execute(self, command: WorkflowCommand) -> WorkflowExecutionResult:
-        """Execute workflow with proper lifecycle management.
+        """Run a playlist workflow and capture execution metrics.
+
+        Validates the workflow command, executes the defined tasks,
+        and returns comprehensive results including timing and any errors.
 
         Args:
-            command: Workflow execution command
+            command: Workflow definition and runtime parameters
 
         Returns:
-            Result with execution context and metadata
+            Execution result with context, outcomes, and performance data
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If the workflow command fails validation
         """
         if not command.validate():
             raise ValueError(
@@ -109,17 +125,17 @@ class WorkflowExecutor:
 async def execute_workflow_use_case(
     workflow_def: dict, **parameters
 ) -> WorkflowExecutionResult:
-    """Execute workflow through the use case pattern.
+    """Execute a playlist workflow with simplified parameters.
 
-    This function provides a clean interface for workflow execution
-    that can be used by different presentation layers.
+    Convenience function that wraps workflow execution in a simple interface
+    for clients that don't need the full command object pattern.
 
     Args:
-        workflow_def: Workflow definition
-        **parameters: Dynamic parameters for workflow
+        workflow_def: Declarative workflow definition with tasks
+        **parameters: Runtime parameters for workflow customization
 
     Returns:
-        Workflow execution result
+        Complete workflow execution result with metrics and outcomes
     """
     command = WorkflowCommand(workflow_def=workflow_def, parameters=parameters)
 

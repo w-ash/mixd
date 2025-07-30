@@ -6,6 +6,10 @@ table as primary source, only fetching fresh data when metrics are missing or st
 
 from typing import Any
 
+from src.application.use_cases.match_and_identify_tracks import (
+    MatchAndIdentifyTracksCommand,
+    MatchAndIdentifyTracksUseCase,
+)
 from src.config import get_logger
 from src.domain.entities import TrackList
 from src.domain.repositories.interfaces import (
@@ -16,7 +20,6 @@ from src.domain.repositories.interfaces import (
 
 from .connector_metadata_manager import ConnectorMetadataManager
 from .metric_freshness_controller import MetricFreshnessController
-from .track_identity_resolver import TrackIdentityResolver
 
 logger = get_logger(__name__)
 
@@ -47,7 +50,7 @@ class TrackMetricsManager:
         self.track_repo = track_repo
         self.connector_repo = connector_repo
         self.metrics_repo = metrics_repo
-        self.identity_resolver = TrackIdentityResolver(track_repo, connector_repo)
+        self.match_and_identify_use_case = MatchAndIdentifyTracksUseCase()
         self.freshness_controller = MetricFreshnessController(connector_repo)
         self.metadata_manager = ConnectorMetadataManager(connector_repo)
 
@@ -97,10 +100,34 @@ class TrackMetricsManager:
                 f"Starting track metadata enrichment for {len(track_ids)} tracks"
             )
 
-            # Step 1: Resolve track identities
-            identity_mappings = await self.identity_resolver.resolve_track_identities(
-                track_list, connector, connector_instance, **additional_options
+            # Step 1: Resolve track identities using clean architecture
+            from src.infrastructure.persistence.database.db_connection import (
+                get_session,
             )
+            from src.infrastructure.persistence.repositories.factories import (
+                get_unit_of_work,
+            )
+
+            async with get_session() as session:
+                uow = get_unit_of_work(session)
+                # Create command for track identity resolution
+                command = MatchAndIdentifyTracksCommand(
+                    tracklist=track_list,
+                    connector=connector,
+                    connector_instance=connector_instance,
+                    max_age_hours=max_age_hours,
+                )
+
+                # Execute identity resolution
+                identity_result = await self.match_and_identify_use_case.execute(
+                    command, uow
+                )
+
+                # Convert result to the format expected by the rest of this method
+                identity_mappings = {}
+                if identity_result.identity_mappings:
+                    # Use the identity_mappings directly from the result
+                    identity_mappings.update(identity_result.identity_mappings)
 
             logger.info(f"Resolved {len(identity_mappings)} track identities")
 

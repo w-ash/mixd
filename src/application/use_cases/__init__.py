@@ -1,6 +1,6 @@
 """Application use cases - orchestrate business operations."""
 
-from .import_tracks import run_import
+from .import_play_history import run_import
 from .sync_likes import (
     ExportLastFmLikesCommand,
     ExportLastFmLikesUseCase,

@@ -1,10 +1,10 @@
-"""Playlist repositories package.
+"""Playlist data persistence repositories.
 
-This package provides individual playlist repository implementations
-following Clean Architecture principles with proper dependency injection.
+Provides database operations for playlists from external music services (Spotify, etc.)
+and internal playlist management, including cross-service mappings.
 """
 
-# Individual repository imports for Clean Architecture compliance
+# Individual repository imports
 from src.infrastructure.persistence.repositories.playlist.connector import (
     ConnectorPlaylistRepository,
     PlaylistConnectorRepository,
@@ -14,14 +14,10 @@ from src.infrastructure.persistence.repositories.playlist.mapper import (
     PlaylistMappingRepository,
 )
 
-# Clean Architecture compliant - individual repository imports only
-# Use cases should depend on specific repository protocols they need
-
-
-# Export individual repositories for direct import
+# Export repositories for direct import
 __all__ = [
-    "ConnectorPlaylistRepository",
-    "PlaylistConnectorRepository",
-    "PlaylistMappingRepository",
-    "PlaylistRepository",
+    "ConnectorPlaylistRepository",  # Store external service playlist metadata
+    "PlaylistConnectorRepository",  # Link internal playlists to external services
+    "PlaylistMappingRepository",  # Track playlist-to-service relationships
+    "PlaylistRepository",  # Manage internal playlist CRUD operations
 ]

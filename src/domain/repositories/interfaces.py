@@ -6,12 +6,11 @@ Repository interfaces belong in the domain layer according to Clean Architecture
 """
 
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 if TYPE_CHECKING:
     # Import domain entities for type annotations
     from datetime import datetime
-    from typing import Any
 
     from src.application.services.external_metadata_service import (
         ExternalMetadataService,
@@ -23,10 +22,9 @@ if TYPE_CHECKING:
         SyncCheckpoint,
         Track,
         TrackLike,
-        TrackList,
         TrackPlay,
     )
-    from src.domain.matching.types import MatchResultsById
+    from src.domain.matching.types import RawProviderMatch
 
     # Music service connector protocol for type hints
     class MusicServiceConnector(Protocol):
@@ -132,7 +130,7 @@ class LikeRepositoryProtocol(Protocol):
         self, service: str, is_liked: bool = True, sort_by: str | None = None
     ) -> Awaitable[list["TrackLike"]]:
         """Get all liked tracks for a service.
-        
+
         Args:
             service: Service to get likes from
             is_liked: Filter by like status
@@ -433,9 +431,11 @@ class PlaysRepositoryProtocol(Protocol):
         """Bulk insert plays."""
         ...
 
-    def get_recent_plays(self, limit: int = 100, sort_by: str | None = None) -> Awaitable[list["TrackPlay"]]:
+    def get_recent_plays(
+        self, limit: int = 100, sort_by: str | None = None
+    ) -> Awaitable[list["TrackPlay"]]:
         """Get recent plays.
-        
+
         Args:
             limit: Maximum number of plays to return
             sort_by: Optional sorting method (played_at_desc, total_plays_desc, last_played_desc, title_asc, random)
@@ -471,23 +471,48 @@ class TrackIdentityServiceProtocol(Protocol):
     to support Clean Architecture dependency inversion.
     """
 
-    def resolve_track_identities(
+    def get_raw_external_matches(
         self,
-        track_list: "TrackList",
+        tracks: list,
         connector: str,
         connector_instance: "Any",
         **additional_options: "Any",
-    ) -> Awaitable["MatchResultsById"]:
-        """Resolve track identities between internal tracks and external connector tracks.
+    ) -> Awaitable[dict[int, "RawProviderMatch"]]:
+        """Get raw matches from external providers without business logic.
 
         Args:
-            track_list: Tracks to resolve identities for.
+            tracks: Tracks to get raw matches for (must have database IDs).
             connector: Target connector name.
             connector_instance: Connector implementation.
             **additional_options: Options forwarded to providers.
 
         Returns:
-            Track IDs mapped to MatchResult objects containing identity mappings.
+            Track IDs mapped to raw provider match data.
+        """
+        ...
+
+    def _get_existing_identity_mappings(
+        self, track_ids: list[int], connector: str
+    ) -> Awaitable[dict[int, Any]]:
+        """Retrieve existing identity mappings from database.
+
+        Args:
+            track_ids: Track IDs to check for existing mappings.
+            connector: Target connector name.
+
+        Returns:
+            Track IDs mapped to MatchResult objects for existing identity mappings.
+        """
+        ...
+
+    def _persist_identity_mappings(
+        self, matches: dict[int, Any], connector: str
+    ) -> Awaitable[None]:
+        """Save identity mappings to database.
+
+        Args:
+            matches: Track IDs mapped to MatchResult objects.
+            connector: Target connector name.
         """
         ...
 

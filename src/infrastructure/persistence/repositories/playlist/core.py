@@ -1,4 +1,8 @@
-"""Core playlist repository implementation."""
+"""Database operations for playlists, tracks, and external service mappings.
+
+Handles CRUD operations for playlists from multiple music services (Spotify, Last.fm,
+MusicBrainz), maintaining track ordering and synchronizing external IDs.
+"""
 
 from datetime import UTC, datetime
 from typing import Any, ClassVar
@@ -31,7 +35,11 @@ logger = get_logger(__name__)
 
 
 class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
-    """Repository for playlist operations with SQLAlchemy 2.0 best practices."""
+    """Manages playlist storage with tracks and external service mappings.
+
+    Supports bulk track operations, maintains sort order, and syncs with external
+    music services like Spotify and Last.fm.
+    """
 
     # Extended relationship mapping for automatic loading
     _RELATIONSHIP_PATHS: ClassVar[dict[str, list[str]]] = {
@@ -42,13 +50,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     }
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session and mapper."""
+        """Initialize with database session and dependent repositories.
+
+        Args:
+            session: SQLAlchemy async session for database operations.
+        """
         super().__init__(
             session=session,
             model_class=DBPlaylist,
             mapper=PlaylistMapper(),
         )
-        # Initialize individual track repositories following Clean Architecture
+        # Initialize track repositories for managing playlist contents
         self.track_repository = CoreTrackRepository(session)
         self.connector_repository = TrackConnectorRepository(session)
 
@@ -57,11 +69,19 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     # -------------------------------------------------------------------------
 
     def select_with_relations(self) -> Select:
-        """Create select statement with standard relations loaded."""
+        """Build query that loads playlist with tracks and external mappings."""
         return self.with_playlist_relationships(self.select())
 
     def select_by_connector(self, connector: str, connector_id: str) -> Select:
-        """Build a query to fetch playlist by connector ID."""
+        """Build query to find playlist by external service ID.
+
+        Args:
+            connector: Service name (spotify, lastfm, musicbrainz).
+            connector_id: External playlist ID from that service.
+
+        Returns:
+            SQLAlchemy select statement.
+        """
         return (
             self.select()
             .join(DBPlaylistMapping)
@@ -76,7 +96,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         stmt: Select[tuple[DBPlaylist]],
     ) -> Select[tuple[DBPlaylist]]:
-        """Add standard playlist relationship loading."""
+        """Add eager loading for playlist tracks and external service mappings.
+
+        Args:
+            stmt: Base SQLAlchemy select statement.
+
+        Returns:
+            Enhanced statement with relationship loading.
+        """
         return stmt.options(
             selectinload(self.model_class.mappings),
             selectinload(self.model_class.tracks)
@@ -94,7 +121,21 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         tracks: list[Track],
         connector: str | None = None,
     ) -> list[Track]:
-        """Save tracks that don't have IDs yet and return updated tracks."""
+        """Persist tracks without IDs and return updated tracks with IDs.
+
+        Uses connector-specific ingestion for tracks with external metadata,
+        falls back to direct save for local tracks.
+
+        Args:
+            tracks: List of track entities to save.
+            connector: Preferred external service for metadata lookup.
+
+        Returns:
+            List of tracks with assigned database IDs.
+
+        Raises:
+            ValueError: If track save operation fails.
+        """
         if not tracks:
             return []
 
@@ -146,9 +187,15 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         tracks: list[Track],
         operation: str = "create",
     ) -> None:
-        """Manage playlist track associations with optimized database operations.
+        """Manage playlist-track associations with bulk database operations.
 
-        A unified helper method for creating, updating, or modifying playlist tracks.
+        Handles initial track assignment and subsequent reordering/updates.
+        Preserves external 'added_at' timestamps from service metadata.
+
+        Args:
+            playlist_id: Target playlist database ID.
+            tracks: Ordered list of tracks for the playlist.
+            operation: Either 'create' for new playlist or 'update' for existing.
         """
         if not tracks:
             return
@@ -271,9 +318,15 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         connector_ids: dict[str, str],
         operation: str = "create",
     ) -> None:
-        """Manage connector mappings with optimized database operations.
+        """Manage external service ID mappings for playlist synchronization.
 
-        A unified helper method for creating or updating connector mappings.
+        Links internal playlist ID with external service identifiers for syncing
+        across Spotify, Last.fm, MusicBrainz, etc.
+
+        Args:
+            playlist_id: Internal database playlist ID.
+            connector_ids: Map of service names to external playlist IDs.
+            operation: Either 'create' for new mappings or 'update' for existing.
         """
         if not connector_ids:
             return
@@ -347,12 +400,19 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     @staticmethod
     def _generate_sort_key(position: int) -> str:
-        """Generate lexicographically sortable key."""
+        """Generate lexicographic sort key for track ordering."""
         return f"a{position:08d}"
 
     @staticmethod
     def _determine_source_connector(connector_ids: dict[str, str]) -> str | None:
-        """Determine the source connector from a set of connector IDs."""
+        """Find preferred external service for metadata operations.
+
+        Args:
+            connector_ids: Available external service mappings.
+
+        Returns:
+            Service name in priority order (spotify > lastfm > musicbrainz).
+        """
         for connector in ["spotify", "lastfm", "musicbrainz"]:
             if connector in connector_ids:
                 return connector
@@ -367,7 +427,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         playlist_id: int,
     ) -> Playlist:
-        """Get playlist by internal ID with all relationships."""
+        """Retrieve playlist with all tracks and external service mappings.
+
+        Args:
+            playlist_id: Internal database ID.
+
+        Returns:
+            Complete playlist entity with tracks and mappings.
+
+        Raises:
+            ValueError: If playlist not found.
+        """
         stmt = self.select_by_id(playlist_id)
         stmt = self.with_playlist_relationships(stmt)
 
@@ -387,7 +457,19 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         connector_id: str,
         raise_if_not_found: bool = True,
     ) -> Playlist | None:
-        """Get a playlist by its connector ID."""
+        """Find playlist by external service ID (Spotify, Last.fm, etc.).
+
+        Args:
+            connector: Service name (spotify, lastfm, musicbrainz).
+            connector_id: External playlist identifier.
+            raise_if_not_found: Whether to raise exception if not found.
+
+        Returns:
+            Playlist entity or None if not found and raise_if_not_found=False.
+
+        Raises:
+            ValueError: If playlist not found and raise_if_not_found=True.
+        """
         # Use the enhanced select method
         stmt = self.select_by_connector(connector, connector_id)
 
@@ -410,7 +492,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         playlist: Playlist,
     ) -> Playlist:
-        """Save playlist and all its tracks atomically."""
+        """Create new playlist with all tracks and external mappings atomically.
+
+        Args:
+            playlist: Playlist entity with tracks and connector IDs.
+
+        Returns:
+            Saved playlist with database IDs assigned.
+
+        Raises:
+            ValueError: If playlist lacks required name.
+        """
         if not playlist.name:
             raise ValueError("Playlist must have a name")
 
@@ -420,7 +512,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
     async def _save_playlist_impl(self, playlist: Playlist) -> Playlist:
-        """Implementation to create a new playlist with tracks."""
+        """Execute playlist creation with tracks and mappings."""
         # Determine source connector if available
         source_connector = self._determine_source_connector(
             playlist.connector_playlist_ids
@@ -463,7 +555,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         playlist_id: int,
         playlist: Playlist,
     ) -> Playlist:
-        """Update existing playlist."""
+        """Update existing playlist metadata, tracks, and external mappings.
+
+        Args:
+            playlist_id: Database ID of playlist to update.
+            playlist: Updated playlist data.
+
+        Returns:
+            Updated playlist entity.
+
+        Raises:
+            ValueError: If playlist lacks required name.
+        """
         if not playlist.name:
             raise ValueError("Playlist must have a name")
 
@@ -477,7 +580,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         playlist_id: int,
         playlist: Playlist,
     ) -> Playlist:
-        """Implementation for updating an existing playlist."""
+        """Execute playlist update with track reordering and mapping sync."""
         # Update basic properties using base repository's update method
         updates = {
             "name": playlist.name,
@@ -529,7 +632,19 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         lookup_attrs: dict[str, Any],
         create_attrs: dict[str, Any] | None = None,
     ) -> tuple[Playlist, bool]:
-        """Find a playlist by attributes or create it."""
+        """Find existing playlist or create new one with given attributes.
+
+        Args:
+            lookup_attrs: Search criteria for existing playlist.
+            create_attrs: Additional attributes for playlist creation.
+
+        Returns:
+            Tuple of (playlist, created_flag) where created_flag is True
+            if playlist was newly created.
+
+        Raises:
+            ValueError: If playlist creation requires missing name.
+        """
         # Leverage base repository's find_one_by method
         conditions = {
             k: v for k, v in lookup_attrs.items() if hasattr(self.model_class, k)
@@ -579,13 +694,13 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     @db_operation("playlist delete")
     async def delete_playlist(self, playlist_id: int) -> bool:
-        """Delete playlist by ID using soft deletion.
+        """Soft delete playlist and all related tracks/mappings.
 
         Args:
-            playlist_id: Internal playlist ID to delete
+            playlist_id: Internal playlist ID to delete.
 
         Returns:
-            True if playlist was deleted, False if it didn't exist
+            True if playlist was deleted, False if it didn't exist.
         """
         logger.info("Deleting playlist", playlist_id=playlist_id)
 
@@ -614,11 +729,11 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     async def _soft_delete_playlist_relations(
         self, playlist_id: int, deletion_time: datetime
     ) -> None:
-        """Soft delete all relations for a playlist.
+        """Mark playlist tracks and external mappings as deleted.
 
         Args:
-            playlist_id: Playlist ID whose relations to delete
-            deletion_time: Timestamp for deletion
+            playlist_id: Playlist ID whose relations to delete.
+            deletion_time: Timestamp for deletion.
         """
         # Soft delete playlist tracks
         await self.session.execute(

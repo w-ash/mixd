@@ -1,8 +1,8 @@
-"""
-Play deduplication utilities that reuse existing matcher confidence system.
+"""Identifies duplicate listening events across music streaming services.
 
-These methods extend the proven track matching architecture for cross-service
-play deduplication, maintaining DRY principles by reusing confidence scoring.
+When users track their music on multiple platforms (e.g., Spotify + Last.fm),
+the same song play gets recorded twice. This module detects and scores these
+duplicates by comparing track metadata and timestamps within a time window.
 """
 
 from src.domain.entities import TrackPlay
@@ -17,17 +17,20 @@ def calculate_play_match_confidence(
     play2: TrackPlay,
     time_window_seconds: int = 300,
 ) -> tuple[int, ConfidenceEvidence]:
-    """Calculate confidence that two plays represent the same listening event.
+    """Scores likelihood that two plays represent the same listening event.
 
-    Reuses existing track confidence system with time window penalty.
+    Compares track metadata (title, artist, duration) and applies time-based
+    penalty for plays further apart. Returns 0-100 confidence score where
+    higher values indicate more likely duplicates.
 
     Args:
-        play1: First play (typically Spotify)
-        play2: Second play (typically Last.fm)
-        time_window_seconds: Maximum time difference to consider a match
+        play1: First play (typically Spotify).
+        play2: Second play (typically Last.fm).
+        time_window_seconds: Maximum time difference to consider a match.
+            Defaults to 300 (5 minutes).
 
     Returns:
-        Tuple of (confidence_score, evidence)
+        Confidence score (0-100) and detailed scoring evidence.
     """
     # Check time window first - fail fast if outside window
     time_diff_seconds = abs((play1.played_at - play2.played_at).total_seconds())
@@ -99,16 +102,21 @@ def find_potential_duplicate_plays(
     time_window_seconds: int = 300,
     min_confidence: int = 70,
 ) -> list[tuple[TrackPlay, int, ConfidenceEvidence]]:
-    """Find plays that might be duplicates of the target play.
+    """Finds plays that could be duplicates of the target play.
+
+    Filters candidates by time window and service type, then scores each
+    potential match. Only returns plays above the confidence threshold,
+    sorted by match strength.
 
     Args:
-        target_play: Play to find duplicates for
-        candidate_plays: List of potential duplicate plays
-        time_window_seconds: Time window for matching
-        min_confidence: Minimum confidence threshold
+        target_play: Play to find duplicates for.
+        candidate_plays: List of potential duplicate plays to check.
+        time_window_seconds: Time window for matching. Defaults to 300 (5 minutes).
+        min_confidence: Minimum confidence threshold (0-100). Defaults to 70.
 
     Returns:
-        List of (play, confidence, evidence) tuples for potential duplicates
+        List of (play, confidence_score, evidence) tuples for potential
+        duplicates, sorted by confidence (highest first).
     """
     duplicates = []
 

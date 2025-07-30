@@ -40,7 +40,7 @@ class TestTrackMetricsManagerCriticalFlow:
         manager = TrackMetricsManager(track_repo, connector_repo, metrics_repo)
 
         # Replace internal dependencies with mocks
-        monkeypatch.setattr(manager, "identity_resolver", identity_resolver)
+        monkeypatch.setattr(manager, "match_and_identify_use_case", identity_resolver)
         monkeypatch.setattr(manager, "freshness_controller", freshness_controller)
         monkeypatch.setattr(manager, "metadata_manager", metadata_manager)
 
@@ -84,12 +84,42 @@ class TestTrackMetricsManagerCriticalFlow:
         identity_resolver, freshness_controller, metadata_manager = mock_dependencies
         _track_repo, _connector_repo, metrics_repo = mock_repos
 
-        # Mock identity resolution (step 1)
+        # Mock identity resolution (step 1) - new architecture
+        from src.application.use_cases.match_and_identify_tracks import MatchAndIdentifyTracksResult
+        from src.domain.matching.types import MatchResult
+        
+        # Create mock tracks for the MatchResult objects
+        from src.domain.entities import Track, Artist
+        mock_track_1 = Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
+        mock_track_2 = Track(id=2, title="Track 2", artists=[Artist(name="Artist 2")])
+        
         identity_mappings = {
-            1: Mock(success=True, connector_id="spotify:123"),
-            2: Mock(success=True, connector_id="spotify:456"),
+            1: MatchResult(
+                track=mock_track_1,
+                success=True,
+                connector_id="spotify:123",
+                confidence=95,
+                match_method="exact",
+                service_data={},
+                evidence=None
+            ),
+            2: MatchResult(
+                track=mock_track_2,
+                success=True,
+                connector_id="spotify:456", 
+                confidence=95,
+                match_method="exact",
+                service_data={},
+                evidence=None
+            ),
         }
-        identity_resolver.resolve_track_identities.return_value = identity_mappings
+        identity_result = MatchAndIdentifyTracksResult(
+            identity_mappings=identity_mappings,
+            track_count=2,
+            resolved_count=2,
+            execution_time_ms=100
+        )
+        identity_resolver.execute.return_value = identity_result
 
         # Mock existing metrics in database (step 2) - THE CRITICAL FIX
         existing_metrics = {
@@ -143,12 +173,41 @@ class TestTrackMetricsManagerCriticalFlow:
         identity_resolver, freshness_controller, metadata_manager = mock_dependencies
         _track_repo, _connector_repo, metrics_repo = mock_repos
 
-        # Mock identity resolution
+        # Mock identity resolution - new architecture
+        from src.application.use_cases.match_and_identify_tracks import MatchAndIdentifyTracksResult
+        from src.domain.matching.types import MatchResult
+        from src.domain.entities import Track, Artist
+        
+        mock_track_1 = Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
+        mock_track_2 = Track(id=2, title="Track 2", artists=[Artist(name="Artist 2")])
+        
         identity_mappings = {
-            1: Mock(success=True, connector_id="spotify:123"),
-            2: Mock(success=True, connector_id="spotify:456"),
+            1: MatchResult(
+                track=mock_track_1,
+                success=True,
+                connector_id="spotify:123",
+                confidence=95,
+                match_method="exact",
+                service_data={},
+                evidence=None
+            ),
+            2: MatchResult(
+                track=mock_track_2,
+                success=True,
+                connector_id="spotify:456", 
+                confidence=95,
+                match_method="exact",
+                service_data={},
+                evidence=None
+            ),
         }
-        identity_resolver.resolve_track_identities.return_value = identity_mappings
+        identity_result = MatchAndIdentifyTracksResult(
+            identity_mappings=identity_mappings,
+            track_count=2,
+            resolved_count=2,
+            execution_time_ms=100
+        )
+        identity_resolver.execute.return_value = identity_result
 
         # Mock partial existing metrics - track 1 has metrics, track 2 doesn't
         existing_metrics = {"spotify_popularity": {1: 85}}  # Only track 1

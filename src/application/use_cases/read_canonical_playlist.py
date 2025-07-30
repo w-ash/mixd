@@ -1,7 +1,7 @@
-"""ReadCanonicalPlaylistUseCase for retrieving internal database playlists.
+"""Retrieves playlist data from the internal database.
 
-This use case handles reading canonical (internal) playlists from the database
-following Clean Architecture principles.
+Supports lookup by internal database ID or external service ID (Spotify, etc).
+Includes execution timing and error handling for playlist not found scenarios.
 """
 
 from datetime import UTC, datetime
@@ -18,9 +18,13 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class ReadCanonicalPlaylistCommand:
-    """Command for reading a canonical playlist.
+    """Request parameters for playlist retrieval.
 
-    Encapsulates the identifier and options for retrieving a playlist.
+    Args:
+        playlist_id: Database ID (integer) or external service ID (string)
+        connector: External service name (e.g., 'spotify') for ID lookup
+        include_track_metadata: Whether to load full track details
+        timestamp: Request timestamp for audit logging
     """
 
     playlist_id: str
@@ -29,19 +33,22 @@ class ReadCanonicalPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if playlist_id is provided.
 
         Returns:
-            True if command is valid for execution
+            True if playlist_id is not empty
         """
         return bool(self.playlist_id)
 
 
 @define(frozen=True, slots=True)
 class ReadCanonicalPlaylistResult:
-    """Result of canonical playlist read operation.
+    """Response containing retrieved playlist and operation metrics.
 
-    Contains the retrieved playlist and operation metadata.
+    Args:
+        playlist: The retrieved playlist with tracks and metadata
+        execution_time_ms: Database query execution time in milliseconds
+        errors: List of error messages if operation failed
     """
 
     playlist: Playlist
@@ -50,7 +57,7 @@ class ReadCanonicalPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of the read operation."""
+        """Returns operation metrics for logging and monitoring."""
         return {
             "playlist_id": self.playlist.id,
             "playlist_name": self.playlist.name,
@@ -62,29 +69,30 @@ class ReadCanonicalPlaylistResult:
 
 @define(slots=True)
 class ReadCanonicalPlaylistUseCase:
-    """Use case for reading canonical (internal) playlists.
+    """Retrieves playlists from database by ID or external service identifier.
 
-    Handles pure database read operations following Clean Architecture
-    principles with UnitOfWork pattern:
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Simplified testing with single UnitOfWork mock
+    Handles both internal database IDs (integers) and external service IDs
+    (strings like Spotify playlist IDs). Provides execution timing and
+    structured error handling for monitoring and debugging.
     """
 
     async def execute(
         self, command: ReadCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> ReadCanonicalPlaylistResult:
-        """Execute canonical playlist read operation.
+        """Retrieves playlist from database with timing metrics.
+
+        Validates input, queries database for playlist, and returns structured
+        result with execution timing for monitoring.
 
         Args:
-            command: Command with playlist read context
-            uow: UnitOfWork for repository access
+            command: Request parameters including playlist ID and options
+            uow: Database transaction handler for repository access
 
         Returns:
-            Result with retrieved playlist and operational metadata
+            ReadCanonicalPlaylistResult: Playlist data and operation metrics
 
         Raises:
-            ValueError: If command validation fails or playlist not found
+            ValueError: If playlist_id is empty or playlist not found
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -131,17 +139,20 @@ class ReadCanonicalPlaylistUseCase:
     async def _get_playlist(
         self, command: ReadCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> Playlist:
-        """Retrieve playlist from database.
+        """Queries database for playlist by ID, trying internal ID then external ID.
+
+        First attempts to parse playlist_id as integer for internal database lookup.
+        If that fails, treats it as external service ID and queries by connector.
 
         Args:
-            command: Command with playlist ID and optional connector
-            uow: UnitOfWork for repository access
+            command: Contains playlist_id and optional connector name
+            uow: Database transaction handler for repository access
 
         Returns:
-            Playlist entity
+            Playlist: The requested playlist with tracks and metadata
 
         Raises:
-            ValueError: If playlist not found
+            ValueError: If playlist not found in database
         """
         playlist_repo = uow.get_playlist_repository()
 
@@ -155,15 +166,18 @@ class ReadCanonicalPlaylistUseCase:
                 command.connector or "spotify"
             )  # Default for backward compatibility
 
-            playlist = await playlist_repo.get_playlist_by_connector(
-                connector_name, command.playlist_id, raise_if_not_found=True
-            )
-
-            if playlist is None:
+            try:
+                playlist = await playlist_repo.get_playlist_by_connector(
+                    connector_name, command.playlist_id, raise_if_not_found=True
+                )
+                # Type assertion: raise_if_not_found=True guarantees non-None result
+                assert playlist is not None
+                return playlist
+            except ValueError:
+                # Repository raised "not found" - convert to our standard exception
                 connector_info = (
                     f" (connector: {command.connector})" if command.connector else ""
                 )
                 raise ValueError(
                     f"Playlist with ID {command.playlist_id}{connector_info} not found"
                 ) from None
-            return playlist

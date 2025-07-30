@@ -1,4 +1,4 @@
-"""Narada CLI - Main application entry point following Clean Architecture."""
+"""Main CLI application entry point and command routing."""
 
 from importlib.metadata import version
 from pathlib import Path

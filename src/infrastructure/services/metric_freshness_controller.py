@@ -1,7 +1,7 @@
-"""Metric freshness controller service.
+"""Prevents unnecessary API calls by checking if track metadata is still fresh.
 
-Determines when connector metrics need refreshing based on track_metrics timestamps
-and configurable freshness policies.
+Determines which tracks need updated metrics from external services (Last.fm, Spotify, etc.)
+by comparing last-updated timestamps against configurable age limits.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -13,17 +13,17 @@ logger = get_logger(__name__)
 
 
 class MetricFreshnessController:
-    """Determines which tracks have stale metrics needing refresh.
+    """Identifies tracks needing fresh metadata to avoid redundant API calls.
 
-    Uses track_metrics table timestamps and configurable freshness policies
-    to identify tracks that need updated metrics from external connectors.
+    Compares track metadata timestamps against configurable age limits to determine
+    which tracks need updated play counts, popularity scores, or other metrics.
     """
 
     def __init__(self, connector_repo: ConnectorRepositoryProtocol) -> None:
-        """Initialize with connector repository.
+        """Initialize with repository for accessing metadata timestamps.
 
         Args:
-            connector_repo: Connector repository for metrics timestamps.
+            connector_repo: Repository for querying track metadata timestamps.
         """
         self.connector_repo = connector_repo
 
@@ -33,15 +33,18 @@ class MetricFreshnessController:
         connector: str,
         max_age_hours: float | None = None,
     ) -> list[int]:
-        """Get list of track IDs that have stale metrics needing refresh.
+        """Returns track IDs whose metadata is older than the freshness limit.
+
+        Checks when each track's metadata was last updated from the specified service
+        and returns those exceeding the age threshold to trigger fresh API calls.
 
         Args:
-            track_ids: Track IDs to check for staleness.
-            connector: Connector name for freshness policy lookup.
-            max_age_hours: Override freshness policy. If None, uses config default.
+            track_ids: Track IDs to check for stale metadata.
+            connector: Service name (e.g., 'lastfm', 'spotify') for age limit lookup.
+            max_age_hours: Override default age limit. If None, uses config value.
 
         Returns:
-            List of track IDs that need metrics refresh.
+            Track IDs needing fresh metadata from the connector service.
         """
         if not track_ids:
             return []
@@ -110,13 +113,13 @@ class MetricFreshnessController:
     # _get_metrics_timestamps method removed - functionality moved to ConnectorRepository.get_metadata_timestamps()
 
     def _get_freshness_policy(self, connector: str) -> float | None:
-        """Get freshness policy for a connector from configuration.
+        """Retrieves age limit configuration for a connector service.
 
         Args:
-            connector: Connector name.
+            connector: Service name to look up age limit for.
 
         Returns:
-            Maximum age in hours before data is considered stale, or None if no policy.
+            Maximum age in hours before metadata is considered stale, or None if unset.
         """
         config_key = f"ENRICHER_DATA_FRESHNESS_{connector.upper()}"
         max_age_hours = get_config(config_key)

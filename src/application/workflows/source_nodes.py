@@ -1,7 +1,11 @@
-"""Source nodes for Narada workflows.
+"""Import music data from streaming services and local database.
 
-All nodes follow the batch-first design principle, processing data in bulk
-and leveraging optimized bulk operations for maximum efficiency.
+Functions for retrieving playlists and tracks from multiple sources:
+- playlist_source: Import playlists from Spotify/LastFM or read saved playlists
+- source_liked_tracks: Get user's favorited tracks with filtering and sorting
+- source_played_tracks: Get listening history with time windows and sorting
+
+All functions return standardized track data for playlist creation and analysis.
 """
 
 from typing import Any
@@ -28,24 +32,32 @@ from src.domain.entities.track import ConnectorTrack, Track, TrackList
 
 from .node_context import NodeContext
 
-# Infrastructure imports removed for Clean Architecture compliance
-
 logger = get_logger(__name__)
 
 
 async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
-    """Fetch playlist from any connector or canonical source using agnostic ID resolution.
+    """Import playlist from streaming service or retrieve saved playlist.
 
-    Config parameters:
-        playlist_id (str): Required - playlist identifier
-        connector (str): Optional - if specified, playlist_id is connector ID;
-                        if omitted, playlist_id is canonical ID
+    Fetches playlists from Spotify/LastFM and saves them locally, or reads previously
+    saved playlists. When importing from services, automatically updates existing
+    local copies or creates new ones.
 
-    Smart ID resolution:
-    - No connector: playlist_id is canonical ID, read directly from database
-    - With connector: playlist_id is connector ID, check for existing canonical mapping
-      - If exists: update existing canonical playlist
-      - If not exists: create new canonical playlist
+    Args:
+        context: Workflow execution context containing use cases and connectors.
+        config: Configuration with required 'playlist_id' and optional 'connector'.
+            If no connector specified, reads from local database.
+
+    Returns:
+        Dict containing:
+            - tracklist: TrackList with track source metadata
+            - playlist_id: Internal playlist ID
+            - playlist_name: Playlist display name
+            - source: Service name ('spotify', 'lastfm') or 'canonical'
+            - track_count: Number of tracks retrieved
+            - action: 'created', 'updated', or omitted for reads
+
+    Raises:
+        ValueError: If playlist_id is missing from config.
     """
     playlist_id = config.get("playlist_id")
     if not playlist_id:
@@ -139,8 +151,8 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
         # Create tracklist for use case
         tracklist = TrackList(tracks=domain_tracks)
 
-        # Step 4: Check if canonical playlist already exists for this connector playlist
-        # Use ReadCanonicalPlaylistUseCase for Clean Architecture compliance
+        # Step 4: Check if local playlist already exists for this service playlist
+        # Read from database to avoid duplicates
         existing_playlist = None
 
         try:
@@ -258,13 +270,13 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
 
 
 def _convert_connector_track_to_domain(connector_track: ConnectorTrack) -> Track:
-    """Convert ConnectorTrack to domain Track entity.
+    """Convert service-specific track to standardized Track format.
 
     Args:
-        connector_track: ConnectorTrack from Spotify API
+        connector_track: Track data from music service.
 
     Returns:
-        Domain Track entity
+        Track with service metadata preserved in connector_metadata field.
     """
     return Track(
         title=connector_track.title,
@@ -285,46 +297,50 @@ def _convert_connector_track_to_domain(connector_track: ConnectorTrack) -> Track
     )
 
 
-# === Ultra-DRY Data Source Nodes ===
+# === User Music Library Access ===
 
 
 async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
-    """Retrieve liked tracks from canonical database.
-    
-    Ultra-DRY source node that provides simple data retrieval with meaningful sorting.
-    Users compose complex behavior by chaining with existing transforms from core.py like
-    filter_by_play_history, sort_by_play_history, select_by_method, etc.
-    
-    Config parameters:
-        limit (int): Maximum tracks to retrieve (default: 10000, max: 10000)
-        connector_filter (str): Optional service filter ("spotify", "lastfm", etc.)
-        sort_by (str): Optional sorting method ("liked_at_desc", "liked_at_asc", "title_asc", "random")
-        
+    """Get user's favorited tracks with filtering and sorting options.
+
+    Retrieves tracks the user has liked/favorited across music services.
+    Useful for creating personal best-of playlists and analyzing music taste.
+
+    Args:
+        context: Workflow execution context.
+        config: Optional parameters:
+            - limit (int): Max tracks to return (default 10000, max 10000).
+            - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
+            - sort_by (str): Sort method ("liked_at_desc", "liked_at_asc",
+                "title_asc", "random").
+
     Returns:
-        Dict with tracklist ready for composition with transform nodes
+        Dict with 'tracklist' containing favorited tracks and metadata.
     """
     # Extract config with defaults
     limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
     connector_filter = config.get("connector_filter")
-    sort_by = config.get("sort_by", "liked_at_desc")  # Default to most recent likes first
-    
+    sort_by = config.get(
+        "sort_by", "liked_at_desc"
+    )  # Default to most recent likes first
+
     # Create command for use case
     command = GetLikedTracksCommand(
         limit=limit,
         connector_filter=connector_filter,
         sort_by=sort_by,
     )
-    
+
     # Get workflow context and execute use case
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    
+
     # Execute business logic in use case
     use_case = GetLikedTracksUseCase()
     result = await workflow_context.execute_use_case(
         lambda uow: use_case.execute(command, uow)
     )
-    
+
     # Return standardized result for workflow composition
     return {
         "tracklist": result.tracklist,
@@ -337,27 +353,31 @@ async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
 
 
 async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
-    """Retrieve tracks from play history.
-    
-    Ultra-DRY source node that provides simple data retrieval with meaningful sorting.
-    Users compose complex behavior by chaining with existing transforms from core.py like
-    filter_by_play_history, sort_by_play_history, select_by_method, etc.
-    
-    Config parameters:
-        limit (int): Maximum tracks to retrieve (default: 10000, max: 10000)
-        days_back (int): Optional time window in days (e.g., 90 for last 3 months)
-        connector_filter (str): Optional service filter ("spotify", "lastfm", etc.)
-        sort_by (str): Optional sorting method ("played_at_desc", "total_plays_desc", "last_played_desc", "first_played_asc", "title_asc", "random")
-        
+    """Get user's listening history with time window and sorting options.
+
+    Retrieves tracks the user has played across music services. Useful for
+    creating discovery playlists based on recent listening or analyzing
+    long-term music trends.
+
+    Args:
+        context: Workflow execution context.
+        config: Optional parameters:
+            - limit (int): Max tracks to return (default 10000, max 10000).
+            - days_back (int): Time window in days (e.g., 90 for last 3 months).
+            - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
+            - sort_by (str): Sort method ("played_at_desc", "total_plays_desc", etc.).
+
     Returns:
-        Dict with tracklist ready for composition with transform nodes
+        Dict with 'tracklist' containing played tracks and metadata.
     """
     # Extract config with defaults
     limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
     days_back = config.get("days_back")
     connector_filter = config.get("connector_filter")
-    sort_by = config.get("sort_by", "played_at_desc")  # Default to most recent plays first
-    
+    sort_by = config.get(
+        "sort_by", "played_at_desc"
+    )  # Default to most recent plays first
+
     # Create command for use case
     command = GetPlayedTracksCommand(
         limit=limit,
@@ -365,17 +385,17 @@ async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
         connector_filter=connector_filter,
         sort_by=sort_by,
     )
-    
+
     # Get workflow context and execute use case
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    
+
     # Execute business logic in use case
     use_case = GetPlayedTracksUseCase()
     result = await workflow_context.execute_use_case(
         lambda uow: use_case.execute(command, uow)
     )
-    
+
     # Return standardized result for workflow composition
     return {
         "tracklist": result.tracklist,
@@ -388,5 +408,4 @@ async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
     }
 
 
-# Complex helper functions removed - source nodes are now lightweight orchestration
-# Connector metadata persistence is handled by use cases using connector repository
+# Track format conversion and database operations handled by use cases

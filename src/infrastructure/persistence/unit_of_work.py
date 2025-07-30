@@ -37,7 +37,9 @@ from src.infrastructure.persistence.repositories.track.plays import TrackPlayRep
 from src.infrastructure.services.external_metadata_service_impl import (
     ExternalMetadataServiceImpl,
 )
-from src.infrastructure.services.track_identity_resolver import TrackIdentityResolver
+from src.infrastructure.services.track_identity_service_impl import (
+    TrackIdentityServiceImpl,
+)
 
 
 class DatabaseUnitOfWork:
@@ -126,7 +128,7 @@ class DatabaseUnitOfWork:
         # Create repositories for the service to use
         track_repo = self.get_track_repository()
         connector_repo = self.get_connector_repository()
-        return TrackIdentityResolver(track_repo, connector_repo)
+        return TrackIdentityServiceImpl(track_repo, connector_repo)
 
     def get_external_metadata_service(self) -> ExternalMetadataService:
         """Get external metadata service using this unit of work's transaction."""

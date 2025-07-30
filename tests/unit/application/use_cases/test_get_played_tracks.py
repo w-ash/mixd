@@ -4,7 +4,7 @@ Tests critical business logic paths for played tracks retrieval with sorting.
 Following test pyramid: focus on business rules and validation.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,7 +13,7 @@ from src.application.use_cases.get_played_tracks import (
     GetPlayedTracksCommand,
     GetPlayedTracksUseCase,
 )
-from src.domain.entities import Track, TrackPlay, TrackList
+from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import Artist
 
 
@@ -34,17 +34,21 @@ class TestGetPlayedTracksCommand:
             limit=1000,
             days_back=30,
             connector_filter="spotify",
-            sort_by="played_at_desc"
+            sort_by="played_at_desc",
         )
         assert command.validate() is True
 
     def test_valid_sort_options(self):
         """Test all valid sort options are accepted."""
         valid_sorts = [
-            "played_at_desc", "total_plays_desc", "last_played_desc", 
-            "first_played_asc", "title_asc", "random"
+            "played_at_desc",
+            "total_plays_desc",
+            "last_played_desc",
+            "first_played_asc",
+            "title_asc",
+            "random",
         ]
-        
+
         for sort_option in valid_sorts:
             command = GetPlayedTracksCommand(sort_by=sort_option)
             assert command.validate() is True, f"Failed for sort option: {sort_option}"
@@ -86,13 +90,13 @@ class TestGetPlayedTracksUseCase:
                 id=1,
                 title="Track 1",
                 artists=[Artist(name="Artist 1")],
-                album="Album 1"
+                album="Album 1",
             ),
             Track(
                 id=2,
                 title="Track 2",
-                artists=[Artist(name="Artist 2")], 
-                album="Album 2"
+                artists=[Artist(name="Artist 2")],
+                album="Album 2",
             ),
         ]
 
@@ -104,13 +108,13 @@ class TestGetPlayedTracksUseCase:
                 track_id=1,
                 service="spotify",
                 played_at=datetime(2024, 1, 1, tzinfo=UTC),
-                ms_played=180000
+                ms_played=180000,
             ),
             TrackPlay(
                 track_id=2,
                 service="spotify",
                 played_at=datetime(2024, 1, 2, tzinfo=UTC),
-                ms_played=200000
+                ms_played=200000,
             ),
         ]
 
@@ -118,7 +122,7 @@ class TestGetPlayedTracksUseCase:
     def mock_uow(self, sample_tracks, sample_plays):
         """Mock UnitOfWork with repositories."""
         uow = AsyncMock()
-        
+
         # Mock plays repository
         plays_repo = AsyncMock()
         plays_repo.get_recent_plays.return_value = sample_plays
@@ -126,25 +130,28 @@ class TestGetPlayedTracksUseCase:
             "total_plays": {1: 5, 2: 3},
             "last_played_dates": {
                 1: datetime(2024, 1, 1, tzinfo=UTC),
-                2: datetime(2024, 1, 2, tzinfo=UTC)
-            }
+                2: datetime(2024, 1, 2, tzinfo=UTC),
+            },
         }
         uow.get_plays_repository = MagicMock(return_value=plays_repo)
-        
+
         # Mock track repository
         track_repo = AsyncMock()
-        track_repo.find_tracks_by_ids.return_value = {1: sample_tracks[0], 2: sample_tracks[1]}
+        track_repo.find_tracks_by_ids.return_value = {
+            1: sample_tracks[0],
+            2: sample_tracks[1],
+        }
         uow.get_track_repository = MagicMock(return_value=track_repo)
-        
+
         return uow
 
     async def test_execute_with_valid_command(self, mock_uow, sample_tracks):
         """Test successful execution with valid command."""
         command = GetPlayedTracksCommand(limit=1000, sort_by="played_at_desc")
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         assert result.tracklist.tracks == sample_tracks
         assert result.execution_time_ms >= 0  # Can be 0 in fast tests
         assert len(result.errors) == 0
@@ -155,27 +162,28 @@ class TestGetPlayedTracksUseCase:
         """Test that sort_by parameter is passed to repository."""
         command = GetPlayedTracksCommand(sort_by="total_plays_desc")
         use_case = GetPlayedTracksUseCase()
-        
+
         await use_case.execute(command, mock_uow)
-        
+
         # Verify repository was called with sort_by parameter
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.assert_called_once_with(
-            limit=20000, sort_by="total_plays_desc"  # limit * 2
+            limit=20000,
+            sort_by="total_plays_desc",  # limit * 2
         )
 
     async def test_execute_with_days_back_filter(self, mock_uow):
         """Test that days_back creates proper time window."""
         command = GetPlayedTracksCommand(days_back=30)
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         # Check that period_start was calculated
         metadata = result.tracklist.metadata
         assert metadata["days_back"] == 30
         assert metadata["period_start"] is not None
-        
+
         # Verify play aggregations were called with time window
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_aggregations_call = plays_repo.get_play_aggregations.call_args
@@ -194,13 +202,13 @@ class TestGetPlayedTracksUseCase:
 
         command = GetPlayedTracksCommand(connector_filter="spotify")
         use_case = GetPlayedTracksUseCase()
-        
+
         result_with_filter = await use_case.execute(command, mock_uow)
-        
+
         # Should filter to only spotify plays (track_ids 1 and 3)
         track_repo = mock_uow.get_track_repository.return_value
         requested_track_ids = track_repo.find_tracks_by_ids.call_args[0][0]
-        
+
         # The exact filtering logic may vary, but we should see filtering effect
         assert result_with_filter.tracklist.metadata["connector_filter"] == "spotify"
 
@@ -210,12 +218,12 @@ class TestGetPlayedTracksUseCase:
         many_plays = sample_plays * 10  # 20 plays total
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = many_plays
-        
+
         command = GetPlayedTracksCommand(limit=5)
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         # Track IDs should be limited
         track_repo = mock_uow.get_track_repository.return_value
         track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]
@@ -225,7 +233,7 @@ class TestGetPlayedTracksUseCase:
         """Test that invalid command raises ValueError."""
         command = GetPlayedTracksCommand(limit=0)  # Invalid
         use_case = GetPlayedTracksUseCase()
-        
+
         with pytest.raises(ValueError, match="Invalid command"):
             await use_case.execute(command, mock_uow)
 
@@ -234,12 +242,12 @@ class TestGetPlayedTracksUseCase:
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = []
         plays_repo.get_play_aggregations.return_value = {}
-        
+
         command = GetPlayedTracksCommand()
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         assert len(result.tracklist.tracks) == 0
         assert result.tracklist.metadata["track_count"] == 0
 
@@ -247,9 +255,9 @@ class TestGetPlayedTracksUseCase:
         """Test that result includes play metrics for transform composition."""
         command = GetPlayedTracksCommand(days_back=90, sort_by="total_plays_desc")
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         metadata = result.tracklist.metadata
         assert metadata["operation"] == "get_played_tracks"
         assert metadata["days_back"] == 90
@@ -269,12 +277,12 @@ class TestGetPlayedTracksUseCase:
         ]
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = plays_with_none
-        
+
         command = GetPlayedTracksCommand()
         use_case = GetPlayedTracksUseCase()
-        
+
         result = await use_case.execute(command, mock_uow)
-        
+
         # Should only request tracks for valid track_ids (1, 2)
         track_repo = mock_uow.get_track_repository.return_value
         track_ids_requested = track_repo.find_tracks_by_ids.call_args[0][0]

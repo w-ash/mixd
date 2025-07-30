@@ -1,7 +1,8 @@
-"""GetPlayedTracksUseCase for retrieving played tracks from canonical database.
+"""Service for retrieving music tracks from user's listening history.
 
-This use case handles reading tracks from play history following Clean Architecture
-principles and the ultra-DRY approach of providing simple data without complex filtering.
+Fetches tracks based on play history data, with optional filtering by time period,
+music service (Spotify, Last.fm), and sorting preferences. Returns tracks with
+play count metadata for further analysis.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -18,38 +19,55 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class GetPlayedTracksCommand:
-    """Command for retrieving tracks from play history.
+    """Parameters for retrieving tracks from listening history.
 
-    Follows ultra-DRY principle - minimal config with composition through transforms.
+    Attributes:
+        limit: Maximum number of tracks to return (1-10000).
+        days_back: Number of days to look back for plays (None for all time).
+        connector_filter: Filter by music service ("spotify", "lastfm", etc.).
+        sort_by: Sort order ("played_at_desc", "total_plays_desc", "title_asc", etc.).
+        timestamp: When this command was created.
     """
 
     limit: int = 10000  # Maximum tracks to retrieve
     days_back: int | None = None  # Optional time window (e.g., last 90 days)
-    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    connector_filter: str | None = (
+        None  # Optional service filter ("spotify", "lastfm", etc.)
+    )
     sort_by: str | None = None  # Optional sorting method
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if command parameters are valid for execution.
 
         Returns:
-            True if command is valid for execution
+            True if all parameters meet business rules.
         """
         valid_limit = self.limit > 0 and self.limit <= 10000
         valid_days = self.days_back is None or self.days_back > 0
-        
+
         # Validate sort_by if provided
-        valid_sort_options = ["played_at_desc", "total_plays_desc", "last_played_desc", "first_played_asc", "title_asc", "random"]
+        valid_sort_options = [
+            "played_at_desc",
+            "total_plays_desc",
+            "last_played_desc",
+            "first_played_asc",
+            "title_asc",
+            "random",
+        ]
         valid_sort = self.sort_by is None or self.sort_by in valid_sort_options
-        
+
         return valid_limit and valid_days and valid_sort
 
 
 @define(frozen=True, slots=True)
 class GetPlayedTracksResult:
-    """Result of played tracks retrieval operation.
+    """Results from retrieving tracks from listening history.
 
-    Contains the retrieved tracklist and operation metadata.
+    Attributes:
+        tracklist: Retrieved tracks with play count metadata.
+        execution_time_ms: How long the operation took in milliseconds.
+        errors: Any errors that occurred during retrieval.
     """
 
     tracklist: TrackList
@@ -58,7 +76,7 @@ class GetPlayedTracksResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of the retrieval operation."""
+        """Summary statistics from the track retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),
             "days_back": self.tracklist.metadata.get("days_back"),
@@ -70,33 +88,27 @@ class GetPlayedTracksResult:
 
 @define(slots=True)
 class GetPlayedTracksUseCase:
-    """Use case for retrieving tracks from play history.
+    """Retrieves music tracks from user's listening history database.
 
-    Follows ultra-DRY principle by providing simple data retrieval without
-    complex filtering. Users compose complex behavior using existing transforms
-    from src/domain/transforms/core.py like filter_by_play_history and
-    sort_by_play_history.
-
-    Clean Architecture compliance:
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Business logic separated from workflow orchestration
+    Queries play history records to find tracks the user has listened to,
+    with optional filtering by time period and music service. Returns tracks
+    with play count metadata that can be used for recommendations or analysis.
     """
 
     async def execute(
         self, command: GetPlayedTracksCommand, uow: UnitOfWorkProtocol
     ) -> GetPlayedTracksResult:
-        """Execute played tracks retrieval operation.
+        """Retrieves tracks from listening history based on specified criteria.
 
         Args:
-            command: Command with retrieval criteria
-            uow: UnitOfWork for repository access
+            command: Search parameters (limit, time range, service filter, sort order).
+            uow: Database connection manager for accessing play and track data.
 
         Returns:
-            Result with tracklist and operational metadata
+            Tracks matching criteria with play count metadata and execution stats.
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command parameters fail validation.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -148,14 +160,14 @@ class GetPlayedTracksUseCase:
     async def _get_played_tracks(
         self, command: GetPlayedTracksCommand, uow: UnitOfWorkProtocol
     ) -> TrackList:
-        """Retrieve tracks from play history.
+        """Queries database for tracks matching the search criteria.
 
         Args:
-            command: Command with retrieval criteria
-            uow: UnitOfWork for repository access
+            command: Search parameters including filters and sorting.
+            uow: Database connection manager.
 
         Returns:
-            TrackList with played tracks and metadata including play metrics
+            TrackList with found tracks and play count metadata.
         """
         plays_repo = uow.get_plays_repository()
         track_repo = uow.get_track_repository()
@@ -166,24 +178,36 @@ class GetPlayedTracksUseCase:
             period_start = datetime.now(UTC) - timedelta(days=command.days_back)
 
         # Get recent plays with sorting - repository handles the sorting logic
-        recent_plays = await plays_repo.get_recent_plays(limit=command.limit * 2, sort_by=command.sort_by)
+        recent_plays = await plays_repo.get_recent_plays(
+            limit=command.limit * 2, sort_by=command.sort_by
+        )
 
         # Extract unique track IDs from recent plays (filter out None values)
-        track_ids = list({play.track_id for play in recent_plays if play.track_id is not None})
-        
+        track_ids = list({
+            play.track_id for play in recent_plays if play.track_id is not None
+        })
+
         # Apply connector filter if specified
         if command.connector_filter:
             # Filter plays by connector and extract track IDs
-            filtered_plays = [play for play in recent_plays if play.service == command.connector_filter]
-            track_ids = list({play.track_id for play in filtered_plays if play.track_id is not None})
+            filtered_plays = [
+                play
+                for play in recent_plays
+                if play.service == command.connector_filter
+            ]
+            track_ids = list({
+                play.track_id for play in filtered_plays if play.track_id is not None
+            })
 
         # Apply limit
         if len(track_ids) > command.limit:
-            track_ids = track_ids[:command.limit]
+            track_ids = track_ids[: command.limit]
 
         # Get tracks in bulk
         tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
-        tracks = [tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict]
+        tracks = [
+            tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict
+        ]
 
         # Get play aggregations for these tracks to provide metadata for transforms
         play_metrics = await plays_repo.get_play_aggregations(

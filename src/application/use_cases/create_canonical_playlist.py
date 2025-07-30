@@ -1,8 +1,8 @@
-"""CreateCanonicalPlaylistUseCase for pure internal database playlist creation.
+"""Create internal playlists with tracks and persist them to the database.
 
-This use case handles the creation of canonical (internal) playlists without
-external service dependencies or complex enrichment. It focuses purely on
-database operations following Clean Architecture principles.
+Handles playlist creation workflow: validates tracks, persists missing tracks,
+creates playlist entity, extracts metrics from connector metadata, and commits
+the transaction. Returns operational metrics for monitoring.
 """
 
 from datetime import UTC, datetime
@@ -27,10 +27,14 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class CreateCanonicalPlaylistCommand:
-    """Command for creating a canonical playlist.
+    """Input data for creating a playlist with tracks and metadata.
 
-    Encapsulates all information needed to create an internal playlist
-    with tracks and metadata.
+    Args:
+        name: Playlist display name
+        tracklist: Collection of tracks to include
+        description: Optional playlist description
+        metadata: Additional key-value data (connector IDs, etc.)
+        timestamp: Creation timestamp (defaults to now)
     """
 
     name: str
@@ -40,10 +44,10 @@ class CreateCanonicalPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Check if command has required data for playlist creation.
 
         Returns:
-            True if command is valid for execution
+            True if name is non-empty and tracklist contains tracks
         """
         if not self.name.strip():
             return False
@@ -53,10 +57,13 @@ class CreateCanonicalPlaylistCommand:
 
 @define(frozen=True, slots=True)
 class CreateCanonicalPlaylistResult:
-    """Result of canonical playlist creation operation.
+    """Output data from playlist creation operation.
 
-    Contains the created playlist and operation metadata for monitoring
-    and debugging purposes.
+    Args:
+        playlist: The created and persisted playlist
+        tracks_created: Number of new tracks saved to database
+        execution_time_ms: Operation duration in milliseconds
+        errors: List of error messages (empty on success)
     """
 
     playlist: Playlist
@@ -66,7 +73,7 @@ class CreateCanonicalPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of the creation operation."""
+        """Key metrics from the playlist creation operation."""
         return {
             "playlist_id": self.playlist.id,
             "playlist_name": self.playlist.name,
@@ -78,14 +85,16 @@ class CreateCanonicalPlaylistResult:
 
 @define(slots=True)
 class CreateCanonicalPlaylistUseCase:
-    """Use case for creating canonical (internal) playlists.
+    """Creates playlists by persisting tracks and extracting metrics.
 
-    Handles pure database operations for playlist creation following
-    Clean Architecture principles with UnitOfWork pattern:
-    - No constructor dependencies (pure domain layer)
-    - All repository access through UnitOfWork parameter
-    - Explicit transaction control in business logic
-    - Simplified testing with single UnitOfWork mock
+    Workflow:
+    1. Validates input command
+    2. Saves any new tracks to database
+    3. Creates playlist with track references
+    4. Extracts metrics from connector metadata
+    5. Commits transaction and returns result
+
+    All operations use provided UnitOfWork for transaction management.
     """
 
     metrics_service: MetricsApplicationService = field(
@@ -95,17 +104,17 @@ class CreateCanonicalPlaylistUseCase:
     async def execute(
         self, command: CreateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> CreateCanonicalPlaylistResult:
-        """Execute canonical playlist creation operation.
+        """Create playlist with tracks and persist to database.
 
         Args:
-            command: Command with playlist creation context
-            uow: UnitOfWork for transaction management and repository access
+            command: Playlist creation parameters and track data
+            uow: Transaction manager and repository provider
 
         Returns:
-            Result with created playlist and operational metadata
+            Result containing created playlist and operation metrics
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If command validation fails (empty name/tracklist)
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -202,11 +211,14 @@ class CreateCanonicalPlaylistUseCase:
     async def _extract_track_metrics(
         self, tracks: list["Track"], uow: UnitOfWorkProtocol
     ) -> None:
-        """Extract metrics from connector metadata for all tracks.
+        """Extract and save metrics from track connector metadata.
+
+        Groups tracks by connector type and batch processes their metadata
+        to extract structured metrics for analysis.
 
         Args:
-            tracks: List of tracks to extract metrics for
-            uow: UnitOfWork for transaction management
+            tracks: Tracks with potential connector metadata
+            uow: Transaction manager for database operations
         """
         if not tracks:
             return

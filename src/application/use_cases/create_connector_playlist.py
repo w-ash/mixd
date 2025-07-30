@@ -1,8 +1,8 @@
-"""CreateConnectorPlaylistUseCase for external service playlist creation.
+"""Creates playlists on external music services with internal database sync.
 
-This use case handles creation of new playlists on external services (like Spotify)
-with proper orchestration between external API calls and internal database persistence,
-following the optimistic update pattern for 2025 best practices.
+Handles the two-phase creation process: first creates the playlist on the external
+service (Spotify, Apple Music), then optimistically syncs the result to the internal
+database. Manages transaction boundaries and provides detailed operation results.
 """
 
 from datetime import UTC, datetime
@@ -21,10 +21,10 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class CreateConnectorPlaylistCommand:
-    """Command for creating a new connector playlist.
+    """Input data for creating a playlist on an external music service.
 
-    Encapsulates all information needed to create a playlist on an external
-    service with proper internal database synchronization.
+    Contains the tracks, metadata, and configuration needed to create a playlist
+    on services like Spotify or Apple Music, with optional internal sync.
     """
 
     tracklist: TrackList
@@ -36,10 +36,10 @@ class CreateConnectorPlaylistCommand:
     timestamp: datetime = field(factory=lambda: datetime.now(UTC))
 
     def validate(self) -> bool:
-        """Validate command business rules.
+        """Checks if the command has valid data for playlist creation.
 
         Returns:
-            True if command is valid for execution
+            True if the command contains valid tracks, playlist name, and connector.
         """
         if not self.tracklist.tracks:
             return False
@@ -52,10 +52,10 @@ class CreateConnectorPlaylistCommand:
 
 @define(frozen=True, slots=True)
 class CreateConnectorPlaylistResult:
-    """Result of connector playlist creation operation.
+    """Results and metadata from playlist creation on an external service.
 
-    Contains the created playlist, external service metadata, and performance
-    metrics for monitoring and debugging purposes.
+    Includes the created playlist, external service IDs, performance metrics,
+    and any errors that occurred during the operation.
     """
 
     playlist: Playlist
@@ -68,7 +68,7 @@ class CreateConnectorPlaylistResult:
 
     @property
     def operation_summary(self) -> dict[str, Any]:
-        """Summary of creation operation."""
+        """Returns a summary of the playlist creation operation for logging."""
         return {
             "playlist_id": self.playlist.id,
             "playlist_name": self.playlist.name,
@@ -82,29 +82,30 @@ class CreateConnectorPlaylistResult:
 
 @define(slots=True)
 class CreateConnectorPlaylistUseCase:
-    """Use case for creating new external service playlists with internal sync.
+    """Creates playlists on external music services with optional internal sync.
 
-    Handles external service playlist creation following Clean Architecture principles:
-    - Creates playlist on external service (Spotify, Apple Music, etc.)
-    - Uses optimistic update pattern to sync with internal database
-    - Maintains proper transaction boundaries and error handling
-    - No direct database modifications until external API succeeds
+    Orchestrates the two-phase process of creating playlists on external services
+    (Spotify, Apple Music) and syncing the results to the internal database.
+    Uses optimistic updates to maintain data consistency across systems.
     """
 
     async def execute(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> CreateConnectorPlaylistResult:
-        """Execute connector playlist creation operation.
+        """Creates a playlist on the external service and optionally syncs to internal DB.
+
+        First creates the playlist on the external service, then if successful and
+        requested, creates a corresponding internal playlist with the same tracks.
 
         Args:
-            command: Command with playlist creation context
-            uow: UnitOfWork for transaction management and repository access
+            command: Playlist creation parameters and configuration.
+            uow: Database transaction manager and repository provider.
 
         Returns:
-            Result with creation status and operational metadata
+            Results including created playlist, external IDs, and operation metrics.
 
         Raises:
-            ValueError: If command validation fails
+            ValueError: If the command fails validation checks.
         """
         if not command.validate():
             raise ValueError("Invalid command: failed business rule validation")
@@ -187,16 +188,17 @@ class CreateConnectorPlaylistUseCase:
     async def _create_external_playlist(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> dict[str, Any]:
-        """Create playlist on external service using real connector integration.
+        """Creates the playlist on the external music service via its API.
 
-        Replaces simulation logic with actual external API calls via connector provider.
+        Uses the appropriate connector (Spotify, Apple Music) to create the playlist
+        with the specified tracks and metadata on the external service.
 
         Args:
-            command: Creation command with configuration
-            uow: UnitOfWork for accessing connector provider
+            command: Playlist creation parameters including tracks and metadata.
+            uow: Provides access to the connector services.
 
         Returns:
-            Dict with success status, playlist_id, metadata, and errors
+            Dict with success status, external playlist ID, metadata, and any errors.
         """
         try:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
@@ -277,22 +279,23 @@ class CreateConnectorPlaylistUseCase:
         external_metadata: dict[str, Any],
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
-        """Create internal playlist optimistically based on successful external creation.
+        """Creates internal playlist based on successful external playlist creation.
 
-        This implements the optimistic update pattern where we immediately create
-        our internal database entities based on successful external API response.
+        After external playlist creation succeeds, creates corresponding internal
+        database records for the playlist and tracks. Uses optimistic updates
+        assuming the external operation was successful.
 
         Args:
-            command: Original creation command
-            external_playlist_id: ID from successful external playlist creation
-            external_metadata: Metadata from external API response
-            uow: UnitOfWork for repository access
+            command: Original playlist creation parameters.
+            external_playlist_id: ID returned from successful external creation.
+            external_metadata: Metadata from the external API response.
+            uow: Database transaction manager and repository provider.
 
         Returns:
-            Created internal playlist
+            The created internal playlist with persisted tracks.
 
         Raises:
-            Exception: If internal playlist creation fails
+            Exception: If internal playlist creation fails (triggers rollback).
         """
         async with uow:
             try:
@@ -361,14 +364,17 @@ class CreateConnectorPlaylistUseCase:
         command: CreateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
-        """Create connector_playlist table entry for metadata storage.
+        """Creates connector_playlist table entry to store external service metadata.
+
+        Stores the mapping between internal and external playlists along with
+        track positions and external service metadata for future sync operations.
 
         Args:
-            saved_playlist: The saved internal playlist
-            external_playlist_id: ID from external service
-            external_metadata: Metadata from external API
-            command: Original creation command
-            uow: UnitOfWork for repository access
+            saved_playlist: The internal playlist that was just created.
+            external_playlist_id: ID from the external music service.
+            external_metadata: Additional metadata from the external API.
+            command: Original creation command for context.
+            uow: Database transaction manager and repository provider.
         """
         try:
             connector_repo = uow.get_connector_playlist_repository()
