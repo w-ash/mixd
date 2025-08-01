@@ -208,9 +208,33 @@ tests/
 
 ### Testing Patterns
 
+#### Database Testing (CRITICAL)
+**Always use `db_session` fixture for database tests - never `get_session()` directly:**
+
+```python
+@pytest.mark.asyncio
+async def test_database_operation(db_session):
+    """Example of correct database test pattern."""
+    # Get repositories through UnitOfWork pattern
+    uow = get_unit_of_work(db_session)
+    track_repo = uow.get_track_repository()
+    
+    # Create test data with proper relationships
+    track = Track(title="Test", artists=[Artist(name="Artist")])
+    saved_track = await track_repo.save_track(track)
+    
+    # Test operations - changes auto-rollback after test
+    assert saved_track.id is not None
+```
+
+**Database Isolation Features:**
+- Each test gets unique SQLite file with UUID naming
+- Automatic rollback ensures zero test contamination
+- Engine cache reset prevents connection leakage
+- Foreign key constraints enforced - create proper relationships
+
 #### Unit Tests: Domain Layer (Fastest, >95% Coverage)
 ```python
-# tests/unit/domain/services/test_track_matching_service.py
 def test_track_matching_confidence():
     # Pure business logic, zero dependencies
     service = TrackMatchingService()
@@ -221,7 +245,6 @@ def test_track_matching_confidence():
 
 #### Unit Tests: Application Layer (Mock UnitOfWork, >90% Coverage)
 ```python
-# tests/unit/application/use_cases/test_match_tracks_use_case.py
 @pytest.fixture
 def mock_uow():
     uow = MagicMock()
@@ -239,7 +262,6 @@ async def test_match_tracks_use_case(mock_uow):
 
 #### Unit Tests: Infrastructure Layer (Mock External Dependencies)
 ```python
-# tests/unit/infrastructure/connectors/test_spotify_provider.py
 async def test_spotify_provider_raw_matches():
     # Mock Spotify API, test raw data extraction
     with patch('spotify_connector.search_tracks') as mock_api:
@@ -250,36 +272,85 @@ async def test_spotify_provider_raw_matches():
         assert result[1].service_data["name"] == "Test"
 ```
 
-#### Integration Tests: Database Layer (Real aiosqlite in-memory)
+#### Integration Tests: Repository Layer (Real Database)
 ```python
-# tests/integration/database/test_track_repository.py
-@pytest.mark.integration
-async def test_track_repository_with_real_db(real_track_repository):
-    # Use real SQLAlchemy repository with aiosqlite in-memory
-    tracks = await real_track_repository.create_batch([track1, track2])
-    found = await real_track_repository.find_tracks_by_ids([t.id for t in tracks])
+@pytest.mark.asyncio
+async def test_track_repository_integration(db_session):
+    """Integration test with real database operations."""
+    uow = get_unit_of_work(db_session)
+    track_repo = uow.get_track_repository()
+    
+    # Test with real database - automatic cleanup
+    tracks = await track_repo.save_batch([track1, track2])
+    found = await track_repo.find_tracks_by_ids([t.id for t in tracks])
     assert len(found) == 2
 ```
 
 #### Integration Tests: End-to-End Workflows (Real DB, Mock APIs)
 ```python
-# tests/integration/workflows/test_track_matching_workflow.py
-@pytest.mark.integration
-async def test_track_matching_end_to_end():
-    # Real domain service + real repository + mocked external APIs
+@pytest.mark.asyncio
+async def test_track_matching_workflow_integration(db_session):
+    """End-to-end workflow with real database, mocked external APIs."""
     with patch('spotify_api.search') as mock_spotify:
         mock_spotify.return_value = {"tracks": [{"id": "123"}]}
-        result = await complete_track_matching_workflow(tracks)
+        
+        # Use real workflow context with test database
+        context = real_workflow_context(db_session)
+        result = await complete_track_matching_workflow(tracks, context)
+        
         assert result.success
-        # Verify data was persisted to real database
-        mappings = await repo.get_connector_mappings([1], "spotify")
+        # Verify persistence in real database
+        uow = get_unit_of_work(db_session)
+        mappings = await uow.get_connector_repository().get_mappings([1], "spotify")
         assert len(mappings) > 0
 ```
 
-### Test Utilities
-- `tests/fixtures/` - Test data builders
-- `tests/conftest.py` - Shared fixtures
-- Use `@pytest.mark.asyncio` for async tests
+#### Test Data Management
+```python
+# Always create proper entity relationships
+async def create_test_track_with_plays(db_session) -> Track:
+    """Helper to create track with proper foreign key relationships."""
+    uow = get_unit_of_work(db_session)
+    
+    # Create track first (parent entity)
+    track = Track(title="Test", artists=[Artist(name="Artist")])
+    saved_track = await uow.get_track_repository().save_track(track)
+    
+    # Create plays referencing the track (child entities)
+    play = TrackPlay(
+        track_id=saved_track.id,  # Use real ID, not hardcoded
+        service="spotify",
+        played_at=datetime.now(UTC),
+        # ... other fields
+    )
+    await uow.get_plays_repository().save_play(play)
+    
+    return saved_track
+```
+
+### Test Organization & Utilities
+- **`tests/conftest.py`**: Core `db_session` fixture and global setup
+- **`tests/integration/conftest.py`**: Integration-specific fixtures (`real_workflow_context`)
+- **`tests/infrastructure/conftest.py`**: Repository fixtures via UnitOfWork
+- **`tests/fixtures/`**: Shared test data builders
+- **`scripts/check_test_db_patterns.py`**: Validates database testing patterns
+
+### Test Commands & Coverage
+```bash
+# Run tests by layer for targeted feedback
+poetry run pytest tests/unit/domain/           # Fastest: Pure business logic
+poetry run pytest tests/unit/application/      # Application orchestration  
+poetry run pytest tests/unit/infrastructure/   # Infrastructure with mocks
+poetry run pytest tests/integration/           # End-to-end with real DB
+
+# Database-specific test validation
+python scripts/check_test_db_patterns.py       # Check for anti-patterns
+poetry run pytest -k "database" -v             # Run all database tests
+
+# Coverage and quality
+poetry run pytest --cov=narada --cov-report=html
+poetry run pytest tests/unit/ --maxfail=1      # Fast feedback on failures
+```
 
 ## Adding New Features
 

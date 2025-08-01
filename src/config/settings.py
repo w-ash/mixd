@@ -65,17 +65,23 @@ class APIConfig(BaseModel):
     default_retry_max_delay: float = 30.0
     default_request_delay: float = 0.2
 
-    # LastFM API Configuration (rate limited to 5 calls/second)
-    lastfm_batch_size: int = 50
-    lastfm_concurrency: int = 1000  # High concurrency for in-flight requests
-    lastfm_rate_limit: float = 5.0  # Calls per second (rate limiter)
-    lastfm_retry_count: int = 3
-    lastfm_retry_base_delay: float = 2.0
-    lastfm_retry_max_delay: float = 60.0
-    lastfm_max_retry_time: int = 60
-    lastfm_love_track_retry_count: int = 3
-    lastfm_recent_tracks_min_limit: int = 1
-    lastfm_recent_tracks_max_limit: int = 200
+    # LastFM API Configuration (rate limited to ~5 calls/second)
+    lastfm_batch_size: int = 50  # Tracks per batch
+    lastfm_concurrency: int = 200  # Max concurrent requests in-flight
+    lastfm_rate_limit: float = (
+        4.8  # Request starts per second (4% buffer from 5.0 limit)
+    )
+    lastfm_retry_count: int = 3  # Max retries for network/rate limit errors
+    lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
+    lastfm_retry_max_delay: float = 30.0  # Exponential backoff max delay (seconds)
+    lastfm_retry_constant_delay: float = (
+        1.2  # Constant delay for rate limit errors (seconds)
+    )
+    lastfm_retry_unknown_max: int = 2  # Max retries for unknown errors
+    lastfm_max_retry_time: int = 60  # Total retry timeout (seconds)
+    lastfm_love_track_retry_count: int = 3  # Retries for track love operations
+    lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
+    lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
 
     # Spotify API Configuration
     spotify_batch_size: int = 50
@@ -274,6 +280,8 @@ _LEGACY_KEY_MAP = {
     "LASTFM_API_RETRY_COUNT": lambda: settings.api.lastfm_retry_count,
     "LASTFM_API_RETRY_BASE_DELAY": lambda: settings.api.lastfm_retry_base_delay,
     "LASTFM_API_RETRY_MAX_DELAY": lambda: settings.api.lastfm_retry_max_delay,
+    "LASTFM_API_RETRY_CONSTANT_DELAY": lambda: settings.api.lastfm_retry_constant_delay,
+    "LASTFM_API_RETRY_UNKNOWN_MAX": lambda: settings.api.lastfm_retry_unknown_max,
     "LASTFM_API_MAX_RETRY_TIME": lambda: settings.api.lastfm_max_retry_time,
     "LASTFM_LOVE_TRACK_RETRY_COUNT": lambda: settings.api.lastfm_love_track_retry_count,
     "LASTFM_RECENT_TRACKS_MIN_LIMIT": lambda: settings.api.lastfm_recent_tracks_min_limit,

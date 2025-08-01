@@ -427,8 +427,12 @@ class MetricsRepositoryProtocol(Protocol):
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
 
-    def bulk_insert_plays(self, plays: list["TrackPlay"]) -> Awaitable[int]:
-        """Bulk insert plays."""
+    def bulk_insert_plays(self, plays: list["TrackPlay"]) -> Awaitable[tuple[int, int]]:
+        """Bulk insert plays.
+
+        Returns:
+            tuple[int, int]: (inserted_count, duplicate_count)
+        """
         ...
 
     def get_recent_plays(

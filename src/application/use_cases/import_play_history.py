@@ -147,7 +147,7 @@ class ImportTracksUseCase:
 
             try:
                 # Delegate to appropriate import strategy
-                operation_result = await self._execute_import(command)
+                operation_result = await self._execute_import(command, uow)
 
                 execution_time_ms = int((time.time() - start_time) * 1000)
 
@@ -190,41 +190,86 @@ class ImportTracksUseCase:
                     failed_batches=1,
                 )
 
-    async def _execute_import(self, command: ImportTracksCommand) -> OperationResult:
+    async def _execute_import(
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+    ) -> OperationResult:
         """Routes to service-specific import handler based on command."""
         match command.service:
             case "lastfm":
-                return await self._run_lastfm_import(command)
+                return await self._run_lastfm_import(command, uow)
             case "spotify":
-                return await self._run_spotify_import(command)
+                return await self._run_spotify_import(command, uow)
             case _:
                 raise ValueError(f"Unknown service: {command.service}")
 
-    async def _run_lastfm_import(self, command: ImportTracksCommand) -> OperationResult:
+    async def _run_lastfm_import(
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+    ) -> OperationResult:
         """Routes to LastFM import mode handler (recent/incremental/full)."""
         match command.mode:
             case "recent":
-                return await self._run_lastfm_recent(command)
+                return await self._run_lastfm_recent(command, uow)
             case "incremental":
-                return await self._run_lastfm_incremental(command)
+                return await self._run_lastfm_incremental(command, uow)
             case "full":
-                return await self._run_lastfm_full_history(command)
+                return await self._run_lastfm_full_history(command, uow)
             case _:
                 raise ValueError(f"LastFM service doesn't support mode: {command.mode}")
 
     async def _run_spotify_import(
-        self, command: ImportTracksCommand
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Routes to Spotify import handler (file mode only)."""
         match command.mode:
             case "file":
-                return await self._run_spotify_file(command)
+                return await self._run_spotify_file(command, uow)
             case _:
                 raise ValueError(
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
 
-    async def _run_lastfm_recent(self, command: ImportTracksCommand) -> OperationResult:
+    async def _create_lastfm_service(self, uow: UnitOfWorkProtocol):
+        """Create LastFM service with repositories from provided UnitOfWork.
+
+        Args:
+            uow: Database transaction manager providing repository access.
+
+        Returns:
+            Configured LastfmPlayImporter instance ready for use.
+        """
+        from src.infrastructure.connectors.lastfm import LastFMConnector
+        from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
+
+        return LastfmPlayImporter(
+            plays_repository=uow.get_plays_repository(),
+            checkpoint_repository=uow.get_checkpoint_repository(),
+            connector_repository=uow.get_connector_repository(),
+            track_repository=uow.get_track_repository(),
+            lastfm_connector=LastFMConnector(),
+        )
+
+    async def _create_spotify_service(self, uow: UnitOfWorkProtocol):
+        """Create Spotify service with repositories from provided UnitOfWork.
+
+        Args:
+            uow: Database transaction manager providing repository access.
+
+        Returns:
+            Configured SpotifyImportService instance ready for use.
+        """
+        from src.infrastructure.services.spotify_import_service import (
+            SpotifyImportService,
+        )
+
+        return SpotifyImportService(
+            plays_repository=uow.get_plays_repository(),
+            track_repository=uow.get_track_repository(),
+            connector_repository=uow.get_connector_repository(),
+        )
+
+    async def _run_lastfm_recent(
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+    ) -> OperationResult:
         """Downloads recent plays from LastFM API.
 
         Fetches the most recent listening history up to specified limit.
@@ -232,6 +277,7 @@ class ImportTracksUseCase:
 
         Args:
             command: Contains limit (default 1000) and resolve_tracks flag.
+            uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with number of plays downloaded and stored.
@@ -239,60 +285,29 @@ class ImportTracksUseCase:
         limit = command.limit or 1000
         resolve_tracks = command.resolve_tracks
 
-        from src.infrastructure.connectors.lastfm import LastFMConnector
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-        from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
+        # Create import service using provided UnitOfWork
+        lastfm_service = await self._create_lastfm_service(uow)
 
-        # Use session-per-operation pattern with UnitOfWork
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
-
-            async with uow:
-                # Get repositories from database transaction
-                plays_repo = uow.get_plays_repository()
-                checkpoint_repo = uow.get_checkpoint_repository()
-                connector_repo = uow.get_connector_repository()
-                track_repo = uow.get_track_repository()
-
-                # Create import service with database repositories
-                lastfm_service = LastfmPlayImporter(
-                    plays_repository=plays_repo,
-                    checkpoint_repository=checkpoint_repo,
-                    connector_repository=connector_repo,
-                    track_repository=track_repo,
-                    lastfm_connector=LastFMConnector(),
+        try:
+            # Execute import with transaction control handled by caller
+            if resolve_tracks:
+                result = await lastfm_service.import_recent_plays_with_resolution(
+                    limit=limit, uow=uow
                 )
+            else:
+                result = await lastfm_service.import_recent_plays(limit=limit, uow=uow)
 
-                try:
-                    # Execute import with explicit transaction control
-                    if resolve_tracks:
-                        result = (
-                            await lastfm_service.import_recent_plays_with_resolution(
-                                limit=limit
-                            )
-                        )
-                    else:
-                        result = await lastfm_service.import_recent_plays(limit=limit)
+            logger.info(
+                f"LastFM recent import completed: {result.imported_count} plays imported"
+            )
+            return result
 
-                    # Explicit commit after successful import
-                    await uow.commit()
-
-                    logger.info(
-                        f"LastFM recent import completed: {result.imported_count} plays imported"
-                    )
-                    return result
-
-                except Exception as e:
-                    # Explicit rollback on error - transaction manager will also handle this
-                    await uow.rollback()
-                    logger.error(f"LastFM recent import failed: {e}")
-                    raise
+        except Exception as e:
+            logger.error(f"LastFM recent import failed: {e}")
+            raise
 
     async def _run_lastfm_incremental(
-        self, command: ImportTracksCommand
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Downloads new plays from LastFM API since last sync.
 
@@ -301,6 +316,7 @@ class ImportTracksUseCase:
 
         Args:
             command: Contains user_id and resolve_tracks flag.
+            uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with number of new plays downloaded.
@@ -308,55 +324,26 @@ class ImportTracksUseCase:
         user_id = command.user_id
         resolve_tracks = command.resolve_tracks
 
-        from src.infrastructure.connectors.lastfm import LastFMConnector
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-        from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
+        # Create import service using provided UnitOfWork
+        lastfm_service = await self._create_lastfm_service(uow)
 
-        # Use session-per-operation pattern with UnitOfWork
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
+        try:
+            # Execute incremental import with transaction control handled by caller
+            result = await lastfm_service.import_incremental_plays(
+                user_id=user_id, resolve_tracks=resolve_tracks, uow=uow
+            )
 
-            async with uow:
-                # Get repositories from database transaction
-                plays_repo = uow.get_plays_repository()
-                checkpoint_repo = uow.get_checkpoint_repository()
-                connector_repo = uow.get_connector_repository()
-                track_repo = uow.get_track_repository()
+            logger.info(
+                f"LastFM incremental import completed: {result.imported_count} plays imported"
+            )
+            return result
 
-                # Create import service with database repositories
-                lastfm_service = LastfmPlayImporter(
-                    plays_repository=plays_repo,
-                    checkpoint_repository=checkpoint_repo,
-                    connector_repository=connector_repo,
-                    track_repository=track_repo,
-                    lastfm_connector=LastFMConnector(),
-                )
-
-                try:
-                    # Execute incremental import with explicit transaction control
-                    result = await lastfm_service.import_incremental_plays(
-                        user_id=user_id, resolve_tracks=resolve_tracks
-                    )
-
-                    # Explicit commit after successful import
-                    await uow.commit()
-
-                    logger.info(
-                        f"LastFM incremental import completed: {result.imported_count} plays imported"
-                    )
-                    return result
-
-                except Exception as e:
-                    # Explicit rollback on error - transaction manager will also handle this
-                    await uow.rollback()
-                    logger.error(f"LastFM incremental import failed: {e}")
-                    raise
+        except Exception as e:
+            logger.error(f"LastFM incremental import failed: {e}")
+            raise
 
     async def _run_lastfm_full_history(
-        self, command: ImportTracksCommand
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Downloads complete LastFM listening history.
 
@@ -365,6 +352,7 @@ class ImportTracksUseCase:
 
         Args:
             command: Contains user_id, resolve_tracks, and confirm flags.
+            uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with total plays downloaded or cancellation result.
@@ -397,138 +385,66 @@ class ImportTracksUseCase:
                     },
                     # Unified count fields
                     imported_count=0,
-                    skipped_count=0,
+                    filtered_count=0,
+                    duplicate_count=0,
                     error_count=0,
                 )
 
-        from src.infrastructure.connectors.lastfm import LastFMConnector
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-        from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
+        # Create import service using provided UnitOfWork
+        lastfm_service = await self._create_lastfm_service(uow)
 
-        # Use session-per-operation pattern with UnitOfWork
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
+        try:
+            # Reset checkpoint before full import
+            username = user_id or lastfm_service.lastfm_connector.lastfm_username
+            if username:
+                await self._reset_lastfm_checkpoint_uow(username, uow)
 
-            async with uow:
-                # Get repositories from database transaction
-                plays_repo = uow.get_plays_repository()
-                checkpoint_repo = uow.get_checkpoint_repository()
-                connector_repo = uow.get_connector_repository()
-                track_repo = uow.get_track_repository()
-
-                # Create import service with database repositories
-                lastfm_service = LastfmPlayImporter(
-                    plays_repository=plays_repo,
-                    checkpoint_repository=checkpoint_repo,
-                    connector_repository=connector_repo,
-                    track_repository=track_repo,
-                    lastfm_connector=LastFMConnector(),
+            # Execute full history import with transaction control handled by caller
+            # Use large limit for full history (API will stop when no more data)
+            if resolve_tracks:
+                result = await lastfm_service.import_recent_plays_with_resolution(
+                    limit=50000, uow=uow
                 )
+            else:
+                result = await lastfm_service.import_recent_plays(limit=50000, uow=uow)
 
-                try:
-                    # Reset checkpoint before full import
-                    username = (
-                        user_id or lastfm_service.lastfm_connector.lastfm_username
-                    )
-                    if username:
-                        await self._reset_lastfm_checkpoint_uow(username, uow)
+            logger.info(
+                f"LastFM full history import completed: {result.imported_count} plays imported"
+            )
+            return result
 
-                    # Execute full history import with explicit transaction control
-                    # Use large limit for full history (API will stop when no more data)
-                    if resolve_tracks:
-                        result = (
-                            await lastfm_service.import_recent_plays_with_resolution(
-                                limit=50000
-                            )
-                        )
-                    else:
-                        result = await lastfm_service.import_recent_plays(limit=50000)
+        except Exception as e:
+            logger.error(f"LastFM full history import failed: {e}")
+            raise
 
-                    # Explicit commit after successful import
-                    await uow.commit()
+    async def _run_spotify_file(
+        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+    ) -> OperationResult:
+        """Processes Spotify data export JSON file using clean architecture pattern.
 
-                    logger.info(
-                        f"LastFM full history import completed: {result.imported_count} plays imported"
-                    )
-                    return result
-
-                except Exception as e:
-                    # Explicit rollback on error - UoW context manager will also handle this
-                    await uow.rollback()
-                    logger.error(f"LastFM full history import failed: {e}")
-                    raise
-
-    async def _run_spotify_file(self, command: ImportTracksCommand) -> OperationResult:
-        """Processes Spotify data export JSON file.
-
-        Parses listening history from Spotify's data export format and stores
-        play records in database. Validates file exists and is readable.
+        Delegates to SpotifyImportService in infrastructure layer following the same
+        pattern as LastFM imports for consistent architecture and maintainability.
 
         Args:
             command: Contains file_path to Spotify JSON export file.
+            uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with number of plays processed from file.
 
         Raises:
             ValueError: If file_path is missing.
-            FileNotFoundError: If specified file doesn't exist.
         """
         if not command.file_path:
             raise ValueError("file_path is required for Spotify file imports")
 
-        file_path = command.file_path
+        # Create Spotify service using provided UnitOfWork - same pattern as LastFM
+        spotify_service = await self._create_spotify_service(uow)
 
-        # File validation
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-
-        if not file_path.is_file():
-            raise ValueError(f"Path is not a file: {file_path}")
-
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
+        # Delegate to infrastructure service - clean architecture compliance
+        return await spotify_service.import_from_file(
+            file_path=command.file_path, uow=uow
         )
-        from src.infrastructure.services.spotify_play_importer import (
-            SpotifyPlayImporter,
-        )
-
-        # Use session-per-operation pattern with UnitOfWork
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
-
-            async with uow:
-                # Get repositories from database transaction
-                plays_repo = uow.get_plays_repository()
-                connector_repo = uow.get_connector_repository()
-
-                # Create import service with database repositories
-                spotify_service = SpotifyPlayImporter(
-                    plays_repository=plays_repo,
-                    connector_repository=connector_repo,
-                )
-
-                try:
-                    # Execute file import with explicit transaction control
-                    result = await spotify_service.import_from_file(file_path)
-
-                    # Explicit commit after successful import
-                    await uow.commit()
-
-                    logger.info(
-                        f"Spotify file import completed: {result.imported_count} plays imported from {file_path}"
-                    )
-                    return result
-
-                except Exception as e:
-                    # Explicit rollback on error - UoW context manager will also handle this
-                    await uow.rollback()
-                    logger.error(f"Spotify file import failed: {e}")
-                    raise
 
     async def _reset_lastfm_checkpoint_uow(
         self, username: str, uow: UnitOfWorkProtocol

@@ -46,6 +46,7 @@ class BasePlayImporter(ABC):
         self,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
         **kwargs,
     ) -> OperationResult:
         """Import music listening data from external source to database.
@@ -59,6 +60,7 @@ class BasePlayImporter(ABC):
                 if not provided.
             progress_callback: Optional function called with (current, total, message)
                 for UI progress updates.
+            uow: UnitOfWork instance for database operations (required).
             **kwargs: Source-specific parameters passed to fetch/process methods.
 
         Returns:
@@ -105,25 +107,14 @@ class BasePlayImporter(ABC):
             if progress_callback:
                 progress_callback(60, 100, f"Processing {len(raw_data)} records...")
 
-            # Import UnitOfWork here to avoid circular dependencies
-            from src.infrastructure.persistence.database.db_connection import (
-                get_session,
+            track_plays = await self._process_data(
+                raw_data=raw_data,
+                batch_id=batch_id,
+                import_timestamp=import_timestamp,
+                progress_callback=progress_callback,
+                uow=uow,
+                **kwargs,
             )
-            from src.infrastructure.persistence.repositories.factories import (
-                get_unit_of_work,
-            )
-
-            # Create UnitOfWork context for track resolution and processing
-            async with get_session() as session:
-                uow = get_unit_of_work(session)
-                track_plays = await self._process_data(
-                    raw_data=raw_data,
-                    batch_id=batch_id,
-                    import_timestamp=import_timestamp,
-                    progress_callback=progress_callback,
-                    uow=uow,
-                    **kwargs,
-                )
 
             # Step 4: Save to database (Template - always the same)
             if progress_callback:
@@ -131,13 +122,23 @@ class BasePlayImporter(ABC):
                     80, 100, f"Saving {len(track_plays)} plays to database..."
                 )
 
-            imported_count = await self._save_data(track_plays)
+            imported_count, duplicate_count = await self._save_data(track_plays)
 
             # Step 5: Handle checkpoints (Strategy pattern - delegated to subclasses)
             if progress_callback:
                 progress_callback(90, 100, "Updating checkpoints...")
 
-            await self._handle_checkpoints(raw_data=raw_data, **kwargs)
+            try:
+                await self._handle_checkpoints(raw_data=raw_data, **kwargs)
+            except Exception as e:
+                logger.error(
+                    f"Checkpoint handling failed: {e}",
+                    batch_id=batch_id,
+                    service=self.__class__.__name__,
+                    error_type=type(e).__name__,
+                    error_str=str(e),
+                )
+                raise
 
             # Step 6: Create success result (Template - standardized format)
             if progress_callback:
@@ -150,12 +151,15 @@ class BasePlayImporter(ABC):
                 imported=imported_count,
             )
 
-            return self._create_success_result(
+            result = self._create_success_result(
                 raw_data=raw_data,
                 track_plays=track_plays,
                 imported_count=imported_count,
+                duplicate_count=duplicate_count,
                 batch_id=batch_id,
             )
+
+            return result
 
         except Exception as e:
             # Standardized error handling
@@ -224,25 +228,39 @@ class BasePlayImporter(ABC):
             **kwargs: Source-specific checkpoint parameters and strategies.
         """
 
-    async def _save_data(self, track_plays: list[TrackPlay]) -> int:
+    async def _save_data(self, track_plays: list[TrackPlay]) -> tuple[int, int]:
         """Save track plays to database with automatic deduplication.
 
         Args:
             track_plays: TrackPlay objects to persist.
 
         Returns:
-            Number of new plays actually inserted (after deduplication).
+            tuple[int, int]: (inserted_count, duplicate_count)
         """
         if not track_plays:
-            return 0
+            return (0, 0)
 
-        return await self.plays_repository.bulk_insert_plays(track_plays)
+        try:
+            (
+                inserted_count,
+                duplicate_count,
+            ) = await self.plays_repository.bulk_insert_plays(track_plays)
+            return (inserted_count, duplicate_count)
+        except Exception as e:
+            logger.error(
+                f"bulk_insert_plays failed with exception: {e}",
+                sent_count=len(track_plays),
+                error_type=type(e).__name__,
+                error_str=str(e),
+            )
+            raise
 
     def _create_success_result(
         self,
         raw_data: list[Any],
         track_plays: list[TrackPlay],
         imported_count: int,
+        duplicate_count: int,
         batch_id: str,
     ) -> OperationResult:
         """Create success result with import statistics.
@@ -251,6 +269,7 @@ class BasePlayImporter(ABC):
             raw_data: Raw data that was processed.
             track_plays: TrackPlay objects that were created.
             imported_count: Number of new plays saved to database.
+            duplicate_count: Number of duplicate plays found.
             batch_id: Unique identifier for this import batch.
 
         Returns:
@@ -259,6 +278,7 @@ class BasePlayImporter(ABC):
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,
+            duplicate_count=duplicate_count,
             batch_id=batch_id,
             tracks=track_plays,
         )

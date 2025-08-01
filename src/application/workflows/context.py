@@ -254,21 +254,21 @@ class UseCaseProviderImpl:
 
     async def get_match_and_identify_tracks_use_case(self):
         """Create use case for track matching and identification.
-        
+
         Returns:
             Use case instance for track matching and identification
         """
         from src.application.use_cases.match_and_identify_tracks import (
             MatchAndIdentifyTracksUseCase,
         )
-        
+
         return MatchAndIdentifyTracksUseCase()
-        
+
     async def get_match_tracks_use_case(self):
         """Create use case for track matching (legacy method name compatibility).
-        
+
         Returns the new MatchAndIdentifyTracksUseCase for backward compatibility.
-        
+
         Returns:
             Use case instance for track matching and identification
         """

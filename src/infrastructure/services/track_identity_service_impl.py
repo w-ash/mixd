@@ -86,13 +86,14 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
         # Load actual Track objects for the mapped track IDs
         mapped_track_ids = [
-            track_id for track_id, mapping_data in mappings.items()
+            track_id
+            for track_id, mapping_data in mappings.items()
             if connector in mapping_data
         ]
-        
+
         if not mapped_track_ids:
             return {}
-            
+
         # Load Track objects from database
         tracks_by_id = await self.track_repo.find_tracks_by_ids(mapped_track_ids)
 
@@ -101,12 +102,13 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         for track_id, mapping_data in mappings.items():
             if connector in mapping_data and track_id in tracks_by_id:
                 from src.domain.matching.types import MatchResult
+
                 result[track_id] = MatchResult(
                     track=tracks_by_id[track_id],  # Use actual Track object
                     success=True,
                     connector_id=mapping_data.get(connector, ""),
                     confidence=90,  # Default confidence for existing mappings
-                    match_method="existing_mapping"
+                    match_method="existing_mapping",
                 )
         return result
 

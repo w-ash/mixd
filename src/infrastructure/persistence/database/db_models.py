@@ -265,6 +265,14 @@ class DBTrackPlay(NaradaDBBase):
 
     __tablename__ = "track_plays"
     __table_args__ = (
+        # Unique constraint to prevent duplicate plays (safety net for application-level deduplication)
+        UniqueConstraint(
+            "track_id",
+            "service",
+            "played_at",
+            "ms_played",
+            name="uq_track_plays_deduplication",
+        ),
         # Existing indexes
         Index("ix_track_plays_service", "service"),
         Index("ix_track_plays_played_at", "played_at"),

@@ -143,7 +143,7 @@ Transform playlist organization with intelligent dynamic naming that adapts to y
 ### v0.2.7: Advanced Workflow Features
 Extend workflow capabilities with sophisticated transformation and analysis features.
 
-- [ ] **Narada Data Source Nodes**
+- [x] **Narada Data Source Nodes**
     - Status: 🔜 Not Started
     - Effort: M
     - What: Create workflow source nodes that tap directly into Narada's rich canonical track database

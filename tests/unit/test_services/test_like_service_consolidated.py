@@ -175,7 +175,7 @@ class TestOperationResultForLikeOperations:
         result = OperationResult(
             operation_name="Test Import",
             imported_count=50,
-            skipped_count=5,
+            filtered_count=5,  # Changed from skipped_count to filtered_count
             error_count=2,
             already_liked=100,
             candidates=57,
@@ -192,7 +192,7 @@ class TestOperationResultForLikeOperations:
         result = OperationResult(
             operation_name="Test Export",
             exported_count=25,
-            skipped_count=3,
+            filtered_count=3,  # Changed from skipped_count to filtered_count
             error_count=1,
             already_liked=50,
             candidates=29,

@@ -387,6 +387,7 @@ class TrackConnectorRepository:
             mapping_data.append({
                 "track_id": track.id,
                 "connector_track_id": connector_track_id,
+                "connector_name": connector,
                 "match_method": match_method,
                 "confidence": confidence,
                 "confidence_evidence": confidence_evidence,

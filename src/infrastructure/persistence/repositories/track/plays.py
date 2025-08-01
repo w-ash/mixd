@@ -6,7 +6,7 @@ from typing import Any
 from attrs import define
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from toolz import groupby
+from toolz import groupby, partition_all
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay
@@ -71,10 +71,14 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         )
 
     @db_operation("bulk_insert_plays")
-    async def bulk_insert_plays(self, plays: list[TrackPlay]) -> int:
-        """Bulk insert track plays efficiently."""
+    async def bulk_insert_plays(self, plays: list[TrackPlay]) -> tuple[int, int]:
+        """Bulk insert track plays efficiently with deduplication.
+
+        Returns:
+            tuple[int, int]: (inserted_count, duplicate_count)
+        """
         if not plays:
-            return 0
+            return (0, 0)
 
         # Filter out plays with NULL track_id to prevent constraint violations
         valid_plays = [play for play in plays if play.track_id is not None]
@@ -83,12 +87,26 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             logger.warning(
                 f"Filtered out all {len(plays)} plays due to NULL track_id - no plays to insert"
             )
-            return 0
+            return (0, 0)
 
         if len(valid_plays) < len(plays):
             logger.warning(
                 f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)"
             )
+
+        # Deduplicate against existing plays in database
+        existing_plays = await self._find_existing_plays(valid_plays)
+        new_plays = self._filter_duplicates(valid_plays, existing_plays)
+
+        duplicate_count = len(valid_plays) - len(new_plays)
+        if duplicate_count > 0:
+            logger.info(
+                f"Filtered out {duplicate_count} duplicate plays (inserting {len(new_plays)} new plays)"
+            )
+
+        if not new_plays:
+            logger.info("All plays were duplicates - no new plays to insert")
+            return (0, duplicate_count)
 
         play_data = [
             {
@@ -101,7 +119,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 "import_source": play.import_source,
                 "import_batch_id": play.import_batch_id,
             }
-            for play in valid_plays
+            for play in new_plays
         ]
 
         result = await self.bulk_upsert(
@@ -110,8 +128,91 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             return_models=False,
         )
 
-        # Return count of inserted records
-        return len(play_data) if isinstance(result, list) else result
+        # Return count of actually inserted records and duplicate count
+        inserted_count = len(play_data) if isinstance(result, list) else result
+        return (inserted_count, duplicate_count)
+
+    async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[tuple]:
+        """Find existing plays that match the lookup keys.
+
+        Uses batched queries to avoid SQLite expression tree limit (max depth 1000).
+        Processes plays in chunks of 200 to stay well under the limit.
+        """
+        if not plays:
+            return set()
+
+        from datetime import UTC
+
+        existing_keys = set()
+
+        # Batch plays to avoid SQLite expression tree limit (max depth 1000)
+        # Using partition_all from toolz following CLAUDE.md functional patterns
+        batch_size = (
+            200  # Well under SQLite's 1000 limit, allows for other query complexity
+        )
+
+        for batch_tuple in partition_all(batch_size, plays):
+            # partition_all returns tuples, convert to list for iteration
+            batch = list(batch_tuple)
+            # Build conditions for this batch
+            conditions = []
+            for play in batch:
+                # Type checker has inference issues with partition_all, but runtime types are correct
+                play_typed: TrackPlay = play  # type: ignore[assignment]
+                condition = (
+                    (self.model_class.track_id == play_typed.track_id)
+                    & (self.model_class.service == play_typed.service)
+                    & (self.model_class.played_at == play_typed.played_at)
+                    & (self.model_class.ms_played == play_typed.ms_played)
+                )
+                conditions.append(condition)
+
+            # Combine batch conditions with OR
+            if len(conditions) == 1:
+                combined_condition = conditions[0]
+            else:
+                combined_condition = conditions[0]
+                for condition in conditions[1:]:
+                    combined_condition = combined_condition | condition
+
+            # Query for existing plays in this batch
+            existing_db_plays = await self.find_by([combined_condition])
+
+            # Convert to set of tuples for fast lookup
+            # Normalize timezone to handle timezone-aware vs timezone-naive comparison
+            for play in existing_db_plays:
+                # Ensure played_at has UTC timezone for consistent comparison
+                played_at = play.played_at
+                if played_at.tzinfo is None:
+                    played_at = played_at.replace(tzinfo=UTC)
+                existing_keys.add((
+                    play.track_id,
+                    play.service,
+                    played_at,
+                    play.ms_played,
+                ))
+
+        return existing_keys
+
+    def _filter_duplicates(
+        self, plays: list[TrackPlay], existing_keys: set[tuple]
+    ) -> list[TrackPlay]:
+        """Filter out plays that already exist in the database."""
+        new_plays = []
+
+        for play in plays:
+            # Normalize timezone for consistent comparison
+            from datetime import UTC
+
+            played_at = play.played_at
+            if played_at.tzinfo is None:
+                played_at = played_at.replace(tzinfo=UTC)
+
+            play_key = (play.track_id, play.service, played_at, play.ms_played)
+            if play_key not in existing_keys:
+                new_plays.append(play)
+
+        return new_plays
 
     @db_operation("get_plays_by_batch")
     async def get_plays_by_batch(self, import_batch_id: str) -> list[TrackPlay]:

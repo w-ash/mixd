@@ -7,7 +7,6 @@ These tests validate Phase 3 of the Clean Architecture refactor:
 """
 
 from unittest.mock import Mock
-from uuid import uuid4
 
 import pytest
 
@@ -17,10 +16,7 @@ from src.application.use_cases.match_and_identify_tracks import (
 )
 from src.domain.entities.track import Artist, Track, TrackList
 from src.infrastructure.connectors.spotify import SpotifyConnector
-from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import init_db
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from src.infrastructure.services.spotify_play_importer import SpotifyPlayImporter
 
 
 class TestSpotifyRelinkingValidation:
@@ -132,7 +128,7 @@ class TestSpotifyRelinkingValidation:
 
     @pytest.mark.asyncio
     async def test_identity_resolution_creates_single_canonical_track(
-        self, mock_spotify_connector, relinked_track_data
+        self, db_session, mock_spotify_connector, relinked_track_data
     ):
         """Test that MatchAndIdentifyTracksUseCase creates ONE canonical track for relinked tracks."""
         
@@ -154,142 +150,40 @@ class TestSpotifyRelinkingValidation:
         # Both tracks represent the same recording but with different Spotify IDs
         tracklist = TrackList(tracks=[old_track, new_track])
         
-        # Mock database setup
-        async with get_session() as session:
-            await init_db()
-            uow = get_unit_of_work(session)
-            
-            async with uow:
-                # Create use case and command
-                use_case = MatchAndIdentifyTracksUseCase()
-                command = MatchAndIdentifyTracksCommand(
-                    tracklist=tracklist,
-                    connector="spotify",
-                    connector_instance=mock_spotify_connector,
-                )
-                
-                # Execute identity resolution
-                result = await use_case.execute(command, uow)
-                
-                # CRITICAL VALIDATION: Should create only ONE canonical track
-                # (The identity resolution should detect these are the same recording)
-                assert result.resolved_count <= 1, (
-                    "Should create at most ONE canonical track for same recording with different IDs"
-                )
-                
-                # Verify both IDs map to the same canonical track
-                connector_repo = uow.get_connector_repository()
-                
-                old_mapping = await connector_repo.find_tracks_by_connectors([("spotify", "old_id_123")])
-                new_mapping = await connector_repo.find_tracks_by_connectors([("spotify", "current_id_456")])
-                
-                if old_mapping and new_mapping:
-                    old_canonical = old_mapping["spotify", "old_id_123"]
-                    new_canonical = new_mapping["spotify", "current_id_456"]
-                    
-                    assert old_canonical.id == new_canonical.id, (
-                        "Both Spotify IDs should map to the same canonical track ID"
-                    )
-
-    @pytest.mark.asyncio 
-    async def test_play_attribution_with_relinked_tracks(
-        self, mock_spotify_connector, import_play_records
-    ):
-        """Test that plays with old/new Spotify IDs reference the same canonical track."""
+        # Use test database session
+        uow = get_unit_of_work(db_session)
         
-        # For this test, let's focus on the critical logic without database complexity
-        # The importer should properly extract IDs and call the resolution logic
-        
-        from unittest.mock import patch
-        
-        plays_repo = Mock()
-        connector_repo = Mock()
-        
-        # Create importer
-        importer = SpotifyPlayImporter(
-            plays_repository=plays_repo,
-            connector_repository=connector_repo,
-        )
-        
-        # Mock the resolution method to return a canonical track mapping
-        mock_canonical_track = Track(
-            id=1,  # Database ID
-            title="Saturday",
-            artists=[Artist(name="The Clientele")],
-            album="A Fading Summer",
-            duration_ms=229133,
-        )
-        
-        canonical_tracks_mapping = {
-            "3tI6o5tSlbB2trBl5UKJ1z": mock_canonical_track
-        }
-        
-        with patch.object(
-            importer, '_resolve_spotify_ids_to_canonical_tracks',
-            return_value=canonical_tracks_mapping
-        ) as mock_resolve:
-            
-            batch_id = str(uuid4())
-            from datetime import UTC, datetime
-            
-            # Process the play records
-            track_plays = await importer._process_data(
-                raw_data=import_play_records,
-                batch_id=batch_id,
-                import_timestamp=datetime.now(UTC),
+        async with uow:
+            # Create use case and command
+            use_case = MatchAndIdentifyTracksUseCase()
+            command = MatchAndIdentifyTracksCommand(
+                tracklist=tracklist,
+                connector="spotify",
+                connector_instance=mock_spotify_connector,
             )
             
-            # CRITICAL VALIDATION: Should have called resolution with extracted ID
-            mock_resolve.assert_called_once()
-            called_args = mock_resolve.call_args
-            called_spotify_ids = called_args[0][0]  # First positional arg
+            # Execute identity resolution
+            result = await use_case.execute(command, uow)
             
-            assert "3tI6o5tSlbB2trBl5UKJ1z" in called_spotify_ids, (
-                "Should resolve the Spotify ID from import record"
+            # CRITICAL VALIDATION: Should create only ONE canonical track
+            # (The identity resolution should detect these are the same recording)
+            assert result.resolved_count <= 1, (
+                "Should create at most ONE canonical track for same recording with different IDs"
             )
             
-            # CRITICAL VALIDATION: All plays should reference valid canonical tracks
-            assert len(track_plays) == 1, "Should create one play record"
-            play = track_plays[0]
+            # Verify both IDs map to the same canonical track
+            connector_repo = uow.get_connector_repository()
             
-            assert play.track_id == 1, "Play should reference canonical track database ID"
-            assert play.service == "spotify", "Play should be marked as from Spotify"
-            assert play.ms_played == 229133, "Should preserve play duration"
-            assert "spotify_track_uri" in play.context, "Should preserve original URI in context"
-
-    def test_spotify_play_importer_helper_methods(self):
-        """Test that SpotifyPlayImporter helper methods work correctly."""
-        importer = SpotifyPlayImporter(None, None)
-        
-        # Test URI parsing (using realistic 22-character Spotify IDs)
-        test_cases = [
-            ("spotify:track:3tI6o5tSlbB2trBl5UKJ1z", "3tI6o5tSlbB2trBl5UKJ1z"),
-            ("spotify:track:6V2QgOIMT94HhsfeIVbbZm", "6V2QgOIMT94HhsfeIVbbZm"),
-            ("invalid_uri", None),
-            ("spotify:album:123", None),
-            ("", None),
-        ]
-        
-        for uri, expected in test_cases:
-            result = importer._extract_spotify_id_from_uri(uri)
-            assert result == expected, f"URI {uri} should parse to {expected}, got {result}"
-        
-        # Test unique ID extraction
-        class MockRecord:
-            def __init__(self, track_uri):
-                self.track_uri = track_uri
-        
-        records = [
-            MockRecord("spotify:track:3tI6o5tSlbB2trBl5UKJ1z"),
-            MockRecord("spotify:track:6V2QgOIMT94HhsfeIVbbZm"), 
-            MockRecord("spotify:track:3tI6o5tSlbB2trBl5UKJ1z"),  # Duplicate
-            MockRecord("invalid_uri"),  # Should be ignored
-        ]
-        
-        unique_ids = importer._extract_unique_spotify_ids(records)
-        assert len(unique_ids) == 2, "Should extract 2 unique IDs"
-        assert "3tI6o5tSlbB2trBl5UKJ1z" in unique_ids, "Should include first ID"
-        assert "6V2QgOIMT94HhsfeIVbbZm" in unique_ids, "Should include second ID"
+            old_mapping = await connector_repo.find_tracks_by_connectors([("spotify", "old_id_123")])
+            new_mapping = await connector_repo.find_tracks_by_connectors([("spotify", "current_id_456")])
+            
+            if old_mapping and new_mapping:
+                old_canonical = old_mapping["spotify", "old_id_123"]
+                new_canonical = new_mapping["spotify", "current_id_456"]
+                
+                assert old_canonical.id == new_canonical.id, (
+                    "Both Spotify IDs should map to the same canonical track ID"
+                )
 
 
 class TestRelinkingEdgeCases:

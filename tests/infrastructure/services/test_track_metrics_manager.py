@@ -85,11 +85,13 @@ class TestTrackMetricsManagerCriticalFlow:
         _track_repo, _connector_repo, metrics_repo = mock_repos
 
         # Mock identity resolution (step 1) - new architecture
-        from src.application.use_cases.match_and_identify_tracks import MatchAndIdentifyTracksResult
-        from src.domain.matching.types import MatchResult
-        
+        from src.application.use_cases.match_and_identify_tracks import (
+            MatchAndIdentifyTracksResult,
+        )
+
         # Create mock tracks for the MatchResult objects
-        from src.domain.entities import Track, Artist
+        from src.domain.entities import Artist, Track
+        from src.domain.matching.types import MatchResult
         mock_track_1 = Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
         mock_track_2 = Track(id=2, title="Track 2", artists=[Artist(name="Artist 2")])
         
@@ -174,9 +176,11 @@ class TestTrackMetricsManagerCriticalFlow:
         _track_repo, _connector_repo, metrics_repo = mock_repos
 
         # Mock identity resolution - new architecture
-        from src.application.use_cases.match_and_identify_tracks import MatchAndIdentifyTracksResult
+        from src.application.use_cases.match_and_identify_tracks import (
+            MatchAndIdentifyTracksResult,
+        )
+        from src.domain.entities import Artist, Track
         from src.domain.matching.types import MatchResult
-        from src.domain.entities import Track, Artist
         
         mock_track_1 = Track(id=1, title="Track 1", artists=[Artist(name="Artist 1")])
         mock_track_2 = Track(id=2, title="Track 2", artists=[Artist(name="Artist 2")])

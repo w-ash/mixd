@@ -10,7 +10,6 @@ Purpose: Catch dependency injection failures like 'NoneType' object has no attri
 import pytest
 
 from src.application.workflows.context import create_workflow_context
-from src.infrastructure.persistence.database.db_connection import get_session
 
 
 class TestWorkflowContextContracts:
@@ -18,39 +17,38 @@ class TestWorkflowContextContracts:
 
     @pytest.mark.asyncio
     async def test_workflow_context_with_shared_session_provides_real_repositories(
-        self,
+        self, db_session
     ):
         """Test that workflow context with shared session provides working repositories.
 
         Prevents: 'NoneType' object has no attribute 'get_connector_mappings'
         """
         # Create workflow context with shared session (workflow execution pattern)
-        async with get_session() as session:
-            context = create_workflow_context(shared_session=session)
+        context = create_workflow_context(shared_session=db_session)
 
-            # Verify use cases are available (Clean Architecture pattern)
-            assert context.use_cases is not None, (
-                "Use cases should not be None when shared session provided"
-            )
+        # Verify use cases are available (Clean Architecture pattern)
+        assert context.use_cases is not None, (
+            "Use cases should not be None when shared session provided"
+        )
 
-            # Verify critical use case provider methods exist
-            assert hasattr(
-                context.use_cases, "get_create_canonical_playlist_use_case"
-            ), (
-                "Use case provider must have get_create_canonical_playlist_use_case method"
-            )
-            assert callable(context.use_cases.get_create_canonical_playlist_use_case), (
-                "get_create_canonical_playlist_use_case must be callable"
-            )
+        # Verify critical use case provider methods exist
+        assert hasattr(
+            context.use_cases, "get_create_canonical_playlist_use_case"
+        ), (
+            "Use case provider must have get_create_canonical_playlist_use_case method"
+        )
+        assert callable(context.use_cases.get_create_canonical_playlist_use_case), (
+            "get_create_canonical_playlist_use_case must be callable"
+        )
 
-            assert hasattr(
-                context.use_cases, "get_create_connector_playlist_use_case"
-            ), (
-                "Use case provider must have get_create_connector_playlist_use_case method"
-            )
-            assert callable(context.use_cases.get_create_connector_playlist_use_case), (
-                "get_create_connector_playlist_use_case must be callable"
-            )
+        assert hasattr(
+            context.use_cases, "get_create_connector_playlist_use_case"
+        ), (
+            "Use case provider must have get_create_connector_playlist_use_case method"
+        )
+        assert callable(context.use_cases.get_create_connector_playlist_use_case), (
+            "get_create_connector_playlist_use_case must be callable"
+        )
 
     def test_workflow_context_without_session_provides_use_cases(self):
         """Test that workflow context without session provides use cases.
@@ -107,52 +105,50 @@ class TestUseCaseProviderContracts:
     """Contract tests for use case provider interface (Clean Architecture)."""
 
     @pytest.mark.asyncio
-    async def test_use_case_provider_provides_all_required_use_cases(self):
+    async def test_use_case_provider_provides_all_required_use_cases(self, db_session):
         """Test that UseCaseProviderImpl provides all required use cases.
 
         Prevents: Missing use case errors in workflow execution
         """
-        async with get_session() as session:
-            context = create_workflow_context(shared_session=session)
-            use_cases = context.use_cases
+        context = create_workflow_context(shared_session=db_session)
+        use_cases = context.use_cases
 
-            # Check all required use case provider methods exist
-            required_use_cases = [
-                "get_create_canonical_playlist_use_case",
-                "get_create_connector_playlist_use_case",
-            ]
+        # Check all required use case provider methods exist
+        required_use_cases = [
+            "get_create_canonical_playlist_use_case",
+            "get_create_connector_playlist_use_case",
+        ]
 
-            for use_case_method in required_use_cases:
-                assert hasattr(use_cases, use_case_method), (
-                    f"Use case provider must have {use_case_method} method"
-                )
-                method = getattr(use_cases, use_case_method)
-                assert callable(method), f"{use_case_method} must be callable"
+        for use_case_method in required_use_cases:
+            assert hasattr(use_cases, use_case_method), (
+                f"Use case provider must have {use_case_method} method"
+            )
+            method = getattr(use_cases, use_case_method)
+            assert callable(method), f"{use_case_method} must be callable"
 
     @pytest.mark.asyncio
-    async def test_use_case_dependency_injection_integration(self):
+    async def test_use_case_dependency_injection_integration(self, db_session):
         """Test that use cases work properly with dependency injection.
 
         Prevents: Use case instantiation failures due to missing dependencies
         """
-        async with get_session() as session:
-            context = create_workflow_context(shared_session=session)
+        context = create_workflow_context(shared_session=db_session)
 
-            # Test that use cases can be instantiated successfully
-            try:
-                # This tests the dependency injection pattern
-                canonical_use_case = (
-                    await context.use_cases.get_create_canonical_playlist_use_case()
-                )
-                assert canonical_use_case is not None
+        # Test that use cases can be instantiated successfully
+        try:
+            # This tests the dependency injection pattern
+            canonical_use_case = (
+                await context.use_cases.get_create_canonical_playlist_use_case()
+            )
+            assert canonical_use_case is not None
 
-                connector_use_case = (
-                    await context.use_cases.get_create_connector_playlist_use_case()
-                )
-                assert connector_use_case is not None
+            connector_use_case = (
+                await context.use_cases.get_create_connector_playlist_use_case()
+            )
+            assert connector_use_case is not None
 
-            except Exception as e:
-                pytest.fail(f"Use case dependency injection failed: {e}")
+        except Exception as e:
+            pytest.fail(f"Use case dependency injection failed: {e}")
 
 
 class TestExtractorContracts:

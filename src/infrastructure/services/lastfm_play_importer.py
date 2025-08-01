@@ -60,6 +60,7 @@ class LastfmPlayImporter(BasePlayImporter):
         limit: int = 1000,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
     ) -> OperationResult:
         """Download most recent scrobbles from Last.fm without checking for duplicates.
 
@@ -76,6 +77,7 @@ class LastfmPlayImporter(BasePlayImporter):
             limit=limit,
             import_batch_id=import_batch_id,
             progress_callback=progress_callback,
+            uow=uow,
         )
 
     async def import_recent_plays_with_resolution(
@@ -83,6 +85,7 @@ class LastfmPlayImporter(BasePlayImporter):
         limit: int = 1000,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
     ) -> OperationResult:
         """Download recent scrobbles and match artist/title names to tracks in local library.
 
@@ -100,6 +103,7 @@ class LastfmPlayImporter(BasePlayImporter):
             limit=limit,
             import_batch_id=import_batch_id,
             progress_callback=progress_callback,
+            uow=uow,
         )
 
     async def import_incremental_plays(
@@ -108,6 +112,7 @@ class LastfmPlayImporter(BasePlayImporter):
         resolve_tracks: bool = True,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
     ) -> OperationResult:
         """Download only scrobbles since last checkpoint timestamp to avoid duplicates.
 
@@ -130,6 +135,7 @@ class LastfmPlayImporter(BasePlayImporter):
             resolve_tracks=resolve_tracks,
             import_batch_id=import_batch_id,
             progress_callback=progress_callback,
+            uow=uow,
         )
 
         # Override result for incremental imports to include checkpoint metrics
@@ -154,7 +160,7 @@ class LastfmPlayImporter(BasePlayImporter):
                 # Preserve unified count fields
                 imported_count=result.imported_count,
                 exported_count=result.exported_count,
-                skipped_count=result.skipped_count,
+                filtered_count=result.filtered_count,
                 error_count=result.error_count,
                 already_liked=result.already_liked,
                 candidates=result.candidates,
@@ -448,6 +454,7 @@ class LastfmPlayImporter(BasePlayImporter):
         raw_data: list[Any],
         track_plays: list[TrackPlay],
         imported_count: int,
+        duplicate_count: int,
         batch_id: str,
     ) -> OperationResult:
         """Build import result with resolved/unresolved track counts if track matching was performed."""
@@ -460,6 +467,7 @@ class LastfmPlayImporter(BasePlayImporter):
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,
+            duplicate_count=duplicate_count,
             batch_id=batch_id,
             tracks=track_plays,
         )
@@ -479,41 +487,4 @@ class LastfmPlayImporter(BasePlayImporter):
                 "unresolved_count": unresolved_count,
             })
 
-        return result
-
-    def _create_incremental_result(
-        self,
-        raw_data: list[Any],
-        track_plays: list[TrackPlay],
-        imported_count: int,
-        batch_id: str,
-        from_timestamp: datetime | None = None,
-        to_timestamp: datetime | None = None,
-    ) -> OperationResult:
-        """Build import result with checkpoint timestamps for tracking incremental sync progress."""
-        import_data = ImportResultData(
-            raw_data_count=len(raw_data),
-            imported_count=imported_count,
-            batch_id=batch_id,
-            tracks=track_plays,
-            checkpoint_timestamp=to_timestamp,
-        )
-
-        result = ResultFactory.create_import_result(
-            operation_name=self.operation_name,
-            import_data=import_data,
-        )
-
-        # Add incremental-specific metrics expected by original tests
-        incremental_metrics: dict[str, Any] = {
-            "checkpoint_updated": True,
-        }
-
-        if from_timestamp:
-            incremental_metrics["from_timestamp"] = from_timestamp.isoformat()
-
-        if to_timestamp:
-            incremental_metrics["to_timestamp"] = to_timestamp.isoformat()
-
-        result.play_metrics.update(incremental_metrics)
         return result

@@ -171,7 +171,10 @@ class ReadCanonicalPlaylistUseCase:
                     connector_name, command.playlist_id, raise_if_not_found=True
                 )
                 # Type assertion: raise_if_not_found=True guarantees non-None result
-                assert playlist is not None
+                if playlist is None:
+                    raise ValueError(
+                        "Repository should have raised error for not found"
+                    )
                 return playlist
             except ValueError:
                 # Repository raised "not found" - convert to our standard exception

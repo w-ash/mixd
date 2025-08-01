@@ -5,7 +5,7 @@ to ensure the filtering logic correctly distinguishes between legitimate
 listens and skips/partial plays.
 """
 
-from src.infrastructure.services.spotify_play_importer import should_include_play
+from src.infrastructure.adapters.spotify_play_adapter import should_include_play
 
 
 class TestPlayFilteringRealMusicScenarios:
@@ -90,9 +90,9 @@ class TestPlayFilteringThresholds:
 
     def test_no_duration_fallback_behavior(self):
         """When track duration unknown, should fall back to 4-minute rule."""
-        # These would pass 50% rule if we knew duration, but fall back to 4min
+        # >= 4 minutes always pass, < 4 minutes always fail when no duration info
         assert should_include_play(300_000, None) is True  # 5 minutes - pass
-        assert should_include_play(180_000, None) is False  # 3 minutes - fail
+        assert should_include_play(180_000, None) is False  # 3 minutes - fail (no duration info)
 
 
 class TestPlayFilteringUserBehaviorEdgeCases:

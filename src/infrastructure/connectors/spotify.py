@@ -140,8 +140,8 @@ class SpotifyConnector(BaseAPIConnector):
                 open_browser=True,
                 cache_handler=spotipy.CacheFileHandler(cache_path=".spotify_cache"),
             ),
-            requests_timeout=self.get_connector_config("REQUEST_TIMEOUT", 15),
-            retries=self.get_connector_config("RETRIES", 5),
+            requests_timeout=int(self.get_connector_config("REQUEST_TIMEOUT") or 15),
+            retries=int(self.get_connector_config("RETRIES") or 5),
         )
 
     @resilient_operation("get_spotify_tracks_by_ids")

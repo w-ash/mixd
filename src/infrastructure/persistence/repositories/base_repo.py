@@ -177,9 +177,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         self.session = session
         self.model_class = model_class
         self.mapper = mapper
-        logger.debug(
-            f"Initialized {self.__class__.__name__} for {model_class.__name__}",
-        )
 
     # -------------------------------------------------------------------------
     # SELECT STATEMENT BUILDERS

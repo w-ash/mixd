@@ -465,7 +465,7 @@ class ExportLastFmLikesUseCase:
         )
 
         exported_count = 0
-        skipped_count = 0
+        filtered_count = 0
         error_count = 0
 
         # Process tracks in batches using unified batch processor
@@ -514,7 +514,7 @@ class ExportLastFmLikesUseCase:
                 if result["status"] == "exported":
                     exported_count += 1
                 elif result["status"] == "skipped":
-                    skipped_count += 1
+                    filtered_count += 1
                 else:
                     error_count += 1
 
@@ -527,13 +527,13 @@ class ExportLastFmLikesUseCase:
 
         logger.info(
             f"Last.fm loves export completed: {exported_count} exported, "
-            f"{skipped_count} skipped out of {candidates} candidates"
+            f"{filtered_count} skipped out of {candidates} candidates"
         )
 
         return OperationResult(
             operation_name="Last.fm Likes Export",
             exported_count=exported_count,
-            skipped_count=skipped_count,
+            filtered_count=filtered_count,
             error_count=error_count,
             already_liked=already_loved,
             candidates=candidates,

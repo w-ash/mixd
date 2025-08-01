@@ -264,10 +264,13 @@ class OperationResult:
         play_metrics: Play-level statistics
         imported_count: Successfully imported/processed tracks
         exported_count: Tracks exported to external services
-        skipped_count: Tracks skipped (duplicates, etc.)
+        filtered_count: Tracks intentionally filtered out (too short, incognito, etc.)
+        duplicate_count: Tracks that already existed in database
         error_count: Tracks that failed processing
         already_liked: Tracks already in target state
         candidates: Total tracks considered for operation
+        new_tracks_count: Canonical tracks created during import
+        updated_tracks_count: Existing canonical tracks with new plays
     """
 
     tracks: list[Track] = field(factory=list)
@@ -292,14 +295,23 @@ class OperationResult:
     exported_count: int | None = field(
         default=None
     )  # Tracks exported to external service
-    skipped_count: int | None = field(
+    filtered_count: int | None = field(
         default=None
-    )  # Tracks skipped (already processed, etc)
+    )  # Plays filtered out (too short, incognito, etc.)
+    duplicate_count: int | None = field(
+        default=None
+    )  # Plays that already existed in database
     error_count: int | None = field(default=None)  # Tracks that failed processing
     already_liked: int | None = field(default=None)  # Tracks already in desired state
     candidates: int | None = field(
         default=None
     )  # Total tracks considered for operation
+    new_tracks_count: int | None = field(
+        default=None
+    )  # Canonical tracks created during import
+    updated_tracks_count: int | None = field(
+        default=None
+    )  # Existing canonical tracks with new plays
 
     def get_metric(
         self,
@@ -342,7 +354,8 @@ class OperationResult:
             execution_time=self.execution_time,
             imported_count=self.imported_count,
             exported_count=self.exported_count,
-            skipped_count=self.skipped_count,
+            filtered_count=self.filtered_count,
+            duplicate_count=self.duplicate_count,
             error_count=self.error_count,
             already_liked=self.already_liked,
             candidates=self.candidates,
@@ -350,7 +363,7 @@ class OperationResult:
 
     @property
     def total_processed(self) -> int | None:
-        """Returns sum of imported, exported, skipped and error counts.
+        """Returns sum of imported, exported, filtered, duplicate and error counts.
 
         Returns:
             Total processed items, or None if no counts were set
@@ -358,7 +371,30 @@ class OperationResult:
         counts = [
             self.imported_count,
             self.exported_count,
-            self.skipped_count,
+            self.filtered_count,
+            self.duplicate_count,
+            self.error_count,
+        ]
+        # Only calculate if at least one count field has been set
+        if all(count is None for count in counts):
+            return None
+        # Treat None as 0 for calculation
+        return sum(count or 0 for count in counts)
+
+    @property
+    def attempted_to_process(self) -> int | None:
+        """Returns count of items we actually attempted to process (excludes filtered).
+
+        This is used for success rate calculation - filtered items are intentionally
+        skipped and shouldn't count as processing attempts.
+
+        Returns:
+            Attempted processing count, or None if no counts were set
+        """
+        counts = [
+            self.imported_count,
+            self.exported_count,
+            self.duplicate_count,
             self.error_count,
         ]
         # Only calculate if at least one count field has been set
@@ -369,17 +405,20 @@ class OperationResult:
 
     @property
     def success_rate(self) -> float | None:
-        """Returns percentage of successful operations (imported + exported) / total * 100.
+        """Returns percentage of successful operations out of attempted processing.
+
+        Uses attempted_to_process (excludes filtered) as denominator since filtered
+        items are intentionally skipped, not processing failures.
 
         Returns:
             Success rate percentage, or None if no counts available
         """
-        total = self.total_processed
-        if total is None or total == 0:
+        attempted = self.attempted_to_process
+        if attempted is None or attempted == 0:
             return None
         imported = self.imported_count or 0
         exported = self.exported_count or 0
-        return ((imported + exported) / total) * 100
+        return ((imported + exported) / attempted) * 100
 
     @property
     def efficiency_rate(self) -> float | None:
@@ -437,8 +476,10 @@ class OperationResult:
             result["imported_count"] = self.imported_count
         if self.exported_count is not None:
             result["exported_count"] = self.exported_count
-        if self.skipped_count is not None:
-            result["skipped_count"] = self.skipped_count
+        if self.filtered_count is not None:
+            result["filtered_count"] = self.filtered_count
+        if self.duplicate_count is not None:
+            result["duplicate_count"] = self.duplicate_count
         if self.error_count is not None:
             result["error_count"] = self.error_count
         if self.already_liked is not None:

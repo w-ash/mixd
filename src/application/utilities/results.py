@@ -19,14 +19,13 @@ class ImportResultData:
     raw_data_count: int
     imported_count: int
     batch_id: str
+    filtered_count: int = 0  # Plays filtered out (too short, incognito, etc.)
+    duplicate_count: int = 0  # Plays that already existed in database
     error_count: int = 0
+    new_tracks_count: int = 0  # Canonical tracks created during import
+    updated_tracks_count: int = 0  # Existing canonical tracks with new plays
     checkpoint_timestamp: datetime | None = None
     tracks: list[Any] = field(factory=list)
-
-    @property
-    def skipped_count(self) -> int:
-        """Calculate skipped count from raw data and processed counts."""
-        return self.raw_data_count - self.imported_count - self.error_count
 
 
 @define(frozen=True)
@@ -35,7 +34,7 @@ class SyncResultData:
 
     imported_count: int = 0
     exported_count: int = 0
-    skipped_count: int = 0
+    filtered_count: int = 0
     error_count: int = 0
     batch_id: str = ""
     already_liked: int = 0
@@ -48,7 +47,7 @@ class SyncResultData:
         return (
             self.imported_count
             + self.exported_count
-            + self.skipped_count
+            + self.filtered_count
             + self.error_count
         )
 
@@ -99,8 +98,11 @@ class ResultFactory:
             execution_time=execution_time,
             # Unified fields for import operations
             imported_count=import_data.imported_count,
-            skipped_count=import_data.skipped_count,
+            filtered_count=import_data.filtered_count,
+            duplicate_count=import_data.duplicate_count,
             error_count=import_data.error_count,
+            new_tracks_count=import_data.new_tracks_count,
+            updated_tracks_count=import_data.updated_tracks_count,
         )
 
     @staticmethod
@@ -132,7 +134,7 @@ class ResultFactory:
             # Unified fields for sync operations
             imported_count=sync_data.imported_count,
             exported_count=sync_data.exported_count,
-            skipped_count=sync_data.skipped_count,
+            filtered_count=sync_data.filtered_count,
             error_count=sync_data.error_count,
             already_liked=sync_data.already_liked,
             candidates=sync_data.candidates,

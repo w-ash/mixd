@@ -20,7 +20,6 @@ The module supports:
 
 import asyncio
 from collections.abc import Callable
-import contextlib
 from datetime import datetime
 import os
 from typing import Any, ClassVar
@@ -122,16 +121,41 @@ class LastFMTrackInfo:
     @classmethod
     def from_pylast_track(cls, track: pylast.Track) -> "LastFMTrackInfo":
         """Create LastFMTrackInfo from a pylast Track object."""
-        # Extract all fields with error handling
-        with contextlib.suppress(pylast.WSError, AttributeError, TypeError, ValueError):
-            info = {
-                field: extractor(track)
-                for field, extractor in cls.EXTRACTORS.items()
-                if extractor(track) is not None
-            }
+        info = {}
+        extraction_errors = []
+
+        # Extract each field individually with targeted error handling
+        for field_name, extractor in cls.EXTRACTORS.items():
+            try:
+                value = extractor(track)
+                if value is not None:
+                    info[field_name] = value
+            except pylast.WSError as e:
+                # WSErrors are expected for tracks not found or incomplete data
+                extraction_errors.append(f"{field_name}: {type(e).__name__}({e})")
+                continue
+            except (AttributeError, TypeError, ValueError) as e:
+                # These might indicate API changes or data format issues
+                extraction_errors.append(f"{field_name}: {type(e).__name__}({e})")
+                continue
+            except Exception as e:
+                # Log truly unexpected errors but continue
+                logger.warning(
+                    f"Unexpected error extracting {field_name}: {type(e).__name__}({e})"
+                )
+                extraction_errors.append(f"{field_name}: {type(e).__name__}({e})")
+                continue
+
+        # Only log extraction issues at debug level - they're often expected
+        if extraction_errors:
+            logger.debug(f"Field extraction errors: {', '.join(extraction_errors)}")
+
+        # Return extracted data even if some fields failed
+        if info:
             return cls(**info)
 
-        # Return empty object on error
+        # Only return empty if no fields could be extracted at all
+        logger.warning("No fields could be extracted from pylast Track object")
         return cls.empty()
 
     def to_domain_track(self) -> Track:
@@ -194,7 +218,7 @@ class LastFMConnector:
         self.lastfm_username = self.lastfm_username or os.getenv("LASTFM_USERNAME")
 
         # Create shared rate limiter for ALL API calls (first tries AND retries)
-        rate_limit = get_config("LASTFM_API_RATE_LIMIT", 5.0) or 5.0
+        rate_limit = get_config("LASTFM_API_RATE_LIMIT") or 4.8
         self._api_rate_limiter = AsyncLimiter(rate_limit, 1)
 
         # Initialize the batch processor with the shared rate limiter
@@ -202,11 +226,11 @@ class LastFMConnector:
             Track,
             tuple[int, LastFMTrackInfo | None],
         ](
-            batch_size=get_config("LASTFM_API_BATCH_SIZE") or 20,
-            concurrency_limit=get_config("LASTFM_API_CONCURRENCY") or 5,
+            batch_size=get_config("LASTFM_API_BATCH_SIZE") or 50,
+            concurrency_limit=get_config("LASTFM_API_CONCURRENCY") or 200,
             retry_count=get_config("LASTFM_API_RETRY_COUNT") or 3,
             retry_base_delay=get_config("LASTFM_API_RETRY_BASE_DELAY") or 1.0,
-            retry_max_delay=get_config("LASTFM_API_RETRY_MAX_DELAY") or 60.0,
+            retry_max_delay=get_config("LASTFM_API_RETRY_MAX_DELAY") or 30.0,
             request_delay=0.0,  # No artificial delay - rate limiter handles this
             rate_limiter=self._api_rate_limiter,  # Share rate limiter with direct calls
             logger_instance=logger,
@@ -276,25 +300,44 @@ class LastFMConnector:
 
     @resilient_operation("get_lastfm_track_info")
     @backoff.on_exception(
-        backoff.expo,
+        backoff.constant,  # Use constant delay for rate limits
         (pylast.NetworkError, pylast.MalformedResponseError, pylast.WSError),
+        interval=get_config("LASTFM_API_RETRY_CONSTANT_DELAY") or 1.2,
         max_tries=get_config("LASTFM_API_RETRY_COUNT"),
-        base=get_config("LASTFM_API_RETRY_BASE_DELAY"),
-        max_value=get_config("LASTFM_API_RETRY_MAX_DELAY"),
         max_time=get_config("LASTFM_API_MAX_RETRY_TIME"),
-        jitter=backoff.full_jitter,
+        jitter=None,  # No jitter for predictable rate limit recovery
+        giveup=lambda e: (
+            isinstance(e, pylast.WSError)
+            and ("not found" in str(e).lower() or "does not exist" in str(e).lower())
+        ),
         on_backoff=lambda details: logger.warning(
             f"LastFM API retry {details['tries']}/{get_config('LASTFM_API_RETRY_COUNT')}",
             wait_time=f"{details.get('wait', 0):.1f}s",
             elapsed=f"{details.get('elapsed', 0):.1f}s",
-            target=details["target"].__name__,
             exception=str(details.get("exception", "Unknown")),
+            retry_reason="rate_limit_or_network_error",
         ),
         on_giveup=lambda details: logger.error(
             f"LastFM API gave up after {details['tries']} attempts",
             total_elapsed=f"{details.get('elapsed', 0):.1f}s",
-            target=details["target"].__name__,
             final_exception=str(details.get("exception", "Unknown")),
+        ),
+    )
+    @backoff.on_exception(
+        backoff.expo,  # Use exponential backoff for other API errors
+        Exception,  # Catch any remaining exceptions
+        base=get_config("LASTFM_API_RETRY_BASE_DELAY"),
+        max_value=get_config("LASTFM_API_RETRY_MAX_DELAY"),
+        max_tries=get_config("LASTFM_API_RETRY_UNKNOWN_MAX") or 2,
+        jitter=backoff.full_jitter,
+        giveup=lambda e: isinstance(
+            e, pylast.WSError
+        ),  # Don't retry WSErrors with exponential
+        on_backoff=lambda details: logger.warning(
+            f"LastFM API exponential retry {details['tries']}/{get_config('LASTFM_API_RETRY_UNKNOWN_MAX') or 2}",
+            wait_time=f"{details.get('wait', 0):.1f}s",
+            exception=str(details.get("exception", "Unknown")),
+            retry_reason="api_error",
         ),
     )
     async def get_lastfm_track_info(

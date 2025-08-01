@@ -59,7 +59,7 @@ def _display_table_result(
     # Play-based operations show both plays and tracks
     if hasattr(result, "plays_processed") and result.plays_processed > 0:
         summary_data.append(("Plays Processed", str(result.plays_processed)))
-        summary_data.append(("Tracks Affected", str(len(result.tracks))))
+        summary_data.append(("Plays Saved", str(len(result.tracks))))
 
         # Add play-level metrics
         if hasattr(result, "play_metrics"):
@@ -77,7 +77,8 @@ def _display_table_result(
         # Get values, treating None as not set (don't display)
         imported = result.imported_count
         exported = result.exported_count
-        skipped = result.skipped_count
+        filtered = result.filtered_count
+        duplicates = result.duplicate_count
         errors = result.error_count
         total = result.total_processed
         already_liked = result.already_liked
@@ -103,9 +104,20 @@ def _display_table_result(
             summary_data.append(("Imported", str(imported)))
         if exported is not None:
             summary_data.append(("Exported", str(exported)))
-        if skipped is not None:
-            summary_data.append(("Skipped", str(skipped)))
-        if errors is not None:
+        if filtered is not None and filtered > 0:
+            summary_data.append(("Filtered (Too Short)", str(filtered)))
+        if duplicates is not None and duplicates > 0:
+            summary_data.append(("Filtered (Duplicates)", str(duplicates)))
+
+        # Show canonical track metrics if available
+        new_tracks = getattr(result, "new_tracks_count", None)
+        updated_tracks = getattr(result, "updated_tracks_count", None)
+        if new_tracks is not None and new_tracks > 0:
+            summary_data.append(("New Tracks", str(new_tracks)))
+        if updated_tracks is not None and updated_tracks > 0:
+            summary_data.append(("Updated Tracks", str(updated_tracks)))
+
+        if errors is not None and errors > 0:
             summary_data.append(("Errors", str(errors)))
         if success_rate is not None:
             summary_data.append(("Success Rate", f"{success_rate:.1f}%"))

@@ -3,7 +3,9 @@ import os
 
 import pytest
 
-from src.infrastructure.persistence.database.db_connection import get_session
+from src.infrastructure.persistence.database.db_connection import (
+    get_session_factory,
+)
 from src.infrastructure.persistence.database.db_models import init_db
 
 
@@ -13,40 +15,37 @@ def event_loop_policy():
     return asyncio.get_event_loop_policy()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_database():
-    """Set up in-memory database for faster tests."""
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
-
-
 @pytest.fixture
-async def initialize_db():
-    """Initialize database schema for tests."""
+async def db_session():
+    """Provide isolated database session with automatic cleanup for test isolation."""
+    import tempfile
+    import uuid
+    
+    # Create unique database file for complete test isolation
+    db_file = f"{tempfile.gettempdir()}/test_narada_{uuid.uuid4().hex}.db"
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_file}"
+    
+    # Clear global engine cache to force recreation with new DATABASE_URL
+    from src.infrastructure.persistence.database.db_connection import (
+        _reset_engine_cache,
+    )
+    _reset_engine_cache()
+    
+    # Initialize database schema
     try:
         await init_db()
     except Exception as e:
         pytest.fail(f"Database initialization failed: {e}")
-    return
-
-
-@pytest.fixture
-async def db_session(initialize_db):
-    """Provide database session with automatic rollback."""
-    async with get_session(rollback=True) as session:
+    
+    # Create session with automatic cleanup
+    session = get_session_factory()()
+    try:
+        # Ensure connection is established
+        await session.connection()
         yield session
+    finally:
+        # Always rollback to ensure test isolation
+        await session.rollback()
+        await session.close()
 
 
-@pytest.fixture
-def track_repo_fixture(db_session):
-    """Provide a track repository."""
-    from src.infrastructure.persistence.repositories import TrackRepository
-
-    return TrackRepository(db_session)
-
-
-@pytest.fixture
-def playlist_repo_fixture(db_session):
-    """Provide a playlist repository."""
-    from src.infrastructure.persistence.repositories import PlaylistRepository
-
-    return PlaylistRepository(db_session)

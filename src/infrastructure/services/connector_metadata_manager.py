@@ -433,7 +433,9 @@ class ConnectorMetadataManager:
                     if track is not None:
                         tracks_for_api.append(track)
                     else:
-                        logger.warning(f"Skipping track_id {track_id} - MatchResult.track is None")
+                        logger.warning(
+                            f"Skipping track_id {track_id} - MatchResult.track is None"
+                        )
 
             if not tracks_for_api:
                 logger.warning(f"No valid connector mappings found for {connector}")

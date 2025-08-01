@@ -95,6 +95,5 @@ logs/
 var/
 /var/**/*
 infra/
-scripts/
 data/
 CLAUDE.md

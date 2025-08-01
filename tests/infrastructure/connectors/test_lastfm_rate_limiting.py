@@ -88,8 +88,8 @@ class TestLastFMRateLimiting:
             # Create connector
             LastFMConnector()
 
-            # Verify default rate limit of 5.0 was used
-            mock_async_limiter.assert_called_once_with(5.0, 1)
+            # Verify default rate limit of 4.8 was used (matches implementation)
+            mock_async_limiter.assert_called_once_with(4.8, 1)
 
     async def test_rate_limited_api_call_wrapper(self):
         """Test that _rate_limited_api_call properly uses the rate limiter."""

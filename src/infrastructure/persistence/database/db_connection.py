@@ -143,6 +143,17 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
+def _reset_engine_cache() -> None:
+    """Reset global engine and session factory cache for testing.
+    
+    This is used by tests to ensure a fresh database connection
+    when the DATABASE_URL environment variable changes.
+    """
+    global _engine, _session_factory
+    _engine = None
+    _session_factory = None
+
+
 def create_session_factory(engine: AsyncEngine | None = None) -> async_sessionmaker:
     """Create an async session factory for the given engine.
 
