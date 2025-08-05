@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from attrs import define, field
 
+from src.application.utilities.batching import BatchResult
+from src.application.utilities.progress import ProgressOperation
 from src.config import get_logger
 from src.domain.entities import OperationResult
 from src.domain.repositories import UnitOfWorkProtocol
@@ -80,7 +82,7 @@ class ImportTracksCommand:
 class ImportTracksResult:
     """Result from track import operation with performance metrics.
 
-    Contains import statistics, timing data, and batch processing metadata
+    Contains import statistics, timing data, and optional batch processing metadata
     for monitoring and debugging import operations.
 
     Attributes:
@@ -89,8 +91,8 @@ class ImportTracksResult:
         mode: Import mode that was executed.
         execution_time_ms: Total time taken for import in milliseconds.
         total_batches: Number of processing batches used.
-        successful_batches: Number of batches that completed successfully.
-        failed_batches: Number of batches that failed.
+        batch_result: Optional detailed batch processing results from BatchProcessor.
+        progress_operation: Optional progress tracking operation for real-time updates.
     """
 
     operation_result: OperationResult
@@ -100,13 +102,10 @@ class ImportTracksResult:
 
     # Batch processing metadata (for SQLite optimization)
     total_batches: int = 0
-    successful_batches: int = 0
-    failed_batches: int = 0
-
-    @property
-    def tracks_imported(self) -> int:
-        """Returns number of tracks successfully imported."""
-        return self.operation_result.imported_count or 0
+    
+    # Optional integration with existing batch processing utilities
+    batch_result: BatchResult | None = None
+    progress_operation: ProgressOperation | None = None
 
     @property
     def success_rate(self) -> float:
@@ -165,8 +164,6 @@ class ImportTracksUseCase:
                     mode=command.mode,
                     execution_time_ms=execution_time_ms,
                     total_batches=1,
-                    successful_batches=1,
-                    failed_batches=0,
                 )
 
             except Exception as e:
@@ -189,8 +186,6 @@ class ImportTracksUseCase:
                     mode=command.mode,
                     execution_time_ms=execution_time_ms,
                     total_batches=1,
-                    successful_batches=0,
-                    failed_batches=1,
                 )
 
     async def _execute_import(

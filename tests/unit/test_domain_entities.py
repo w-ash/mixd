@@ -200,27 +200,6 @@ class TestOperationEntities:
         assert record.album_name == "Album"
         assert record.ms_played == 240000
 
-    def test_play_record_to_track_play(self):
-        """Test converting PlayRecord to TrackPlay."""
-        played_at = datetime.now(UTC)
-        record = PlayRecord(
-            artist_name="Artist",
-            track_name="Song",
-            played_at=played_at,
-            service="spotify",
-            ms_played=240000,
-        )
-
-        track_play = record.to_track_play(track_id=123, import_batch_id="batch1")
-
-        assert track_play.track_id == 123
-        assert track_play.service == "spotify"
-        assert track_play.played_at == played_at
-        assert track_play.ms_played == 240000
-        assert track_play.import_batch_id == "batch1"
-        assert track_play.context[TrackContextFields.TRACK_NAME] == "Song"
-        assert track_play.context[TrackContextFields.ARTIST_NAME] == "Artist"
-
     def test_track_play_metadata_extraction(self):
         """Test TrackPlay metadata extraction."""
         context = {
@@ -282,11 +261,10 @@ class TestOperationEntities:
         assert result.operation_name == "test_operation"
         assert result.execution_time == 1.5
 
-        # Test metrics
-        metrics = {1: "processed", 2: "processed"}
-        updated_result = result.with_metric("status", metrics)
-        assert updated_result.get_metric(1, "status") == "processed"
-        assert updated_result.get_metric(3, "status", "not_found") == "not_found"
+        # Test get_metric with direct metrics setting
+        result.metrics["status"] = {1: "processed", 2: "processed"}
+        assert result.get_metric(1, "status") == "processed"
+        assert result.get_metric(3, "status", "not_found") == "not_found"
 
     def test_create_lastfm_play_record(self):
         """Test LastFM play record creation factory function."""

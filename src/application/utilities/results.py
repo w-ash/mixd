@@ -106,41 +106,6 @@ class ResultFactory:
         )
 
     @staticmethod
-    def create_sync_result(
-        operation_name: str,
-        sync_data: SyncResultData,
-        execution_time: float = 0.0,
-    ) -> OperationResult:
-        """Create standardized sync operation result.
-
-        Args:
-            operation_name: Name of the sync operation
-            sync_data: Sync statistics and metadata
-            execution_time: Operation execution time in seconds
-
-        Returns:
-            OperationResult with standardized sync metrics
-        """
-        play_metrics = {
-            "batch_id": sync_data.batch_id,
-        }
-
-        return OperationResult(
-            operation_name=operation_name,
-            plays_processed=sync_data.total_processed,
-            play_metrics=play_metrics,
-            tracks=sync_data.tracks,
-            execution_time=execution_time,
-            # Unified fields for sync operations
-            imported_count=sync_data.imported_count,
-            exported_count=sync_data.exported_count,
-            filtered_count=sync_data.filtered_count,
-            error_count=sync_data.error_count,
-            already_liked=sync_data.already_liked,
-            candidates=sync_data.candidates,
-        )
-
-    @staticmethod
     def create_error_result(
         operation_name: str,
         error_message: str,
@@ -170,28 +135,3 @@ class ResultFactory:
             error_count=1,
         )
 
-    @staticmethod
-    def create_empty_result(
-        operation_name: str,
-        batch_id: str = "",
-        execution_time: float = 0.0,
-    ) -> OperationResult:
-        """Create standardized empty result for no-op operations.
-
-        Args:
-            operation_name: Name of the operation
-            batch_id: Batch identifier for tracking
-            execution_time: Operation execution time
-
-        Returns:
-            OperationResult representing no work done
-        """
-        return OperationResult(
-            operation_name=operation_name,
-            plays_processed=0,
-            play_metrics={
-                "batch_id": batch_id,
-            },
-            execution_time=execution_time,
-            # Unified fields all default to 0 for empty result
-        )

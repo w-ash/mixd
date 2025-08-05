@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from src.domain.entities import PlayRecord, SyncCheckpoint, TrackPlay
+from src.domain.entities import PlayRecord, TrackPlay
 from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
 
 
@@ -28,7 +28,9 @@ class TestLastfmImportIntegration:
     @pytest.fixture
     def unit_of_work(self, db_session):
         """Real UnitOfWork with database session."""
-        from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
         return get_unit_of_work(db_session)
 
     @pytest.fixture
@@ -59,6 +61,13 @@ class TestLastfmImportIntegration:
     async def test_checkpoint_persistence_cycle(self, lastfm_importer_with_real_repos, unit_of_work):
         """Test full checkpoint save/load cycle with real repository."""
         importer, _, _ = lastfm_importer_with_real_repos
+        
+        # Cleanup: Remove any existing checkpoint from previous test runs
+        existing_checkpoint = await importer._resolve_checkpoint(username="integration_test_user", uow=unit_of_work)
+        if existing_checkpoint and existing_checkpoint.id:
+            checkpoint_repo = unit_of_work.get_checkpoint_repository()
+            await checkpoint_repo.hard_delete(existing_checkpoint.id)
+            await unit_of_work.commit()
         
         # Test 1: No existing checkpoint
         checkpoint = await importer._resolve_checkpoint(username="integration_test_user", uow=unit_of_work)
@@ -99,7 +108,7 @@ class TestLastfmImportIntegration:
         ]
         
         # Mock track resolution service to return resolved tracks
-        from src.domain.entities.track import Track, Artist
+        from src.domain.entities.track import Artist, Track
         resolved_track = Track(
             id="track-123",
             title="Bohemian Rhapsody",

@@ -33,23 +33,6 @@ class Console(Protocol):
         ...
 
 
-class SessionProvider(Protocol):
-    """Database session factory interface."""
-
-    async def __aenter__(self) -> Any:
-        """Create and return database session."""
-        ...
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
-    ) -> None:
-        """Close database session."""
-        ...
-
-
 class UIProvider(Protocol):
     """User interface for displaying operation results."""
 
@@ -241,41 +224,6 @@ class DatabaseProgressContext:
     def set_result(self, result: OperationResult) -> None:
         """Store operation results for display when context exits."""
         self._result = result
-
-    async def run_with_repositories(
-        self,
-        operation_func: Callable[..., Awaitable[OperationResult]],
-        session_factory: Callable,
-        repository_factory: Callable,
-        *args,
-        **kwargs,
-    ) -> OperationResult:
-        """Execute database operation with fresh session to prevent SQLite locks.
-
-        Creates new database session and repositories for the operation,
-        preventing locks that occur when sessions are held too long.
-
-        Args:
-            operation_func: Function that performs database operations
-            session_factory: Creates new database sessions
-            repository_factory: Creates repository instances from sessions
-            *args: Additional arguments for operation_func
-            **kwargs: Additional keyword arguments for operation_func
-
-        Returns:
-            Result of the database operation
-        """
-        # Create fresh session and repositories for this operation using injected factories
-        async with session_factory() as session:
-            repositories = repository_factory(session)
-
-            # Execute operation with repositories as keyword argument
-            result = await operation_func(*args, repositories=repositories, **kwargs)
-
-            # Store result for display on context exit
-            self.set_result(result)
-
-            return result
 
 
 def batch_progress_wrapper(

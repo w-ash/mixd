@@ -4,7 +4,7 @@ Contains classes for recording play events, sync progress, and operation results
 from music services like Spotify and Last.fm.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from attrs import define, field
@@ -117,45 +117,6 @@ class PlayRecord:
     api_page: int | None = None
     raw_data: dict[str, Any] = field(factory=dict)
 
-    def to_track_play(
-        self,
-        track_id: int | None = None,
-        import_batch_id: str | None = None,
-        import_timestamp: datetime | None = None,
-    ) -> "TrackPlay":
-        """Converts raw play data to normalized TrackPlay format.
-
-        Args:
-            track_id: Database ID of the track (if known)
-            import_batch_id: Batch identifier for this import
-            import_timestamp: When this data was imported
-
-        Returns:
-            Normalized TrackPlay with standardized field names
-        """
-        # Build standardized context using TrackContextFields
-        context = {
-            TrackContextFields.TRACK_NAME: self.track_name,
-            TrackContextFields.ARTIST_NAME: self.artist_name,
-        }
-
-        if self.album_name:
-            context[TrackContextFields.ALBUM_NAME] = self.album_name
-
-        # Add service-specific metadata to context
-        context.update(self.service_metadata)
-
-        return TrackPlay(
-            track_id=track_id,
-            service=self.service,
-            played_at=self.played_at,
-            ms_played=self.ms_played,
-            context=context,
-            import_timestamp=import_timestamp or datetime.now(UTC),
-            import_source=f"{self.service}_api",
-            import_batch_id=import_batch_id,
-        )
-
 
 @define(frozen=True, slots=True)
 class TrackPlay:
@@ -187,18 +148,6 @@ class TrackPlay:
     import_timestamp: datetime | None = None
     import_source: str | None = None  # "spotify_export", "lastfm_api", "manual"
     import_batch_id: str | None = None
-
-    def get_platform(self) -> str | None:
-        """Returns the device/platform where track was played (Spotify data)."""
-        return self.context.get("platform") if self.context else None
-
-    def is_skipped(self) -> bool:
-        """Returns True if user skipped the track before it finished (Spotify data)."""
-        return self.context.get("skipped", False) if self.context else False
-
-    def is_now_playing(self) -> bool:
-        """Returns True if track is currently playing (Last.fm real-time data)."""
-        return self.context.get("nowplaying", False) if self.context else False
 
     def to_track_metadata(self) -> dict[str, Any]:
         """Extracts track identifying metadata for duplicate detection.
@@ -332,34 +281,6 @@ class OperationResult:
         if track_id is None:
             return default
         return self.metrics.get(metric_name, {}).get(track_id, default)
-
-    def with_metric(
-        self, metric_name: str, values: dict[int, Any]
-    ) -> "OperationResult":
-        """Add or update a metric, returning a new instance.
-
-        Args:
-            metric_name: Name of the metric to add/update
-            values: Dictionary mapping track IDs to metric values
-
-        Returns:
-            New instance with the updated metric
-        """
-        metrics = self.metrics.copy()
-        metrics[metric_name] = values
-        return self.__class__(
-            tracks=self.tracks,
-            metrics=metrics,
-            operation_name=self.operation_name,
-            execution_time=self.execution_time,
-            imported_count=self.imported_count,
-            exported_count=self.exported_count,
-            filtered_count=self.filtered_count,
-            duplicate_count=self.duplicate_count,
-            error_count=self.error_count,
-            already_liked=self.already_liked,
-            candidates=self.candidates,
-        )
 
     @property
     def total_processed(self) -> int | None:
@@ -515,32 +436,6 @@ class WorkflowResult(OperationResult):
     def workflow_name(self) -> str:
         """Returns workflow name for backward compatibility."""
         return self.operation_name
-
-    @classmethod
-    def create_workflow_result(
-        cls,
-        tracks: list[Track],
-        metrics: dict[str, dict[int, Any]] | None = None,
-        workflow_name: str = "",
-        execution_time: float = 0.0,
-    ) -> "WorkflowResult":
-        """Creates initialized WorkflowResult with workflow-specific defaults.
-
-        Args:
-            tracks: List of tracks processed by the workflow
-            metrics: Optional per-track metrics dictionary
-            workflow_name: Name of the executed workflow
-            execution_time: Time taken to execute the workflow in seconds
-
-        Returns:
-            Initialized WorkflowResult instance
-        """
-        return cls(
-            tracks=tracks,
-            metrics=metrics or {},
-            operation_name=workflow_name,
-            execution_time=execution_time,
-        )
 
 
 # Factory function for creating Last.fm play records with proper metadata

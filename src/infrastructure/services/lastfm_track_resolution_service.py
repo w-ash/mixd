@@ -12,6 +12,8 @@ from collections.abc import Callable
 
 from src.config import get_logger
 from src.domain.entities import Artist, PlayRecord, Track
+from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
 
@@ -30,6 +32,7 @@ class LastfmTrackResolutionService:
     def __init__(self, spotify_connector: SpotifyConnector | None = None):
         """Initialize with optional Spotify connector for discovery enhancement."""
         self.spotify_connector = spotify_connector or SpotifyConnector()
+        self.match_evaluation_service = TrackMatchEvaluationService()
 
     async def resolve_plays_to_canonical_tracks(
         self,
@@ -285,17 +288,36 @@ class LastfmTrackResolutionService:
             # Use existing idempotent save_track method (handles deduplication)
             canonical_track = await uow.get_track_repository().save_track(track_data)
 
-            # Create Last.fm connector mapping
+            # Create Last.fm connector mapping with domain-calculated confidence
+            # Since we created the track FROM Last.fm data, create a perfect match for evaluation
+            raw_match = RawProviderMatch(
+                connector_id=self._create_lastfm_connector_id(artist_name, track_name),
+                match_method="artist_title",  # This is based on artist/title match
+                service_data={
+                    "title": track_name,
+                    "artist": artist_name,
+                    "duration_ms": None,  # Last.fm often lacks duration
+                    "artist_name": artist_name,
+                    "track_name": track_name,
+                }
+            )
+
+            # Use domain matching to calculate proper confidence
+            match_result = self.match_evaluation_service.evaluate_single_match(
+                canonical_track, raw_match, "lastfm"
+            )
+
             await uow.get_connector_repository().map_track_to_connector(
                 canonical_track,
                 "lastfm",
                 self._create_lastfm_connector_id(artist_name, track_name),
                 "lastfm_import",
-                confidence=80,  # Lower confidence since Last.fm has less rich metadata
+                confidence=match_result.confidence,
                 metadata={"artist_name": artist_name, "track_name": track_name},
+                confidence_evidence=match_result.evidence.as_dict() if match_result.evidence else None,
             )
 
-            logger.debug(f"Created canonical track: {artist_name} - {track_name}")
+            logger.debug(f"Created canonical track: {artist_name} - {track_name} (confidence: {match_result.confidence})")
             return canonical_track
 
         except Exception as e:
@@ -305,7 +327,7 @@ class LastfmTrackResolutionService:
     async def _attempt_spotify_discovery(
         self, canonical_track: Track, artist_name: str, track_name: str, uow: UnitOfWorkProtocol
     ) -> bool:
-        """Enhanced Step 3: Attempt Spotify discovery for dual connector mapping."""
+        """Enhanced Step 3: Attempt Spotify discovery using domain matching algorithms."""
         try:
             # Search for track on Spotify
             spotify_track = await self.spotify_connector.search_track(artist_name, track_name)
@@ -318,24 +340,58 @@ class LastfmTrackResolutionService:
             if not spotify_id:
                 return False
 
-            # Create Spotify connector mapping for the canonical track
-            await uow.get_connector_repository().map_track_to_connector(
-                canonical_track,
-                "spotify", 
-                spotify_id,
-                "lastfm_discovery",
-                confidence=90,  # High confidence since this is a discovered match
-                metadata=spotify_track,
+            # Create RawProviderMatch structure for domain matching evaluation
+            raw_match = RawProviderMatch(
+                connector_id=spotify_id,
+                match_method="artist_title",  # This is a search-based match
+                service_data={
+                    "title": spotify_track.get("name", ""),
+                    "artist": self._extract_primary_artist(spotify_track),
+                    "duration_ms": spotify_track.get("duration_ms"),
+                    "id": spotify_id,
+                    **spotify_track,  # Include all Spotify metadata
+                }
             )
 
-            logger.debug(
-                f"Spotify discovery success: {artist_name} - {track_name} -> {spotify_id}"
+            # Use domain matching service to evaluate the match
+            match_result = self.match_evaluation_service.evaluate_single_match(
+                canonical_track, raw_match, "spotify"
             )
-            return True
+
+            # Only create mapping if the match passes business rules
+            if match_result.success:
+                await uow.get_connector_repository().map_track_to_connector(
+                    canonical_track,
+                    "spotify", 
+                    spotify_id,
+                    "lastfm_discovery",
+                    confidence=match_result.confidence,
+                    metadata=spotify_track,
+                    confidence_evidence=match_result.evidence.as_dict() if match_result.evidence else None,
+                )
+
+                logger.debug(
+                    f"Spotify discovery success: {artist_name} - {track_name} -> {spotify_id} "
+                    f"(confidence: {match_result.confidence})"
+                )
+                return True
+            else:
+                logger.debug(
+                    f"Spotify discovery rejected: {artist_name} - {track_name} -> {spotify_id} "
+                    f"(confidence: {match_result.confidence} below threshold)"
+                )
+                return False
 
         except Exception as e:
             logger.debug(f"Spotify discovery failed for {artist_name} - {track_name}: {e}")
             return False
+
+    def _extract_primary_artist(self, spotify_track: dict) -> str:
+        """Extract primary artist name from Spotify track data."""
+        artists = spotify_track.get("artists", [])
+        if artists and len(artists) > 0:
+            return artists[0].get("name", "")
+        return ""
 
     def _create_lastfm_connector_id(self, artist_name: str, track_name: str) -> str:
         """Create Last.fm connector ID from artist/title (since Last.fm doesn't have stable IDs)."""

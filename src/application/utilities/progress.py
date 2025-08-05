@@ -23,35 +23,8 @@ class ProgressOperation:
     operation_id: str = field(factory=lambda: str(uuid4()))
     description: str = "Processing..."
     total_items: int | None = None  # None = indeterminate/spinner mode
-    current_items: int = 0
     start_time: datetime = field(factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(factory=dict)
-
-    @property
-    def is_indeterminate(self) -> bool:
-        """Whether operation shows spinner vs progress bar."""
-        return self.total_items is None
-
-    @property
-    def progress_percentage(self) -> float:
-        """Current progress as percentage (0-100).
-
-        Returns:
-            Progress percentage, clamped to 100.0 max.
-        """
-        if self.is_indeterminate or self.total_items == 0:
-            return 0.0
-        # Type guard: self.total_items is not None here due to checks above
-        if self.total_items is None:
-            return 0.0
-        return min(100.0, (self.current_items / self.total_items) * 100)
-
-    @property
-    def is_complete(self) -> bool:
-        """Whether current >= total items (determinate operations only)."""
-        if self.is_indeterminate:
-            return False
-        return self.current_items >= (self.total_items or 0)
 
 
 class ProgressProvider(Protocol):
@@ -106,17 +79,6 @@ class ProgressProvider(Protocol):
         """
         ...
 
-    def is_long_running_operation(self, operation: ProgressOperation) -> bool:
-        """Whether to show detailed progress vs simple spinner.
-
-        Args:
-            operation: Operation to evaluate.
-
-        Returns:
-            True for progress bar, False for simple spinner.
-        """
-        ...
-
 
 class NoOpProgressProvider:
     """Silent progress provider for headless scripts and tests."""
@@ -138,9 +100,6 @@ class NoOpProgressProvider:
 
     def complete_operation(self, operation_id: str) -> None:
         pass
-
-    def is_long_running_operation(self, operation: ProgressOperation) -> bool:  # noqa: ARG002
-        return False
 
 
 # Global provider instance - can be swapped for different environments

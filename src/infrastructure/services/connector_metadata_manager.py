@@ -403,7 +403,7 @@ class ConnectorMetadataManager:
             track_count=len(tracks_to_refresh),
         ):
             logger.info(
-                f"PERFORMANCE OPTIMIZATION: Fetching metadata directly for {len(tracks_to_refresh)} {connector} tracks with existing mappings"
+                f"Fetching metadata for {len(tracks_to_refresh)} {connector} tracks with existing mappings"
             )
 
             # Get connector track information for direct API calls

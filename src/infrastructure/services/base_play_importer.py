@@ -279,6 +279,9 @@ class BasePlayImporter(ABC):
     ) -> OperationResult:
         """Create success result with import statistics.
 
+        Template method that builds base import data and allows subclasses to enrich
+        with service-specific statistics via _enrich_import_data().
+
         Args:
             raw_data: Raw data that was processed.
             track_plays: TrackPlay objects that were created.
@@ -289,6 +292,9 @@ class BasePlayImporter(ABC):
         Returns:
             OperationResult indicating successful import with statistics.
         """
+        from src.application.utilities.results import ImportResultData, ResultFactory
+
+        # Create base import data structure
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,
@@ -296,10 +302,37 @@ class BasePlayImporter(ABC):
             batch_id=batch_id,
             tracks=track_plays,
         )
+
+        # Allow subclasses to enrich with service-specific statistics
+        enriched_data = self._enrich_import_data(import_data, raw_data, track_plays)
+
         return ResultFactory.create_import_result(
             operation_name=self.operation_name,
-            import_data=import_data,
+            import_data=enriched_data,
         )
+
+    def _enrich_import_data(
+        self,
+        base_data: "ImportResultData",
+        raw_data: list[Any],  # noqa: ARG002 - Used by subclasses
+        track_plays: list[TrackPlay],  # noqa: ARG002 - Used by subclasses
+    ) -> "ImportResultData":
+        """Enrich import data with service-specific statistics.
+
+        Template method for subclasses to add service-specific metrics like
+        filtering counts, track resolution stats, etc.
+
+        Args:
+            base_data: Base import data structure
+            raw_data: Original raw data that was processed
+            track_plays: Final TrackPlay objects that were created
+
+        Returns:
+            Enriched ImportResultData with service-specific statistics
+        """
+        # Base implementation returns data unchanged
+        # Subclasses override to add service-specific enrichment
+        return base_data
 
     def _create_empty_result(self, batch_id: str) -> OperationResult:
         """Create result when no data was available to import.

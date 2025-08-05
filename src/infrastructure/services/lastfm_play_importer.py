@@ -14,8 +14,10 @@ Features:
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from src.application.utilities.results import ImportResultData
 from src.config import get_logger
 from src.domain.entities import OperationResult, PlayRecord, SyncCheckpoint, TrackPlay
 from src.domain.repositories.interfaces import (
@@ -595,16 +597,14 @@ class LastfmPlayImporter(BasePlayImporter):
         # No additional checkpoint work needed at this stage
         logger.debug("Checkpoint handling managed inline during unified daily chunking")
 
-    def _create_success_result(
+    def _enrich_import_data(
         self,
+        base_data: "ImportResultData",
         raw_data: list[Any],
         track_plays: list[TrackPlay],
-        imported_count: int,
-        duplicate_count: int,
-        batch_id: str,
-    ) -> OperationResult:
-        """Create success result with Last.fm-specific track resolution statistics."""
-        from src.application.utilities.results import ImportResultData, ResultFactory
+    ) -> "ImportResultData":
+        """Enrich import data with Last.fm-specific track resolution statistics."""
+        from src.application.utilities.results import ImportResultData
         
         # Get stored resolution metrics from track resolution service
         resolution_metrics = getattr(self, "_last_resolution_metrics", {})
@@ -614,19 +614,15 @@ class LastfmPlayImporter(BasePlayImporter):
         filtered_count = len(raw_data) - len(track_plays)  # Raw records that were filtered out
         error_count = len(raw_data) - resolved_count - filtered_count  # Unresolved tracks
         
-        import_data = ImportResultData(
-            raw_data_count=len(raw_data),
-            imported_count=imported_count,
+        # Create enriched data with Last.fm-specific statistics
+        return ImportResultData(
+            raw_data_count=base_data.raw_data_count,
+            imported_count=base_data.imported_count,
             filtered_count=filtered_count,
-            duplicate_count=duplicate_count,
+            duplicate_count=base_data.duplicate_count,
             error_count=error_count,
             new_tracks_count=resolution_metrics.get("new_tracks_count", 0),
             updated_tracks_count=resolution_metrics.get("updated_tracks_count", 0),
-            batch_id=batch_id,
-            tracks=track_plays,
-        )
-        
-        return ResultFactory.create_import_result(
-            operation_name=self.operation_name,
-            import_data=import_data,
+            batch_id=base_data.batch_id,
+            tracks=base_data.tracks,
         )

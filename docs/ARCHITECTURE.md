@@ -41,7 +41,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 #### Application Layer (`src/application/`)
 - **Purpose**: Orchestration and transaction boundary management
 - **Contents**: Use case implementations, workflow definitions, business services
-- **Examples**: ImportPlayHistoryUseCase, WorkflowExecutor, PlaylistOrchestrator
+- **Examples**: ImportTracksUseCase, SyncPlaylistUseCase, EnrichTracksUseCase, MatchAndIdentifyTracksUseCase
 - **Responsibilities**: 
   - **Orchestrates business processes**: Coordinates the steps involved in complex operations (fetching, comparing, filtering, saving)
   - **Controls transaction boundaries**: Decides when transactions begin, commit, or rollback based on business logic
@@ -82,26 +82,33 @@ The application layer serves as the conductor of business operations, coordinati
 The application layer owns transaction control logic:
 
 ```python
-class ImportPlayHistoryUseCase:
-    async def execute(self, command: ImportPlayHistoryCommand, uow: UnitOfWork):
+class ImportTracksUseCase:
+    async def execute(self, command: ImportTracksCommand, uow: UnitOfWorkProtocol):
         async with uow:
-            track_repo = uow.get_track_repository()
-            connector_repo = uow.get_connector_repository()
+            # Get service importer based on command
+            importer = self._get_service_importer(command.service)
             
             # Orchestrate the import process
-            existing_tracks = await track_repo.get_by_spotify_ids(command.spotify_ids)
-            new_tracks = self._filter_new_tracks(command.tracks, existing_tracks)
-            enriched_tracks = await self._enrich_metadata(new_tracks)
+            raw_plays = await importer.fetch_play_history(command)
+            enriched_plays = await self._enrich_play_data(raw_plays)
+            validated_plays = self._validate_play_data(enriched_plays)
             
             # Application decides transaction outcome based on business rules
-            if self._validation_passes(enriched_tracks):
-                saved_tracks = await track_repo.save_batch(enriched_tracks)
-                await connector_repo.save_mappings(saved_tracks, command.connector)
+            if self._import_validation_passes(validated_plays):
+                result = await importer.save_plays(validated_plays, uow)
                 await uow.commit()  # Business logic determines success
-                return ImportResult(success=True, tracks=saved_tracks)
+                return ImportTracksResult(
+                    operation_result=result,
+                    service=command.service,
+                    mode=command.mode
+                )
             else:
                 await uow.rollback()  # Business logic determines failure
-                return ImportResult(success=False, errors=self._get_validation_errors())
+                return ImportTracksResult(
+                    operation_result=OperationResult(success=False),
+                    service=command.service,
+                    mode=command.mode
+                )
 ```
 
 **Key Principles:**
@@ -126,29 +133,29 @@ Centralizes transaction boundary management in the application layer.
 
 ```python
 # Domain interface
-class UnitOfWork(Protocol):
+class UnitOfWorkProtocol(Protocol):
     async def __aenter__(self) -> Self: ...
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None: ...
     async def commit(self) -> None: ...
     async def rollback(self) -> None: ...
     def get_track_repository(self) -> TrackRepository: ...
-    def get_plays_repository(self) -> PlaysRepository: ...
+    def get_playlist_repository(self) -> PlaylistRepository: ...
 
 # Application layer usage
-class SyncTracksUseCase:
-    async def execute(self, command: SyncTracksCommand, uow: UnitOfWork):
+class SyncPlaylistUseCase:
+    async def execute(self, command: SyncPlaylistCommand, uow: UnitOfWorkProtocol):
         async with uow:
             track_repo = uow.get_track_repository()
-            plays_repo = uow.get_plays_repository()
+            playlist_repo = uow.get_playlist_repository()
             
             # Orchestrate business process
-            current_tracks = await track_repo.get_canonical_tracks()
-            spotify_tracks = await self._fetch_spotify_tracks(command.playlist_id)
-            filtered_tracks = self._filter_duplicates(current_tracks, spotify_tracks)
+            current_playlist = await playlist_repo.get_by_id(command.playlist_id)
+            updated_tracks = await self._apply_sync_changes(current_playlist, command.changes)
+            validated_tracks = self._validate_sync_rules(updated_tracks)
             
             # Application decides transaction outcome
-            if self._validation_passes(filtered_tracks):
-                await track_repo.save_batch(filtered_tracks)
+            if self._sync_validation_passes(validated_tracks):
+                await playlist_repo.update_tracks(command.playlist_id, validated_tracks)
                 await uow.commit()  # Application controls when to commit
             else:
                 await uow.rollback()  # Application decides to rollback
@@ -673,23 +680,24 @@ The application layer maintains strict independence from infrastructure concerns
 
 ```python
 # ✅ Correct: Application orchestrates with UnitOfWork pattern
-class SyncLikesUseCase:
-    async def execute(self, command: SyncLikesCommand, uow: UnitOfWork):
+class ImportSpotifyLikesUseCase:
+    async def execute(self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol):
         async with uow:
             track_repo = uow.get_track_repository()
-            likes_repo = uow.get_likes_repository()
             
             # Orchestrate business process
-            spotify_likes = await self._fetch_spotify_likes()
-            lastfm_likes = await self._fetch_lastfm_likes()
-            matched_tracks = await self._match_tracks(spotify_likes, lastfm_likes)
+            spotify_likes = await self._fetch_spotify_liked_tracks(command.limit)
+            enriched_tracks = await self._enrich_track_metadata(spotify_likes)
+            validated_tracks = self._validate_track_data(enriched_tracks)
             
             # Application decides transaction outcome
-            if self._sync_validation_passes(matched_tracks):
-                await likes_repo.sync_likes(matched_tracks)
+            if self._import_validation_passes(validated_tracks):
+                await track_repo.save_batch(validated_tracks)
                 await uow.commit()  # Business logic controls commit
+                return ImportSpotifyLikesResult(success=True, tracks=validated_tracks)
             else:
                 await uow.rollback()  # Business logic controls rollback
+                return ImportSpotifyLikesResult(success=False, errors=self._get_validation_errors())
 
 # ❌ Avoided: Direct infrastructure imports in application layer
 # from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -701,20 +709,25 @@ The application layer owns transaction decisions while infrastructure handles im
 
 ```python
 # ✅ Application controls transaction lifecycle
-async def execute_playlist_update(command: UpdatePlaylistCommand, uow: UnitOfWork):
-    async with uow:
-        playlist_repo = uow.get_playlist_repository()
-        
-        # Business orchestration
-        current_playlist = await playlist_repo.get_by_id(command.playlist_id)
-        updated_tracks = self._apply_transformations(current_playlist.tracks, command.operations)
-        
-        # Business rule validation
-        if self._validate_playlist_constraints(updated_tracks):
-            await playlist_repo.update_tracks(command.playlist_id, updated_tracks)
-            await uow.commit()  # Application decides success
-        else:
-            await uow.rollback()  # Application decides failure
+class UpdateCanonicalPlaylistUseCase:
+    async def execute(self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol):
+        async with uow:
+            playlist_repo = uow.get_playlist_repository()
+            track_repo = uow.get_track_repository()
+            
+            # Business orchestration
+            current_playlist = await playlist_repo.get_by_id(command.playlist_id)
+            track_updates = await self._prepare_track_updates(command.track_changes)
+            validated_changes = self._validate_playlist_update_rules(track_updates)
+            
+            # Business rule validation
+            if self._update_validation_passes(validated_changes):
+                await playlist_repo.update_playlist(command.playlist_id, validated_changes)
+                await uow.commit()  # Application decides success
+                return UpdatePlaylistResult(success=True, playlist=current_playlist)
+            else:
+                await uow.rollback()  # Application decides failure
+                return UpdatePlaylistResult(success=False, errors=self._get_validation_errors())
 
 # ❌ Avoided: Infrastructure controlling transactions
 # async with get_session() as session:  # Infrastructure decision

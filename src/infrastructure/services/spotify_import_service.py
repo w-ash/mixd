@@ -7,8 +7,10 @@ template method pattern for consistency with other music service imports.
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from src.application.utilities.results import ImportResultData
 from src.config import get_config, get_logger
 from src.domain.entities import OperationResult, TrackPlay
 from src.domain.repositories.interfaces import (
@@ -246,16 +248,14 @@ class SpotifyImportService(BasePlayImporter):
         self._last_filtering_stats = total_filtering_stats
         return all_track_plays
 
-    def _create_success_result(
+    def _enrich_import_data(
         self,
-        raw_data: list[Any],
-        track_plays: list[TrackPlay],
-        imported_count: int,
-        duplicate_count: int,
-        batch_id: str,
-    ) -> OperationResult:
-        """Create success result with Spotify-specific filtering statistics."""
-        from src.application.utilities.results import ImportResultData, ResultFactory
+        base_data: "ImportResultData",
+        raw_data: list[Any],  # noqa: ARG002 - Used for statistics calculation
+        track_plays: list[TrackPlay],  # noqa: ARG002 - Used for statistics calculation
+    ) -> "ImportResultData":
+        """Enrich import data with Spotify-specific filtering statistics."""
+        from src.application.utilities.results import ImportResultData
 
         # Calculate filtering count from stored stats
         filtering_stats = getattr(self, "_last_filtering_stats", {})
@@ -264,21 +264,17 @@ class SpotifyImportService(BasePlayImporter):
         ) + filtering_stats.get("incognito_excluded", 0)
         error_count = filtering_stats.get("error_count", 0)
 
-        import_data = ImportResultData(
-            raw_data_count=len(raw_data),
-            imported_count=imported_count,
+        # Create enriched data with Spotify-specific statistics
+        return ImportResultData(
+            raw_data_count=base_data.raw_data_count,
+            imported_count=base_data.imported_count,
             filtered_count=filtered_count,
-            duplicate_count=duplicate_count,
+            duplicate_count=base_data.duplicate_count,
             error_count=error_count,
             new_tracks_count=filtering_stats.get("new_tracks_count", 0),
             updated_tracks_count=filtering_stats.get("updated_tracks_count", 0),
-            batch_id=batch_id,
-            tracks=track_plays,
-        )
-
-        return ResultFactory.create_import_result(
-            operation_name=self.operation_name,
-            import_data=import_data,
+            batch_id=base_data.batch_id,
+            tracks=base_data.tracks,
         )
 
     async def _handle_checkpoints(self, raw_data: list[Any], uow: Any | None = None, **_kwargs) -> None:  # noqa: ARG002

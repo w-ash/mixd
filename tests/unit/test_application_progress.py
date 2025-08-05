@@ -4,7 +4,7 @@ Validates Clean Architecture compliance - no external dependencies.
 """
 
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
@@ -29,51 +29,25 @@ class TestProgressOperation:
     def test_create_operation(self):
         """Test creating progress operations."""
         operation = ProgressOperation(
-            description="Test operation", total_items=100, current_items=25
+            description="Test operation", total_items=100
         )
 
         assert operation.description == "Test operation"
         assert operation.total_items == 100
-        assert operation.current_items == 25
-        assert not operation.is_indeterminate
-        assert operation.progress_percentage == 25.0
-        assert not operation.is_complete
 
     def test_indeterminate_operation(self):
         """Test indeterminate (spinner-only) operations."""
         operation = ProgressOperation(description="Searching...", total_items=None)
 
-        assert operation.is_indeterminate
-        assert operation.progress_percentage == 0.0
-        assert not operation.is_complete
-
-    def test_complete_operation(self):
-        """Test completed operations."""
-        operation = ProgressOperation(
-            description="Done", total_items=50, current_items=50
-        )
-
-        assert operation.is_complete
-        assert operation.progress_percentage == 100.0
-
-    def test_over_complete_operation(self):
-        """Test operations that exceed total."""
-        operation = ProgressOperation(
-            description="Done", total_items=50, current_items=75
-        )
-
-        assert operation.is_complete
-        assert operation.progress_percentage == 100.0  # Capped at 100%
+        assert operation.total_items is None
 
     def test_zero_total_items(self):
         """Test edge case with zero total items."""
         operation = ProgressOperation(
-            description="Empty", total_items=0, current_items=0
+            description="Empty", total_items=0
         )
 
-        assert not operation.is_indeterminate
-        assert operation.progress_percentage == 0.0
-        assert operation.is_complete
+        assert operation.total_items == 0
 
     def test_factory_function(self):
         """Test create_operation factory function."""
@@ -84,7 +58,6 @@ class TestProgressOperation:
         assert operation.description == "Test factory"
         assert operation.total_items == 200
         assert operation.metadata["batch_id"] == "test-123"
-        assert operation.current_items == 0
         assert isinstance(operation.start_time, datetime)
 
 
@@ -104,9 +77,6 @@ class TestNoOpProgressProvider:
         provider.update_progress(operation_id, 10, 100, "Updated")
         provider.set_description(operation_id, "New description")
         provider.complete_operation(operation_id)
-
-        # Should always return False for long running
-        assert not provider.is_long_running_operation(operation)
 
 
 class TestProgressProviderManagement:
@@ -216,23 +186,10 @@ class TestDatabaseProgressContext:
 
     @pytest.mark.asyncio
     async def test_database_progress_context(self):
-        """Test database progress context manager with dependency injection."""
-        mock_session = Mock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-
-        mock_repositories = Mock()
-        mock_result = Mock()
-
+        """Test database progress context manager basic functionality."""
         mock_console = Mock()
         mock_ui = Mock()
-
-        session_factory = Mock(return_value=mock_session)
-        repository_factory = Mock(return_value=mock_repositories)
-
-        async def test_operation(repositories):
-            assert repositories is mock_repositories
-            return mock_result
+        mock_result = Mock()
 
         async with DatabaseProgressContext(
             description="Testing DB operation",
@@ -240,11 +197,8 @@ class TestDatabaseProgressContext:
             console=mock_console,
             ui_provider=mock_ui,
         ) as progress:
-            result = await progress.run_with_repositories(
-                test_operation, session_factory, repository_factory
-            )
+            progress.set_result(mock_result)
 
-        assert result is mock_result
         # Verify console output
         mock_console.print.assert_called_once_with(
             "[green]✓ DB operation complete![/green]"
