@@ -27,9 +27,9 @@ async def db_session():
     
     # Clear global engine cache to force recreation with new DATABASE_URL
     from src.infrastructure.persistence.database.db_connection import (
-        _reset_engine_cache,
+        reset_engine_cache,
     )
-    _reset_engine_cache()
+    reset_engine_cache()
     
     # Initialize database schema
     try:

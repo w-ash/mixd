@@ -601,7 +601,6 @@ class LastFMConnector:
         self,
         username: str | None = None,
         limit: int = 200,
-        page: int = 1,
         from_time: datetime | None = None,
         to_time: datetime | None = None,
     ) -> list[PlayRecord]:
@@ -609,8 +608,7 @@ class LastFMConnector:
 
         Args:
             username: Last.fm username (defaults to configured username)
-            limit: Number of tracks per page (default 200, max 200)
-            page: Page number to fetch (1-based)
+            limit: Number of tracks to fetch (default 200, max 200)
             from_time: Beginning timestamp (UTC)
             to_time: End timestamp (UTC)
 
@@ -650,7 +648,7 @@ class LastFMConnector:
             if to_time:
                 params["time_to"] = int(to_time.timestamp())
 
-            # Get recent tracks using pylast
+            # Get recent tracks using pylast (time-range based fetching)
             recent_tracks = await asyncio.to_thread(
                 lastfm_user.get_recent_tracks,
                 limit=params["limit"],
@@ -658,96 +656,99 @@ class LastFMConnector:
                 time_to=params.get("time_to"),
             )
 
-            # Convert pylast Track objects to LastfmPlayRecord
+            # Convert pylast PlayedTrack objects to LastfmPlayRecord
             play_records = []
-            for track_info in recent_tracks:
-                # track_info is a tuple: (Track, PlayedTime)
-                if len(track_info) >= 2:
-                    track, played_time = track_info[0], track_info[1]
+            for played_track in recent_tracks:
+                # played_track is a PlayedTrack object with attributes: track, album, playback_date, timestamp
+                track = played_track.track
+                timestamp_str = played_track.timestamp
 
-                    # Skip currently playing tracks (they have no timestamp)
-                    if not played_time:
-                        continue
+                # Skip currently playing tracks (they have no timestamp)
+                if not timestamp_str:
+                    continue
 
-                    # Parse the timestamp - pylast returns datetime objects
-                    from datetime import UTC
+                # Parse the timestamp (should be UNIX timestamp as string)
+                from datetime import UTC
+                
+                try:
+                    # Convert string timestamp to datetime
+                    timestamp_numeric = int(timestamp_str)
+                    scrobbled_at = datetime.fromtimestamp(timestamp_numeric, tz=UTC)
+                except (ValueError, TypeError) as e:
+                    # Skip tracks with invalid timestamp data
+                    logger.warning(
+                        f"Skipping track with invalid timestamp: {timestamp_str!r}, "
+                        f"track: {track.get_title() if hasattr(track, 'get_title') else track!r}, "
+                        f"error: {e}"
+                    )
+                    continue
 
-                    scrobbled_at = (
-                        played_time
-                        if isinstance(played_time, datetime)
-                        else datetime.fromtimestamp(int(played_time), tz=UTC)
-                    )
+                # Extract track metadata
+                track_name = (
+                    track.get_title() if hasattr(track, "get_title") else str(track)
+                )
+                artist_name = (
+                    track.get_artist().get_name()
+                    if hasattr(track, "get_artist") and track.get_artist()
+                    else ""
+                )
+                # Use PlayedTrack.album attribute instead of track.get_album()
+                album_name = played_track.album if played_track.album else None
 
-                    # Extract track metadata
-                    track_name = (
-                        track.get_title() if hasattr(track, "get_title") else str(track)
-                    )
-                    artist_name = (
-                        track.get_artist().get_name()
-                        if hasattr(track, "get_artist") and track.get_artist()
-                        else ""
-                    )
-                    album_name = (
-                        track.get_album().get_name()
-                        if hasattr(track, "get_album") and track.get_album()
-                        else None
-                    )
+                # Extract URLs and MBIDs
+                track_url = track.get_url() if hasattr(track, "get_url") else None
+                track_mbid = (
+                    track.get_mbid() if hasattr(track, "get_mbid") else None
+                )
 
-                    # Extract URLs and MBIDs
-                    track_url = track.get_url() if hasattr(track, "get_url") else None
-                    track_mbid = (
-                        track.get_mbid() if hasattr(track, "get_mbid") else None
-                    )
+                artist_url = (
+                    track.get_artist().get_url()
+                    if hasattr(track, "get_artist") and track.get_artist()
+                    else None
+                )
+                artist_mbid = (
+                    track.get_artist().get_mbid()
+                    if hasattr(track, "get_artist") and track.get_artist()
+                    else None
+                )
 
-                    artist_url = (
-                        track.get_artist().get_url()
-                        if hasattr(track, "get_artist") and track.get_artist()
-                        else None
-                    )
-                    artist_mbid = (
-                        track.get_artist().get_mbid()
-                        if hasattr(track, "get_artist") and track.get_artist()
-                        else None
-                    )
+                album_url = (
+                    track.get_album().get_url()
+                    if hasattr(track, "get_album") and track.get_album()
+                    else None
+                )
+                album_mbid = (
+                    track.get_album().get_mbid()
+                    if hasattr(track, "get_album") and track.get_album()
+                    else None
+                )
 
-                    album_url = (
-                        track.get_album().get_url()
-                        if hasattr(track, "get_album") and track.get_album()
-                        else None
-                    )
-                    album_mbid = (
-                        track.get_album().get_mbid()
-                        if hasattr(track, "get_album") and track.get_album()
-                        else None
-                    )
+                # Create unified PlayRecord using factory method
+                play_record = create_lastfm_play_record(
+                    artist_name=artist_name,
+                    track_name=track_name,
+                    album_name=album_name,
+                    scrobbled_at=scrobbled_at,
+                    lastfm_track_url=track_url,
+                    lastfm_artist_url=artist_url,
+                    lastfm_album_url=album_url,
+                    mbid=track_mbid,
+                    artist_mbid=artist_mbid,
+                    album_mbid=album_mbid,
+                    streamable=False,  # Not available in recent tracks API
+                    loved=False,  # Not available in recent tracks API
+                    api_page=1,  # No pagination support in pylast
+                    raw_data={
+                        "track_url": track_url,
+                        "artist_url": artist_url,
+                        "album_url": album_url,
+                    },
+                )
 
-                    # Create unified PlayRecord using factory method
-                    play_record = create_lastfm_play_record(
-                        artist_name=artist_name,
-                        track_name=track_name,
-                        album_name=album_name,
-                        scrobbled_at=scrobbled_at,
-                        lastfm_track_url=track_url,
-                        lastfm_artist_url=artist_url,
-                        lastfm_album_url=album_url,
-                        mbid=track_mbid,
-                        artist_mbid=artist_mbid,
-                        album_mbid=album_mbid,
-                        streamable=False,  # Not available in recent tracks API
-                        loved=False,  # Not available in recent tracks API
-                        api_page=page,
-                        raw_data={
-                            "track_url": track_url,
-                            "artist_url": artist_url,
-                            "album_url": album_url,
-                        },
-                    )
-
-                    play_records.append(play_record)
+                play_records.append(play_record)
 
             logger.info(
                 f"Retrieved {len(play_records)} recent tracks for user {user}",
-                page=page,
                 limit=limit,
                 from_time=from_time,
                 to_time=to_time,

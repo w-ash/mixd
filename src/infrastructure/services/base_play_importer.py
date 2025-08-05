@@ -86,7 +86,7 @@ class BasePlayImporter(ABC):
                 progress_callback(20, 100, "Fetching data...")
 
             raw_data = await self._fetch_data(
-                progress_callback=progress_callback, **kwargs
+                progress_callback=progress_callback, uow=uow, **kwargs
             )
 
             if not raw_data:
@@ -96,7 +96,7 @@ class BasePlayImporter(ABC):
                         90, 100, "No data to import - updating checkpoints..."
                     )
 
-                await self._handle_checkpoints(raw_data=raw_data, **kwargs)
+                await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
 
                 if progress_callback:
                     progress_callback(100, 100, "No data to import")
@@ -129,7 +129,7 @@ class BasePlayImporter(ABC):
                 progress_callback(90, 100, "Updating checkpoints...")
 
             try:
-                await self._handle_checkpoints(raw_data=raw_data, **kwargs)
+                await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
             except Exception as e:
                 logger.error(
                     f"Checkpoint handling failed: {e}",
@@ -142,7 +142,10 @@ class BasePlayImporter(ABC):
 
             # Step 6: Create success result (Template - standardized format)
             if progress_callback:
-                progress_callback(100, 100, "Import completed successfully")
+                if duplicate_count > 0:
+                    progress_callback(100, 100, f"Saved {imported_count} new plays, filtered {duplicate_count} duplicates")
+                else:
+                    progress_callback(100, 100, f"Saved {imported_count} new plays")
 
             logger.info(
                 f"{self.operation_name} completed successfully",
@@ -162,17 +165,21 @@ class BasePlayImporter(ABC):
             return result
 
         except Exception as e:
-            # Standardized error handling
+            # Standardized error handling with full exception details
             error_msg = f"{self.operation_name} failed: {e}"
             logger.error(
-                f"{self.operation_name} failed", batch_id=batch_id, error=str(e)
+                error_msg,
+                batch_id=batch_id, 
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True  # Include full traceback
             )
 
             return self._create_error_result(error_msg, batch_id)
 
     @abstractmethod
     async def _fetch_data(
-        self, progress_callback: Callable[[int, int, str], None] | None = None, **kwargs
+        self, progress_callback: Callable[[int, int, str], None] | None = None, uow: Any | None = None, **kwargs
     ) -> list[Any]:
         """Fetch raw listening data from external source.
 
@@ -216,7 +223,7 @@ class BasePlayImporter(ABC):
         """
 
     @abstractmethod
-    async def _handle_checkpoints(self, raw_data: list[Any], **kwargs) -> None:
+    async def _handle_checkpoints(self, raw_data: list[Any], uow: Any | None = None, **kwargs) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
         Implemented by each subclass to store markers (timestamps, cursor values, etc.)
@@ -245,6 +252,13 @@ class BasePlayImporter(ABC):
                 inserted_count,
                 duplicate_count,
             ) = await self.plays_repository.bulk_insert_plays(track_plays)
+            
+            # Log database operation results with visibility
+            if inserted_count > 0:
+                logger.info(f"💾 Saved {inserted_count} new plays to database")
+            if duplicate_count > 0:
+                logger.info(f"🔄 Filtered {duplicate_count} duplicate plays")
+                
             return (inserted_count, duplicate_count)
         except Exception as e:
             logger.error(

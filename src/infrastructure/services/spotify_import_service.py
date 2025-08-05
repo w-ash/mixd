@@ -73,12 +73,13 @@ class SpotifyImportService(BasePlayImporter):
         )
 
     async def _fetch_data(
-        self, progress_callback: Callable[[int, int, str], None] | None = None, **kwargs
+        self, progress_callback: Callable[[int, int, str], None] | None = None, uow: Any | None = None, **kwargs
     ) -> list[Any]:
         """Fetch and parse Spotify JSON export file.
 
         Args:
             progress_callback: Optional function for progress updates
+            uow: UnitOfWork (unused for file-based imports)
             **kwargs: Must contain 'file_path' key with Path to JSON file
 
         Returns:
@@ -88,6 +89,9 @@ class SpotifyImportService(BasePlayImporter):
             ValueError: If file_path is missing or file is invalid
             FileNotFoundError: If file doesn't exist
         """
+        # uow is not used for file-based imports (no database operations during fetch)
+        _ = uow
+        
         file_path = kwargs.get("file_path")
         if not file_path:
             raise ValueError("file_path is required for Spotify file imports")
@@ -277,7 +281,7 @@ class SpotifyImportService(BasePlayImporter):
             import_data=import_data,
         )
 
-    async def _handle_checkpoints(self, raw_data: list[Any], **_kwargs) -> None:  # noqa: ARG002
+    async def _handle_checkpoints(self, raw_data: list[Any], uow: Any | None = None, **_kwargs) -> None:  # noqa: ARG002
         """Handle sync checkpoints for file-based imports.
 
         File-based imports don't need checkpoints since they process complete files.

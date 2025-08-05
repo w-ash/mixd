@@ -1,6 +1,7 @@
 """CLI commands for importing and managing play history from music services."""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -9,17 +10,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
 
-from src.application.use_cases.import_play_history import ImportMode, run_import
+from src.application.use_cases.import_play_history import run_import
 from src.interface.shared.ui import display_operation_result
-
-
-def _validate_import_mode(mode_str: str) -> ImportMode | None:
-    """Validate import mode string."""
-    valid_modes: list[ImportMode] = ["recent", "incremental", "full"]
-    if mode_str in valid_modes:
-        return mode_str  # Now properly typed as ImportMode
-    return None
-
 
 console = Console()
 
@@ -39,78 +31,67 @@ def history_main(ctx: typer.Context) -> None:
 
 @app.command(name="import-lastfm")
 def import_lastfm_cmd(
-    mode: Annotated[
-        str,
+    from_date: Annotated[
+        str | None,
         typer.Option(
-            "--mode",
-            "-m",
-            help="Import mode: 'recent' for latest plays, 'incremental' for new plays since last sync, 'full' for complete history (destructive)",
-        ),
-    ] = "incremental",
-    limit: Annotated[
-        int | None,
-        typer.Option(
-            "--limit",
-            "-l",
-            help="Number of recent plays to import (only used with 'recent' mode)",
+            "--from-date",
+            help="Start date for import (YYYY-MM-DD format). Establishes import window on first run.",
         ),
     ] = None,
-    resolve_tracks: Annotated[
-        bool,
+    to_date: Annotated[
+        str | None,
         typer.Option(
-            "--resolve/--no-resolve",
-            help="Enable track identity resolution for better matching (recommended)",
+            "--to-date", 
+            help="End date for import (YYYY-MM-DD format). Defaults to now.",
         ),
-    ] = True,
+    ] = None,
 ) -> None:
-    """Import play history from Last.fm using the configured account.
+    """Import play history from Last.fm using smart daily chunking.
 
-    This command connects to Last.fm and imports your scrobbled tracks into your local library.
-    Different modes allow you to control how much data is imported:
+    Two usage patterns:
+    1. Explicit range: --from-date 2025-03-01 --to-date 2025-08-01 
+       (establishes or expands your import window)
+    2. Incremental: no parameters (imports from last checkpoint to now)
 
-    • recent: Import the most recent N plays (specify with --limit)
-    • incremental: Import only new plays since your last sync (default, efficient)
-    • full: Import your entire play history, resetting any existing sync state
-
-    Track resolution improves matching accuracy by looking up additional metadata.
+    Features:
+    • Smart daily chunking with auto-scaling for power users
+    • Resumable imports with checkpoint tracking
+    • Comprehensive track resolution and deduplication
+    • Chronological processing (oldest → newest)
     """
-    # Validate mode parameter
-    validated_mode = _validate_import_mode(mode)
-    if not validated_mode:
-        console.print(
-            f"[red]Invalid mode: {mode}. Must be 'recent', 'incremental', or 'full'[/red]"
-        )
+    # Determine operation type for user feedback
+    operation_type = "date range" if from_date or to_date else "incremental"
+    
+    # Parse and validate dates  
+    from datetime import UTC
+    from_datetime = None
+    to_datetime = None
+    if from_date:
+        try:
+            from_datetime = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=UTC)
+        except ValueError:
+            console.print(f"[red]Invalid from-date format: {from_date}. Use YYYY-MM-DD format.[/red]")
+            raise typer.Exit(1) from None
+    
+    if to_date:
+        try:
+            to_datetime = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=UTC)
+        except ValueError:
+            console.print(f"[red]Invalid to-date format: {to_date}. Use YYYY-MM-DD format.[/red]")
+            raise typer.Exit(1) from None
+    
+    if from_datetime and to_datetime and from_datetime > to_datetime:
+        console.print("[red]from-date cannot be later than to-date[/red]")
         raise typer.Exit(1)
 
-    # Validate limit parameter
-    if validated_mode == "recent" and limit is None:
-        limit = 100  # Default for recent mode
-    elif validated_mode != "recent" and limit is not None:
-        console.print(
-            "[yellow]Warning: --limit is only used with 'recent' mode[/yellow]"
-        )
-
-    # Show confirmation for full mode
-    if validated_mode == "full":
-        console.print("[yellow]⚠️  Full History Import Warning[/yellow]")
-        console.print("This will:")
-        console.print("• Import your entire Last.fm play history")
-        console.print("• Reset any existing sync checkpoint")
-        console.print("• Make many API calls (may take 10+ minutes)")
-
-        if not typer.confirm("Do you want to proceed?"):
-            console.print("[dim]Full history import cancelled[/dim]")
-            return
-
     # Execute the import
-    with console.status(f"[bold blue]Importing {validated_mode} plays from Last.fm..."):
+    with console.status(f"[bold blue]Importing {operation_type} plays from Last.fm..."):
         result = asyncio.run(
             run_import(
                 service="lastfm",
-                mode=validated_mode,  # type: ignore[arg-type]
-                limit=limit,
-                resolve_tracks=resolve_tracks,
-                confirm=True,  # Already handled confirmation above
+                mode="incremental",  # Always use incremental (unified approach)
+                from_date=from_datetime,
+                to_date=to_datetime,
             )
         )
 
@@ -220,40 +201,39 @@ def _show_interactive_history_menu() -> None:
 def _interactive_lastfm_import() -> None:
     """Interactive Last.fm import configuration."""
     console.print("\n[bold]Last.fm Import Configuration[/bold]")
+    console.print("[dim]Choose between date range import or incremental sync[/dim]")
 
-    mode_str = Prompt.ask(
-        "Import mode",
-        choices=["recent", "incremental", "full"],
+    import_type = Prompt.ask(
+        "Import type",
+        choices=["incremental", "date-range"],
         default="incremental",
     )
-    mode = _validate_import_mode(mode_str)
-    if not mode:
-        console.print(f"[red]Invalid mode: {mode_str}[/red]")
-        return
 
-    limit = None
-    if mode == "recent":
-        limit_str = Prompt.ask("Number of recent plays to import", default="100")
-        limit = int(limit_str)
-
-    resolve_str = Prompt.ask(
-        "Enable track resolution for better matching?",
-        choices=["y", "n"],
-        default="y",
-    )
-    resolve_tracks = resolve_str.lower() == "y"
+    from_date = None
+    to_date = None
+    
+    if import_type == "date-range":
+        from_date_str = Prompt.ask("Start date (YYYY-MM-DD) or leave empty", default="")
+        to_date_str = Prompt.ask("End date (YYYY-MM-DD) or leave empty", default="")
+        
+        from datetime import UTC
+        if from_date_str:
+            from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        if to_date_str:
+            to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
 
     # Execute with gathered parameters
-    console.print(f"\n[green]Starting Last.fm {mode} import...[/green]")
+    operation_desc = "date range" if import_type == "date-range" else "incremental"
+    console.print(f"\n[green]Starting Last.fm {operation_desc} import...[/green]")
+    console.print("[dim]Using smart daily chunking with automatic track resolution[/dim]")
 
-    with console.status(f"[bold blue]Importing {mode} plays from Last.fm..."):
+    with console.status(f"[bold blue]Importing {operation_desc} plays from Last.fm..."):
         result = asyncio.run(
             run_import(
                 service="lastfm",
-                mode=mode,
-                limit=limit,
-                resolve_tracks=resolve_tracks,
-                confirm=mode == "full",  # Auto-confirm for full mode in interactive
+                mode="incremental",  # Always use unified approach
+                from_date=from_date,
+                to_date=to_date,
             )
         )
 

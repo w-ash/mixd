@@ -75,29 +75,55 @@ narada data spotify-plays-file ~/Downloads/spotify_export.json --batch-size 500
 - Import summary with resolution breakdown
 
 #### `narada data lastfm-plays`
-Import play history from Last.fm API.
+Import play history from Last.fm API with smart daily chunking.
 
 ```bash
 narada data lastfm-plays [OPTIONS]
 ```
 
 **Options**:
-- `--recent NUMBER`: Number of recent plays to import (overrides default incremental)
-- `--limit NUMBER`: Maximum number of items to process
-- `--full`: Full sync instead of incremental (requires confirmation)
-- `--confirm`: Skip confirmation prompts
-- `--resolve-tracks/--no-resolve-tracks`: Resolve tracks for playlists (default: resolve)
-- `--user USERNAME`: Last.fm username (defaults to LASTFM_USERNAME env)
+- `--from-date DATE`: Start date for import (YYYY-MM-DD format). Establishes import window on first run.
+- `--to-date DATE`: End date for import (YYYY-MM-DD format). Defaults to now.
 
 **Examples**:
 ```bash
-narada data lastfm-plays                          # Incremental sync
-narada data lastfm-plays --recent 1000            # Recent 1000 plays
-narada data lastfm-plays --full --confirm         # Full history sync
+narada data lastfm-plays                                    # Incremental sync from last checkpoint
+narada data lastfm-plays --from-date 2024-01-01 --to-date 2024-01-31  # Import January 2024
+narada data lastfm-plays --from-date 2024-03-01             # March 2024 to present
 ```
 
-**Purpose**: Import play history from Last.fm API with flexible sync modes
-**Output**: Progress bar and import statistics
+**Purpose**: Import play history from Last.fm API with unified checkpoint-bounded approach
+
+**Two Usage Patterns**:
+1. **Explicit Range**: `--from-date` and/or `--to-date` to establish or expand import window
+2. **Incremental**: No parameters to import from last checkpoint to now (respects boundaries)
+
+**Features**:
+- **Smart Daily Chunking**: Processes ~1 API call per day for typical users
+- **Auto-scaling**: Handles power users (200+ tracks/day) with automatic sub-chunking
+- **Checkpoint-Bounded**: Incremental imports respect your original import window
+- **Comprehensive Progress**: Shows daily progress: "Fetching 2024-03-15... (15/31 days)"
+- **Resumable Operations**: Can be interrupted and resumed without data loss
+
+**Output**: 
+- Daily progress with date-based tracking
+- Import summary with resolution statistics
+- Checkpoint status for incremental imports
+
+**User Experience**:
+```
+Last.fm Import (2024-01-01 to 2024-01-31)
+├─ Fetching 2024-01-15... (15/31 days)     ✓ 47 plays retrieved
+├─ Resolving track identities...           ✓ 47 tracks resolved (2 new tracks)
+└─ Saving to database...                   ✓ 45 new plays saved, 2 duplicates filtered
+
+📋 Checkpoint saved: 2024-01-15 complete (resumable)
+
+Boundary Management:
+• First run: --from-date 2024-01-01 establishes import window
+• Incremental: narada data lastfm-plays imports 2024-01-31 to now (never before 2024-01-01)
+• Expand window: --from-date 2023-01-01 updates boundary and fills gaps
+```
 
 #### `narada data spotify-likes`
 Import liked tracks from Spotify API.

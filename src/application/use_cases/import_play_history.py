@@ -5,6 +5,7 @@ error handling, and transaction management. Supports LastFM recent/incremental/f
 history imports and Spotify JSON file processing.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,10 +32,11 @@ class ImportTracksCommand:
         service: Music service to import from ('lastfm' or 'spotify').
         mode: Import type ('recent', 'incremental', 'full', 'file').
         limit: Maximum tracks to import (LastFM only).
-        resolve_tracks: Whether to match tracks with MusicBrainz IDs.
         user_id: LastFM username for user-specific imports.
         file_path: Path to Spotify data export JSON file.
         confirm: Whether user confirmed destructive operations.
+        from_date: Start date for date range filtering (incremental mode only).
+        to_date: End date for date range filtering (incremental mode only).
         additional_options: Extra service-specific parameters.
 
     Raises:
@@ -46,10 +48,11 @@ class ImportTracksCommand:
 
     # Service-specific parameters
     limit: int | None = None  # For lastfm recent/full imports
-    resolve_tracks: bool = False  # Whether to resolve track identities
     user_id: str | None = None  # For lastfm incremental/full imports
     file_path: Path | None = None  # For spotify file imports
     confirm: bool = False  # For destructive operations like full history
+    from_date: datetime | None = None  # Start date for date range filtering
+    to_date: datetime | None = None  # End date for date range filtering
 
     # Additional options for extensibility
     additional_options: dict[str, Any] = field(factory=dict)
@@ -205,7 +208,12 @@ class ImportTracksUseCase:
     async def _run_lastfm_import(
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Routes to LastFM import mode handler (recent/incremental/full)."""
+        """Routes to LastFM import mode handler (recent/incremental/full).
+        
+        Note: All modes now use the unified daily chunking approach in infrastructure.
+        Mode differences are primarily application-layer concerns (confirmation, 
+        checkpoint reset, parameter mapping).
+        """
         match command.mode:
             case "recent":
                 return await self._run_lastfm_recent(command, uow)
@@ -273,29 +281,26 @@ class ImportTracksUseCase:
         """Downloads recent plays from LastFM API.
 
         Fetches the most recent listening history up to specified limit.
-        Optionally resolves tracks to MusicBrainz IDs for better matching.
+        All tracks are automatically resolved and linked to canonical tracks.
 
         Args:
-            command: Contains limit (default 1000) and resolve_tracks flag.
+            command: Contains limit (default 1000).
             uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with number of plays downloaded and stored.
         """
         limit = command.limit or 1000
-        resolve_tracks = command.resolve_tracks
 
         # Create import service using provided UnitOfWork
         lastfm_service = await self._create_lastfm_service(uow)
 
         try:
-            # Execute import with transaction control handled by caller
-            if resolve_tracks:
-                result = await lastfm_service.import_recent_plays_with_resolution(
-                    limit=limit, uow=uow
-                )
-            else:
-                result = await lastfm_service.import_recent_plays(limit=limit, uow=uow)
+            # Execute unified import (limit is ignored by unified infrastructure)
+            result = await lastfm_service.import_plays(
+                limit=limit,  # Legacy parameter - ignored by unified approach 
+                uow=uow
+            )
 
             logger.info(
                 f"LastFM recent import completed: {result.imported_count} plays imported"
@@ -313,24 +318,27 @@ class ImportTracksUseCase:
 
         Uses stored checkpoint to only fetch plays added since previous import.
         More efficient than full history import for regular syncing.
+        All tracks are automatically resolved and linked to canonical tracks.
 
         Args:
-            command: Contains user_id and resolve_tracks flag.
+            command: Contains user_id.
             uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with number of new plays downloaded.
         """
         user_id = command.user_id
-        resolve_tracks = command.resolve_tracks
 
         # Create import service using provided UnitOfWork
         lastfm_service = await self._create_lastfm_service(uow)
 
         try:
-            # Execute incremental import with transaction control handled by caller
-            result = await lastfm_service.import_incremental_plays(
-                user_id=user_id, resolve_tracks=resolve_tracks, uow=uow
+            # Execute unified import with date range parameters
+            result = await lastfm_service.import_plays(
+                username=user_id,
+                from_date=command.from_date,
+                to_date=command.to_date,
+                uow=uow,
             )
 
             logger.info(
@@ -349,16 +357,16 @@ class ImportTracksUseCase:
 
         Imports entire play history from account creation to present. Resets sync
         checkpoint and prompts for confirmation due to large API usage.
+        All tracks are automatically resolved and linked to canonical tracks.
 
         Args:
-            command: Contains user_id, resolve_tracks, and confirm flags.
+            command: Contains user_id and confirm flags.
             uow: Database transaction manager for atomic operations.
 
         Returns:
             Import statistics with total plays downloaded or cancellation result.
         """
         user_id = command.user_id
-        resolve_tracks = command.resolve_tracks
         confirm = command.confirm
 
         # Confirmation logic - return early if not confirmed
@@ -399,14 +407,12 @@ class ImportTracksUseCase:
             if username:
                 await self._reset_lastfm_checkpoint_uow(username, uow)
 
-            # Execute full history import with transaction control handled by caller
-            # Use large limit for full history (API will stop when no more data)
-            if resolve_tracks:
-                result = await lastfm_service.import_recent_plays_with_resolution(
-                    limit=50000, uow=uow
-                )
-            else:
-                result = await lastfm_service.import_recent_plays(limit=50000, uow=uow)
+            # Execute unified import for full history (limit ignored by unified approach)
+            # Full history logic: checkpoint was reset above, so incremental will start from beginning
+            result = await lastfm_service.import_plays(
+                limit=50000,  # Legacy parameter - ignored by unified approach
+                uow=uow
+            )
 
             logger.info(
                 f"LastFM full history import completed: {result.imported_count} plays imported"
@@ -473,10 +479,11 @@ async def run_import(
     service: ServiceType,
     mode: ImportMode,
     limit: int | None = None,
-    resolve_tracks: bool = False,
     user_id: str | None = None,
     file_path: Path | None = None,
     confirm: bool = False,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
     **additional_options,
 ) -> OperationResult:
     """Downloads listening history from music services.
@@ -488,10 +495,11 @@ async def run_import(
         service: Import service type ('lastfm' or 'spotify').
         mode: Import mode ('recent', 'incremental', 'full', 'file').
         limit: Maximum number of items to import.
-        resolve_tracks: Whether to resolve track identities with MusicBrainz.
         user_id: User ID for the import operation.
         file_path: File path for file-based imports.
         confirm: Whether to confirm before importing.
+        from_date: Start date for date range filtering (incremental mode only).
+        to_date: End date for date range filtering (incremental mode only).
         **additional_options: Additional service-specific options.
 
     Returns:
@@ -509,10 +517,11 @@ async def run_import(
             service=service,
             mode=mode,
             limit=limit,
-            resolve_tracks=resolve_tracks,
             user_id=user_id,
             file_path=file_path,
             confirm=confirm,
+            from_date=from_date,
+            to_date=to_date,
             additional_options=additional_options,
         )
 

@@ -61,9 +61,14 @@ class TestLastFMConnectorPlayImport:
         album.get_mbid.return_value = "album-mbid-456"
         track.get_album.return_value = album
 
-        # Return tuple format: (Track, PlayedTime)
-        played_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        return (track, played_time)
+        # Return PlayedTrack object format to match actual pylast API
+        played_track = Mock()
+        played_track.track = track
+        played_track.album = "A Night at the Opera"  # Album as string
+        played_track.playback_date = "01 Jan 2024, 12:00"  # Human readable date
+        played_track.timestamp = "1704110400"  # Unix timestamp as string
+        
+        return played_track
 
     @pytest.mark.asyncio
     async def test_get_recent_tracks_success(
@@ -76,7 +81,7 @@ class TestLastFMConnectorPlayImport:
 
         # Execute
         result = await mock_lastfm_connector.get_recent_tracks(
-            username="test_user", limit=50, page=1
+            username="test_user", limit=50
         )
 
         # Verify
@@ -148,13 +153,22 @@ class TestLastFMConnectorPlayImport:
         track.get_album.return_value = None
 
         # Setup mocks - one with timestamp, one without (now playing)
-        valid_track_data = (track, datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC))
-        now_playing_data = (track, None)  # No timestamp = now playing
+        valid_played_track = Mock()
+        valid_played_track.track = track
+        valid_played_track.album = None
+        valid_played_track.playback_date = "01 Jan 2024, 12:00"
+        valid_played_track.timestamp = "1704110400"  # Valid timestamp
+        
+        now_playing_track = Mock()
+        now_playing_track.track = track
+        now_playing_track.album = None
+        now_playing_track.playback_date = None
+        now_playing_track.timestamp = None  # No timestamp = now playing
 
         mock_lastfm_connector.client.get_user = Mock(return_value=mock_lastfm_user)
         mock_lastfm_user.get_recent_tracks.return_value = [
-            valid_track_data,
-            now_playing_data,
+            valid_played_track,
+            now_playing_track,
         ]
 
         # Execute

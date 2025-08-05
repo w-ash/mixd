@@ -82,6 +82,7 @@ class APIConfig(BaseModel):
     lastfm_love_track_retry_count: int = 3  # Retries for track love operations
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
     lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
+    lastfm_recent_tracks_page_limit: int = 200  # Default page limit for user.getRecentTracks API calls
 
     # Spotify API Configuration
     spotify_batch_size: int = 50
@@ -286,6 +287,7 @@ _LEGACY_KEY_MAP = {
     "LASTFM_LOVE_TRACK_RETRY_COUNT": lambda: settings.api.lastfm_love_track_retry_count,
     "LASTFM_RECENT_TRACKS_MIN_LIMIT": lambda: settings.api.lastfm_recent_tracks_min_limit,
     "LASTFM_RECENT_TRACKS_MAX_LIMIT": lambda: settings.api.lastfm_recent_tracks_max_limit,
+    "LASTFM_RECENT_TRACKS_PAGE_LIMIT": lambda: settings.api.lastfm_recent_tracks_page_limit,
     # Spotify API settings
     "SPOTIFY_API_BATCH_SIZE": lambda: settings.api.spotify_batch_size,
     "SPOTIFY_LARGE_BATCH_SIZE": lambda: settings.api.spotify_large_batch_size,
