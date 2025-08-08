@@ -6,8 +6,8 @@ and that the core business logic functions correctly.
 
 import pytest
 
+from src.config import settings
 from src.domain.matching import (
-    CONFIDENCE_CONFIG,
     ConfidenceEvidence,
     MatchResult,
     calculate_confidence,
@@ -33,10 +33,10 @@ class TestTitleSimilarity:
         result = calculate_title_similarity(
             "Paranoid Android", "Paranoid Android - Live"
         )
-        assert result == CONFIDENCE_CONFIG["variation_similarity_score"]
+        assert result == settings.matching.variation_similarity_score
 
         result = calculate_title_similarity("Song Title", "Song Title (Remix)")
-        assert result == CONFIDENCE_CONFIG["variation_similarity_score"]
+        assert result == settings.matching.variation_similarity_score
 
     def test_fuzzy_matching(self):
         """Test fuzzy matching for different titles."""
@@ -71,7 +71,7 @@ class TestConfidenceCalculation:
         confidence, evidence = calculate_confidence(internal_data, service_data, "isrc")
 
         assert confidence >= 90
-        assert evidence.base_score == CONFIDENCE_CONFIG["base_isrc"]
+        assert evidence.base_score == settings.matching.base_confidence_isrc
         assert evidence.final_score == confidence
 
     def test_title_mismatch_penalty(self):
@@ -91,7 +91,7 @@ class TestConfidenceCalculation:
             internal_data, service_data, "artist_title"
         )
 
-        assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
+        assert confidence < settings.matching.base_confidence_artist_title
         assert evidence.title_score < 0  # Should have penalty
 
     def test_artist_mismatch_penalty(self):
@@ -111,7 +111,7 @@ class TestConfidenceCalculation:
             internal_data, service_data, "artist_title"
         )
 
-        assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
+        assert confidence < settings.matching.base_confidence_artist_title
         assert evidence.artist_score < 0  # Should have penalty
 
     def test_duration_mismatch_penalty(self):
@@ -131,7 +131,7 @@ class TestConfidenceCalculation:
             internal_data, service_data, "artist_title"
         )
 
-        assert confidence < CONFIDENCE_CONFIG["base_artist_title"]
+        assert confidence < settings.matching.base_confidence_artist_title
         assert evidence.duration_score < 0  # Should have penalty
         assert evidence.duration_diff_ms == 60000
 
@@ -152,7 +152,7 @@ class TestConfidenceCalculation:
             internal_data, service_data, "artist_title"
         )
 
-        assert evidence.duration_score == -CONFIDENCE_CONFIG["duration_missing_penalty"]
+        assert evidence.duration_score == -settings.matching.duration_missing_penalty
 
     def test_confidence_bounds(self):
         """Test that confidence is bounded between min and max values."""
@@ -172,11 +172,7 @@ class TestConfidenceCalculation:
             internal_data, service_data, "artist_title"
         )
 
-        assert (
-            CONFIDENCE_CONFIG["min_confidence"]
-            <= confidence
-            <= CONFIDENCE_CONFIG["max_confidence"]
-        )
+        assert 0 <= confidence <= 100
 
 
 class TestConfidenceEvidence:

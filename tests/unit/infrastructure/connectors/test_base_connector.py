@@ -54,22 +54,22 @@ class TestBaseAPIConnectorDelegation:
             await connector.get_playlist("test_playlist_id")
 
     def test_convert_track_to_connector_delegates_to_spotify_function(self):
-        """Test convert_track_to_connector delegates to Spotify conversion function."""
+        """Test convert_track_to_connector uses registry to delegate to conversion function."""
         connector = MockSpotifyConnector()
 
         test_track_data = {"id": "test_id", "name": "Test Track"}
         expected_connector_track = MagicMock(spec=ConnectorTrack)
 
-        # Mock the conversion function that should be imported and called
+        # Mock the registry function at the module level where it's imported
         with patch(
-            "src.infrastructure.connectors.spotify.convert_spotify_track_to_connector"
+            "src.infrastructure.connectors.base_connector.convert_track_for_service"
         ) as mock_convert:
             mock_convert.return_value = expected_connector_track
 
             result = connector.convert_track_to_connector(test_track_data)
 
-            # Verify delegation occurred
-            mock_convert.assert_called_once_with(test_track_data)
+            # Verify registry was called with correct service and data
+            mock_convert.assert_called_once_with("spotify", test_track_data)
             assert result == expected_connector_track
 
     def test_convert_track_to_connector_raises_for_unsupported_connector(self):

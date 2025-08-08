@@ -7,6 +7,7 @@ from src.domain.matching.algorithms import (
     calculate_confidence,
     calculate_title_similarity,
 )
+from src.config import settings
 
 
 class TestCalculateTitleSimilarity:
@@ -122,7 +123,7 @@ class TestCalculateConfidence:
             internal_track, service_track, "artist_title"
         )
 
-        assert evidence.duration_score == -10  # Missing duration penalty
+        assert evidence.duration_score == -settings.matching.duration_missing_penalty  # Missing duration penalty
         assert confidence < 90  # Should be reduced from base score
 
     def test_artist_mismatch_penalty(self):

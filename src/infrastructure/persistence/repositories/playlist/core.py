@@ -626,13 +626,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Return the updated playlist with all relationships
         return await self.get_playlist_by_id(playlist_id)
 
-    @db_operation("get_or_create")
     async def get_or_create(
         self,
         lookup_attrs: dict[str, Any],
         create_attrs: dict[str, Any] | None = None,
     ) -> tuple[Playlist, bool]:
         """Find existing playlist or create new one with given attributes.
+
+        Degenerate case of get_or_create_many for single playlist.
 
         Args:
             lookup_attrs: Search criteria for existing playlist.
@@ -645,52 +646,154 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Raises:
             ValueError: If playlist creation requires missing name.
         """
-        # Leverage base repository's find_one_by method
-        conditions = {
-            k: v for k, v in lookup_attrs.items() if hasattr(self.model_class, k)
-        }
+        results = await self.get_or_create_many([
+            {"lookup_attrs": lookup_attrs, "create_attrs": create_attrs or {}}
+        ])
+        return results[0]
 
-        existing = await self.find_one_by(conditions)
-        if existing:
-            return existing, False
+    @db_operation("get_or_create_many")
+    async def get_or_create_many(
+        self,
+        playlist_specs: list[dict[str, Any]],
+    ) -> list[tuple[Playlist, bool]]:
+        """Batch find-or-create operation using proper batch queries.
 
-        # Create new playlist
-        all_attrs = {**lookup_attrs}
-        if create_attrs:
-            all_attrs.update(create_attrs)
+        Uses batch lookups by name followed by individual creates for new playlists.
+        Avoids invalid upsert usage since DBPlaylist has no unique constraints on name.
 
-        # Validate name
-        if "name" not in all_attrs or not all_attrs["name"]:
-            raise ValueError("Playlist requires a name")
+        Args:
+            playlist_specs: List of dicts with 'lookup_attrs' and optional 'create_attrs'
 
-        # Create the playlist domain object
-        playlist = Playlist(
-            name=all_attrs["name"],
-            description=all_attrs.get("description"),
-            tracks=all_attrs.get("tracks", []),
-            connector_playlist_ids=all_attrs.get("connector_playlist_ids", {}),
+        Returns:
+            List of (playlist, created_flag) tuples in same order as input
+
+        Raises:
+            ValueError: If any playlist spec is invalid
+        """
+        if not playlist_specs:
+            return []
+
+        return await self.execute_transaction(
+            lambda: self._get_or_create_many_impl(playlist_specs)
         )
 
-        # Check if we need to save tracks too
-        if playlist.tracks:
-            # Save with tracks
-            created_playlist = await self.save_playlist(playlist)
-            return created_playlist, True
-        else:
-            # Save without tracks using base repository's create method
-            created_playlist = await self.create(playlist)
+    async def _get_or_create_many_impl(
+        self,
+        playlist_specs: list[dict[str, Any]],
+    ) -> list[tuple[Playlist, bool]]:
+        """Execute batch get-or-create using proper batch queries (no invalid upsert)."""
+        # Validate and prepare specs
+        validated_specs = []
+        names_to_find = []
 
-            # Add connector mappings if present
-            if playlist.connector_playlist_ids and created_playlist.id is not None:
-                await self._manage_connector_mappings(
-                    created_playlist.id,
-                    playlist.connector_playlist_ids,
-                    operation="create",
+        for spec in playlist_specs:
+            lookup_attrs = spec["lookup_attrs"]
+            create_attrs = spec.get("create_attrs", {})
+
+            # Merge all attributes
+            all_attrs = {**lookup_attrs, **create_attrs}
+
+            # Validate required name
+            if "name" not in all_attrs or not all_attrs["name"]:
+                raise ValueError("Playlist requires a name")
+
+            validated_specs.append((all_attrs, spec))
+            names_to_find.append(all_attrs["name"])
+
+        # Phase 1: Batch lookup existing playlists by name
+        existing_playlists = {}
+        if names_to_find:
+            # Use find_by to get playlists with any of these names
+            found_playlists = (
+                await self.find_by({"name": names_to_find[0]})
+                if len(names_to_find) == 1
+                else []
+            )
+
+            # For multiple names, we need to query each (since find_by doesn't support IN queries)
+            if len(names_to_find) > 1:
+                found_playlists = []
+                for name in names_to_find:
+                    name_results = await self.find_by({"name": name})
+                    found_playlists.extend(name_results)
+
+            # Map by name for quick lookup (take first if multiple with same name)
+            for playlist in found_playlists:
+                if playlist.name not in existing_playlists:
+                    existing_playlists[playlist.name] = playlist
+
+        # Phase 2: Separate existing vs new playlists
+        results = []
+        playlists_to_create = []
+
+        for all_attrs, original_spec in validated_specs:
+            playlist_name = all_attrs["name"]
+
+            if playlist_name in existing_playlists:
+                # Found existing playlist
+                existing_playlist = existing_playlists[playlist_name]
+
+                # Handle complex playlist updates with tracks/mappings if needed
+                if original_spec.get("create_attrs", {}).get(
+                    "tracks"
+                ) or original_spec.get("create_attrs", {}).get(
+                    "connector_playlist_ids"
+                ):
+                    # Update existing playlist with new content
+                    full_playlist = Playlist(
+                        id=existing_playlist.id,
+                        name=existing_playlist.name,
+                        description=all_attrs.get(
+                            "description", existing_playlist.description
+                        ),
+                        tracks=original_spec.get("create_attrs", {}).get("tracks", []),
+                        connector_playlist_ids=original_spec.get(
+                            "create_attrs", {}
+                        ).get("connector_playlist_ids", {}),
+                    )
+
+                    if full_playlist.tracks or full_playlist.connector_playlist_ids:
+                        if existing_playlist.id is None:
+                            raise ValueError("Existing playlist ID is None")
+                        updated_playlist = await self.update_playlist(
+                            existing_playlist.id, full_playlist
+                        )
+                        results.append((updated_playlist, False))  # Found and updated
+                    else:
+                        results.append((
+                            existing_playlist,
+                            False,
+                        ))  # Found, no updates needed
+                else:
+                    results.append((existing_playlist, False))  # Found existing
+            else:
+                # Need to create new playlist
+                playlists_to_create.append((all_attrs, original_spec))
+
+        # Phase 3: Bulk create new playlists
+        if playlists_to_create:
+            for all_attrs, original_spec in playlists_to_create:
+                # Create playlist domain object
+                new_playlist = Playlist(
+                    name=all_attrs["name"],
+                    description=all_attrs.get("description"),
+                    tracks=original_spec.get("create_attrs", {}).get("tracks", []),
+                    connector_playlist_ids=original_spec.get("create_attrs", {}).get(
+                        "connector_playlist_ids", {}
+                    ),
                 )
-                # Refresh to include mappings
-                return await self.get_playlist_by_id(created_playlist.id), True
 
-            return created_playlist, True
+                # Use appropriate creation method based on complexity
+                if new_playlist.tracks or new_playlist.connector_playlist_ids:
+                    # Complex playlist with tracks/mappings - use full save_playlist
+                    created_playlist = await self.save_playlist(new_playlist)
+                else:
+                    # Simple playlist - use basic create
+                    created_playlist = await self.create(new_playlist)
+
+                results.append((created_playlist, True))  # Created new
+
+        return results
 
     @db_operation("playlist delete")
     async def delete_playlist(self, playlist_id: int) -> bool:

@@ -7,7 +7,11 @@ while delegating to the new unambiguous identity pipeline components.
 from typing import Any
 
 from src.config import get_logger
-from src.domain.matching.types import MatchResultsById, RawProviderMatch
+from src.domain.matching.types import (
+    MatchResultsById,
+    ProviderMatchResult,
+    RawProviderMatch,
+)
 from src.domain.repositories.interfaces import (
     ConnectorRepositoryProtocol,
     TrackIdentityServiceProtocol,
@@ -68,8 +72,18 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         # Create provider instance
         provider = provider_class(connector_instance)
 
-        # Fetch raw matches using the new method name
-        return await provider.fetch_raw_matches_for_tracks(tracks, **additional_options)
+        # Fetch raw matches with structured failure handling
+        result: ProviderMatchResult = await provider.fetch_raw_matches_for_tracks(tracks, **additional_options)
+        
+        # Log failure summary for observability
+        if result.failures:
+            failure_count = len(result.failures)
+            logger.info(f"Provider {connector} reported {failure_count} failures during matching")
+            # Individual failures are already logged by providers via log_match_failure()
+            
+        # Return only matches for backward compatibility
+        # Calling code (MatchAndIdentifyTracksUseCase) only expects successful matches
+        return result.matches
 
     async def _get_existing_identity_mappings(
         self, track_ids: list[int], connector: str

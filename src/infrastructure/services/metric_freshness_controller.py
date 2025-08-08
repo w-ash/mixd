@@ -6,7 +6,7 @@ by comparing last-updated timestamps against configurable age limits.
 
 from datetime import UTC, datetime, timedelta
 
-from src.config import get_config, get_logger
+from src.config import get_logger, settings
 from src.domain.repositories.interfaces import ConnectorRepositoryProtocol
 
 logger = get_logger(__name__)
@@ -121,8 +121,14 @@ class MetricFreshnessController:
         Returns:
             Maximum age in hours before metadata is considered stale, or None if unset.
         """
-        config_key = f"ENRICHER_DATA_FRESHNESS_{connector.upper()}"
-        max_age_hours = get_config(config_key)
+        if connector.lower() == "lastfm":
+            max_age_hours = settings.freshness.lastfm_hours
+        elif connector.lower() == "spotify":
+            max_age_hours = settings.freshness.spotify_hours
+        elif connector.lower() == "musicbrainz":
+            max_age_hours = settings.freshness.musicbrainz_hours
+        else:
+            max_age_hours = None
 
         if max_age_hours is not None:
             logger.debug(

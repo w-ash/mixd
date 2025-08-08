@@ -6,7 +6,7 @@ to participate in the track matching system.
 
 from typing import Any, Protocol
 
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.types import ProviderMatchResult
 
 
 class MatchProvider(Protocol):
@@ -20,7 +20,7 @@ class MatchProvider(Protocol):
         self,
         tracks: list[Any],  # Track objects - avoiding import for simplicity
         **additional_options: Any,
-    ) -> dict[int, RawProviderMatch]:
+    ) -> ProviderMatchResult:
         """Fetch raw matches for tracks from external service.
 
         Args:
@@ -28,16 +28,16 @@ class MatchProvider(Protocol):
             **additional_options: Provider-specific options
 
         Returns:
-            Track IDs mapped to raw provider match data (no business logic applied).
+            ProviderMatchResult with successful matches and structured failure information.
 
         Raises:
-            Exception: Unrecoverable errors (network failures, auth issues).
+            Exception: Only for unrecoverable infrastructure errors.
 
         Note:
-            Handle retries and rate limiting internally. Omit failed matches
-            from results rather than raising exceptions. This method returns
-            raw data only - confidence scoring and business decisions are
-            handled by the domain layer.
+            Handle retries and rate limiting internally. Return structured failure
+            information for individual track failures rather than raising exceptions.
+            This method returns raw data only - confidence scoring and business 
+            decisions are handled by the domain layer.
         """
         ...
 

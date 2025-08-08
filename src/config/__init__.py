@@ -33,9 +33,6 @@ Usage:
 from src.config import settings
 batch_size = settings.api.lastfm_batch_size
 
-# Legacy usage (maintains compatibility)
-from src.config import get_config
-batch_size = get_config("LASTFM_API_BATCH_SIZE", 50)
 
 # Logging
 from src.config import get_logger
@@ -52,13 +49,11 @@ from .logging import (
     resilient_operation,
     setup_loguru_logger,
 )
-from .settings import get_config, settings
+from .settings import settings
 
 # Public API
 __all__ = [
     "configure_prefect_logging",
-    # Backward compatibility
-    "get_config",
     # Logging
     "get_logger",
     "log_startup_info",

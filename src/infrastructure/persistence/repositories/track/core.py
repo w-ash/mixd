@@ -164,7 +164,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             await self.session.refresh(db_track)
 
         # Map back to domain model - the to_domain method has been updated to use AsyncAttrs safely
-        return await self.mapper.to_domain(db_track)
+        return await TrackMapper.to_domain(db_track, self.session)
 
     @db_operation("get_or_create")
     async def get_or_create(

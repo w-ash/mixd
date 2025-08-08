@@ -3,9 +3,42 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
+from enum import Enum
 from typing import Any, TypedDict
 
 from attrs import define, field
+
+
+class MatchFailureReason(Enum):
+    """Reasons why a track match attempt failed.
+    
+    This enum provides structured failure classification to enable intelligent
+    handling of different failure types by calling code.
+    """
+    
+    NO_ISRC = "no_isrc"  # Track missing required ISRC code
+    NO_METADATA = "no_metadata"  # Track missing title/artist data  
+    API_ERROR = "api_error"  # External service API failure
+    NO_RESULTS = "no_results"  # Service found no matching tracks
+    INVALID_RESPONSE = "invalid_response"  # Service returned malformed data
+    RATE_LIMITED = "rate_limited"  # Service rate limiting active
+    AUTH_ERROR = "auth_error"  # Service authentication failed
+
+
+@define(frozen=True, slots=True)
+class MatchFailure:
+    """Details of a track match failure.
+    
+    This class captures structured information about why a match attempt failed,
+    enabling intelligent handling and comprehensive logging.
+    """
+    
+    track_id: int  # ID of the track that failed to match
+    reason: MatchFailureReason  # Structured failure reason
+    service: str  # Name of the external service ("spotify", "musicbrainz", "lastfm")
+    method: str  # Match method attempted ("isrc", "artist_title", "mbid")
+    details: str = ""  # Human-readable details about the failure
+    exception_type: str = ""  # Exception class name for API errors
 
 
 class RawProviderMatch(TypedDict):
@@ -77,3 +110,27 @@ class MatchResult:
     match_method: str = ""  # "isrc", "mbid", "artist_title"
     service_data: dict[str, Any] = field(factory=dict)  # Data from external service
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
+
+
+@define(frozen=True, slots=True)  
+class ProviderMatchResult:
+    """Result of provider match attempt including both successes and failures.
+    
+    This replaces the simple dict return type from providers to capture both
+    successful matches and structured failure information.
+    """
+    
+    matches: dict[int, RawProviderMatch] = field(factory=dict)  # Successful matches
+    failures: list[MatchFailure] = field(factory=list)  # Failed match attempts
+    
+    @property
+    def total_attempts(self) -> int:
+        """Total number of match attempts (successes + failures)."""
+        return len(self.matches) + len(self.failures)
+        
+    @property  
+    def success_rate(self) -> float:
+        """Success rate as a float between 0.0 and 1.0."""
+        if self.total_attempts == 0:
+            return 0.0
+        return len(self.matches) / self.total_attempts

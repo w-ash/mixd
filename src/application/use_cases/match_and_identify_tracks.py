@@ -278,4 +278,4 @@ class MatchAndIdentifyTracksUseCase:
         Returns:
             Minimum confidence threshold for accepting matches
         """
-        return self._evaluation_service.calculate_match_confidence_threshold(connector)
+        return self._evaluation_service.get_connector_threshold(connector)

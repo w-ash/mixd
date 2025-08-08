@@ -113,6 +113,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
             "match_method": db_model.match_method,
             "confidence": db_model.confidence,
             "confidence_evidence": db_model.confidence_evidence,
+            "is_primary": db_model.is_primary,
         }
 
     @staticmethod
@@ -131,6 +132,9 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
             match_method=domain_model.get("match_method"),
             confidence=domain_model.get("confidence"),
             confidence_evidence=domain_model.get("confidence_evidence"),
+            is_primary=domain_model.get(
+                "is_primary", False
+            ),  # Default to non-primary, let explicit logic handle primary setting
         )
 
     @staticmethod
@@ -248,19 +252,6 @@ class TrackConnectorRepository:
         """Find an internal track by its external service ID."""
         results = await self.find_tracks_by_connectors([(connector, connector_id)])
         return results.get((connector, connector_id))
-
-    @db_operation("find_connector_track_id")
-    async def find_connector_track_id(
-        self, connector: str, connector_id: str
-    ) -> int | None:
-        """Get database ID for an external service track record."""
-        stmt = select(DBConnectorTrack.id).filter(
-            DBConnectorTrack.connector_name == connector,
-            DBConnectorTrack.connector_track_id == connector_id,
-            DBConnectorTrack.deleted_at.is_(None),
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
 
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
@@ -391,6 +382,7 @@ class TrackConnectorRepository:
                 "match_method": match_method,
                 "confidence": confidence,
                 "confidence_evidence": confidence_evidence,
+                "is_primary": False,  # Don't set primary here, handle it separately
             })
 
         # Bulk upsert mappings
@@ -417,6 +409,7 @@ class TrackConnectorRepository:
         confidence: int,
         metadata: dict | None = None,
         confidence_evidence: dict | None = None,
+        auto_set_primary: bool = True,
     ) -> Track:
         """Link an existing internal track to an external service ID."""
         if track.id is None:
@@ -440,7 +433,13 @@ class TrackConnectorRepository:
             )
         ])
 
-        return results[0] if results else track
+        result_track = results[0] if results else track
+
+        # Auto-set primary mapping if requested and track has an ID
+        if auto_set_primary and result_track.id:
+            await self.ensure_primary_mapping(result_track.id, connector, connector_id)
+
+        return result_track
 
     @db_operation("ingest_external_tracks_bulk")
     async def ingest_external_tracks_bulk(
@@ -554,6 +553,7 @@ class TrackConnectorRepository:
                         "connector_track_id": connector_track_id,
                         "match_method": "direct",
                         "confidence": 100,
+                        "is_primary": True,  # Direct ingestion mappings are primary (no conflicts expected)
                     })
 
                     # Prepare metrics data
@@ -853,7 +853,7 @@ class TrackConnectorRepository:
                 # Don't fail the entire operation if metadata update fails
 
         # Update mapping using upsert
-        update_data: dict[str, Any] = {"confidence": confidence}
+        update_data: dict[str, Any] = {"confidence": confidence, "is_primary": True}
         if match_method:
             update_data["match_method"] = match_method
         if confidence_evidence:
@@ -870,35 +870,6 @@ class TrackConnectorRepository:
             return True
         except ValueError:
             return False
-
-    @db_operation("get_mapping_info")
-    async def get_mapping_info(
-        self, track_id: int, connector: str, connector_id: str
-    ) -> dict:
-        """Get confidence score and match method for a track-service mapping."""
-        # Find connector track
-        connector_track = await self.connector_repo.find_one_by({
-            "connector_name": connector,
-            "connector_track_id": connector_id,
-        })
-
-        if not connector_track:
-            return {}
-
-        # Find mapping
-        mapping = await self.mapping_repo.find_one_by({
-            "track_id": track_id,
-            "connector_track_id": connector_track["id"],
-        })
-
-        if not mapping:
-            return {}
-
-        return {
-            "confidence": mapping["confidence"],
-            "match_method": mapping["match_method"],
-            "confidence_evidence": mapping["confidence_evidence"],
-        }
 
     @db_operation("get_metadata_timestamps")
     async def get_metadata_timestamps(
@@ -955,6 +926,37 @@ class TrackConnectorRepository:
         except Exception as e:
             logger.error(f"Failed to get metadata timestamps: {e}")
             return {}
+
+    @db_operation("ensure_primary_mapping")
+    async def ensure_primary_mapping(
+        self, track_id: int, connector: str, connector_id: str
+    ) -> bool:
+        """Ensure a mapping exists and is set as primary for the given track-connector pair.
+
+        This method is used when we know a specific external ID should be the primary
+        mapping (e.g., when Spotify returns a track ID in an API response).
+
+        Args:
+            track_id: Internal canonical track ID.
+            connector: Service name (e.g., "spotify").
+            connector_id: External track ID that should be primary.
+
+        Returns:
+            True if primary mapping was successfully set.
+        """
+        # First find the connector track
+        connector_track = await self.connector_repo.find_one_by({
+            "connector_name": connector,
+            "connector_track_id": connector_id,
+        })
+
+        if not connector_track or "id" not in connector_track:
+            logger.warning(f"Connector track not found: {connector}:{connector_id}")
+            return False
+
+        return await self.set_primary_mapping(
+            track_id, connector_track["id"], connector
+        )
 
     @db_operation("set_primary_mapping")
     async def set_primary_mapping(

@@ -34,7 +34,6 @@ logger = get_logger(__name__)
 
 # Type variables for generic operations
 P = TypeVar("P", bound=Playlist)
-CP = TypeVar("CP", bound=ConnectorPlaylist)
 
 
 @define(frozen=True, slots=True)

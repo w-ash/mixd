@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from attrs import define, field
 
-from src.application.utilities.batching import BatchResult
+from src.application.utilities.batch_results import BatchResult
 from src.application.utilities.progress import ProgressOperation
 from src.config import get_logger
 from src.domain.entities import OperationResult
@@ -102,7 +102,7 @@ class ImportTracksResult:
 
     # Batch processing metadata (for SQLite optimization)
     total_batches: int = 0
-    
+
     # Optional integration with existing batch processing utilities
     batch_result: BatchResult | None = None
     progress_operation: ProgressOperation | None = None
@@ -204,9 +204,9 @@ class ImportTracksUseCase:
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
         """Routes to LastFM import mode handler (recent/incremental/full).
-        
+
         Note: All modes now use the unified daily chunking approach in infrastructure.
-        Mode differences are primarily application-layer concerns (confirmation, 
+        Mode differences are primarily application-layer concerns (confirmation,
         checkpoint reset, parameter mapping).
         """
         match command.mode:
@@ -293,8 +293,8 @@ class ImportTracksUseCase:
         try:
             # Execute unified import (limit is ignored by unified infrastructure)
             result = await lastfm_service.import_plays(
-                limit=limit,  # Legacy parameter - ignored by unified approach 
-                uow=uow
+                limit=limit,  # Legacy parameter - ignored by unified approach
+                uow=uow,
             )
 
             logger.info(
@@ -406,7 +406,7 @@ class ImportTracksUseCase:
             # Full history logic: checkpoint was reset above, so incremental will start from beginning
             result = await lastfm_service.import_plays(
                 limit=50000,  # Legacy parameter - ignored by unified approach
-                uow=uow
+                uow=uow,
             )
 
             logger.info(

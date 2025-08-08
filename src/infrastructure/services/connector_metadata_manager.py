@@ -5,17 +5,13 @@ and retrieves cached metadata. Optimizes API calls by using existing track mappi
 instead of expensive re-matching when possible.
 """
 
-from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any
 
 from src.config import get_logger
 from src.domain.matching.types import MatchResultsById
 from src.domain.repositories.interfaces import ConnectorRepositoryProtocol
 
 logger = get_logger(__name__)
-
-# Type alias for batch track info method
-BatchTrackInfoMethod = Callable[..., Awaitable[dict[int, Any]]]
 
 
 class ConnectorMetadataManager:
@@ -139,83 +135,6 @@ class ConnectorMetadataManager:
 
             logger.debug(f"Retrieved cached metadata for {len(metadata)} tracks")
             return metadata
-
-    async def get_all_metadata(
-        self,
-        track_ids: list[int],
-        connector: str,
-        fresh_metadata: dict[int, dict[str, Any]] | None = None,
-        failed_fresh_track_ids: set[int] | None = None,
-    ) -> dict[int, dict[str, Any]]:
-        """Combine fresh and cached metadata, using cached as fallback for API failures.
-
-        Args:
-            track_ids: Internal track IDs to get metadata for.
-            connector: Music service name.
-            fresh_metadata: Recently fetched metadata to merge.
-            failed_fresh_track_ids: Tracks that failed fresh fetch (use cached only).
-
-        Returns:
-            Complete metadata dict by track ID.
-        """
-        if not track_ids:
-            return {}
-
-        with logger.contextualize(
-            operation="get_all_metadata",
-            connector=connector,
-            track_count=len(track_ids),
-        ):
-            # Get cached metadata for all requested tracks
-            cached_metadata = await self.get_cached_metadata(track_ids, connector)
-
-            # Intelligent metadata combination with fallback preservation
-            if fresh_metadata:
-                # Start with cached metadata as the base (preserves existing data)
-                all_metadata = cached_metadata.copy()
-
-                # Overlay fresh metadata (only for successful fetches)
-                all_metadata.update(fresh_metadata)
-
-                # Calculate detailed statistics for observability
-                fresh_count = len(fresh_metadata)
-                cached_count = len(cached_metadata)
-                failed_fresh_count = (
-                    len(failed_fresh_track_ids) if failed_fresh_track_ids else 0
-                )
-                total_requested = len(track_ids)
-
-                # Verify no data loss occurred
-                final_count = len(all_metadata)
-                expected_count = len(
-                    set(cached_metadata.keys()) | set(fresh_metadata.keys())
-                )
-
-                logger.info(
-                    f"Metadata combination complete: {fresh_count} fresh + {cached_count} cached = {final_count} total "
-                    f"(requested: {total_requested}, failed fresh: {failed_fresh_count})"
-                )
-
-                if failed_fresh_count > 0:
-                    # Ensure failed fresh fetches fall back to cached metadata
-                    cached_fallback_count = sum(
-                        1
-                        for track_id in failed_fresh_track_ids or set()
-                        if track_id in cached_metadata
-                    )
-                    logger.info(
-                        f"Cached metadata fallback: {cached_fallback_count}/{failed_fresh_count} failed tracks have cached data"
-                    )
-
-                if final_count != expected_count:
-                    logger.warning(
-                        f"Metadata count mismatch: expected {expected_count}, got {final_count}. Possible data loss!"
-                    )
-            else:
-                all_metadata = cached_metadata
-                logger.debug(f"Using {len(all_metadata)} cached metadata entries only")
-
-            return all_metadata
 
     async def _store_fresh_metadata(
         self,
@@ -457,10 +376,8 @@ class ConnectorMetadataManager:
                     return {}
 
                 # Use batch method for all operations (batch-first design)
-                batch_method = cast(
-                    "BatchTrackInfoMethod", connector_instance.batch_get_track_info
-                )
-                track_info_results = await batch_method(
+                batch_method = connector_instance.batch_get_track_info
+                track_info_results = await batch_method(  # type: ignore[misc]
                     tracks_for_api, **additional_options
                 )
 

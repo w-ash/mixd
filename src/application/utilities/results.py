@@ -134,4 +134,3 @@ class ResultFactory:
             # Unified fields for error state
             error_count=1,
         )
-

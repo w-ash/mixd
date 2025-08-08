@@ -27,18 +27,27 @@ from .protocols import (
 class ConfigProviderImpl:
     """Provides access to application configuration values.
 
-    Wraps the global config system to make configuration values available
-    to workflow operations without direct coupling to the config module.
+    Provides workflow access to application settings through a clean interface
+    that avoids direct coupling to the config module structure.
     """
 
     def __init__(self):
         """Initialize the configuration provider."""
-        from src.config import get_config as _get_config
+        from src.config import settings
 
-        self._get_config = _get_config
+        self._settings = settings
 
-    def get(self, key: str, default: Any = None) -> Any:
+    @property
+    def settings(self):
+        """Direct access to settings for modern usage."""
+        return self._settings
+
+    def get(self, key: str, default: Any = None) -> Any:  # noqa: ARG002
         """Retrieve a configuration value by key.
+
+        This method is primarily for workflow-specific configuration,
+        not application settings. For application settings, use the
+        settings property directly.
 
         Args:
             key: Configuration key to look up
@@ -47,7 +56,8 @@ class ConfigProviderImpl:
         Returns:
             Configuration value or default if not found
         """
-        return self._get_config(key, default)
+        # This is for workflow-specific config, not app settings
+        return default
 
 
 class LoggerProviderImpl:

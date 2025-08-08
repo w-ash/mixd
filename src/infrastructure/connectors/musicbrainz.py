@@ -24,8 +24,8 @@ from attrs import define, field
 import backoff
 import musicbrainzngs
 
-from src.config import get_config, get_logger, resilient_operation
-from src.infrastructure.connectors.base_connector import BatchProcessor
+from src.config import get_logger, resilient_operation
+from src.infrastructure.connectors.base_connector import BaseAPIConnector
 
 # Get contextual logger with service binding
 logger = get_logger(__name__).bind(service="musicbrainz")
@@ -39,7 +39,7 @@ musicbrainzngs.set_useragent(app_name, app_version, app_url)
 
 
 @define(slots=True)
-class MusicBrainzConnector:
+class MusicBrainzConnector(BaseAPIConnector):
     """Wrapper for MusicBrainz API with rate-limiting support.
 
     Specializes in ISRC → MBID resolution with efficient batch processing
@@ -52,6 +52,11 @@ class MusicBrainzConnector:
 
     _last_request_time: float = field(default=0.0)
     _request_lock: asyncio.Lock = field(factory=asyncio.Lock, repr=False)
+
+    @property
+    def connector_name(self) -> str:
+        """The name of this connector."""
+        return "musicbrainz"
 
     def __attrs_post_init__(self) -> None:
         """Initialize MusicBrainz connector."""
@@ -133,26 +138,22 @@ class MusicBrainzConnector:
         unique_isrcs = list({isrc for isrc in isrcs if isrc})
         logger.info(f"Looking up {len(unique_isrcs)} unique ISRCs")
 
-        # Get configuration values with defaults from config.py
-        mb_batch_size = batch_size or get_config("MUSICBRAINZ_API_BATCH_SIZE", 50) or 50
-        mb_concurrency = (
-            concurrency or get_config("MUSICBRAINZ_API_CONCURRENCY", 5) or 5
-        )
-        mb_retry_count = get_config("MUSICBRAINZ_API_RETRY_COUNT", 3) or 3
-        mb_retry_base_delay = get_config("MUSICBRAINZ_API_RETRY_BASE_DELAY", 1.0) or 1.0
-        mb_retry_max_delay = get_config("MUSICBRAINZ_API_RETRY_MAX_DELAY", 30.0) or 30.0
-        mb_request_delay = get_config("MUSICBRAINZ_API_REQUEST_DELAY", 0.2) or 0.2
-
-        # Create batch processor with proper configuration
-        processor = BatchProcessor[str, tuple[str, str | None]](
-            batch_size=mb_batch_size,
-            concurrency_limit=mb_concurrency,
-            retry_count=mb_retry_count,
-            retry_base_delay=mb_retry_base_delay,
-            retry_max_delay=mb_retry_max_delay,
-            request_delay=mb_request_delay,
-            logger_instance=logger,
-        )
+        # Override batch size and concurrency if provided
+        processor = self.batch_processor
+        if batch_size or concurrency:
+            # Create custom processor with overridden values if needed
+            from src.infrastructure.connectors.api_batch_processor import (
+                APIBatchProcessor,
+            )
+            processor = APIBatchProcessor[str, tuple[str, str | None]](
+                batch_size=batch_size or int(self.get_connector_config("BATCH_SIZE") or 50),
+                concurrency_limit=concurrency or int(self.get_connector_config("CONCURRENCY") or 5),
+                retry_count=int(self.get_connector_config("RETRY_COUNT") or 3),
+                retry_base_delay=float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+                retry_max_delay=float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
+                request_delay=float(self.get_connector_config("REQUEST_DELAY") or 0.2),
+                logger_instance=logger,
+            )
 
         async def process_isrc(isrc: str) -> tuple[str, str | None]:
             """Process a single ISRC with rate limiting."""
@@ -165,12 +166,12 @@ class MusicBrainzConnector:
 
                 # Check if response is None (404 from _rate_limited_request)
                 if response is None:
-                    logger.debug("ISRC not found in MusicBrainz", isrc=isrc)
+                    logger.warning("ISRC not found in MusicBrainz", isrc=isrc)
                     return isrc, None
 
                 recordings = response.get("isrc", {}).get("recording-list", [])
                 if not recordings:
-                    logger.debug("ISRC found but no recordings associated", isrc=isrc)
+                    logger.warning("ISRC found but no recordings associated", isrc=isrc)
                     return isrc, None
 
                 # Return the first recording's MBID (most common case)
@@ -184,10 +185,10 @@ class MusicBrainzConnector:
                 return isrc, None
 
         # Use the batch processor to handle all ISRCs
-        # Removed the sleep_time parameter which is no longer part of the API
         batch_results = await processor.process(
             items=unique_isrcs,
             process_func=process_isrc,
+            progress_description="Looking up ISRCs in MusicBrainz"
         )
 
         # Filter successful results into a dictionary

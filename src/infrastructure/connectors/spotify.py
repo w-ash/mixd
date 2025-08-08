@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-from src.config import get_config, get_logger, resilient_operation
+from src.config import get_logger, resilient_operation, settings
 from src.domain.entities import (
     Artist,
     ConnectorPlaylist,
@@ -42,9 +42,16 @@ from src.domain.playlist import PlaylistOperationType
 from src.infrastructure.connectors.base_connector import (
     BaseAPIConnector,
     BaseMetricResolver,
+    extract_metric,
     register_metrics,
 )
 from src.infrastructure.connectors.protocols import ConnectorConfig
+from src.infrastructure.connectors.spotify_error_classifier import (
+    SpotifyErrorClassifier,
+)
+from src.infrastructure.connectors.track_conversion_registry import (
+    register_track_converter,
+)
 
 # Get contextual logger with service binding
 logger = get_logger(__name__).bind(service="spotify")
@@ -123,7 +130,12 @@ class SpotifyConnector(BaseAPIConnector):
     @property
     def market(self) -> str:
         """Get configured Spotify market."""
-        return str(get_config("SPOTIFY_MARKET", "US"))
+        return settings.api.spotify_market
+
+    @property
+    def error_classifier(self):
+        """Get Spotify-specific error classifier."""
+        return SpotifyErrorClassifier()
 
     def __attrs_post_init__(self) -> None:
         """Initialize Spotify client with OAuth configuration and timeout settings."""
@@ -161,18 +173,11 @@ class SpotifyConnector(BaseAPIConnector):
             return early_return
 
         results = {}
-        batch_size = int(get_config("SPOTIFY_API_BATCH_SIZE") or 50)
 
-        # Process in batches using Spotify's bulk tracks API
-        for i in range(0, len(track_ids), batch_size):
-            batch_ids = track_ids[i : i + batch_size]
-            batch_num = i // batch_size + 1
-            total_batches = (len(track_ids) + batch_size - 1) // batch_size
-
-            logger.debug(
-                f"Fetching batch {batch_num}/{total_batches} with {len(batch_ids)} tracks from Spotify"
-            )
-
+        async def process_batch(batch_ids: list[str]) -> dict[str, dict[str, Any]]:
+            """Process a single batch of track IDs."""
+            batch_results = {}
+            
             try:
                 # Use bulk tracks API - single call for up to 50 tracks
                 tracks_response = await _spotify_api_call(
@@ -183,14 +188,14 @@ class SpotifyConnector(BaseAPIConnector):
                     for track in tracks_response["tracks"]:
                         if track and "id" in track:
                             current_id = track["id"]
-                            results[current_id] = track
+                            batch_results[current_id] = track
 
                             # Handle Spotify relinking: if track has linked_from,
                             # also map the original track ID to this data
                             linked_from = track.get("linked_from")
                             if linked_from and "id" in linked_from:
                                 original_id = linked_from["id"]
-                                results[original_id] = track
+                                batch_results[original_id] = track
                                 logger.debug(
                                     f"Relinked track found: {original_id} -> {current_id}"
                                 )
@@ -198,12 +203,25 @@ class SpotifyConnector(BaseAPIConnector):
                             logger.warning("Received null track in batch response")
 
             except Exception as e:
-                logger.error(f"Failed to fetch batch {batch_num}: {e}")
-                # Continue with next batch rather than failing entirely
-                continue
+                logger.error(f"Failed to fetch track batch: {e}")
+                # Return empty dict for failed batch
+
+            return batch_results
+
+        # Process using unified BatchProcessor
+        batch_results = await self.batch_processor.process(
+            items=[track_ids[i:i + settings.api.spotify_batch_size] 
+                   for i in range(0, len(track_ids), settings.api.spotify_batch_size)],
+            process_func=process_batch,
+            progress_description="Fetching Spotify track metadata"
+        )
+
+        # Merge all batch results
+        for batch_result in batch_results:
+            results.update(batch_result)
 
         logger.info(
-            f"Retrieved {len(results)}/{len(track_ids)} tracks in {(len(track_ids) + batch_size - 1) // batch_size} bulk API calls"
+            f"Retrieved {len(results)}/{len(track_ids)} tracks using unified batch processor"
         )
         return results
 
@@ -263,6 +281,8 @@ class SpotifyConnector(BaseAPIConnector):
         )
 
         tracks = results.get("tracks", {}).get("items", []) if results else []
+        if not tracks:
+            logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
         return tracks[0] if tracks else None
 
     @resilient_operation("search_spotify_track")
@@ -395,26 +415,24 @@ class SpotifyConnector(BaseAPIConnector):
             # Add tracks in batches (Spotify API limits)
             if spotify_track_uris:
                 playlist_id = playlist["id"] if playlist else ""
-                large_batch_size = int(get_config("SPOTIFY_LARGE_BATCH_SIZE") or 100)
+                large_batch_size = settings.api.spotify_large_batch_size
 
-                # Add tracks in bulk batches of 100
-                for i in range(0, len(spotify_track_uris), large_batch_size):
-                    batch_uris = spotify_track_uris[i : i + large_batch_size]
-                    batch_num = i // large_batch_size + 1
-                    total_batches = (
-                        len(spotify_track_uris) + large_batch_size - 1
-                    ) // large_batch_size
-
-                    logger.debug(
-                        f"Adding batch {batch_num}/{total_batches} with {len(batch_uris)} tracks to new playlist"
-                    )
-
+                async def add_batch(batch_uris: list[str]) -> None:
+                    """Add a batch of track URIs to the playlist."""
                     await _spotify_api_call(
                         self.client,
                         "playlist_add_items",
                         playlist_id=playlist_id,
                         items=batch_uris,
                     )
+
+                # Process using unified BatchProcessor
+                await self.batch_processor.process(
+                    items=[spotify_track_uris[i:i + large_batch_size] 
+                           for i in range(0, len(spotify_track_uris), large_batch_size)],
+                    process_func=add_batch,
+                    progress_description="Adding tracks to new playlist"
+                )
 
             if playlist is not None:
                 return playlist["id"]
@@ -448,7 +466,7 @@ class SpotifyConnector(BaseAPIConnector):
         )
 
         try:
-            large_batch_size = int(get_config("SPOTIFY_LARGE_BATCH_SIZE") or 100)
+            large_batch_size = settings.api.spotify_large_batch_size
 
             if replace:
                 # Replace entire playlist contents with first batch
@@ -473,23 +491,22 @@ class SpotifyConnector(BaseAPIConnector):
 
             # Add remaining tracks in bulk batches
             if remaining_tracks:
-                for i in range(0, len(remaining_tracks), large_batch_size):
-                    batch_uris = remaining_tracks[i : i + large_batch_size]
-                    batch_num = i // large_batch_size + 1
-                    total_batches = (
-                        len(remaining_tracks) + large_batch_size - 1
-                    ) // large_batch_size
-
-                    logger.debug(
-                        f"Adding batch {batch_num}/{total_batches} with {len(batch_uris)} tracks to playlist"
-                    )
-
+                async def add_batch(batch_uris: list[str]) -> None:
+                    """Add a batch of track URIs to the playlist."""
                     await _spotify_api_call(
                         self.client,
                         "playlist_add_items",
                         playlist_id=playlist_id,
                         items=batch_uris,
                     )
+
+                # Process using unified BatchProcessor
+                await self.batch_processor.process(
+                    items=[remaining_tracks[i:i + large_batch_size] 
+                           for i in range(0, len(remaining_tracks), large_batch_size)],
+                    process_func=add_batch,
+                    progress_description="Adding remaining tracks to playlist"
+                )
 
         except spotipy.SpotifyException as e:
             logger.error(f"Spotify API error: {e}")
@@ -602,9 +619,7 @@ class SpotifyConnector(BaseAPIConnector):
                     snapshot_id=snapshot_id,
                 )
                 snapshot_id = result.get("snapshot_id") if result else snapshot_id
-                await asyncio.sleep(
-                    float(get_config("SPOTIFY_API_REQUEST_DELAY") or 0.1)
-                )  # Rate limiting
+                await asyncio.sleep(settings.api.spotify_request_delay)  # Rate limiting
 
         return snapshot_id
 
@@ -628,9 +643,7 @@ class SpotifyConnector(BaseAPIConnector):
                     position=op.position,
                 )
                 # Spotify doesn't return snapshot_id from add_items, so we refresh
-                await asyncio.sleep(
-                    float(get_config("SPOTIFY_API_REQUEST_DELAY") or 0.1)
-                )  # Rate limiting
+                await asyncio.sleep(settings.api.spotify_request_delay)  # Rate limiting
 
         # Get updated snapshot ID after all adds
         if sorted_adds:
@@ -659,9 +672,7 @@ class SpotifyConnector(BaseAPIConnector):
                     snapshot_id=snapshot_id,
                 )
                 snapshot_id = result.get("snapshot_id") if result else snapshot_id
-                await asyncio.sleep(
-                    float(get_config("SPOTIFY_API_REQUEST_DELAY") or 0.1)
-                )  # Rate limiting
+                await asyncio.sleep(settings.api.spotify_request_delay)  # Rate limiting
 
         return snapshot_id
 
@@ -787,28 +798,27 @@ class SpotifyConnector(BaseAPIConnector):
         )
 
         try:
-            large_batch_size = int(get_config("SPOTIFY_LARGE_BATCH_SIZE") or 100)
+            large_batch_size = settings.api.spotify_large_batch_size
             api_calls_made = 0
 
-            # Add tracks in bulk batches of 100
-            for i in range(0, len(spotify_track_uris), large_batch_size):
-                batch_uris = spotify_track_uris[i : i + large_batch_size]
-                batch_num = i // large_batch_size + 1
-                total_batches = (
-                    len(spotify_track_uris) + large_batch_size - 1
-                ) // large_batch_size
-
-                logger.debug(
-                    f"Appending batch {batch_num}/{total_batches} with {len(batch_uris)} tracks to playlist"
-                )
-
+            async def append_batch(batch_uris: list[str]) -> None:
+                """Append a batch of track URIs to the playlist."""
                 await _spotify_api_call(
                     self.client,
                     "playlist_add_items",
                     playlist_id=playlist_id,
                     items=batch_uris,
                 )
-                api_calls_made += 1
+
+            # Process using unified BatchProcessor
+            await self.batch_processor.process(
+                items=[spotify_track_uris[i:i + large_batch_size] 
+                       for i in range(0, len(spotify_track_uris), large_batch_size)],
+                process_func=append_batch,
+                progress_description="Appending tracks to playlist"
+            )
+            
+            api_calls_made = (len(spotify_track_uris) + large_batch_size - 1) // large_batch_size
 
             # Get updated playlist info for snapshot_id
             playlist_info = await asyncio.to_thread(
@@ -1004,51 +1014,19 @@ def convert_spotify_playlist_to_connector(
     )
 
 
-def _extract_metric(obj: Any, field_names: list[str]) -> int | None:
-    """Extract a metric value from various object types."""
-    # First check for direct attribute access
-    for field_name in field_names:
-        if hasattr(obj, field_name) and getattr(obj, field_name) is not None:
-            return getattr(obj, field_name)
-
-    # Then check service_data dictionary access (used by enricher)
-    if hasattr(obj, "service_data") and obj.service_data:
-        for field_name in field_names:
-            if (
-                field_name in obj.service_data
-                and obj.service_data[field_name] is not None
-            ):
-                return obj.service_data[field_name]
-
-    # Then check metadata dictionary access
-    if hasattr(obj, "metadata"):
-        for field_name in field_names:
-            if field_name in obj.metadata and obj.metadata[field_name] is not None:
-                return obj.metadata[field_name]
-
-    # Finally check dictionary access
-    if hasattr(obj, "get"):
-        for field_name in field_names:
-            value = obj.get(field_name)
-            if value is not None:
-                return value
-
-    return None
-
-
 def get_connector_config() -> ConnectorConfig:
     """Spotify connector configuration."""
     return {
         "extractors": {
-            "popularity": lambda obj: _extract_metric(
+            "popularity": lambda obj: extract_metric(
                 obj,
                 ["popularity", "spotify_popularity"],
             ),
-            "spotify_popularity": lambda obj: _extract_metric(
+            "spotify_popularity": lambda obj: extract_metric(
                 obj,
                 ["popularity", "spotify_popularity"],
             ),
-            "explicit_flag": lambda obj: _extract_metric(
+            "explicit_flag": lambda obj: extract_metric(
                 obj,
                 ["explicit", "explicit_flag"],
             ),
@@ -1075,3 +1053,6 @@ class SpotifyMetricResolver(BaseMetricResolver):
 
 # Register all metric resolvers at once
 register_metrics(SpotifyMetricResolver(), SpotifyMetricResolver.FIELD_MAP)
+
+# Register track converter for service registry
+register_track_converter("spotify", convert_spotify_track_to_connector)

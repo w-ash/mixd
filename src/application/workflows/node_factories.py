@@ -23,7 +23,7 @@ from src.application.use_cases.enrich_tracks import (
 )
 
 # match_tracks import removed - modern enricher uses TrackMetadataEnricher directly
-from src.config import get_config, get_logger
+from src.config import get_logger, settings
 from src.domain.entities.track import TrackList
 
 # WorkflowRepositoryAdapter removed - dependencies now injected through protocols
@@ -334,8 +334,14 @@ def create_enricher_node(config: dict) -> NodeFn:
         max_age_hours = node_config.get("max_age_hours")
         if max_age_hours is None:
             # Get default freshness requirement from config
-            config_key = f"ENRICHER_DATA_FRESHNESS_{enricher_type.upper()}"
-            max_age_hours = get_config(config_key)
+            if enricher_type.lower() == "lastfm":
+                max_age_hours = settings.freshness.lastfm_hours
+            elif enricher_type.lower() == "spotify":
+                max_age_hours = settings.freshness.spotify_hours
+            elif enricher_type.lower() == "musicbrainz":
+                max_age_hours = settings.freshness.musicbrainz_hours
+            else:
+                max_age_hours = None
 
         if max_age_hours is not None:
             logger.info(

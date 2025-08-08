@@ -1,7 +1,7 @@
 """Modern configuration management using Pydantic Settings.
 
 This module provides type-safe configuration management with automatic
-environment variable loading and validation using Pydantic Settings v2.10.1.
+environment variable loading and validation using Pydantic Settings v2.11+.
 
 The configuration is organized into logical groups:
 - DatabaseConfig: Database connection and pooling settings
@@ -13,7 +13,7 @@ The configuration is organized into logical groups:
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,14 +44,14 @@ class CredentialsConfig(BaseModel):
 
     # Spotify credentials
     spotify_client_id: str = ""
-    spotify_client_secret: str = ""
+    spotify_client_secret: SecretStr = Field(default=SecretStr(""), description="Spotify client secret (sensitive)")
     spotify_redirect_uri: str = "http://localhost:8888/callback"
 
     # LastFM credentials
     lastfm_key: str = ""
-    lastfm_secret: str = ""
+    lastfm_secret: SecretStr = Field(default=SecretStr(""), description="LastFM API secret (sensitive)")
     lastfm_username: str = ""
-    lastfm_password: str = ""
+    lastfm_password: SecretStr = Field(default=SecretStr(""), description="LastFM password (sensitive)")
 
 
 class APIConfig(BaseModel):
@@ -69,20 +69,25 @@ class APIConfig(BaseModel):
     lastfm_batch_size: int = 50  # Tracks per batch
     lastfm_concurrency: int = 200  # Max concurrent requests in-flight
     lastfm_rate_limit: float = (
-        4.8  # Request starts per second (4% buffer from 5.0 limit)
+        4.5  # Request starts per second (10% buffer from 5.0 limit)
     )
-    lastfm_retry_count: int = 3  # Max retries for network/rate limit errors
+    lastfm_rate_limit_burst: int = 1  # Initial burst capacity (1 = steady drip, 4-5 = allow burst then rate limit)
+    lastfm_rapid_task_creation: bool = True  # Enable rapid task creation for batch processing
+    lastfm_retry_count: int = 8  # Max retries for network/rate limit errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
-    lastfm_retry_max_delay: float = 30.0  # Exponential backoff max delay (seconds)
+    lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
     lastfm_retry_constant_delay: float = (
-        1.2  # Constant delay for rate limit errors (seconds)
+        8.0  # Constant delay for rate limit errors (seconds) - increased for better rate limit recovery
     )
     lastfm_retry_unknown_max: int = 2  # Max retries for unknown errors
-    lastfm_max_retry_time: int = 60  # Total retry timeout (seconds)
+    lastfm_max_retry_time: int = 180  # Total retry timeout (seconds) - extended for rate limits
+    lastfm_rate_limit_pause: int = 4  # Seconds to pause new requests when rate limited
     lastfm_love_track_retry_count: int = 3  # Retries for track love operations
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
     lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
-    lastfm_recent_tracks_page_limit: int = 200  # Default page limit for user.getRecentTracks API calls
+    lastfm_recent_tracks_page_limit: int = (
+        200  # Default page limit for user.getRecentTracks API calls
+    )
 
     # Spotify API Configuration
     spotify_batch_size: int = 50
@@ -120,9 +125,59 @@ class ImportConfig(BaseModel):
     play_threshold_ms: int = 240000  # 4 minutes fallback threshold
     play_threshold_percentage: float = 0.5  # 50% of track duration
 
-    # Import batch processing
-    import_batch_size: int = 1000
-    import_progress_frequency: int = 100
+    # Import batch processing (ImportBatchProcessor)
+    batch_size: int = 1000  # Items per batch for file processing
+    retry_count: int = 3  # Retry attempts for transient processing errors
+    retry_base_delay: float = 1.0  # Base retry delay in seconds
+    memory_limit_mb: int = 100  # Advisory memory limit per batch
+    progress_frequency: int = 100
+
+
+class DatabaseBatchConfig(BaseModel):
+    """Database batch processing configuration."""
+    
+    # Database batch processing (DatabaseBatchProcessor)
+    batch_size: int = 10  # Small batch size to prevent SQLite locks
+    retry_count: int = 3  # Retry attempts for database deadlock scenarios
+    retry_base_delay: float = 1.0  # Base retry delay for database locks
+
+
+class MatchingConfig(BaseModel):
+    """Track matching and confidence scoring configuration."""
+    
+    # Base confidence scores by match method
+    base_confidence_isrc: int = 95
+    base_confidence_mbid: int = 95  
+    base_confidence_artist_title: int = 90
+    
+    # Confidence thresholds for match acceptance
+    threshold_isrc: int = 85
+    threshold_mbid: int = 85
+    threshold_artist_title: int = 50  # Reduced from 70 to handle version differences
+    threshold_default: int = 50
+    
+    # Connector-specific threshold overrides
+    threshold_spotify: int = 75
+    threshold_lastfm: int = 50  # Reduced from 65 to handle version differences
+    threshold_musicbrainz: int = 80
+    
+    # Duration penalty configuration  
+    duration_missing_penalty: int = 5  # Reduced from 10
+    duration_max_penalty: int = 30     # Reduced from 60 to handle version differences
+    duration_tolerance_ms: int = 1000
+    duration_per_second_penalty: float = 0.5  # Reduced from 1.0
+    
+    # Similarity thresholds
+    high_similarity_threshold: float = 0.9
+    low_similarity_threshold: float = 0.4
+    
+    # Penalty caps
+    title_max_penalty: int = 40
+    artist_max_penalty: int = 40
+    
+    # Title similarity constants
+    variation_similarity_score: float = 0.6
+    identical_similarity_score: float = 1.0
 
 
 class FreshnessConfig(BaseModel):
@@ -144,23 +199,27 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env.local", ".env"),  # Load .env.local first if it exists, then .env
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         case_sensitive=False,
+        extra="ignore",  # Ignore extra environment variables
+        validate_default=True,  # Validate default values
     )
 
     # Nested configuration groups
-    database: DatabaseConfig = DatabaseConfig()
-    logging: LoggingConfig = LoggingConfig()
-    credentials: CredentialsConfig = CredentialsConfig()
-    api: APIConfig = APIConfig()
-    batch: BatchConfig = BatchConfig()
-    import_settings: ImportConfig = ImportConfig()
-    freshness: FreshnessConfig = FreshnessConfig()
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    database_batch: DatabaseBatchConfig = Field(default_factory=DatabaseBatchConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
+    api: APIConfig = Field(default_factory=APIConfig)
+    batch: BatchConfig = Field(default_factory=BatchConfig)
+    import_settings: ImportConfig = Field(default_factory=ImportConfig)
+    matching: MatchingConfig = Field(default_factory=MatchingConfig)
+    freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
 
     # Top-level settings
-    data_dir: Path = Path("data")
+    data_dir: Path = Field(default=Path("data"), description="Application data directory")
 
     @model_validator(mode="before")
     @classmethod
@@ -229,109 +288,10 @@ settings.data_dir.mkdir(exist_ok=True)
 
 
 # =============================================================================
-# BACKWARD COMPATIBILITY FUNCTIONS
+# MODERN SETTINGS API
 # =============================================================================
-
-# Legacy key mapping for backward compatibility
-_LEGACY_KEY_MAP = {
-    # Database settings
-    "DATABASE_URL": lambda: settings.database.url,
-    "DATABASE_ECHO": lambda: settings.database.echo,
-    "DATABASE_POOL_SIZE": lambda: settings.database.pool_size,
-    "DATABASE_MAX_OVERFLOW": lambda: settings.database.max_overflow,
-    "DATABASE_POOL_TIMEOUT": lambda: settings.database.pool_timeout,
-    "DATABASE_POOL_RECYCLE": lambda: settings.database.pool_recycle,
-    "DATABASE_CONNECT_RETRIES": lambda: settings.database.connect_retries,
-    "DATABASE_RETRY_INTERVAL": lambda: settings.database.retry_interval,
-    # Logging settings
-    "CONSOLE_LOG_LEVEL": lambda: settings.logging.console_level,
-    "FILE_LOG_LEVEL": lambda: settings.logging.file_level,
-    "LOG_FILE": lambda: settings.logging.log_file,
-    "LOG_REAL_TIME_DEBUG": lambda: settings.logging.real_time_debug,
-    # Application settings
-    "DATA_DIR": lambda: settings.data_dir,
-    # Credentials
-    "SPOTIFY_CLIENT_ID": lambda: settings.credentials.spotify_client_id,
-    "SPOTIFY_CLIENT_SECRET": lambda: settings.credentials.spotify_client_secret,
-    "SPOTIFY_REDIRECT_URI": lambda: settings.credentials.spotify_redirect_uri,
-    "LASTFM_KEY": lambda: settings.credentials.lastfm_key,
-    "LASTFM_SECRET": lambda: settings.credentials.lastfm_secret,
-    "LASTFM_USERNAME": lambda: settings.credentials.lastfm_username,
-    "LASTFM_PASSWORD": lambda: settings.credentials.lastfm_password,
-    # Batch processing settings
-    "BATCH_PROGRESS_LOG_FREQUENCY": lambda: settings.batch.progress_log_frequency,
-    "TRACK_BATCH_RETRY_COUNT": lambda: settings.batch.track_batch_retry_count,
-    "TRACK_BATCH_RETRY_DELAY": lambda: settings.batch.track_batch_retry_delay,
-    # Import settings
-    "PLAY_THRESHOLD_MS": lambda: settings.import_settings.play_threshold_ms,
-    "PLAY_THRESHOLD_PERCENTAGE": lambda: settings.import_settings.play_threshold_percentage,
-    "IMPORT_BATCH_SIZE": lambda: settings.import_settings.import_batch_size,
-    "IMPORT_PROGRESS_FREQUENCY": lambda: settings.import_settings.import_progress_frequency,
-    # Global API defaults
-    "DEFAULT_API_BATCH_SIZE": lambda: settings.api.default_batch_size,
-    "DEFAULT_API_CONCURRENCY": lambda: settings.api.default_concurrency,
-    "DEFAULT_API_RETRY_COUNT": lambda: settings.api.default_retry_count,
-    "DEFAULT_API_RETRY_BASE_DELAY": lambda: settings.api.default_retry_base_delay,
-    "DEFAULT_API_RETRY_MAX_DELAY": lambda: settings.api.default_retry_max_delay,
-    "DEFAULT_API_REQUEST_DELAY": lambda: settings.api.default_request_delay,
-    # LastFM API settings
-    "LASTFM_API_BATCH_SIZE": lambda: settings.api.lastfm_batch_size,
-    "LASTFM_API_CONCURRENCY": lambda: settings.api.lastfm_concurrency,
-    "LASTFM_API_RATE_LIMIT": lambda: settings.api.lastfm_rate_limit,
-    "LASTFM_API_RETRY_COUNT": lambda: settings.api.lastfm_retry_count,
-    "LASTFM_API_RETRY_BASE_DELAY": lambda: settings.api.lastfm_retry_base_delay,
-    "LASTFM_API_RETRY_MAX_DELAY": lambda: settings.api.lastfm_retry_max_delay,
-    "LASTFM_API_RETRY_CONSTANT_DELAY": lambda: settings.api.lastfm_retry_constant_delay,
-    "LASTFM_API_RETRY_UNKNOWN_MAX": lambda: settings.api.lastfm_retry_unknown_max,
-    "LASTFM_API_MAX_RETRY_TIME": lambda: settings.api.lastfm_max_retry_time,
-    "LASTFM_LOVE_TRACK_RETRY_COUNT": lambda: settings.api.lastfm_love_track_retry_count,
-    "LASTFM_RECENT_TRACKS_MIN_LIMIT": lambda: settings.api.lastfm_recent_tracks_min_limit,
-    "LASTFM_RECENT_TRACKS_MAX_LIMIT": lambda: settings.api.lastfm_recent_tracks_max_limit,
-    "LASTFM_RECENT_TRACKS_PAGE_LIMIT": lambda: settings.api.lastfm_recent_tracks_page_limit,
-    # Spotify API settings
-    "SPOTIFY_API_BATCH_SIZE": lambda: settings.api.spotify_batch_size,
-    "SPOTIFY_LARGE_BATCH_SIZE": lambda: settings.api.spotify_large_batch_size,
-    "SPOTIFY_API_CONCURRENCY": lambda: settings.api.spotify_concurrency,
-    "SPOTIFY_API_RETRY_COUNT": lambda: settings.api.spotify_retry_count,
-    "SPOTIFY_API_RETRY_BASE_DELAY": lambda: settings.api.spotify_retry_base_delay,
-    "SPOTIFY_API_RETRY_MAX_DELAY": lambda: settings.api.spotify_retry_max_delay,
-    "SPOTIFY_API_REQUEST_DELAY": lambda: settings.api.spotify_request_delay,
-    "SPOTIFY_API_REQUEST_TIMEOUT": lambda: settings.api.spotify_request_timeout,
-    "SPOTIFY_RETRIES": lambda: settings.api.spotify_retries,
-    "SPOTIFY_MARKET": lambda: settings.api.spotify_market,
-    # MusicBrainz API settings
-    "MUSICBRAINZ_API_BATCH_SIZE": lambda: settings.api.musicbrainz_batch_size,
-    "MUSICBRAINZ_API_CONCURRENCY": lambda: settings.api.musicbrainz_concurrency,
-    "MUSICBRAINZ_API_RETRY_COUNT": lambda: settings.api.musicbrainz_retry_count,
-    "MUSICBRAINZ_API_RETRY_BASE_DELAY": lambda: settings.api.musicbrainz_retry_base_delay,
-    "MUSICBRAINZ_API_RETRY_MAX_DELAY": lambda: settings.api.musicbrainz_retry_max_delay,
-    "MUSICBRAINZ_API_REQUEST_DELAY": lambda: settings.api.musicbrainz_request_delay,
-    # Data freshness settings
-    "ENRICHER_DATA_FRESHNESS_LASTFM": lambda: settings.freshness.lastfm_hours,
-    "ENRICHER_DATA_FRESHNESS_SPOTIFY": lambda: settings.freshness.spotify_hours,
-    "ENRICHER_DATA_FRESHNESS_MUSICBRAINZ": lambda: settings.freshness.musicbrainz_hours,
-}
-
-
-def get_config(key: str, default=None):
-    """Get configuration value by key with optional default.
-
-    Provides backward compatibility with the old dictionary-based config access.
-    Maps legacy flat keys to the new nested Pydantic settings structure.
-
-    Args:
-        key: Configuration key to retrieve
-        default: Default value if key not found
-
-    Returns:
-        Configuration value or default
-
-    Example:
-        >>> batch_size = get_config("LASTFM_API_BATCH_SIZE", 50)
-        >>> db_url = get_config("DATABASE_URL")
-    """
-    if key in _LEGACY_KEY_MAP:
-        return _LEGACY_KEY_MAP[key]()
-
-    # If key not found in legacy map, return default
-    return default
+# Use the settings object directly for all configuration access:
+#   settings.api.lastfm_batch_size
+#   settings.database.url
+#   settings.credentials.spotify_client_id
+# etc.

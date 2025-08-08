@@ -1,7 +1,6 @@
 """Application utilities - shared utilities for application services."""
 
-from .batching import (
-    BatchProcessor,
+from .batch_results import (
     BatchResult,
 )
 from .progress import (
@@ -24,7 +23,6 @@ from .results import (
 )
 
 __all__ = [
-    "BatchProcessor",
     "BatchResult",
     "DatabaseProgressContext",
     "ImportResultData",

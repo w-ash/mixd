@@ -1,11 +1,13 @@
-"""Prevents memory overflows and API rate limiting when processing thousands of music items.
+"""Batch processing result aggregation and protocols.
 
-Splits large collections into manageable chunks for three operations:
-- Importing: Parse music files/playlists into database records
-- Matching: Find tracks on Spotify/Last.fm/MusicBrainz using search APIs
-- Syncing: Transfer playlists/likes between music services
+Provides BatchResult class for aggregating success rates and outcomes across batch operations,
+plus common protocols used by batch processing systems.
 
-Tracks per-batch success rates and provides real-time progress updates.
+For actual batch processing, use the specialized processors:
+- APIBatchProcessor: External API operations with rate limiting
+- DatabaseBatchProcessor: Database operations with transaction safety  
+- ImportBatchProcessor: File/import operations with memory management
+- SimpleBatchProcessor: Basic chunking operations
 """
 
 from typing import Any, Protocol
@@ -96,19 +98,9 @@ class BatchResult:
         return count
 
 
-class BatchProcessor[T]:
-    """Processes large collections of music data in configurable chunks.
-
-    Handles importing music files, matching tracks against APIs, and syncing data
-    between music services. Prevents memory overflow and respects API rate limits
-    by processing items in batches. Provides progress tracking and detailed
-    success/failure metrics.
-    """
-
-    def __init__(
-        self,
-        logger: Logger | None = None,
-    ):
-        """Initialize with optional logger."""
-        self.logger = logger
-
+# BatchProcessor classes have been separated by use case:
+# 
+# APIBatchProcessor: External API operations with rate limiting
+# DatabaseBatchProcessor: Database operations with transaction safety  
+# ImportBatchProcessor: File/import operations with memory management
+# SimpleBatchProcessor: Basic chunking operations

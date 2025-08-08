@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from attrs import define
 
-from src.config import get_config, get_logger
+from src.config import get_logger, settings
 from src.domain.entities import OperationResult, SyncCheckpoint, Track
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -100,7 +100,7 @@ class ImportSpotifyLikesUseCase:
             Import results with counts of processed tracks
         """
         # Get optimal batch size from config
-        api_batch_size = limit or get_config("SPOTIFY_API_BATCH_SIZE", 50) or 50
+        api_batch_size = limit or settings.api.spotify_batch_size
 
         # Create checkpoint for tracking
         checkpoint = await self._get_or_create_checkpoint(
@@ -424,7 +424,7 @@ class ExportLastFmLikesUseCase:
             Export results with counts of processed tracks
         """
         # Use Last.fm specific batch size from config
-        api_batch_size = batch_size or get_config("LASTFM_API_BATCH_SIZE", 20) or 20
+        api_batch_size = batch_size or settings.api.lastfm_batch_size
 
         # Create checkpoint for tracking
         checkpoint = await self._get_or_create_checkpoint(

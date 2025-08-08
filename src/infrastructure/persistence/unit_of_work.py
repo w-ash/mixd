@@ -69,8 +69,8 @@ class DatabaseUnitOfWork:
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
     ) -> None:
         """Exit async context manager with automatic commit/rollback.
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from attrs import define
 
+from src.application.utilities.database_batch_processor import DatabaseBatchProcessor
 from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors.metrics_config import get_metric_freshness
@@ -181,18 +182,34 @@ class MetricsApplicationService:
                 except (ValueError, TypeError):
                     logger.warning(f"Cannot convert {value} to float for {metric_name}")
 
-        # Batch save all metrics at once
+        # Batch save all metrics using unified BatchProcessor
         if all_metrics_batch:
             metrics_repo = uow.get_metrics_repository()
 
-            # Use smaller batch sizes to prevent SQLite locks with large datasets
-            max_batch_size = 10
-            saved_count = 0
-            for i in range(0, len(all_metrics_batch), max_batch_size):
-                batch_slice = all_metrics_batch[i : i + max_batch_size]
-                batch_saved = await metrics_repo.save_track_metrics(batch_slice)
-                saved_count += batch_saved
+            # Create database batch processor optimized for bulk database operations
+            batch_processor = DatabaseBatchProcessor[list, int](
+                batch_size=10,  # Small batch size to prevent SQLite locks
+                retry_count=3,  # Simple retry for database deadlock scenarios
+                retry_base_delay=1.0,  # Basic retry delay, no complex exponential backoff needed
+                logger_instance=logger,
+            )
 
+            async def save_metrics_batch(metrics_batch: list) -> int:
+                """Save a batch of metrics to the database."""
+                return await metrics_repo.save_track_metrics(metrics_batch)
+
+            # Split metrics into batches and process using BatchProcessor
+            batch_size = 10
+            batches = [all_metrics_batch[i:i + batch_size] 
+                      for i in range(0, len(all_metrics_batch), batch_size)]
+            
+            batch_results = await batch_processor.process(
+                items=batches,
+                process_func=save_metrics_batch,
+                progress_description=f"Saving {len(all_metrics_batch)} metrics to database"
+            )
+
+            saved_count = sum(batch_results)
             logger.info(
                 f"Batch saved {saved_count} metrics for {len(fresh_metadata)} tracks",
                 connector=connector,

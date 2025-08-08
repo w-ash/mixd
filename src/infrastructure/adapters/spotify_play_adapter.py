@@ -1,10 +1,20 @@
-"""Pure Spotify play data adapter - handles only Spotify-specific transformations."""
+"""Adapter for processing Spotify personal data export files.
+
+Handles the complete pipeline for importing listening history from Spotify's
+JSON export files (MyData/endsong_*.json):
+1. Parse export files into SpotifyPlayRecord objects
+2. Resolve Spotify track IDs to canonical Track entities via Web API
+3. Apply play filtering rules (duration thresholds, incognito exclusion)
+4. Transform into canonical TrackPlay domain objects
+
+This is a pure adapter focused on data transformation, not orchestration.
+"""
 
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.config import get_config, get_logger
+from src.config import get_logger, settings
 from src.domain.entities import Artist, Track, TrackPlay
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify_personal_data import (
@@ -31,8 +41,8 @@ def should_include_play(
         True if play should be included, False if it should be filtered out
     """
     # Get configuration with type-safe defaults
-    threshold_ms: int = get_config("PLAY_THRESHOLD_MS") or 240000  # 4 minutes fallback
-    threshold_percentage: float = get_config("PLAY_THRESHOLD_PERCENTAGE") or 0.5  # 50%
+    threshold_ms = settings.import_settings.play_threshold_ms
+    threshold_percentage = settings.import_settings.play_threshold_percentage
 
     # Rule 1: All plays >= 4 minutes are always included
     if ms_played >= threshold_ms:
@@ -343,9 +353,11 @@ class SpotifyPlayAdapter:
                     continue
 
                 try:
+                    spotify_track_data = spotify_metadata[spotify_id]
+
                     # Create track from Spotify data
                     track_data = self._create_track_from_spotify_data(
-                        spotify_id, spotify_metadata[spotify_id]
+                        spotify_id, spotify_track_data
                     )
 
                     # Use existing idempotent save_track method (handles ISRC/Spotify ID deduplication)
@@ -361,8 +373,27 @@ class SpotifyPlayAdapter:
                         spotify_id,
                         "direct_import",
                         confidence=100,
-                        metadata=spotify_metadata[spotify_id],
+                        metadata=spotify_track_data,
                     )
+
+                    # Handle Spotify track relinking if present
+                    linked_from = spotify_track_data.get("linked_from")
+                    if linked_from and "id" in linked_from and canonical_track.id:
+                        current_track_id = spotify_track_data.get(
+                            "id"
+                        )  # The ID Spotify returned
+                        original_track_id = linked_from[
+                            "id"
+                        ]  # The original ID we requested
+
+                        if current_track_id and current_track_id != original_track_id:
+                            logger.debug(
+                                f"Handling Spotify relinking: {original_track_id} -> {current_track_id}"
+                            )
+                            # Ensure the current (returned) track ID is set as primary
+                            await uow.get_connector_repository().ensure_primary_mapping(
+                                canonical_track.id, "spotify", current_track_id
+                            )
 
                     existing_canonical_tracks["spotify", spotify_id] = canonical_track
 

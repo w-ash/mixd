@@ -41,7 +41,7 @@ def import_lastfm_cmd(
     to_date: Annotated[
         str | None,
         typer.Option(
-            "--to-date", 
+            "--to-date",
             help="End date for import (YYYY-MM-DD format). Defaults to now.",
         ),
     ] = None,
@@ -49,7 +49,7 @@ def import_lastfm_cmd(
     """Import play history from Last.fm using smart daily chunking.
 
     Two usage patterns:
-    1. Explicit range: --from-date 2025-03-01 --to-date 2025-08-01 
+    1. Explicit range: --from-date 2025-03-01 --to-date 2025-08-01
        (establishes or expands your import window)
     2. Incremental: no parameters (imports from last checkpoint to now)
 
@@ -61,25 +61,30 @@ def import_lastfm_cmd(
     """
     # Determine operation type for user feedback
     operation_type = "date range" if from_date or to_date else "incremental"
-    
-    # Parse and validate dates  
+
+    # Parse and validate dates
     from datetime import UTC
+
     from_datetime = None
     to_datetime = None
     if from_date:
         try:
             from_datetime = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=UTC)
         except ValueError:
-            console.print(f"[red]Invalid from-date format: {from_date}. Use YYYY-MM-DD format.[/red]")
+            console.print(
+                f"[red]Invalid from-date format: {from_date}. Use YYYY-MM-DD format.[/red]"
+            )
             raise typer.Exit(1) from None
-    
+
     if to_date:
         try:
             to_datetime = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=UTC)
         except ValueError:
-            console.print(f"[red]Invalid to-date format: {to_date}. Use YYYY-MM-DD format.[/red]")
+            console.print(
+                f"[red]Invalid to-date format: {to_date}. Use YYYY-MM-DD format.[/red]"
+            )
             raise typer.Exit(1) from None
-    
+
     if from_datetime and to_datetime and from_datetime > to_datetime:
         console.print("[red]from-date cannot be later than to-date[/red]")
         raise typer.Exit(1)
@@ -211,12 +216,13 @@ def _interactive_lastfm_import() -> None:
 
     from_date = None
     to_date = None
-    
+
     if import_type == "date-range":
         from_date_str = Prompt.ask("Start date (YYYY-MM-DD) or leave empty", default="")
         to_date_str = Prompt.ask("End date (YYYY-MM-DD) or leave empty", default="")
-        
+
         from datetime import UTC
+
         if from_date_str:
             from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
         if to_date_str:
@@ -225,7 +231,9 @@ def _interactive_lastfm_import() -> None:
     # Execute with gathered parameters
     operation_desc = "date range" if import_type == "date-range" else "incremental"
     console.print(f"\n[green]Starting Last.fm {operation_desc} import...[/green]")
-    console.print("[dim]Using smart daily chunking with automatic track resolution[/dim]")
+    console.print(
+        "[dim]Using smart daily chunking with automatic track resolution[/dim]"
+    )
 
     with console.status(f"[bold blue]Importing {operation_desc} plays from Last.fm..."):
         result = asyncio.run(

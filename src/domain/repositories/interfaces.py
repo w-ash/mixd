@@ -26,32 +26,6 @@ if TYPE_CHECKING:
     )
     from src.domain.matching.types import RawProviderMatch
 
-    # Music service connector protocol for type hints
-    class MusicServiceConnector(Protocol):
-        """Protocol for music service connectors used in service operations."""
-
-        async def get_liked_tracks(
-            self, limit: int | None = None, cursor: str | None = None
-        ) -> tuple[list[ConnectorTrack], str | None]: ...
-        async def love_track(self, artist_name: str, track_title: str) -> bool: ...
-        async def append_tracks_to_playlist(
-            self, playlist_id: str, tracks: list["Track"]
-        ) -> dict[str, Any]: ...
-        async def update_playlist_metadata(
-            self, playlist_id: str, metadata: dict[str, Any]
-        ) -> dict[str, Any]: ...
-        async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]: ...
-        async def create_playlist(
-            self, name: str, tracks: list["Track"], description: str | None = None
-        ) -> str: ...
-        async def execute_playlist_operations(
-            self,
-            playlist_id: str,
-            operations: list[Any],
-            snapshot_id: str | None = None,
-        ) -> str | None: ...
-        async def get_playlist_metadata(self, playlist_id: str) -> dict[str, Any]: ...
-
 
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
@@ -184,12 +158,6 @@ class ConnectorRepositoryProtocol(Protocol):
         """Find track by connector ID."""
         ...
 
-    def find_connector_track_id(
-        self, connector: str, connector_id: str
-    ) -> Awaitable["int | None"]:
-        """Find connector track database ID by connector name and ID."""
-        ...
-
     def ingest_external_track(
         self,
         connector: str,
@@ -215,8 +183,23 @@ class ConnectorRepositoryProtocol(Protocol):
         confidence: int,
         metadata: dict | None = None,
         confidence_evidence: dict | None = None,
+        auto_set_primary: bool = True,
     ) -> Awaitable["Track"]:
-        """Map an existing track to a connector."""
+        """Map an existing track to a connector.
+
+        Args:
+            track: The track to map
+            connector: Service name (e.g., "spotify", "lastfm")
+            connector_id: External track ID
+            match_method: How the match was determined
+            confidence: Match confidence score
+            metadata: Optional service-specific metadata
+            confidence_evidence: Optional evidence for the confidence score
+            auto_set_primary: Whether to automatically set this as the primary mapping
+
+        Returns:
+            The updated track object
+        """
         ...
 
     def get_metadata_timestamps(
@@ -320,18 +303,21 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_mapping_info(
+    def ensure_primary_mapping(
         self, track_id: int, connector: str, connector_id: str
-    ) -> Awaitable[dict]:
-        """Get mapping information including confidence and method.
+    ) -> Awaitable[bool]:
+        """Ensure a mapping exists and is set as primary for the given track-connector pair.
+
+        This method is used when we know a specific external ID should be the primary
+        mapping (e.g., when Spotify returns a track ID in an API response).
 
         Args:
-            track_id: Internal track ID
-            connector: Connector name
-            connector_id: External connector track ID
+            track_id: Internal canonical track ID
+            connector: Service name (e.g., "spotify")
+            connector_id: External track ID that should be primary
 
         Returns:
-            Dictionary containing mapping metadata
+            True if primary mapping was successfully set
         """
         ...
 
@@ -529,14 +515,14 @@ class ServiceConnectorProvider(Protocol):
     operations like getting liked tracks or loving tracks.
     """
 
-    def get_connector(self, service_name: str) -> "MusicServiceConnector":
+    def get_connector(self, service_name: str) -> "Any":
         """Get connector instance for specified music service.
 
         Args:
             service_name: Name of the service (e.g., "spotify", "lastfm")
 
         Returns:
-            Connector instance that implements MusicServiceConnector protocol
+            Connector instance for the specified service
         """
         ...
 
@@ -557,8 +543,8 @@ class UnitOfWorkProtocol(Protocol):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
     ) -> None:
         """Exit async context manager with automatic commit/rollback."""
         ...

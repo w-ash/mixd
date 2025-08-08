@@ -143,7 +143,11 @@ class BasePlayImporter(ABC):
             # Step 6: Create success result (Template - standardized format)
             if progress_callback:
                 if duplicate_count > 0:
-                    progress_callback(100, 100, f"Saved {imported_count} new plays, filtered {duplicate_count} duplicates")
+                    progress_callback(
+                        100,
+                        100,
+                        f"Saved {imported_count} new plays, filtered {duplicate_count} duplicates",
+                    )
                 else:
                     progress_callback(100, 100, f"Saved {imported_count} new plays")
 
@@ -169,17 +173,20 @@ class BasePlayImporter(ABC):
             error_msg = f"{self.operation_name} failed: {e}"
             logger.error(
                 error_msg,
-                batch_id=batch_id, 
+                batch_id=batch_id,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True  # Include full traceback
+                exc_info=True,  # Include full traceback
             )
 
             return self._create_error_result(error_msg, batch_id)
 
     @abstractmethod
     async def _fetch_data(
-        self, progress_callback: Callable[[int, int, str], None] | None = None, uow: Any | None = None, **kwargs
+        self,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+        uow: Any | None = None,
+        **kwargs,
     ) -> list[Any]:
         """Fetch raw listening data from external source.
 
@@ -223,7 +230,9 @@ class BasePlayImporter(ABC):
         """
 
     @abstractmethod
-    async def _handle_checkpoints(self, raw_data: list[Any], uow: Any | None = None, **kwargs) -> None:
+    async def _handle_checkpoints(
+        self, raw_data: list[Any], uow: Any | None = None, **kwargs
+    ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
         Implemented by each subclass to store markers (timestamps, cursor values, etc.)
@@ -252,13 +261,13 @@ class BasePlayImporter(ABC):
                 inserted_count,
                 duplicate_count,
             ) = await self.plays_repository.bulk_insert_plays(track_plays)
-            
+
             # Log database operation results with visibility
             if inserted_count > 0:
                 logger.info(f"💾 Saved {inserted_count} new plays to database")
             if duplicate_count > 0:
                 logger.info(f"🔄 Filtered {duplicate_count} duplicate plays")
-                
+
             return (inserted_count, duplicate_count)
         except Exception as e:
             logger.error(

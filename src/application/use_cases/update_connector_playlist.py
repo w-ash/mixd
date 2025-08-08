@@ -623,38 +623,6 @@ class UpdateConnectorPlaylistUseCase:
 
         return items
 
-    def _estimate_api_calls(self, operations: list, batch_size: int) -> int:
-        """Calculates expected API calls for given operations and batch size.
-
-        Args:
-            operations: Operations to execute.
-            batch_size: Maximum items per API call.
-
-        Returns:
-            Estimated number of API calls needed.
-        """
-        if not operations:
-            return 0
-
-        # Count operations by type
-        add_ops = sum(
-            1 for op in operations if op.operation_type == PlaylistOperationType.ADD
-        )
-        remove_ops = sum(
-            1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE
-        )
-        move_ops = sum(
-            1 for op in operations if op.operation_type == PlaylistOperationType.MOVE
-        )
-
-        # Calculate API calls: adds and removes can be batched, moves are individual
-        api_calls = 0
-        api_calls += (add_ops + batch_size - 1) // batch_size  # Ceiling division
-        api_calls += (remove_ops + batch_size - 1) // batch_size
-        api_calls += move_ops  # Move operations are typically individual API calls
-
-        return api_calls
-
     async def _append_tracks_to_connector(
         self,
         current_playlist: Playlist,

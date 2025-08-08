@@ -23,30 +23,55 @@ Example:
 """
 
 from abc import ABC, abstractmethod
-import asyncio
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
-from aiolimiter import AsyncLimiter
-from attrs import define, field
+from attrs import define
 import backoff
 
 if TYPE_CHECKING:
     from src.domain.entities.playlist import ConnectorPlaylist
     from src.domain.entities.track import ConnectorTrack
 
-from src.config import get_config, get_logger
+from src.config import get_logger, settings
+from src.infrastructure.connectors.error_classification import (
+    DefaultErrorClassifier,
+    ErrorClassifierProtocol,
+    create_backoff_handler,
+    create_giveup_handler,
+    should_giveup_on_error,
+)
 from src.infrastructure.connectors.metrics_registry import (
     MetricResolverProtocol,
     register_metric_resolver,
 )
 
+# Removed processor_factory - connectors create processors directly
+from src.infrastructure.connectors.track_conversion_registry import (
+    convert_track_for_service,
+)
+
 # Get contextual logger
 logger = get_logger(__name__).bind(service="connectors")
 
-# Define type variables for generic operations
-T = TypeVar("T")
-R = TypeVar("R")
+# Type variables are now defined in api_batch_processor.py
+
+
+class ConnectorConfigProtocol(Protocol):
+    """Protocol defining the configuration interface for connectors."""
+    
+    @property
+    def connector_name(self) -> str:
+        """Service identifier for this connector (e.g., 'spotify', 'lastfm')."""
+        ...
+    
+    def get_connector_config(self, key: str, default=None) -> Any:
+        """Load configuration value from modern settings structure."""
+        ...
+    
+    @property
+    def batch_processor(self):
+        """Get pre-configured batch processor with service-specific settings."""
+        ...
 
 
 # ConnectorPlaylistItem is now imported from src.domain.entities where needed
@@ -126,9 +151,20 @@ class BaseAPIConnector(ABC):
         """Service identifier for this connector (e.g., 'spotify', 'lastfm')."""
 
     @property
-    def batch_processor(self) -> "BatchProcessor":
-        """Get pre-configured batch processor with service-specific settings."""
-        return BatchProcessor(
+    def error_classifier(self) -> ErrorClassifierProtocol:
+        """Get error classifier for this connector. Override for service-specific classification."""
+        return DefaultErrorClassifier()
+
+    @property
+    def batch_processor(self):
+        """Get pre-configured batch processor with service-specific settings.
+        
+        Creates APIBatchProcessor with default configuration. Services can override
+        this method for custom batch processor configuration.
+        """
+        from src.infrastructure.connectors.api_batch_processor import APIBatchProcessor
+        
+        return APIBatchProcessor(
             batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
             concurrency_limit=int(self.get_connector_config("CONCURRENCY") or 5),
             retry_count=int(self.get_connector_config("RETRY_COUNT") or 3),
@@ -137,25 +173,86 @@ class BaseAPIConnector(ABC):
             ),
             retry_max_delay=float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
             request_delay=float(self.get_connector_config("REQUEST_DELAY") or 0.1),
+            rate_limiter=None,  # Override in service-specific connectors if needed
             logger_instance=get_logger(__name__).bind(service=self.connector_name),
         )
 
     def get_connector_config(self, key: str, default=None):
-        """Load configuration value with automatic service-specific prefixing.
+        """Load configuration value from modern settings structure.
 
         Args:
             key: Configuration key without service prefix
-            default: Fallback value if key not found
+            default: Fallback value if setting not found
 
         Returns:
-            Configuration value from environment/config files
+            Configuration value from settings.api
 
         Example:
             If connector_name="spotify" and key="BATCH_SIZE":
-            Looks up "SPOTIFY_API_BATCH_SIZE" in configuration
+            Returns settings.api.spotify_batch_size
         """
-        connector_key = f"{self.connector_name.upper()}_API_{key}"
-        return get_config(connector_key, default)
+        # Map common keys to modern settings structure
+        key_mapping = {
+            "BATCH_SIZE": "batch_size",
+            "CONCURRENCY": "concurrency", 
+            "RETRY_COUNT": "retry_count",
+            "RETRY_BASE_DELAY": "retry_base_delay",
+            "RETRY_MAX_DELAY": "retry_max_delay",
+            "REQUEST_DELAY": "request_delay",
+            "RAPID_TASK_CREATION": "rapid_task_creation",
+        }
+        
+        # Convert key to modern format
+        modern_key = key_mapping.get(key, key.lower())
+        setting_name = f"{self.connector_name.lower()}_{modern_key}"
+        
+        # Get value from modern settings
+        return getattr(settings.api, setting_name, default)
+
+    def create_service_aware_retry(self, backoff_strategy=backoff.expo, **backoff_kwargs):
+        """Create a retry decorator that uses this connector's error classifier.
+        
+        Args:
+            backoff_strategy: Backoff strategy function (backoff.expo, backoff.constant, etc.)
+            **backoff_kwargs: Additional arguments passed to backoff decorator
+            
+        Returns:
+            Configured backoff decorator with service-specific error handling
+            
+        Example:
+            @self.create_service_aware_retry(max_tries=3, base=1.0, max_value=30.0)
+            async def api_method(self):
+                # Method will use service-specific error classification
+                pass
+        """
+        # Set up default backoff parameters using connector config
+        defaults = {
+            'max_tries': int(self.get_connector_config("RETRY_COUNT") or 3) + 1,
+            'jitter': backoff.full_jitter,
+        }
+        
+        # Add strategy-specific defaults
+        if backoff_strategy == backoff.expo:
+            defaults.update({
+                'base': float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+                'max_value': float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
+            })
+        elif backoff_strategy == backoff.constant:
+            # For constant backoff, use interval instead of base/max_value
+            defaults.update({
+                'interval': float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+            })
+        
+        # Merge with provided kwargs, giving precedence to explicit values
+        backoff_config = {**defaults, **backoff_kwargs}
+        
+        # Create service-specific handlers (these work for all strategies)
+        backoff_config['giveup'] = should_giveup_on_error(self.error_classifier)
+        backoff_config['on_backoff'] = create_backoff_handler(self.error_classifier, self.connector_name)
+        backoff_config['on_giveup'] = create_giveup_handler(self.error_classifier, self.connector_name)
+        
+        # Return configured decorator
+        return backoff.on_exception(backoff_strategy, Exception, **backoff_config)
 
     async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
         """Fetch playlist from service by delegating to service-specific method.
@@ -190,8 +287,8 @@ class BaseAPIConnector(ABC):
     ) -> "ConnectorTrack":
         """Convert raw API track data to standardized ConnectorTrack format.
 
-        Delegates to service-specific conversion functions based on connector_name.
-        Currently supports Spotify; extensible to other services.
+        Uses the service registry to dispatch to appropriate conversion function.
+        Services must register their converters using register_track_converter().
 
         Args:
             track_data: Raw track data from service API response
@@ -200,277 +297,55 @@ class BaseAPIConnector(ABC):
             Standardized track object with normalized fields
 
         Raises:
-            NotImplementedError: If service doesn't have conversion function
+            NotImplementedError: If service doesn't have registered conversion function
         """
-        # Import conversion functions dynamically to avoid circular dependencies
-        if self.connector_name == "spotify":
-            from src.infrastructure.connectors.spotify import (
-                convert_spotify_track_to_connector,
-            )
-
-            return convert_spotify_track_to_connector(track_data)
-
-        # Fallback: connector doesn't support track conversion
-        raise NotImplementedError(
-            f"Track conversion not supported by {self.connector_name} connector"
-        )
+        return convert_track_for_service(self.connector_name, track_data)
 
 
-@define(slots=True)
-class BatchProcessor[T, R]:
-    """Processes large lists with automatic retries, rate limiting, and progress tracking.
-
-    Splits work into batches to avoid memory issues and API rate limits. Automatically
-    retries failed items with exponential backoff. Emits progress events for UI updates.
-
+def extract_metric(obj: Any, field_names: list[str]) -> int | None:
+    """Extract a metric value from various object types.
+    
+    Tries multiple access patterns to retrieve metric values from objects:
+    - Direct attribute access
+    - service_data dictionary (used by enricher)
+    - metadata dictionary
+    - get() method (for dict-like objects)
+    
     Args:
-        batch_size: Items per batch (prevents memory issues)
-        concurrency_limit: Max concurrent operations (respects API limits)
-        retry_count: Max retry attempts per failed item
-        retry_base_delay: Starting delay between retries (seconds)
-        retry_max_delay: Maximum delay between retries (seconds)
-        request_delay: Minimum delay between requests (seconds)
-        rate_limiter: Optional external rate limiter
-        logger_instance: Logger for progress and error reporting
+        obj: Object to extract metric from
+        field_names: List of field names to try (in order)
+        
+    Returns:
+        Metric value if found, None otherwise
     """
+    # First check for direct attribute access
+    for field_name in field_names:
+        if hasattr(obj, field_name) and getattr(obj, field_name) is not None:
+            return getattr(obj, field_name)
 
-    batch_size: int
-    concurrency_limit: int
-    retry_count: int
-    retry_base_delay: float
-    retry_max_delay: float
-    request_delay: float
-    rate_limiter: AsyncLimiter | None = field(default=None)
-    logger_instance: Any = field(factory=lambda: get_logger(__name__))
+    # Then check service_data dictionary access (used by enricher)
+    if hasattr(obj, "service_data") and obj.service_data:
+        for field_name in field_names:
+            if (
+                field_name in obj.service_data
+                and obj.service_data[field_name] is not None
+            ):
+                return obj.service_data[field_name]
 
-    def _on_backoff(self, details):
-        """Log retry attempt with delay information."""
-        wait = details["wait"]
-        tries = details["tries"]
-        target = details["target"].__name__
-        args = details["args"]
-        kwargs = details["kwargs"]
+    # Then check metadata dictionary access
+    if hasattr(obj, "metadata"):
+        for field_name in field_names:
+            if field_name in obj.metadata and obj.metadata[field_name] is not None:
+                return obj.metadata[field_name]
 
-        self.logger_instance.warning(
-            f"Backing off {target} (attempt {tries})",
-            retry_delay=f"{wait:.2f}s",
-            args=args,
-            kwargs=kwargs,
-        )
+    # Finally check dictionary access
+    if hasattr(obj, "get"):
+        for field_name in field_names:
+            value = obj.get(field_name)
+            if value is not None:
+                return value
 
-    def _on_giveup(self, details):
-        """Log final failure after all retry attempts exhausted."""
-        target = details["target"].__name__
-        tries = details["tries"]
-        elapsed = details["elapsed"]
-        exception = details.get("exception")
-
-        self.logger_instance.error(
-            f"All {tries} attempts failed for {target}",
-            elapsed_time=f"{elapsed:.2f}s",
-            error=str(exception) if exception else "Unknown error",
-            error_type=type(exception).__name__ if exception else "Unknown",
-        )
-
-    async def process(
-        self,
-        items: list[T],
-        process_func: Callable[[T], Awaitable[R]],
-        progress_callback: Callable[[str, dict], None] | None = None,
-        progress_task_name: str = "batch_processing",
-        progress_description: str = "Processing items",
-    ) -> list[R]:
-        """Process items in batches with automatic retries and progress tracking.
-
-        Splits items into batches, processes each batch concurrently while respecting
-        rate limits, retries failures with exponential backoff, and emits progress
-        events for UI updates.
-
-        Args:
-            items: Items to process
-            process_func: Async function that processes one item
-            progress_callback: Optional function to receive progress events
-            progress_task_name: Identifier for progress tracking
-            progress_description: Human-readable task description
-
-        Returns:
-            Results in same order as input items (failed items excluded)
-        """
-        if not items:
-            return []
-
-        results: list[R] = []
-        semaphore = asyncio.Semaphore(self.concurrency_limit)
-        total_batches = (len(items) + self.batch_size - 1) // self.batch_size
-        total_items = len(items)
-        processed_items = 0
-
-        # Emit batch processing started event
-        if progress_callback:
-            progress_callback(
-                "batch_started",
-                {
-                    "task_name": progress_task_name,
-                    "total_batches": total_batches,
-                    "total_items": total_items,
-                    "description": progress_description,
-                },
-            )
-
-        @backoff.on_exception(
-            backoff.expo,
-            Exception,  # Catch all exceptions - can be customized for specific error types
-            max_tries=self.retry_count + 1,  # +1 because first attempt counts
-            max_time=None,  # No time limit, just use max_tries
-            factor=self.retry_base_delay,
-            max_value=self.retry_max_delay,
-            jitter=backoff.full_jitter,
-            on_backoff=self._on_backoff,
-            on_giveup=self._on_giveup,
-        )
-        async def process_with_backoff(item: T) -> R:
-            """Process item with automatic retry on failure and rate limiting."""
-            if self.rate_limiter:
-                # Use rate limiter for controlling request start rate
-                async with self.rate_limiter:
-                    return await process_func(item)
-            else:
-                # Fall back to semaphore-based concurrency limiting
-                async with semaphore:
-                    return await process_func(item)
-
-        # Process in batches for memory efficiency and rate limit management
-        for i in range(0, len(items), self.batch_size):
-            batch = items[i : i + self.batch_size]
-            current_batch = i // self.batch_size + 1
-            batch_start_items = processed_items
-
-            self.logger_instance.debug(
-                f"Processing batch {current_batch}/{total_batches}",
-                batch_size=len(batch),
-                total_items=len(items),
-            )
-
-            # Emit batch started event
-            if progress_callback:
-                progress_callback(
-                    "batch_progress",
-                    {
-                        "task_name": progress_task_name,
-                        "batch_number": current_batch,
-                        "total_batches": total_batches,
-                        "batch_size": len(batch),
-                        "items_processed": processed_items,
-                        "total_items": total_items,
-                        "description": f"{progress_description} (batch {current_batch}/{total_batches})",
-                    },
-                )
-
-            # Create a progress-aware wrapper for individual item processing
-            async def process_item_with_progress(
-                item: T,
-                item_index: int,
-                batch_start: int = batch_start_items,
-                batch_num: int = current_batch,
-            ) -> R:
-                """Process item and emit progress events for UI updates."""
-                result = await process_with_backoff(item)
-
-                # Emit individual item progress based on config frequency
-                current_item = batch_start + item_index + 1
-                progress_frequency = get_config("BATCH_PROGRESS_LOG_FREQUENCY") or 10
-                if progress_callback and (
-                    current_item % progress_frequency == 0
-                    or current_item == total_items
-                ):
-                    # Try to get a meaningful description from the item
-                    item_desc = ""
-                    try:
-                        if hasattr(item, "title") and hasattr(item, "artists"):
-                            artists = getattr(item, "artists", [])
-                            if artists and hasattr(artists[0], "name"):
-                                artist_name = artists[0].name
-                            else:
-                                artist_name = "Unknown Artist"
-                            item_desc = f"{artist_name} - {getattr(item, 'title', 'Unknown Track')}"
-                        elif hasattr(item, "name"):
-                            item_desc = str(getattr(item, "name", ""))
-                        elif hasattr(item, "id"):
-                            item_desc = f"Item {getattr(item, 'id', '')}"
-                    except (AttributeError, IndexError):
-                        # Fallback if item structure is unexpected
-                        item_desc = f"Item {item_index + 1}"
-
-                    progress_callback(
-                        "track_processed",
-                        {
-                            "task_name": progress_task_name,
-                            "items_processed": current_item,
-                            "total_items": total_items,
-                            "current_batch": batch_num,
-                            "item_description": item_desc,
-                            "description": f"Processed {current_item}/{total_items} items",
-                        },
-                    )
-
-                return result
-
-            # Create tasks for all items in this batch
-            batch_tasks = [
-                asyncio.create_task(process_item_with_progress(item, idx))
-                for idx, item in enumerate(batch)
-            ]
-
-            # Process items as they complete for real-time progress (streaming pattern)
-            valid_results = []
-            completed_in_batch = 0
-
-            for completed_task in asyncio.as_completed(batch_tasks):
-                try:
-                    result = await completed_task
-                    valid_results.append(result)
-                    completed_in_batch += 1
-
-                    # Log real-time completion within batch
-                    self.logger_instance.debug(
-                        f"Item {completed_in_batch}/{len(batch)} completed in batch {current_batch}",
-                        batch_progress=f"{completed_in_batch}/{len(batch)}",
-                        total_progress=f"{processed_items + completed_in_batch}/{total_items}",
-                    )
-
-                except Exception as result:
-                    self.logger_instance.error(
-                        "Item processing failed",
-                        error=str(result),
-                        error_type=type(result).__name__,
-                    )
-
-            results.extend(valid_results)
-            processed_items += len(batch)
-
-            # Emit batch completed event
-            if progress_callback:
-                progress_callback(
-                    "batch_completed",
-                    {
-                        "task_name": progress_task_name,
-                        "batch_number": current_batch,
-                        "total_batches": total_batches,
-                        "items_processed": processed_items,
-                        "total_items": total_items,
-                        "batch_results": len(valid_results),
-                        "batch_failures": len(batch) - len(valid_results),
-                    },
-                )
-
-            # Log batch completion
-            self.logger_instance.debug(
-                f"Batch {current_batch} complete",
-                valid_results=len(valid_results),
-                failures=len(batch) - len(valid_results),
-            )
-
-        return results
+    return None
 
 
 def register_metrics(

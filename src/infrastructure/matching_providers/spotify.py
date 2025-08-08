@@ -6,10 +6,21 @@ Spotify track data into our domain MatchResult objects.
 
 from typing import Any
 
-from src.application.utilities.simple_batching import process_in_batches
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import Track
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.types import (
+    MatchFailureReason,
+    ProviderMatchResult,
+    RawProviderMatch,
+)
+from src.infrastructure.connectors.api_batch_processor import APIBatchProcessor
+from src.infrastructure.matching_providers.failure_logging import log_failure_summary
+from src.infrastructure.matching_providers.failure_utils import (
+    create_and_log_failure,
+    handle_track_processing_failure,
+    merge_results,
+    validate_track_for_method,
+)
 
 logger = get_logger(__name__)
 
@@ -24,6 +35,17 @@ class SpotifyProvider:
             connector_instance: Spotify service connector for API calls.
         """
         self.connector_instance = connector_instance
+        
+        # Create APIBatchProcessor with Spotify settings
+        self._batch_processor = APIBatchProcessor[Track, dict[int, RawProviderMatch]](
+            batch_size=settings.api.spotify_batch_size,
+            concurrency_limit=settings.api.spotify_concurrency,
+            retry_count=settings.api.spotify_retry_count,
+            retry_base_delay=settings.api.spotify_retry_base_delay,
+            retry_max_delay=settings.api.spotify_retry_max_delay,
+            request_delay=settings.api.spotify_request_delay,
+            logger_instance=logger,
+        )
 
     @property
     def service_name(self) -> str:
@@ -34,7 +56,7 @@ class SpotifyProvider:
         self,
         tracks: list[Track],
         **additional_options: Any,
-    ) -> dict[int, RawProviderMatch]:
+    ) -> ProviderMatchResult:
         """Fetch raw track matches from Spotify using ISRC and search APIs.
 
         Prioritizes ISRC matches for higher confidence, then falls back to
@@ -45,114 +67,116 @@ class SpotifyProvider:
             **additional_options: Additional options (unused).
 
         Returns:
-            Track IDs mapped to raw match data without business logic applied.
+            ProviderMatchResult with successful matches and structured failure information.
         """
         # Acknowledge additional options to satisfy linter
         _ = additional_options
 
         if not tracks:
-            return {}
+            return ProviderMatchResult()
 
         with logger.contextualize(operation="match_spotify", track_count=len(tracks)):
             # Group tracks by matching method for processing efficiency
             isrc_tracks = [t for t in tracks if t.isrc]
-            other_tracks = [t for t in tracks if not t.isrc and t.artists and t.title]
-
-            results = {}
-
-            # Process ISRC tracks first (higher confidence)
-            if isrc_tracks:
-                logger.info(f"Processing {len(isrc_tracks)} tracks with ISRCs")
-                isrc_results = await process_in_batches(
-                    isrc_tracks,
-                    self._process_isrc_batch,
-                    operation_name="match_spotify_isrc",
-                    connector="spotify",
+            artist_title_tracks = [t for t in tracks if not t.isrc and t.artists and t.title]
+            
+            # Handle unprocessable tracks
+            unprocessable_failures = [
+                create_and_log_failure(
+                    track_id=t.id,
+                    reason=MatchFailureReason.NO_METADATA,
+                    service=self.service_name,
+                    method="unknown",
+                    details="Track missing artist or title data",
                 )
-                results.update(isrc_results)
+                for t in tracks 
+                if t.id and not t.isrc and (not t.artists or not t.title)
+            ]
 
-            # Process remaining tracks using artist/title search
-            remaining_tracks = [t for t in other_tracks if t.id not in results]
-            if remaining_tracks:
-                logger.info(
-                    f"Processing {len(remaining_tracks)} tracks with artist/title"
-                )
-                artist_title_results = await process_in_batches(
-                    remaining_tracks,
-                    self._process_artist_title_batch,
-                    operation_name="match_spotify_artist_title",
-                    connector="spotify",
-                )
-                results.update(artist_title_results)
+            # Process tracks by method and merge results
+            isrc_result = await self._process_tracks_by_method(isrc_tracks, "isrc") if isrc_tracks else ProviderMatchResult()
+            remaining_tracks = [t for t in artist_title_tracks if t.id not in isrc_result.matches]
+            artist_result = await self._process_tracks_by_method(remaining_tracks, "artist_title") if remaining_tracks else ProviderMatchResult()
+            
+            # Merge all results
+            final_result = merge_results(
+                isrc_result,
+                artist_result,
+                ProviderMatchResult(failures=unprocessable_failures)
+            )
+            
+            # Log summary
+            log_failure_summary(self.service_name, len(final_result.matches), len(final_result.failures))
+            logger.info(f"Found {len(final_result.matches)} matches from {len(tracks)} tracks")
+            
+            return final_result
 
-            logger.info(f"Found {len(results)} matches from {len(tracks)} tracks")
-            return results
-
-    async def _process_isrc_batch(
-        self, batch: list[Track]
-    ) -> dict[int, RawProviderMatch]:
-        """Process tracks using ISRC lookup.
-
-        Args:
-            batch: Tracks with ISRC codes.
-
-        Returns:
-            Track IDs mapped to raw match data.
-        """
-        batch_results = {}
-        for track in batch:
+    async def _process_tracks_by_method(self, tracks: list[Track], method: str) -> ProviderMatchResult:
+        """Process tracks using specified method with structured failure handling."""
+        logger.info(f"Processing {len(tracks)} tracks with {method}")
+        
+        matches = {}
+        failures = []
+        
+        # Define method-specific validators and connectors
+        validators = {
+            "isrc": lambda t: bool(t.isrc),
+            "artist_title": lambda t: bool(t.artists and t.title),
+        }
+        
+        api_calls = {
+            "isrc": lambda t: self.connector_instance.search_by_isrc(t.isrc),
+            "artist_title": lambda t: self.connector_instance.search_track(
+                t.artists[0].name if t.artists else "", t.title
+            ),
+        }
+        
+        failure_reasons = {
+            "isrc": MatchFailureReason.NO_ISRC,
+            "artist_title": MatchFailureReason.NO_METADATA,
+        }
+        
+        failure_messages = {
+            "isrc": "Track missing ISRC code",
+            "artist_title": "Track missing artist or title data",
+        }
+        
+        for track in tracks:
+            if not track.id:
+                continue
+                
+            # Validate track for method
+            validation_failure = validate_track_for_method(
+                track, method, self.service_name, validators[method],
+                failure_reasons[method], failure_messages[method]
+            )
+            if validation_failure:
+                failures.append(validation_failure)
+                continue
+                
+            # Attempt API call
             try:
-                if not track.id or not track.isrc:
-                    continue
-
-                spotify_track = await self.connector_instance.search_by_isrc(track.isrc)
-                if spotify_track and spotify_track.get("id"):
-                    raw_match = self._create_raw_match(
-                        spotify_track=spotify_track,
-                        match_method="isrc",
-                    )
+                result = await api_calls[method](track)
+                if result and result.get("id"):
+                    raw_match = self._create_raw_match(result, method)
                     if raw_match:
-                        batch_results[track.id] = raw_match
-
+                        matches[track.id] = raw_match
+                    else:
+                        failures.append(create_and_log_failure(
+                            track.id, MatchFailureReason.INVALID_RESPONSE, self.service_name,
+                            method, "Failed to create raw match from Spotify response"
+                        ))
+                else:
+                    details = f"No Spotify results for ISRC: {track.isrc}" if method == "isrc" else \
+                             f"No Spotify results for '{track.artists[0].name if track.artists else ''} - {track.title}'"
+                    failures.append(create_and_log_failure(
+                        track.id, MatchFailureReason.NO_RESULTS, self.service_name, method, details
+                    ))
+                    
             except Exception as e:
-                logger.warning(f"ISRC match failed: {e}", track_id=track.id)
-
-        return batch_results
-
-    async def _process_artist_title_batch(
-        self, batch: list[Track]
-    ) -> dict[int, RawProviderMatch]:
-        """Process tracks using artist/title search.
-
-        Args:
-            batch: Tracks with artist and title data.
-
-        Returns:
-            Track IDs mapped to raw match data.
-        """
-        batch_results = {}
-        for track in batch:
-            try:
-                if not track.id or not track.artists or not track.title:
-                    continue
-
-                artist = track.artists[0].name if track.artists else ""
-                spotify_track = await self.connector_instance.search_track(
-                    artist, track.title
-                )
-
-                if spotify_track and spotify_track.get("id"):
-                    raw_match = self._create_raw_match(
-                        spotify_track=spotify_track,
-                        match_method="artist_title",
-                    )
-                    if raw_match:
-                        batch_results[track.id] = raw_match
-
-            except Exception as e:
-                logger.warning(f"Artist/title match failed: {e}", track_id=track.id)
-
-        return batch_results
+                failures.append(handle_track_processing_failure(track.id, self.service_name, method, e))
+                
+        return ProviderMatchResult(matches=matches, failures=failures)
 
     def _create_raw_match(
         self, spotify_track: dict[str, Any], match_method: str

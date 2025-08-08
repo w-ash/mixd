@@ -8,7 +8,7 @@ import operator
 from typing import Any, Protocol, TypeVar, cast
 
 from attrs import define
-from sqlalchemy import Select, case, delete, func, insert, inspect, select, update
+from sqlalchemy import Select, delete, func, insert, inspect, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
@@ -23,7 +23,6 @@ from src.infrastructure.persistence.repositories.repo_decorator import db_operat
 # Type variables with proper constraints
 TDBModel = TypeVar("TDBModel", bound=NaradaDBBase)
 TDomainModel = TypeVar("TDomainModel")
-TResult = TypeVar("TResult")
 
 logger = get_logger(__name__)
 
@@ -204,13 +203,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
             self.model_class.is_deleted == False,  # noqa: E712
         )
 
-    def paginate(
-        self, stmt: Select[tuple[TDBModel]], page: int = 1, page_size: int = 100
-    ) -> Select[tuple[TDBModel]]:
-        """Add pagination to a select statement."""
-        offset = (page - 1) * page_size if page > 0 else 0
-        return stmt.offset(offset).limit(page_size)
-
     def order_by(
         self, stmt: Select[tuple[TDBModel]], field: str, ascending: bool = True
     ) -> Select[tuple[TDBModel]]:
@@ -291,41 +283,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         result = await self.session.scalar(stmt)
         return result
 
-    async def _flush_and_refresh(
-        self,
-        entity: TDBModel,
-        load_relationships: bool = True,
-    ) -> TDBModel:
-        """Flush changes and refresh entity with relationships."""
-        await self.session.flush()
-
-        if load_relationships:
-            # Get relevant relationships for this model
-            relationships = self.mapper.get_default_relationships() or [
-                rel
-                for rel in [
-                    "mappings",
-                    "tracks",
-                    "playlist_tracks",
-                    "likes",
-                    "connector_tracks",
-                ]
-                if hasattr(self.model_class, rel)
-            ]
-
-            # Filter out nested relationship paths which aren't supported by refresh's attribute_names
-            direct_relationships = [rel for rel in relationships if "." not in rel]
-
-            # Refresh with relationship loading if needed
-            if direct_relationships:
-                await self.session.refresh(entity, attribute_names=direct_relationships)
-            else:
-                await self.session.refresh(entity)
-        else:
-            await self.session.refresh(entity)
-
-        return entity
-
     # -------------------------------------------------------------------------
     # DECORATED DATABASE OPERATIONS
     # -------------------------------------------------------------------------
@@ -345,30 +302,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
                 await asyncio.sleep(0.1)
                 return await self._execute_query_one(stmt)
             raise
-
-    @db_operation("execute_select_many")
-    async def execute_select_many(
-        self,
-        stmt: Select[tuple[TDBModel]],
-    ) -> list[TDBModel]:
-        """Execute select and return all results."""
-        try:
-            return await self._execute_query(stmt)
-        except Exception as e:
-            if "concurrent operations are not permitted" in str(e):
-                logger.warning("Detected concurrent session access, retrying operation")
-                await asyncio.sleep(0.1)
-                return await self._execute_query(stmt)
-            raise
-
-    @db_operation("count_entities")
-    async def count_entities(
-        self, conditions: dict[str, Any] | list[ColumnElement] | None = None
-    ) -> int:
-        """Count entities matching the given conditions."""
-        stmt = self.count(conditions)
-        count = await self._execute_scalar(stmt)
-        return count or 0
 
     # -------------------------------------------------------------------------
     # CORE CRUD OPERATIONS
@@ -710,130 +643,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         return len(deleted_ids)
 
     # -------------------------------------------------------------------------
-    # BATCH OPERATIONS
-    # -------------------------------------------------------------------------
-
-    @db_operation("bulk_create")
-    async def bulk_create(
-        self,
-        entities: list[TDomainModel],
-        return_models: bool = True,
-    ) -> list[TDomainModel] | int:
-        if not entities:
-            return [] if return_models else 0
-
-        # Convert to DB models
-        db_entities = [self.mapper.to_db(entity) for entity in entities]
-
-        # Get column data for each entity
-        values = [
-            {
-                c.key: getattr(entity, c.key)
-                for c in inspect(self.model_class).columns
-                if hasattr(entity, c.key) and getattr(entity, c.key) is not None
-            }
-            for entity in db_entities
-        ]
-
-        # Single approach with conditional returning clause
-        stmt = insert(self.model_class).values(values)
-
-        if return_models:
-            stmt = stmt.returning(self.model_class)
-            result = await self.session.execute(stmt)
-            created_entities = result.scalars().all()
-            return await self.mapper.map_collection(list(created_entities))
-        else:
-            result = await self.session.execute(stmt)
-            return result.rowcount
-
-    @db_operation("bulk_update")
-    async def bulk_update(
-        self,
-        updates: dict[int, dict[str, Any]] | list[tuple[int, dict[str, Any]]],
-    ) -> int:
-        """Bulk update multiple entities using single statement with CASE expressions."""
-        if not updates:
-            return 0
-
-        # Convert list format to dict format if needed
-        update_dict = updates if isinstance(updates, dict) else dict(updates)
-
-        # Early return if nothing to update
-        if not update_dict:
-            return 0
-
-        # Add updated_at timestamp to all updates
-        now = datetime.now(UTC)
-
-        # Get all IDs to update
-        ids_to_update = list(update_dict.keys())
-
-        # Build a single UPDATE statement with CASE expressions for each field
-        all_fields = {
-            k for entity_updates in update_dict.values() for k in entity_updates
-        }
-
-        # Build value expressions for each field using CASE
-        values_dict = {}
-        for field in all_fields:
-            # Use SQLAlchemy's case() function to create per-entity field updates
-            values_dict[field] = case(
-                *(
-                    (self.model_class.id == entity_id, value.get(field))
-                    for entity_id, value in update_dict.items()
-                    if field in value
-                ),
-                else_=getattr(self.model_class, field),
-            )
-
-        # Add updated_at field
-        values_dict["updated_at"] = now
-
-        # Execute single update statement
-        stmt = (
-            update(self.model_class)
-            .where(
-                self.model_class.id.in_(ids_to_update),
-                self.model_class.is_deleted == False,  # noqa: E712
-            )
-            .values(**values_dict)
-            .execution_options(synchronize_session=False)
-        )
-
-        result = await self.session.execute(stmt)
-        return result.rowcount
-
-    @db_operation("bulk_delete")
-    async def bulk_delete(self, ids: list[int], hard_delete: bool = False) -> int:
-        """Bulk delete with execution options for better performance."""
-        if not ids:
-            return 0
-
-        if hard_delete:
-            stmt = (
-                delete(self.model_class)
-                .where(self.model_class.id.in_(ids))
-                .execution_options(synchronize_session=False)
-            )
-        else:
-            stmt = (
-                update(self.model_class)
-                .where(
-                    self.model_class.id.in_(ids),
-                    self.model_class.is_deleted == False,  # noqa: E712
-                )
-                .values(
-                    is_deleted=True,
-                    deleted_at=datetime.now(UTC),
-                )
-                .execution_options(synchronize_session=False)
-            )
-
-        result = await self.session.execute(stmt)
-        return result.rowcount
-
-    # -------------------------------------------------------------------------
     # TRANSACTION MANAGEMENT
     # -------------------------------------------------------------------------
 
@@ -858,27 +667,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
 
             # If it's not a coroutine, it must be T directly
             return cast("T", result)
-
-    async def in_transaction[T](
-        self,
-        operations: list[Callable[[], Awaitable[T]]],
-    ) -> list[T]:
-        """Execute multiple operations within a single transaction.
-
-        Args:
-            operations: List of async callables to execute
-
-        Returns:
-            List of results from each operation
-        """
-        results: list[T] = []
-
-        async with self.session.begin_nested():
-            for operation in operations:
-                result = await operation()
-                results.append(result)
-
-        return results
 
     # -------------------------------------------------------------------------
     # GET OR CREATE PATTERN

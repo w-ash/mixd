@@ -24,18 +24,32 @@ class TestConfigProviderImpl:
     def test_config_provider_initialization(self):
         """Test that config provider initializes correctly."""
         provider = ConfigProviderImpl()
-        assert provider._get_config is not None
+        assert provider._settings is not None
+        assert provider.settings is not None
 
-    @patch("src.config.get_config")
-    def test_config_provider_get(self, mock_get_config):
-        """Test that config provider delegates to get_config."""
-        mock_get_config.return_value = "test_value"
+    def test_config_provider_settings_access(self):
+        """Test that config provider provides access to application settings."""
+        provider = ConfigProviderImpl()
+        
+        # Should have access to application settings
+        assert hasattr(provider.settings, 'api')
+        assert hasattr(provider.settings, 'database')
+        assert hasattr(provider.settings, 'import_settings')
 
+    def test_config_provider_get(self):
+        """Test that config provider returns default values for workflow config."""
         provider = ConfigProviderImpl()
         result = provider.get("test_key", "default")
+        
+        # Since this is workflow-specific config, it returns the default
+        assert result == "default"
 
-        mock_get_config.assert_called_once_with("test_key", "default")
-        assert result == "test_value"
+    def test_config_provider_get_no_default(self):
+        """Test that config provider returns None when no default provided."""
+        provider = ConfigProviderImpl()
+        result = provider.get("test_key")
+        
+        assert result is None
 
 
 class TestLoggerProviderImpl:

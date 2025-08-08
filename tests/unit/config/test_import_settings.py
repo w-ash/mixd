@@ -4,7 +4,7 @@ Tests ensure that play filtering configuration is properly loaded
 and accessible through the settings system.
 """
 
-from src.config.settings import ImportConfig, get_config
+from src.config.settings import ImportConfig, settings
 
 
 class TestImportConfig:
@@ -21,22 +21,22 @@ class TestImportConfig:
         assert config.play_threshold_percentage == 0.5
 
         # Batch processing defaults
-        assert config.import_batch_size == 1000
-        assert config.import_progress_frequency == 100
+        assert config.batch_size == 1000
+        assert config.progress_frequency == 100
 
     def test_import_config_custom_values(self):
         """Test that ImportConfig accepts custom values."""
         config = ImportConfig(
             play_threshold_ms=180_000,  # 3 minutes
             play_threshold_percentage=0.6,  # 60%
-            import_batch_size=500,
-            import_progress_frequency=50,
+            batch_size=500,
+            progress_frequency=50,
         )
 
         assert config.play_threshold_ms == 180_000
         assert config.play_threshold_percentage == 0.6
-        assert config.import_batch_size == 500
-        assert config.import_progress_frequency == 50
+        assert config.batch_size == 500
+        assert config.progress_frequency == 50
 
     def test_play_threshold_ms_validation(self):
         """Test that play threshold is reasonable."""
@@ -59,12 +59,12 @@ class TestImportConfig:
         assert 0.3 <= config.play_threshold_percentage <= 0.8
 
 
-class TestConfigAccessibility:
-    """Test that configuration values are accessible through get_config."""
+class TestSettingsAccessibility:
+    """Test that configuration values are accessible through settings."""
 
     def test_get_play_threshold_ms(self):
-        """Test accessing play threshold through get_config."""
-        value = get_config("PLAY_THRESHOLD_MS")
+        """Test accessing play threshold through settings."""
+        value = settings.import_settings.play_threshold_ms
 
         # Should return the default value
         assert value == 240_000
@@ -73,8 +73,8 @@ class TestConfigAccessibility:
         assert isinstance(value, int)
 
     def test_get_play_threshold_percentage(self):
-        """Test accessing percentage threshold through get_config."""
-        value = get_config("PLAY_THRESHOLD_PERCENTAGE")
+        """Test accessing percentage threshold through settings."""
+        value = settings.import_settings.play_threshold_percentage
 
         # Should return the default value
         assert value == 0.5
@@ -82,16 +82,17 @@ class TestConfigAccessibility:
         # Should be a float
         assert isinstance(value, float)
 
-    def test_get_config_with_fallback(self):
-        """Test that get_config provides fallback values."""
-        # Existing key should return configured value
-        assert get_config("PLAY_THRESHOLD_MS") == 240_000
-
-        # Non-existent key should return None
-        assert get_config("NONEXISTENT_KEY") is None
-
-        # Non-existent key with default should return default
-        assert get_config("NONEXISTENT_KEY", 123) == 123
+    def test_settings_structure_completeness(self):
+        """Test that settings structure provides all needed values."""
+        # Import settings should be accessible
+        assert hasattr(settings, 'import_settings')
+        assert hasattr(settings.import_settings, 'play_threshold_ms')
+        assert hasattr(settings.import_settings, 'play_threshold_percentage')
+        assert hasattr(settings.import_settings, 'batch_size')
+        
+        # Values should be proper types
+        assert isinstance(settings.import_settings.play_threshold_ms, int)
+        assert isinstance(settings.import_settings.play_threshold_percentage, float)
 
 
 class TestConfigurationConsistency:
@@ -99,8 +100,8 @@ class TestConfigurationConsistency:
 
     def test_threshold_relationship(self):
         """Test that thresholds make sense relative to each other."""
-        ms_threshold = get_config("PLAY_THRESHOLD_MS")
-        percentage_threshold = get_config("PLAY_THRESHOLD_PERCENTAGE")
+        ms_threshold = settings.import_settings.play_threshold_ms
+        percentage_threshold = settings.import_settings.play_threshold_percentage
 
         # For a typical 4-minute song (240,000 ms):
         typical_song_duration = 240_000
@@ -114,8 +115,8 @@ class TestConfigurationConsistency:
     def test_configuration_matches_business_rules(self):
         """Test that config values match the business rules in implementation."""
         # These should match the values used in should_include_play function
-        assert get_config("PLAY_THRESHOLD_MS") == 240_000  # 4 minutes
-        assert get_config("PLAY_THRESHOLD_PERCENTAGE") == 0.5  # 50%
+        assert settings.import_settings.play_threshold_ms == 240_000  # 4 minutes
+        assert settings.import_settings.play_threshold_percentage == 0.5  # 50%
 
         # These match Last.fm's scrobbling standards:
         # - 4 minutes OR 50% of track duration, whichever is shorter
