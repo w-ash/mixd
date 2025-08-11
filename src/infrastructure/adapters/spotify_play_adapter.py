@@ -17,7 +17,7 @@ from typing import Any
 from src.config import get_logger, settings
 from src.domain.entities import Artist, Track, TrackPlay
 from src.infrastructure.connectors.spotify import SpotifyConnector
-from src.infrastructure.connectors.spotify_personal_data import (
+from src.infrastructure.connectors.spotify.personal_data import (
     SpotifyPlayRecord,
     parse_spotify_personal_data,
 )

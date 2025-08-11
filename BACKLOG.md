@@ -144,17 +144,17 @@ Transform playlist organization with intelligent dynamic naming that adapts to y
 Extend workflow capabilities with sophisticated transformation and analysis features.
 
 - [x] **Narada Data Source Nodes**
-    - Status: 🔜 Not Started
+    - Status: ✅ Completed (2025-08-11)
     - Effort: M
     - What: Create workflow source nodes that tap directly into Narada's rich canonical track database
     - Why: Enable workflows based on listening history and preferences without requiring playlist containers
     - Dependencies: v0.2.6 completion (Enhanced Playlist Naming foundation)
     - Notes:
-        - **`source.liked_tracks`**: Access liked tracks across all services with optional connector filtering
-        - **`source.played_tracks`**: Source tracks from play history with time range and frequency filters
-        - **Performance Safeguards**: Maximum 10,000 tracks per source, configurable limits to prevent overwhelming workflows
-        - **Built-in Filtering**: Basic filters (date ranges, service filters, play count thresholds) to keep initial trackists manageable
-        - **Discovery Enablement**: Unlock workflow patterns like "tracks I loved but haven't heard recently" without playlist management overhead
+        - **`source.liked_tracks`**: ✅ Access liked tracks across all services with optional connector filtering
+        - **`source.played_tracks`**: ✅ Source tracks from play history with time range and frequency filters
+        - **Performance Safeguards**: ✅ Maximum 10,000 tracks per source, configurable limits to prevent overwhelming workflows
+        - **Built-in Filtering**: ✅ Basic filters (date ranges, service filters, play count thresholds) to keep initial trackists manageable
+        - **Discovery Enablement**: ✅ Unlock workflow patterns like "tracks I loved but haven't heard recently" without playlist management overhead
 
 - [ ] **Advanced Transformer Workflow nodes**
     - Status: 🔜 Not Started

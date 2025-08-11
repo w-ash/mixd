@@ -12,9 +12,6 @@ if TYPE_CHECKING:
     # Import domain entities for type annotations
     from datetime import datetime
 
-    from src.application.services.external_metadata_service import (
-        ExternalMetadataService,
-    )
     from src.domain.entities import (
         ConnectorPlaylist,
         ConnectorTrack,
@@ -597,10 +594,6 @@ class UnitOfWorkProtocol(Protocol):
         self,
     ) -> "ConnectorPlaylistRepositoryProtocol":
         """Get connector playlist repository for playlist-related operations."""
-        ...
-
-    def get_external_metadata_service(self) -> "ExternalMetadataService":
-        """Get external metadata service using this unit of work's transaction."""
         ...
 
 

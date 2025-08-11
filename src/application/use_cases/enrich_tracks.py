@@ -11,6 +11,9 @@ from typing import Any, Literal
 
 from attrs import define, field
 
+from src.application.services.metrics_application_service import (
+    MetricsApplicationService,
+)
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
@@ -220,39 +223,63 @@ class EnrichTracksUseCase:
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
         """Enriches tracks with metadata from external APIs.
 
-        Fetches track details from Spotify, LastFM, or MusicBrainz using the
-        configured connector and extractors. Requires tracks to have database IDs.
+        Fetches track metrics from Spotify, Last.fm, or MusicBrainz using cache-first
+        strategy with registered metric configurations. Requires tracks to have database IDs.
 
         Args:
             tracklist: Tracks to enrich (must have database IDs).
             config: External metadata configuration with connector and extractors.
-            uow: Unit of work for accessing external metadata service.
+            uow: Unit of work for database transaction management.
 
         Returns:
             Tuple of (enriched_tracklist, metrics_dictionary).
         """
         logger.info(f"Enriching with {config.connector} metadata")
 
-        # Get external metadata service from UnitOfWork
-        # Note: config.connector is guaranteed to be non-None by EnrichmentConfig validation
+        # Validate required configuration
         if config.connector is None:
             raise ValueError(
                 "Connector must be specified for external metadata enrichment"
             )
 
-        external_metadata_service = uow.get_external_metadata_service()
-        (
-            enriched_tracklist,
-            metrics,
-        ) = await external_metadata_service.fetch_and_extract_metadata(
-            tracklist,
-            config.connector,
-            config.connector_instance,
-            config.extractors,
-            config.max_age_hours,
-            **config.additional_options,
+        # Extract metric names from extractor keys (eliminating the extractor functions)
+        # The extractors dict keys represent the metrics we want to retrieve
+        metric_names = list(config.extractors.keys()) if config.extractors else []
+        
+        if not metric_names:
+            logger.warning("No metrics specified for enrichment")
+            return tracklist, {}
+
+        # Get track IDs from the tracklist
+        track_ids = [t.id for t in tracklist.tracks if t.id is not None]
+        
+        if not track_ids:
+            logger.warning("No tracks with database IDs found")
+            return tracklist, {}
+            
+        logger.info(
+            f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {config.connector}"
         )
 
+        # Use MetricsApplicationService directly for clean cache-first resolution
+        metrics_service = MetricsApplicationService()
+        
+        metrics = await metrics_service.get_external_track_metrics(
+            track_ids=track_ids,
+            connector=config.connector,
+            metric_names=metric_names,
+            uow=uow,
+            connector_instance=config.connector_instance,
+        )
+        
+        # Attach metrics to tracklist metadata for consistency with existing interface
+        enriched_tracklist = tracklist.with_metadata("metrics", metrics)
+        
+        logger.info(
+            f"Successfully enriched tracklist with {len(metrics)} metric types and "
+            f"{sum(len(values) for values in metrics.values())} total values"
+        )
+        
         return enriched_tracklist, metrics
 
     async def _enrich_play_history(

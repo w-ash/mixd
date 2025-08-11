@@ -138,13 +138,13 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
 
         track_data_map = await connector_instance.get_tracks_by_ids(track_ids)
 
-        # Step 3: Convert to domain models using connector's conversion method
-        domain_tracks = [
-            _convert_connector_track_to_domain(
-                connector_instance.convert_track_to_connector(track_data)
-            )
-            for track_data in track_data_map.values()
-        ]
+        # Step 3: Convert to domain models using polymorphic conversion
+        domain_tracks = []
+        for track_data in track_data_map.values():
+            # Use polymorphic conversion method from connector
+            connector_track = connector_instance.convert_track_to_connector(track_data)
+            domain_track = _convert_connector_track_to_domain(connector_track)
+            domain_tracks.append(domain_track)
 
         logger.info(f"Retrieved {len(domain_tracks)}/{len(track_ids)} tracks in bulk")
 
@@ -338,7 +338,7 @@ async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
     # Execute business logic in use case
     use_case = GetLikedTracksUseCase()
     result = await workflow_context.execute_use_case(
-        lambda uow: use_case.execute(command, uow)
+        lambda: use_case, command
     )
 
     # Return standardized result for workflow composition
@@ -393,7 +393,7 @@ async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
     # Execute business logic in use case
     use_case = GetPlayedTracksUseCase()
     result = await workflow_context.execute_use_case(
-        lambda uow: use_case.execute(command, uow)
+        lambda: use_case, command
     )
 
     # Return standardized result for workflow composition

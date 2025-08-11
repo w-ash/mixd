@@ -13,7 +13,6 @@ from .progress import (
 )
 from .progress_integration import (
     DatabaseProgressContext,
-    batch_progress_wrapper,
     with_progress,
 )
 from .results import (
@@ -31,7 +30,6 @@ __all__ = [
     "ProgressProvider",
     "ResultFactory",
     "SyncResultData",
-    "batch_progress_wrapper",
     "create_operation",
     "get_progress_provider",
     "set_progress_provider",

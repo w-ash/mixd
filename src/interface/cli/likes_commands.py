@@ -1,6 +1,7 @@
 """CLI commands for importing, exporting, and syncing liked tracks across services."""
 
 import asyncio
+from datetime import datetime
 from typing import Annotated
 
 from rich.console import Console
@@ -9,12 +10,26 @@ from rich.prompt import Prompt
 import typer
 
 from src.application.use_cases.sync_likes import (
+    get_sync_checkpoint_status,
     run_lastfm_likes_export,
     run_spotify_likes_import,
 )
 from src.interface.shared.ui import display_operation_result
 
 console = Console()
+
+
+def _get_lastfm_checkpoint_info() -> str | None:
+    """Get Last.fm checkpoint information for display."""
+    try:
+        checkpoint_status = asyncio.run(
+            get_sync_checkpoint_status(service="lastfm", entity_type="likes")
+        )
+        return checkpoint_status.format_timestamp()
+    except Exception:
+        # If we can't get checkpoint info, don't break the UI
+        return None
+
 
 # Create likes subcommand app
 app = typer.Typer(
@@ -93,6 +108,13 @@ def export_lastfm_cmd(
             help="Maximum total number of tracks to export as loves (unlimited if not specified)",
         ),
     ] = None,
+    date: Annotated[
+        str | None,
+        typer.Option(
+            "--date",
+            help="Override checkpoint date - export tracks liked since this date (ISO format: 2025-08-01 or 2025-08-01T10:00:00)",
+        ),
+    ] = None,
 ) -> None:
     """Export your liked tracks to Last.fm as loved tracks.
 
@@ -100,12 +122,25 @@ def export_lastfm_cmd(
     "loved" on Last.fm. This helps sync your preferences across music services.
 
     The export respects Last.fm's API rate limits by processing tracks in small batches.
-    Only tracks that aren't already loved on Last.fm will be exported, making the
-    process efficient for incremental syncing.
+    By default, only tracks liked since the last successful export will be processed
+    (incremental sync). Use --date to override this and export tracks since a specific date.
 
     Your tracks must have accurate artist and title information for successful matching
     on Last.fm. The export will skip tracks that can't be matched.
     """
+    # Parse the date if provided
+    override_date = None
+    if date:
+        try:
+            # Try parsing with time first, then date only
+            if 'T' in date:
+                override_date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+            else:
+                override_date = datetime.fromisoformat(f"{date}T00:00:00+00:00")
+        except ValueError:
+            console.print(f"[red]Error: Invalid date format '{date}'. Use ISO format like 2025-08-01 or 2025-08-01T10:00:00[/red]")
+            raise typer.Exit(1) from None
+    
     # Execute the export
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
         result = asyncio.run(
@@ -113,6 +148,7 @@ def export_lastfm_cmd(
                 user_id="default",  # Internal identifier, not exposed to user
                 batch_size=batch_size,
                 max_exports=max_exports,
+                override_date=override_date,
             )
         )
 
@@ -130,6 +166,13 @@ def _show_interactive_likes_menu() -> None:
             border_style="blue",
         )
     )
+
+    # Show Last.fm checkpoint info if available
+    checkpoint_info = _get_lastfm_checkpoint_info()
+    if checkpoint_info:
+        console.print(f"\nLast export: {checkpoint_info}")
+    else:
+        console.print("\n[dim]No previous Last.fm export found[/dim]")
 
     console.print("\n🔄 [bold]Available Operations[/bold]:")
     console.print(
@@ -193,6 +236,30 @@ def _interactive_lastfm_export() -> None:
     """Interactive Last.fm likes export configuration."""
     console.print("\n[bold]Last.fm Likes Export Configuration[/bold]")
 
+    # Show current checkpoint and ask for date override
+    checkpoint_info = _get_lastfm_checkpoint_info()
+    if checkpoint_info:
+        default_msg = f"incremental since {checkpoint_info}"
+    else:
+        default_msg = "full export"
+    
+    date_str = Prompt.ask(
+        f"Override date (leave empty for {default_msg})",
+        default="",
+    )
+    
+    override_date = None
+    if date_str:
+        try:
+            # Parse the date
+            if 'T' in date_str:
+                override_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            else:
+                override_date = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
+            console.print(f"[green]Using override date: {override_date.strftime('%Y-%m-%d %H:%M:%S')}[/green]")
+        except ValueError:
+            console.print(f"[red]Invalid date format '{date_str}'. Using {default_msg} instead.[/red]")
+
     batch_size_str = Prompt.ask(
         "API batch size (tracks per request, leave empty for default)",
         default="",
@@ -214,6 +281,7 @@ def _interactive_lastfm_export() -> None:
                 user_id="default",
                 batch_size=batch_size,
                 max_exports=max_exports,
+                override_date=override_date,
             )
         )
 

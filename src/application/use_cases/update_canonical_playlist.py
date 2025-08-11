@@ -22,9 +22,9 @@ from src.domain.playlist import (
     calculate_playlist_diff,
 )
 from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors.metrics_config import (
-    CONNECTOR_METRICS,
-    FIELD_MAPPINGS,
+from src.infrastructure.connectors._shared.metrics import (
+    get_all_connectors_metrics,
+    get_all_field_mappings,
 )
 
 logger = get_logger(__name__)
@@ -491,7 +491,7 @@ class UpdateCanonicalPlaylistUseCase:
             return
 
         # Group tracks by connector to batch process metadata
-        for connector, available_metrics in CONNECTOR_METRICS.items():
+        for connector, available_metrics in get_all_connectors_metrics().items():
             # Find tracks that have metadata for this connector
             tracks_with_metadata = []
             fresh_metadata = {}
@@ -518,6 +518,6 @@ class UpdateCanonicalPlaylistUseCase:
                     fresh_metadata=fresh_metadata,
                     connector=connector,
                     available_metrics=available_metrics,
-                    field_map=FIELD_MAPPINGS,
+                    field_map=get_all_field_mappings(),
                     uow=uow,
                 )

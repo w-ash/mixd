@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.domain.entities.playlist import ConnectorPlaylist
-from src.domain.entities.track import ConnectorTrack
-from src.infrastructure.connectors.base_connector import BaseAPIConnector
+from src.infrastructure.connectors.base import BaseAPIConnector
 
 
 class MockConnector(BaseAPIConnector):
@@ -53,31 +52,22 @@ class TestBaseAPIConnectorDelegation:
         ):
             await connector.get_playlist("test_playlist_id")
 
-    def test_convert_track_to_connector_delegates_to_spotify_function(self):
-        """Test convert_track_to_connector uses registry to delegate to conversion function."""
+    def test_get_connector_config_returns_service_specific_setting(self):
+        """Test get_connector_config accesses service-specific configuration."""
         connector = MockSpotifyConnector()
+        
+        # Mock the settings call
+        with patch("src.infrastructure.connectors.base.settings") as mock_settings:
+            mock_settings.api.spotify_batch_size = 50
+            
+            result = connector.get_connector_config("BATCH_SIZE")
+            
+            assert result == 50
 
-        test_track_data = {"id": "test_id", "name": "Test Track"}
-        expected_connector_track = MagicMock(spec=ConnectorTrack)
-
-        # Mock the registry function at the module level where it's imported
-        with patch(
-            "src.infrastructure.connectors.base_connector.convert_track_for_service"
-        ) as mock_convert:
-            mock_convert.return_value = expected_connector_track
-
-            result = connector.convert_track_to_connector(test_track_data)
-
-            # Verify registry was called with correct service and data
-            mock_convert.assert_called_once_with("spotify", test_track_data)
-            assert result == expected_connector_track
-
-    def test_convert_track_to_connector_raises_for_unsupported_connector(self):
-        """Test convert_track_to_connector raises NotImplementedError for unsupported connectors."""
-        connector = MockConnector()  # Generic test connector
-
-        with pytest.raises(
-            NotImplementedError,
-            match="Track conversion not supported by test connector",
-        ):
-            connector.convert_track_to_connector({"id": "test"})
+    def test_get_connector_config_returns_default_for_missing_setting(self):
+        """Test get_connector_config returns default when setting doesn't exist.""" 
+        connector = MockConnector()
+        
+        result = connector.get_connector_config("NONEXISTENT_SETTING", "default_value")
+        
+        assert result == "default_value"

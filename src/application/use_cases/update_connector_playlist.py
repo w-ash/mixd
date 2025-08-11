@@ -112,6 +112,25 @@ class UpdateConnectorPlaylistUseCase:
     Updates local database after successful external API calls.
     """
 
+    def _count_operation_types(self, operations: list) -> tuple[int, int, int]:
+        """Count add/remove/move operations. Returns (added, removed, moved)."""
+        tracks_added = sum(
+            1
+            for op in operations
+            if op.operation_type == PlaylistOperationType.ADD
+        )
+        tracks_removed = sum(
+            1
+            for op in operations
+            if op.operation_type == PlaylistOperationType.REMOVE
+        )
+        tracks_moved = sum(
+            1
+            for op in operations
+            if op.operation_type == PlaylistOperationType.MOVE
+        )
+        return tracks_added, tracks_removed, tracks_moved
+
     async def execute(
         self, command: UpdateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> UpdateConnectorPlaylistResult:
@@ -189,23 +208,12 @@ class UpdateConnectorPlaylistUseCase:
                         sequence_operations_for_spotify(diff.operations),
                     )
 
+                    tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
                     logger.debug(
                         f"Sequenced {len(sequenced_operations)} operations for {command.connector}",
-                        remove_ops=sum(
-                            1
-                            for op in sequenced_operations
-                            if op.operation_type == PlaylistOperationType.REMOVE
-                        ),
-                        add_ops=sum(
-                            1
-                            for op in sequenced_operations
-                            if op.operation_type == PlaylistOperationType.ADD
-                        ),
-                        move_ops=sum(
-                            1
-                            for op in sequenced_operations
-                            if op.operation_type == PlaylistOperationType.MOVE
-                        ),
+                        remove_ops=tracks_removed,
+                        add_ops=tracks_added,
+                        move_ops=tracks_moved,
                     )
 
                     # Step 4: Execute operations against external service (if not dry run)
@@ -335,21 +343,7 @@ class UpdateConnectorPlaylistUseCase:
         )
 
         # Count operations by type
-        tracks_added = sum(
-            1
-            for op in sequenced_operations
-            if op.operation_type == PlaylistOperationType.ADD
-        )
-        tracks_removed = sum(
-            1
-            for op in sequenced_operations
-            if op.operation_type == PlaylistOperationType.REMOVE
-        )
-        tracks_moved = sum(
-            1
-            for op in sequenced_operations
-            if op.operation_type == PlaylistOperationType.MOVE
-        )
+        tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
 
         # Step 1: Execute operations against external API
         api_response = await self._execute_connector_api_operations(
@@ -393,89 +387,38 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> dict[str, Any]:
-        """Applies remove/add/move operations to external music service playlist.
-
-        Executes sequenced operations against Spotify/Apple Music API to update
-        playlist while preserving track timestamps and maintaining continuity.
-
-        Args:
-            current_playlist: Current playlist state before operations.
-            sequenced_operations: Remove→add→move operations from diff calculation.
-            command: Update configuration and limits.
-            uow: Database access for connector service lookup.
-
-        Returns:
-            Dict with success status, API metadata, and call count.
-        """
+        """Executes playlist operations via connector, trusting its implementation."""
         try:
-            # Get appropriate connector service (Spotify, Apple Music, etc.)
+            # Get connector and execute operations (connector handles batching, rate limits, etc.)
             connector_provider = uow.get_service_connector_provider()
             connector = connector_provider.get_connector(command.connector)
 
+            tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
             logger.info(
                 "Executing differential operations on external playlist",
                 connector=command.connector,
                 playlist_id=command.playlist_id,
                 operations_count=len(sequenced_operations),
-                remove_ops=sum(
-                    1
-                    for op in sequenced_operations
-                    if op.operation_type == PlaylistOperationType.REMOVE
-                ),
-                add_ops=sum(
-                    1
-                    for op in sequenced_operations
-                    if op.operation_type == PlaylistOperationType.ADD
-                ),
-                move_ops=sum(
-                    1
-                    for op in sequenced_operations
-                    if op.operation_type == PlaylistOperationType.MOVE
-                ),
+                remove_ops=tracks_removed,
+                add_ops=tracks_added,
+                move_ops=tracks_moved,
             )
 
-            # Execute sophisticated differential operations to preserve added_at timestamps
-            # This uses the existing sophisticated diff engine that maintains track continuity
+            # Trust connector's sophisticated implementation (it handles all API details correctly)
             final_snapshot_id = await connector.execute_playlist_operations(
                 command.playlist_id, sequenced_operations
             )
 
-            # Build response metadata
+            # Build simple response metadata (let repository handle detailed metadata)
             external_metadata = {
                 "last_modified": datetime.now(UTC).isoformat(),
                 "operations_applied": len(sequenced_operations),
-                "tracks_count": len(command.new_tracklist.tracks),
-                "snapshot_id": final_snapshot_id,  # Actual snapshot from differential operations
+                "snapshot_id": final_snapshot_id,
             }
-
-            # Add connector-specific metadata if available
-            if hasattr(connector, "get_playlist_metadata"):
-                try:
-                    connector_metadata = await connector.get_playlist_metadata(
-                        command.playlist_id
-                    )
-                    external_metadata.update(connector_metadata)
-                except Exception as metadata_error:
-                    logger.warning(
-                        "Failed to retrieve updated connector metadata",
-                        connector=command.connector,
-                        playlist_id=command.playlist_id,
-                        error=str(metadata_error),
-                    )
-
-            logger.info(
-                "Differential operations executed successfully",
-                connector=command.connector,
-                playlist_id=command.playlist_id,
-                final_snapshot_id=final_snapshot_id,
-                operations_count=len(sequenced_operations),
-            )
 
             return {
                 "success": True,
-                "api_calls_made": len(
-                    sequenced_operations
-                ),  # One call per operation type group
+                "api_calls_made": len(sequenced_operations),  # Estimate
                 "metadata": external_metadata,
                 "error": None,
             }
@@ -503,54 +446,30 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
-        """Updates local database immediately after successful external API calls.
-
-        Synchronizes local connector_playlist table with external service state
-        using API response metadata for version tracking and drift detection.
-
-        Args:
-            current_playlist: Playlist state before operations.
-            applied_operations: Operations that succeeded on external service.
-            api_metadata: Response metadata from external API (snapshot_id, etc.).
-            command: Update configuration.
-            uow: Database access manager.
-        """
+        """Updates local database after successful external API calls."""
         try:
-            # Get connector playlist repository for updating connector_playlist table
             connector_repo = uow.get_connector_playlist_repository()
+            
+            # Create playlist items from final desired state
+            updated_items = self._create_playlist_items_from_tracklist(command)
 
-            # Create updated track items list based on desired final state
-            updated_items = await self._calculate_updated_playlist_items(
-                current_playlist, applied_operations, command
-            )
-
-            # Create ConnectorPlaylist domain model for the updated state
-
-            # Get current connector playlist if it exists
-            existing_connector_playlist = await connector_repo.get_by_connector_id(
+            # Get existing connector playlist for ID continuity
+            existing = await connector_repo.get_by_connector_id(
                 command.connector, command.playlist_id
             )
 
-            # Create updated connector playlist model
+            # Let repository handle ConnectorPlaylist construction and persistence
             updated_connector_playlist = ConnectorPlaylist(
-                id=existing_connector_playlist.id
-                if existing_connector_playlist
-                else None,
+                id=existing.id if existing else None,
                 connector_name=command.connector,
                 connector_playlist_id=command.playlist_id,
                 name=current_playlist.name,
                 description=current_playlist.description,
-                owner=api_metadata.get("owner_name"),
-                owner_id=api_metadata.get("owner_id"),
-                is_public=api_metadata.get("is_public", False),
-                collaborative=api_metadata.get("collaborative", False),
-                follower_count=api_metadata.get("follower_count"),
-                items=updated_items,  # Updated track list based on operations
-                raw_metadata=api_metadata,  # Store full API response for future drift detection
+                items=updated_items,
+                raw_metadata=api_metadata,
                 last_updated=datetime.now(UTC),
             )
 
-            # Optimistic update: save immediately based on successful API response
             await connector_repo.upsert_model(updated_connector_playlist)
 
             logger.debug(
@@ -563,64 +482,34 @@ class UpdateConnectorPlaylistUseCase:
             )
 
         except Exception as e:
-            # Log but don't fail the entire operation - external API succeeded
-            # This ensures we don't roll back external changes due to database issues
             logger.warning(
                 "Failed to update connector_playlist table after successful API call",
                 connector=command.connector,
                 playlist_id=command.playlist_id,
                 error=str(e),
-                # This would be a good candidate for a compensation queue in production
             )
 
-    async def _calculate_updated_playlist_items(
-        self,
-        current_playlist: Playlist,
-        applied_operations: list,
-        command: UpdateConnectorPlaylistCommand,
+    def _create_playlist_items_from_tracklist(
+        self, command: UpdateConnectorPlaylistCommand
     ) -> list[ConnectorPlaylistItem]:
-        """Creates playlist items list from desired final track collection.
-
-        Converts target track list into connector playlist items with proper
-        positioning and external service track IDs for database storage.
-
-        Args:
-            current_playlist: Original playlist (for metadata reference).
-            applied_operations: Operations applied (for logging/metrics).
-            command: Update command containing desired final state.
-
-        Returns:
-            Ordered list of playlist items for connector_playlist table.
-        """
-        # Create items list from desired final state (command.new_tracklist.tracks)
+        """Creates playlist items from target track list."""
         items = []
         for i, track in enumerate(command.new_tracklist.tracks):
             if track.connector_track_ids and track.connector_track_ids.get(
                 command.connector
             ):
+                connector_track_id = track.connector_track_ids[command.connector]
                 item = ConnectorPlaylistItem(
-                    connector_track_id=track.connector_track_ids[command.connector],
+                    connector_track_id=connector_track_id,
                     position=i,
-                    added_at=datetime.now(
-                        UTC
-                    ).isoformat(),  # External API determines actual added_at
-                    added_by_id="narada",  # Could be parameterized
+                    added_at=datetime.now(UTC).isoformat(),
+                    added_by_id="narada",
                     extras={
-                        "track_uri": f"{command.connector}:track:{track.connector_track_ids[command.connector]}",
+                        "track_uri": f"{command.connector}:track:{connector_track_id}",
                         "local": False,
-                        "primary_color": None,
-                        "video_thumbnail": None,
                     },
                 )
                 items.append(item)
-
-        logger.debug(
-            "Calculated updated playlist items from desired final state",
-            connector=command.connector,
-            items_count=len(items),
-            operations_applied=len(applied_operations),
-        )
-
         return items
 
     async def _append_tracks_to_connector(

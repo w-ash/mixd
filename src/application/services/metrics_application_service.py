@@ -12,7 +12,11 @@ from attrs import define
 from src.application.utilities.database_batch_processor import DatabaseBatchProcessor
 from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors.metrics_config import get_metric_freshness
+from src.infrastructure.connectors._shared.metrics import (
+    get_connector_metrics,
+    get_field_name,
+    get_metric_freshness,
+)
 
 logger = get_logger(__name__)
 
@@ -33,6 +37,7 @@ class MetricsApplicationService:
         connector: str,
         field_map: dict[str, str],
         uow: UnitOfWorkProtocol,
+        connector_instance=None,
     ) -> dict[int, Any]:
         """Resolves metric values for multiple tracks with cache-first strategy.
 
@@ -98,22 +103,55 @@ class MetricsApplicationService:
                 missing_ids, connector, field_name
             )
 
-            # Step 5: Extract and convert metric values
+            # Step 4.5: For tracks without stored metadata or with null field values, fetch from API
+            tracks_without_metadata = [
+                tid for tid in missing_ids 
+                if tid not in metadata or metadata.get(tid) is None
+            ]
+            if tracks_without_metadata:
+                logger.info(
+                    f"Fetching fresh metadata for {len(tracks_without_metadata)} tracks from {connector} API",
+                    missing_metadata_count=len(tracks_without_metadata),
+                    missing_metadata_sample=tracks_without_metadata[:5],
+                )
+                
+                # Fetch fresh metadata from the external API
+                fresh_metadata = await self._fetch_fresh_metadata(
+                    track_ids=tracks_without_metadata,
+                    connector=connector,
+                    field_name=field_name,
+                    uow=uow,
+                    connector_instance=connector_instance,
+                )
+                
+                # Merge fresh metadata with existing metadata
+                metadata.update(fresh_metadata)
+
+            # Step 5: Extract and convert metric values (preserve data types)
             metrics_to_save = []
             for track_id, value in metadata.items():
                 if value is not None and not isinstance(value, dict):
                     try:
-                        float_value = float(value)
+                        # Preserve original data types instead of forcing to float
+                        if isinstance(value, (bool, int, float)):
+                            # Keep booleans, integers, and floats as-is
+                            converted_value = value
+                            logger.debug(f"Preserved {type(value).__name__} value {value} for {metric_name}")
+                        else:
+                            # Convert strings and other types to float (fallback)
+                            converted_value = float(value)
+                            logger.debug(f"Converted {type(value).__name__} value {value} to float for {metric_name}")
+                            
                         metrics_to_save.append((
                             track_id,
                             connector,
                             metric_name,
-                            float_value,
+                            converted_value,
                         ))
                         cached_values[track_id] = value
                     except (ValueError, TypeError):
                         logger.warning(
-                            f"Cannot convert {value} to float for {metric_name}"
+                            f"Cannot convert {value} to numeric type for {metric_name}"
                         )
 
             # Step 6: Persist new metrics
@@ -123,6 +161,95 @@ class MetricsApplicationService:
                 logger.info(f"Saved {saved_count} new metrics for {metric_name}")
 
         return cached_values
+
+    async def get_external_track_metrics(
+        self,
+        track_ids: list[int],
+        connector: str,
+        metric_names: list[str],
+        uow: UnitOfWorkProtocol,
+        connector_instance=None,
+    ) -> dict[str, dict[int, Any]]:
+        """Get track metrics from external APIs using cache-first strategy.
+        
+        This is the primary method for retrieving track metrics. It handles multiple
+        metrics efficiently by using cached values when available and only fetching
+        fresh data when needed. Uses the registered connector metric configurations
+        for field mapping and freshness policies.
+        
+        Args:
+            track_ids: Internal track IDs to get metrics for.
+            connector: External connector name ('spotify', 'lastfm', etc.).
+            metric_names: List of metric names to retrieve (e.g., ['popularity', 'danceability']).
+            uow: Unit of work for database transaction management.
+            connector_instance: Optional connector instance for fresh metadata fetching.
+            
+        Returns:
+            Dictionary mapping metric names to track_id -> value mappings.
+            Example: {'popularity': {1: 85, 2: 92}, 'danceability': {1: 0.75, 2: 0.82}}
+        """
+        if not track_ids or not metric_names:
+            return {}
+            
+        logger.info(
+            f"Getting external track metrics for {len(track_ids)} tracks",
+            connector=connector,
+            metric_names=metric_names,
+            track_count=len(track_ids),
+        )
+        
+        # Validate that all requested metrics are supported by this connector
+        available_metrics = get_connector_metrics(connector)
+        unsupported_metrics = [m for m in metric_names if m not in available_metrics]
+        if unsupported_metrics:
+            logger.warning(
+                f"Connector {connector} does not support metrics: {unsupported_metrics}. "
+                f"Available metrics: {available_metrics}"
+            )
+            # Filter to only supported metrics
+            metric_names = [m for m in metric_names if m in available_metrics]
+            
+        if not metric_names:
+            logger.warning(f"No supported metrics found for connector {connector}")
+            return {}
+            
+        # Build field map from registered metric configurations
+        field_map = {}
+        for metric_name in metric_names:
+            field_name = get_field_name(metric_name)
+            if field_name:
+                field_map[metric_name] = field_name
+            else:
+                logger.warning(f"No field mapping found for {metric_name}")
+                
+        if not field_map:
+            logger.warning("No valid field mappings found for any requested metrics")
+            return {}
+            
+        # Resolve each metric using the existing cache-first logic
+        result = {}
+        for metric_name in field_map:
+            metric_values = await self.resolve_metrics(
+                track_ids=track_ids,
+                metric_name=metric_name,
+                connector=connector,
+                field_map={metric_name: field_map[metric_name]},  # Single metric field map
+                uow=uow,
+                connector_instance=connector_instance,
+            )
+            
+            if metric_values:
+                result[metric_name] = metric_values
+                logger.debug(f"Retrieved {len(metric_values)} values for {metric_name}")
+            else:
+                logger.debug(f"No values retrieved for {metric_name}")
+                
+        logger.info(
+            f"Successfully retrieved {len(result)} metric types with "
+            f"{sum(len(values) for values in result.values())} total values"
+        )
+        
+        return result
 
     async def batch_process_fresh_metadata(
         self,
@@ -217,3 +344,93 @@ class MetricsApplicationService:
             return saved_count
 
         return 0
+
+    async def _fetch_fresh_metadata(
+        self,
+        track_ids: list[int],
+        connector: str,
+        field_name: str,
+        uow: UnitOfWorkProtocol,
+        connector_instance=None,
+    ) -> dict[int, Any]:
+        """Fetch fresh metadata from external API for tracks missing stored data.
+        
+        Args:
+            track_ids: Internal track IDs needing fresh metadata.
+            connector: External connector name ('spotify', 'lastfm', etc.).
+            field_name: Specific field to extract from metadata.
+            uow: Unit of work for database access.
+            connector_instance: Connector instance for API calls.
+            
+        Returns:
+            Dictionary mapping track_id to extracted field values.
+        """
+        if not track_ids or not connector_instance:
+            return {}
+            
+        logger.info(
+            f"Fetching fresh metadata for {len(track_ids)} tracks from {connector} API",
+            connector=connector,
+            field_name=field_name,
+            track_count=len(track_ids),
+        )
+        
+        # Step 1: Get connector mappings (track_id -> external_id)
+        connector_repo = uow.get_connector_repository()
+        mappings = await connector_repo.get_connector_mappings(
+            track_ids=track_ids,
+            connector=connector,
+        )
+        
+        if not mappings:
+            logger.warning(f"No {connector} mappings found for any tracks")
+            return {}
+            
+        # Step 2: Extract external IDs and create reverse mapping
+        external_ids = []
+        external_id_to_track_id = {}
+        
+        for track_id, connector_mappings in mappings.items():
+            external_id = connector_mappings.get(connector)
+            if external_id:
+                external_ids.append(external_id)
+                external_id_to_track_id[external_id] = track_id
+                
+        if not external_ids:
+            logger.warning(f"No {connector} external IDs found in mappings")
+            return {}
+            
+        logger.info(f"Found {len(external_ids)} {connector} IDs to fetch")
+        
+        # Step 3: Fetch fresh metadata from API
+        try:
+            if hasattr(connector_instance, 'get_tracks_by_ids'):
+                fresh_metadata = await connector_instance.get_tracks_by_ids(external_ids)
+            else:
+                logger.error("Connector instance does not have get_tracks_by_ids method")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"Failed to fetch metadata from {connector} API: {e}")
+            return {}
+            
+        if not fresh_metadata:
+            logger.warning(f"No metadata returned from {connector} API")
+            return {}
+            
+        # Step 4: Extract field values and map back to track IDs
+        field_values = {}
+        for external_id, metadata in fresh_metadata.items():
+            track_id = external_id_to_track_id.get(external_id)
+            if track_id and metadata:
+                field_value = metadata.get(field_name)
+                if field_value is not None:
+                    field_values[track_id] = field_value
+                    
+        logger.info(
+            f"Successfully extracted {len(field_values)} {field_name} values from {connector} API",
+            extracted_count=len(field_values),
+            requested_count=len(track_ids),
+        )
+        
+        return field_values

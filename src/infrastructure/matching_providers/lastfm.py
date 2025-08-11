@@ -81,7 +81,7 @@ class LastFMProvider:
                 for track_id, track_info in track_infos.items():
                     processed_track_ids.add(track_id)
 
-                    if track_info and track_info.lastfm_url:
+                    if track_info and track_info.get("lastfm_url"):
                         raw_match = self._create_raw_match(track_info)
                         if raw_match:
                             matches[track_id] = raw_match
@@ -150,30 +150,30 @@ class LastFMProvider:
         try:
             # Extract service data without any business logic
             service_data = {
-                "title": track_info.lastfm_title,
-                "artist": track_info.lastfm_artist_name,
-                "artists": [track_info.lastfm_artist_name]
-                if track_info.lastfm_artist_name
+                "title": track_info.get("lastfm_title"),
+                "artist": track_info.get("lastfm_artist_name"),
+                "artists": [track_info.get("lastfm_artist_name")]
+                if track_info.get("lastfm_artist_name")
                 else [],
-                "duration_ms": track_info.lastfm_duration,
+                "duration_ms": track_info.get("lastfm_duration"),
                 # LastFM specific data
-                "lastfm_user_playcount": track_info.lastfm_user_playcount,
-                "lastfm_global_playcount": track_info.lastfm_global_playcount,
-                "lastfm_listeners": track_info.lastfm_listeners,
-                "lastfm_user_loved": track_info.lastfm_user_loved,
+                "lastfm_user_playcount": track_info.get("lastfm_user_playcount"),
+                "lastfm_global_playcount": track_info.get("lastfm_global_playcount"),
+                "lastfm_listeners": track_info.get("lastfm_listeners"),
+                "lastfm_user_loved": track_info.get("lastfm_user_loved"),
             }
 
             # Determine match method based on available data
             # Note: This is data classification, not business logic
             match_method = (
                 "mbid"
-                if hasattr(track_info, "musicbrainz_id") and track_info.musicbrainz_id
+                if track_info.get("lastfm_mbid")
                 else "artist_title"
             )
 
             # Return raw data - no confidence calculation or business logic
             return RawProviderMatch(
-                connector_id=track_info.lastfm_url,
+                connector_id=track_info.get("lastfm_url"),
                 match_method=match_method,
                 service_data=service_data,
             )

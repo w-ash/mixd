@@ -1,14 +1,14 @@
 """Tests for LastFM error classification and retry behavior."""
 
-import pytest
-import pylast
-from unittest.mock import Mock
 
-from src.infrastructure.connectors.error_classification import (
-    should_giveup_on_error,
+import pylast
+import pytest
+
+from src.infrastructure.connectors._shared.error_classification import (
     create_giveup_handler,
+    should_giveup_on_error,
 )
-from src.infrastructure.connectors.lastfm_error_classifier import LastFMErrorClassifier
+from src.infrastructure.connectors.lastfm.error_classifier import LastFMErrorClassifier
 
 
 class TestLastFMErrorClassification:

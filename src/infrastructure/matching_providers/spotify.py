@@ -13,7 +13,7 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.connectors.api_batch_processor import APIBatchProcessor
+from src.infrastructure.connectors._shared.api_batch_processor import APIBatchProcessor
 from src.infrastructure.matching_providers.failure_logging import log_failure_summary
 from src.infrastructure.matching_providers.failure_utils import (
     create_and_log_failure,

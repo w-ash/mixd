@@ -44,14 +44,20 @@ class CredentialsConfig(BaseModel):
 
     # Spotify credentials
     spotify_client_id: str = ""
-    spotify_client_secret: SecretStr = Field(default=SecretStr(""), description="Spotify client secret (sensitive)")
+    spotify_client_secret: SecretStr = Field(
+        default=SecretStr(""), description="Spotify client secret (sensitive)"
+    )
     spotify_redirect_uri: str = "http://localhost:8888/callback"
 
     # LastFM credentials
     lastfm_key: str = ""
-    lastfm_secret: SecretStr = Field(default=SecretStr(""), description="LastFM API secret (sensitive)")
+    lastfm_secret: SecretStr = Field(
+        default=SecretStr(""), description="LastFM API secret (sensitive)"
+    )
     lastfm_username: str = ""
-    lastfm_password: SecretStr = Field(default=SecretStr(""), description="LastFM password (sensitive)")
+    lastfm_password: SecretStr = Field(
+        default=SecretStr(""), description="LastFM password (sensitive)"
+    )
 
 
 class APIConfig(BaseModel):
@@ -59,8 +65,8 @@ class APIConfig(BaseModel):
 
     # Global API defaults
     default_batch_size: int = 50
-    default_concurrency: int = 5
-    default_retry_count: int = 3
+    default_concurrency: int = 10
+    default_retry_count: int = 5
     default_retry_base_delay: float = 1.0
     default_retry_max_delay: float = 30.0
     default_request_delay: float = 0.2
@@ -71,16 +77,20 @@ class APIConfig(BaseModel):
     lastfm_rate_limit: float = (
         4.5  # Request starts per second (10% buffer from 5.0 limit)
     )
-    lastfm_rate_limit_burst: int = 1  # Initial burst capacity (1 = steady drip, 4-5 = allow burst then rate limit)
-    lastfm_rapid_task_creation: bool = True  # Enable rapid task creation for batch processing
+    lastfm_rate_limit_burst: int = (
+        1  # Initial burst capacity (1 = steady drip, 4-5 = allow burst then rate limit)
+    )
+    lastfm_rapid_task_creation: bool = (
+        True  # Enable rapid task creation for batch processing
+    )
     lastfm_retry_count: int = 8  # Max retries for network/rate limit errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
     lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
-    lastfm_retry_constant_delay: float = (
-        8.0  # Constant delay for rate limit errors (seconds) - increased for better rate limit recovery
-    )
+    lastfm_retry_constant_delay: float = 8.0  # Constant delay for rate limit errors (seconds) - increased for better rate limit recovery
     lastfm_retry_unknown_max: int = 2  # Max retries for unknown errors
-    lastfm_max_retry_time: int = 180  # Total retry timeout (seconds) - extended for rate limits
+    lastfm_max_retry_time: int = (
+        180  # Total retry timeout (seconds) - extended for rate limits
+    )
     lastfm_rate_limit_pause: int = 4  # Seconds to pause new requests when rate limited
     lastfm_love_track_retry_count: int = 3  # Retries for track love operations
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
@@ -135,7 +145,7 @@ class ImportConfig(BaseModel):
 
 class DatabaseBatchConfig(BaseModel):
     """Database batch processing configuration."""
-    
+
     # Database batch processing (DatabaseBatchProcessor)
     batch_size: int = 10  # Small batch size to prevent SQLite locks
     retry_count: int = 3  # Retry attempts for database deadlock scenarios
@@ -144,37 +154,37 @@ class DatabaseBatchConfig(BaseModel):
 
 class MatchingConfig(BaseModel):
     """Track matching and confidence scoring configuration."""
-    
+
     # Base confidence scores by match method
     base_confidence_isrc: int = 95
-    base_confidence_mbid: int = 95  
+    base_confidence_mbid: int = 95
     base_confidence_artist_title: int = 90
-    
+
     # Confidence thresholds for match acceptance
     threshold_isrc: int = 85
     threshold_mbid: int = 85
     threshold_artist_title: int = 50  # Reduced from 70 to handle version differences
     threshold_default: int = 50
-    
+
     # Connector-specific threshold overrides
     threshold_spotify: int = 75
     threshold_lastfm: int = 50  # Reduced from 65 to handle version differences
     threshold_musicbrainz: int = 80
-    
-    # Duration penalty configuration  
+
+    # Duration penalty configuration
     duration_missing_penalty: int = 5  # Reduced from 10
-    duration_max_penalty: int = 30     # Reduced from 60 to handle version differences
+    duration_max_penalty: int = 30  # Reduced from 60 to handle version differences
     duration_tolerance_ms: int = 1000
     duration_per_second_penalty: float = 0.5  # Reduced from 1.0
-    
+
     # Similarity thresholds
     high_similarity_threshold: float = 0.9
     low_similarity_threshold: float = 0.4
-    
+
     # Penalty caps
-    title_max_penalty: int = 40
-    artist_max_penalty: int = 40
-    
+    title_max_penalty: int = 30
+    artist_max_penalty: int = 30
+
     # Title similarity constants
     variation_similarity_score: float = 0.6
     identical_similarity_score: float = 1.0
@@ -199,7 +209,10 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=(".env.local", ".env"),  # Load .env.local first if it exists, then .env
+        env_file=(
+            ".env.local",
+            ".env",
+        ),  # Load .env.local first if it exists, then .env
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         case_sensitive=False,
@@ -219,7 +232,9 @@ class Settings(BaseSettings):
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
 
     # Top-level settings
-    data_dir: Path = Field(default=Path("data"), description="Application data directory")
+    data_dir: Path = Field(
+        default=Path("data"), description="Application data directory"
+    )
 
     @model_validator(mode="before")
     @classmethod

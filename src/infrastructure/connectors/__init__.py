@@ -46,22 +46,19 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
     module = sys.modules[__name__]
     package_path = module.__name__
 
-    # Use pkgutil to find all modules in the package
-    for _, name, ispkg in pkgutil.iter_modules(
+    # Use pkgutil to find all modules and subpackages in the package
+    for _, name, _ispkg in pkgutil.iter_modules(
         module.__path__,
         prefix=f"{package_path}.",
     ):
-        if ispkg:
-            continue  # Skip subpackages
-
         module_name = name.split(".")[-1]
 
-        # Skip the __init__ module itself to avoid circular imports
-        if module_name == "__init__":
+        # Skip the __init__ module itself and _shared utilities
+        if module_name == "__init__" or module_name.startswith("_"):
             continue
 
         try:
-            # Import the module
+            # Import the module/subpackage
             connector_module = importlib.import_module(name)
 
             # Check if module implements connector interface

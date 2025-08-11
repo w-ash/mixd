@@ -6,25 +6,25 @@ allowing us to debug why specific tracks are failing to match with external serv
 """
 
 import asyncio
-import sys
 from pathlib import Path
+import sys
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import typer
 from rich.console import Console
 from rich.table import Table
+import typer
 
+from src.application.use_cases.match_and_identify_tracks import (
+    MatchAndIdentifyTracksCommand,
+    MatchAndIdentifyTracksUseCase,
+)
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from src.application.use_cases.match_and_identify_tracks import (
-    MatchAndIdentifyTracksCommand,
-    MatchAndIdentifyTracksUseCase,
-)
 
 console = Console()
 logger = get_logger(__name__)
@@ -77,7 +77,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
             return
             
         # Step 3: Create tracklist and command
-        console.print(f"\n[yellow]Step 3: Setting up matching command...[/yellow]")
+        console.print("\n[yellow]Step 3: Setting up matching command...[/yellow]")
         try:
             tracklist = TrackList(tracks=[track])
             command = MatchAndIdentifyTracksCommand(
@@ -93,7 +93,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
             return
             
         # Step 4: Execute matching (same as workflow) 
-        console.print(f"\n[yellow]Step 4: Executing identity resolution...[/yellow]")
+        console.print("\n[yellow]Step 4: Executing identity resolution...[/yellow]")
         try:
             # Enable more detailed logging for matching
             import logging
@@ -104,7 +104,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
             result = await use_case.execute(command, uow)
             
             # Display results
-            console.print(f"\n[bold green]📊 Results Summary[/bold green]")
+            console.print("\n[bold green]📊 Results Summary[/bold green]")
             table = Table(show_header=True, header_style="bold magenta")
             table.add_column("Metric")
             table.add_column("Value")
@@ -124,7 +124,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
                     
             # Show identity mappings
             if result.identity_mappings:
-                console.print(f"\n[green]✅ Identity Mappings Found:[/green]")
+                console.print("\n[green]✅ Identity Mappings Found:[/green]")
                 for track_id, match_result in result.identity_mappings.items():
                     console.print(f"   Track {track_id}:")
                     console.print(f"     • Success: [green]{match_result.success}[/green]")
@@ -152,7 +152,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
                         if 'lastfm_global_playcount' in service_data:
                             console.print(f"       - Global plays: [yellow]{service_data['lastfm_global_playcount']}[/yellow]")
             else:
-                console.print(f"\n[red]❌ No identity mappings found[/red]")
+                console.print("\n[red]❌ No identity mappings found[/red]")
                 
         except Exception as e:
             console.print(f"❌ Matching failed: [red]{e}[/red]")

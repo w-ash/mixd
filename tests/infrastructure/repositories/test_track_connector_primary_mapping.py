@@ -22,7 +22,9 @@ class TestTrackConnectorPrimaryMapping:
             artists=[Artist(name="Test Artist")],
             album="Test Album",
         )
-        from src.infrastructure.persistence.repositories.track.core import TrackRepository
+        from src.infrastructure.persistence.repositories.track.core import (
+            TrackRepository,
+        )
         track_repo = TrackRepository(db_session)
         saved_track = await track_repo.save_track(track)
         
@@ -53,7 +55,9 @@ class TestTrackConnectorPrimaryMapping:
             artists=[Artist(name="Test Artist 2")],
             album="Test Album 2",
         )
-        from src.infrastructure.persistence.repositories.track.core import TrackRepository
+        from src.infrastructure.persistence.repositories.track.core import (
+            TrackRepository,
+        )
         track_repo = TrackRepository(db_session)
         saved_track = await track_repo.save_track(track)
         

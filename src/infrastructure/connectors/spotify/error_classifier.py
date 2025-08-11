@@ -2,7 +2,9 @@
 
 import spotipy
 
-from src.infrastructure.connectors.error_classification import BaseErrorClassifier
+from src.infrastructure.connectors._shared.error_classification import (
+    BaseErrorClassifier,
+)
 
 
 class SpotifyErrorClassifier(BaseErrorClassifier):

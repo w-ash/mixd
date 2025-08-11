@@ -2,7 +2,9 @@
 
 import pylast
 
-from src.infrastructure.connectors.error_classification import BaseErrorClassifier
+from src.infrastructure.connectors._shared.error_classification import (
+    BaseErrorClassifier,
+)
 
 
 class LastFMErrorClassifier(BaseErrorClassifier):

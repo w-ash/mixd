@@ -8,7 +8,6 @@ from typing import Any, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.services.external_metadata_service import ExternalMetadataService
 from src.domain.repositories.interfaces import (
     CheckpointRepositoryProtocol,
     ConnectorPlaylistRepositoryProtocol,
@@ -34,9 +33,6 @@ from src.infrastructure.persistence.repositories.track.metrics import (
     TrackMetricsRepository,
 )
 from src.infrastructure.persistence.repositories.track.plays import TrackPlayRepository
-from src.infrastructure.services.external_metadata_service_impl import (
-    ExternalMetadataServiceImpl,
-)
 from src.infrastructure.services.track_identity_service_impl import (
     TrackIdentityServiceImpl,
 )
@@ -129,14 +125,6 @@ class DatabaseUnitOfWork:
         track_repo = self.get_track_repository()
         connector_repo = self.get_connector_repository()
         return TrackIdentityServiceImpl(track_repo, connector_repo)
-
-    def get_external_metadata_service(self) -> ExternalMetadataService:
-        """Get external metadata service using this unit of work's transaction."""
-        # Create repositories for the service to use
-        track_repo = self.get_track_repository()
-        connector_repo = self.get_connector_repository()
-        metrics_repo = self.get_metrics_repository()
-        return ExternalMetadataServiceImpl(track_repo, connector_repo, metrics_repo)
 
     def get_service_connector_provider(self) -> Any:
         """Get service connector provider for accessing individual music service connectors."""

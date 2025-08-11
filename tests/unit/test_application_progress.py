@@ -18,7 +18,6 @@ from src.application.utilities.progress import (
 )
 from src.application.utilities.progress_integration import (
     DatabaseProgressContext,
-    batch_progress_wrapper,
     with_progress,
 )
 
@@ -206,58 +205,6 @@ class TestDatabaseProgressContext:
 
         # Verify UI display was called
         mock_ui.display_operation_result.assert_called_once()
-
-
-class TestBatchProgressWrapper:
-    """Test batch_progress_wrapper utility."""
-
-    @pytest.mark.asyncio
-    async def test_batch_processing_with_progress(self):
-        """Test batch processing with progress tracking."""
-        items = list(range(10))  # 0-9
-        mock_provider = Mock(spec=ProgressProvider)
-        mock_provider.start_operation.return_value = "batch-op-id"
-
-        async def mock_process_func(batch):
-            return {i: f"processed-{i}" for i in batch}
-
-        wrapper = batch_progress_wrapper(
-            items,
-            mock_process_func,
-            operation_description="Processing numbers",
-            batch_size=3,
-            progress_provider=mock_provider,
-        )
-
-        result = await wrapper()
-
-        # Should process all items
-        assert len(result) == 10
-        assert result[0] == "processed-0"
-        assert result[9] == "processed-9"
-
-        # Should track progress
-        mock_provider.start_operation.assert_called_once()
-        assert mock_provider.update_progress.call_count > 0
-        mock_provider.complete_operation.assert_called_once_with("batch-op-id")
-
-    @pytest.mark.asyncio
-    async def test_empty_batch_processing(self):
-        """Test batch processing with empty items list."""
-        mock_provider = Mock(spec=ProgressProvider)
-
-        async def mock_process_func(batch):
-            return {}
-
-        wrapper = batch_progress_wrapper(
-            [], mock_process_func, progress_provider=mock_provider
-        )
-
-        result = await wrapper()
-
-        assert result == {}
-        # Should not start operation for empty list
-        mock_provider.start_operation.assert_not_called()
 
 
 class TestCleanArchitectureCompliance:

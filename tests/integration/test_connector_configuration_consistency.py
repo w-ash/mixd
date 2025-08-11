@@ -4,7 +4,6 @@ Tests to verify that the connector refactoring maintains consistent
 configuration patterns across all services.
 """
 
-import pytest
 
 from src.config import settings
 from src.infrastructure.connectors.lastfm import LastFMConnector

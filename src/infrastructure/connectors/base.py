@@ -33,21 +33,16 @@ if TYPE_CHECKING:
     from src.domain.entities.track import ConnectorTrack
 
 from src.config import get_logger, settings
-from src.infrastructure.connectors.error_classification import (
+from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,
     create_backoff_handler,
     create_giveup_handler,
     should_giveup_on_error,
 )
-from src.infrastructure.connectors.metrics_registry import (
+from src.infrastructure.connectors._shared.metrics import (
     MetricResolverProtocol,
     register_metric_resolver,
-)
-
-# Removed processor_factory - connectors create processors directly
-from src.infrastructure.connectors.track_conversion_registry import (
-    convert_track_for_service,
 )
 
 # Get contextual logger
@@ -162,7 +157,9 @@ class BaseAPIConnector(ABC):
         Creates APIBatchProcessor with default configuration. Services can override
         this method for custom batch processor configuration.
         """
-        from src.infrastructure.connectors.api_batch_processor import APIBatchProcessor
+        from src.infrastructure.connectors._shared.api_batch_processor import (
+            APIBatchProcessor,
+        )
         
         return APIBatchProcessor(
             batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
@@ -282,24 +279,25 @@ class BaseAPIConnector(ABC):
             f"Playlist operations not supported by {self.connector_name} connector"
         )
 
-    def convert_track_to_connector(
-        self, track_data: dict[str, Any]
-    ) -> "ConnectorTrack":
-        """Convert raw API track data to standardized ConnectorTrack format.
-
-        Uses the service registry to dispatch to appropriate conversion function.
-        Services must register their converters using register_track_converter().
-
+    @abstractmethod
+    def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
+        """Convert service-specific track data to ConnectorTrack domain model.
+        
+        Each connector must implement this method to handle conversion from their
+        service's API response format to the standardized ConnectorTrack domain model.
+        
         Args:
-            track_data: Raw track data from service API response
-
+            track_data: Raw track data from the service's API
+            
         Returns:
-            Standardized track object with normalized fields
-
-        Raises:
-            NotImplementedError: If service doesn't have registered conversion function
+            ConnectorTrack with standardized fields and service-specific metadata
+            
+        Example:
+            # In SpotifyConnector
+            def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+                from .conversions import convert_spotify_track_to_connector
+                return convert_spotify_track_to_connector(track_data)
         """
-        return convert_track_for_service(self.connector_name, track_data)
 
 
 def extract_metric(obj: Any, field_names: list[str]) -> int | None:

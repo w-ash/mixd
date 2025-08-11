@@ -5,7 +5,7 @@
   "version": "1.0",
   "tasks": [
     {
-      "id": "source_serotonin",
+      "id": "source_altar",
       "type": "source.playlist",
       "config": {
         "playlist_id": "2orOfUrshU959tYCUjt0Zs",
@@ -13,14 +13,14 @@
       }
     },
     {
-      "id": "limit_serotonin",
+      "id": "limit_altar",
       "type": "selector.limit_tracks",
       "config": {
-        "count": 20,
+        "count": 30,
         "method": "first"
       },
       "upstream": [
-        "source_serotonin"
+        "source_altar"
       ]
     },
     {
@@ -35,7 +35,7 @@
       "id": "limit_release_radar",
       "type": "selector.limit_tracks",
       "config": {
-        "count": 20,
+        "count": 30,
         "method": "first"
       },
       "upstream": [
@@ -47,12 +47,12 @@
       "type": "combiner.concatenate_playlists",
       "config": {
         "order": [
-          "limit_serotonin",
+          "limit_altar",
           "limit_release_radar"
         ]
       },
       "upstream": [
-        "limit_serotonin",
+        "limit_altar",
         "limit_release_radar"
       ]
     },

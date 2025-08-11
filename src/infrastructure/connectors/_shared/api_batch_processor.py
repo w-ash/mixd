@@ -18,7 +18,7 @@ from aiolimiter import AsyncLimiter
 from attrs import define, field
 
 from src.config import get_logger, settings
-from src.infrastructure.connectors.retry_wrapper import RetryWrapper
+from src.infrastructure.connectors._shared.retry_wrapper import RetryWrapper
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="api_batch_processor")
@@ -30,14 +30,11 @@ R = TypeVar("R")
 
 @define(slots=True)
 class APIBatchProcessor[T, R]:
-    """Processes external API operations in sequential batches with rate limiting and retries.
+    """Processes external API operations in batches with rate limiting and retries.
 
     Designed specifically for external service API calls like Spotify, Last.fm, MusicBrainz.
     Provides automatic retries with exponential backoff, rate limiting via AsyncLimiter,
     and progress tracking optimized for API operations.
-
-    Uses sequential batch processing for memory efficiency and predictable resource usage.
-    For high-throughput scenarios requiring rapid task creation, use RapidTaskProcessor instead.
 
     DO NOT USE for database operations, file processing, or other internal batch operations.
     Use DatabaseBatchProcessor, ImportBatchProcessor, or SimpleBatchProcessor instead.
@@ -121,11 +118,12 @@ class APIBatchProcessor[T, R]:
             """Process item with rate limiting and automatic retry on failure."""
             
             async def rate_limited_call() -> R:
-                """Apply rate limiting before API call."""
+                """Apply rate limiting and concurrency control."""
+                # Rate limit before API call using AsyncLimiter (concurrent-safe)
                 if self.rate_limiter:
                     await self.rate_limiter.acquire()
                 
-                # Use semaphore for concurrency control during the actual API call
+                # Use semaphore for concurrency control
                 async with semaphore:
                     return await process_func(item)
             
@@ -190,13 +188,18 @@ class APIBatchProcessor[T, R]:
 
                 return result
 
-            # Create tasks for all items in this batch
+            # Create all tasks immediately using standard asyncio patterns
             batch_tasks = [
                 asyncio.create_task(process_item_with_progress(item, idx))
                 for idx, item in enumerate(batch)
             ]
 
-            # Process items as they complete for real-time progress (streaming pattern)
+            self.logger_instance.debug(
+                f"Created {len(batch_tasks)} concurrent tasks for batch {current_batch}",
+                rate_per_second=self.rate_limiter.max_rate if self.rate_limiter else "unlimited",
+            )
+
+            # Process items as they complete for real-time progress
             valid_results = []
             completed_in_batch = 0
 
@@ -213,11 +216,12 @@ class APIBatchProcessor[T, R]:
                         total_progress=f"{processed_items + completed_in_batch}/{total_items}",
                     )
 
-                except Exception as result:
+                except Exception as e:
+                    completed_in_batch += 1
                     self.logger_instance.error(
-                        "Item processing failed",
-                        error=str(result),
-                        error_type=type(result).__name__,
+                        f"Item {completed_in_batch} failed in batch {current_batch}",
+                        error=str(e),
+                        error_type=type(e).__name__,
                     )
 
             results.extend(valid_results)

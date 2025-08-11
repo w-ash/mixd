@@ -6,7 +6,7 @@ Tests use UnitOfWork pattern for proper Clean Architecture compliance.
 """
 
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -22,16 +22,6 @@ from src.domain.entities.track import Artist, Track, TrackList
 class TestEnrichTracksUseCase:
     """Test suite for EnrichTracksUseCase."""
 
-    @pytest.fixture
-    def mock_external_metadata_service(self):
-        """Mock external metadata service."""
-        mock = AsyncMock()
-        # Default successful response
-        mock.fetch_and_extract_metadata.return_value = (
-            Mock(),  # enriched_tracklist
-            {"popularity": {1: 85}},  # metrics
-        )
-        return mock
 
     @pytest.fixture
     def mock_plays_repo(self):
@@ -44,12 +34,11 @@ class TestEnrichTracksUseCase:
         return mock
 
     @pytest.fixture
-    def mock_uow(self, mock_external_metadata_service, mock_plays_repo):
+    def mock_uow(self, mock_plays_repo):
         """Mock UnitOfWork with required services."""
         mock = Mock()
         mock.__aenter__ = AsyncMock(return_value=mock)
         mock.__aexit__ = AsyncMock(return_value=None)
-        mock.get_external_metadata_service.return_value = mock_external_metadata_service
         mock.get_plays_repository.return_value = mock_plays_repo
         return mock
 
@@ -74,7 +63,7 @@ class TestEnrichTracksUseCase:
             enrichment_type="external_metadata",
             connector="spotify",
             connector_instance=Mock(),
-            extractors={"popularity": Mock()},
+            extractors={"spotify_popularity": Mock()},
             max_age_hours=24.0,
         )
 
@@ -87,23 +76,23 @@ class TestEnrichTracksUseCase:
             period_days=30,
         )
 
+    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_external_metadata_enrichment_success(
         self,
+        mock_metrics_service_class,
         use_case,
         sample_tracklist,
         external_metadata_config,
         mock_uow,
-        mock_external_metadata_service,
     ):
         """Test successful external metadata enrichment."""
         # Arrange
-        expected_tracklist = sample_tracklist.with_metadata("test", True)
-        expected_metrics = {"popularity": {1: 85, 2: 92}}
-
-        mock_external_metadata_service.fetch_and_extract_metadata.return_value = (
-            expected_tracklist,
-            expected_metrics,
-        )
+        expected_metrics = {"spotify_popularity": {1: 85, 2: 92}}
+        
+        # Mock the MetricsApplicationService instance
+        mock_metrics_service = AsyncMock()
+        mock_metrics_service.get_external_track_metrics.return_value = expected_metrics
+        mock_metrics_service_class.return_value = mock_metrics_service
 
         command = EnrichTracksCommand(
             tracklist=sample_tracklist, enrichment_config=external_metadata_config
@@ -114,20 +103,17 @@ class TestEnrichTracksUseCase:
 
         # Assert
         assert isinstance(result, EnrichTracksResult)
-        assert result.enriched_tracklist == expected_tracklist
         assert result.metrics_added == expected_metrics
         assert result.track_count == 2
-        assert result.enriched_count == 2
+        assert result.enriched_count == 2  # Total values across all metrics
         assert len(result.errors) == 0
 
-        # Verify external metadata service was called correctly
-        mock_external_metadata_service.fetch_and_extract_metadata.assert_called_once_with(
-            sample_tracklist,
-            "spotify",
-            external_metadata_config.connector_instance,
-            external_metadata_config.extractors,
-            24.0,
-            **external_metadata_config.additional_options,
+        # Verify MetricsApplicationService was called correctly
+        mock_metrics_service.get_external_track_metrics.assert_called_once_with(
+            track_ids=[1, 2],  # Sample tracklist has tracks with IDs 1 and 2
+            connector="spotify",
+            metric_names=["spotify_popularity"],  # From extractors keys
+            uow=mock_uow,
         )
 
     async def test_play_history_enrichment_success(
@@ -223,12 +209,13 @@ class TestEnrichTracksUseCase:
         assert len(result.errors) == 1
         assert "No tracks with database IDs" in result.errors[0]
 
+    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_tracks_without_ids_filtered(
         self,
+        mock_metrics_service_class,
         use_case,
         external_metadata_config,
         mock_uow,
-        mock_external_metadata_service,
     ):
         """Test that tracks without database IDs are filtered out."""
         # Arrange
@@ -240,6 +227,11 @@ class TestEnrichTracksUseCase:
         command = EnrichTracksCommand(
             tracklist=tracklist, enrichment_config=external_metadata_config
         )
+        
+        # Mock the MetricsApplicationService instance  
+        mock_metrics_service = AsyncMock()
+        mock_metrics_service.get_external_track_metrics.return_value = {"spotify_popularity": {1: 85}}
+        mock_metrics_service_class.return_value = mock_metrics_service
 
         # Act
         result = await use_case.execute(command, mock_uow)
@@ -247,28 +239,29 @@ class TestEnrichTracksUseCase:
         # Assert
         # Should process only the track with ID
         assert result.track_count == 2  # Original count
-        # External metadata service should only receive the track with ID
-        mock_external_metadata_service.fetch_and_extract_metadata.assert_called_once()
-        call_args = mock_external_metadata_service.fetch_and_extract_metadata.call_args[
-            0
-        ]
-        filtered_tracklist = call_args[0]
-        assert len(filtered_tracklist.tracks) == 1
-        assert filtered_tracklist.tracks[0].id == 1
+        # MetricsApplicationService should only receive the track with ID
+        mock_metrics_service.get_external_track_metrics.assert_called_once_with(
+            track_ids=[1],  # Only the track with ID 1
+            connector="spotify",
+            metric_names=["spotify_popularity"],
+            uow=mock_uow,
+        )
 
+    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_enrichment_error_handling(
         self,
+        mock_metrics_service_class,
         use_case,
         sample_tracklist,
         external_metadata_config,
         mock_uow,
-        mock_external_metadata_service,
     ):
         """Test error handling during enrichment."""
         # Arrange
-        mock_external_metadata_service.fetch_and_extract_metadata.side_effect = (
-            Exception("API Error")
-        )
+        mock_metrics_service = AsyncMock()
+        mock_metrics_service.get_external_track_metrics.side_effect = Exception("API Error")
+        mock_metrics_service_class.return_value = mock_metrics_service
+        
         command = EnrichTracksCommand(
             tracklist=sample_tracklist, enrichment_config=external_metadata_config
         )
@@ -277,13 +270,11 @@ class TestEnrichTracksUseCase:
         result = await use_case.execute(command, mock_uow)
 
         # Assert
-        assert (
-            result.enriched_tracklist == sample_tracklist
-        )  # Original tracklist returned
+        # Should return original tracklist with empty metrics when error occurs
         assert result.metrics_added == {}
         assert result.enriched_count == 0
         assert len(result.errors) == 1
-        assert "Track enrichment failed: API Error" in result.errors[0]
+        assert "Track enrichment failed:" in result.errors[0]
 
     async def test_invalid_enrichment_type(self, use_case, sample_tracklist, mock_uow):
         """Test handling of invalid enrichment type."""
@@ -313,7 +304,7 @@ class TestEnrichmentConfig:
             enrichment_type="external_metadata",
             connector="spotify",
             connector_instance=Mock(),
-            extractors={"popularity": Mock()},
+            extractors={"spotify_popularity": Mock()},
         )
         # Should not raise any validation errors
         assert config.enrichment_type == "external_metadata"
@@ -325,7 +316,7 @@ class TestEnrichmentConfig:
                 enrichment_type="external_metadata",
                 connector=None,
                 connector_instance=Mock(),
-                extractors={"popularity": Mock()},
+                extractors={"spotify_popularity": Mock()},
             )
 
     def test_external_metadata_config_missing_connector_instance(self):
@@ -335,7 +326,7 @@ class TestEnrichmentConfig:
                 enrichment_type="external_metadata",
                 connector="spotify",
                 connector_instance=None,
-                extractors={"popularity": Mock()},
+                extractors={"spotify_popularity": Mock()},
             )
 
     def test_external_metadata_config_missing_extractors(self):

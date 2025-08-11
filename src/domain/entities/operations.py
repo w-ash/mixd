@@ -51,6 +51,26 @@ class SyncCheckpoint:
         )
 
 
+@define(frozen=True, slots=True)
+class SyncCheckpointStatus:
+    """Status information about a sync checkpoint for UI display.
+    
+    Provides checkpoint information that interfaces need to show users
+    the current state of sync operations and help them make informed decisions.
+    """
+    
+    service: str
+    entity_type: str
+    last_sync_timestamp: datetime | None = None
+    has_previous_sync: bool = False
+    
+    def format_timestamp(self) -> str | None:
+        """Format timestamp for display."""
+        if self.last_sync_timestamp:
+            return self.last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        return None
+
+
 # Standard field names for track metadata across music services
 class TrackContextFields:
     """Standard field names for track metadata across music services.
