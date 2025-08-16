@@ -45,7 +45,7 @@ class SpotifyImportService(BasePlayImporter):
         self.track_repository = track_repository
         self.connector_repository = connector_repository
         self.spotify_adapter = spotify_adapter or SpotifyPlayAdapter()
-        
+
         # Create import batch processor optimized for file processing
         self.batch_processor = ImportBatchProcessor[list, tuple[list, dict]](
             batch_size=settings.import_settings.batch_size,
@@ -203,13 +203,15 @@ class SpotifyImportService(BasePlayImporter):
 
         # Split data into batches and process using unified BatchProcessor
         batch_size = self.batch_processor.batch_size
-        batches = [raw_data[i:i + batch_size] for i in range(0, len(raw_data), batch_size)]
-        
+        batches = [
+            raw_data[i : i + batch_size] for i in range(0, len(raw_data), batch_size)
+        ]
+
         batch_results = await self.batch_processor.process(
             items=batches,
             process_func=process_batch,
             progress_callback=batch_progress_callback,
-            progress_description=f"Processing {len(raw_data)} Spotify records"
+            progress_description=f"Processing {len(raw_data)} Spotify records",
         )
 
         # Aggregate results from all batches
@@ -217,12 +219,24 @@ class SpotifyImportService(BasePlayImporter):
             all_track_plays.extend(batch_track_plays)
 
             # Aggregate filtering statistics
-            total_filtering_stats["accepted_plays"] += batch_filtering_stats["accepted_plays"]
-            total_filtering_stats["duration_excluded"] += batch_filtering_stats["duration_excluded"]
-            total_filtering_stats["incognito_excluded"] += batch_filtering_stats["incognito_excluded"]
-            total_filtering_stats["error_count"] += batch_filtering_stats.get("error_count", 0)
-            total_filtering_stats["new_tracks_count"] += batch_filtering_stats.get("new_tracks_count", 0)
-            total_filtering_stats["updated_tracks_count"] += batch_filtering_stats.get("updated_tracks_count", 0)
+            total_filtering_stats["accepted_plays"] += batch_filtering_stats[
+                "accepted_plays"
+            ]
+            total_filtering_stats["duration_excluded"] += batch_filtering_stats[
+                "duration_excluded"
+            ]
+            total_filtering_stats["incognito_excluded"] += batch_filtering_stats[
+                "incognito_excluded"
+            ]
+            total_filtering_stats["error_count"] += batch_filtering_stats.get(
+                "error_count", 0
+            )
+            total_filtering_stats["new_tracks_count"] += batch_filtering_stats.get(
+                "new_tracks_count", 0
+            )
+            total_filtering_stats["updated_tracks_count"] += batch_filtering_stats.get(
+                "updated_tracks_count", 0
+            )
 
         if progress_callback:
             progress_callback(80, 100, f"Processed {len(all_track_plays)} track plays")
@@ -265,7 +279,10 @@ class SpotifyImportService(BasePlayImporter):
         )
 
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: Any | None = None, **_kwargs  # noqa: ARG002
+        self,
+        raw_data: list[Any],  # noqa: ARG002
+        uow: Any | None = None,  # noqa: ARG002
+        **_kwargs,
     ) -> None:
         """Handle sync checkpoints for file-based imports.
 

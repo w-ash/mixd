@@ -300,8 +300,8 @@ class TestSharedUtilities:
         # Test None input
         assert ensure_utc(None) is None
 
-        # Test naive datetime
-        naive_dt = datetime(2023, 1, 1, 12, 0, 0)
+        # Test naive datetime - intentionally naive to test ensure_utc conversion
+        naive_dt = datetime(2023, 1, 1, 12, 0, 0, tzinfo=None)  # noqa: DTZ001
         utc_dt = ensure_utc(naive_dt)
         assert utc_dt.tzinfo == UTC
 

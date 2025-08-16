@@ -14,47 +14,59 @@
     },
     {
       "id": "enrich_play_history",
-      "type": "enricher.play_history", 
+      "type": "enricher.play_history",
       "config": {
-        "metrics": ["total_plays", "last_played_dates", "period_plays"],
-        "period_days": 30
+        "metrics": [
+          "total_plays",
+          "last_played_dates",
+          "period_plays"
+        ],
+        "period_days": 90
       },
-      "upstream": ["source_test_tracks"]
+      "upstream": [
+        "source_test_tracks"
+      ]
     },
     {
       "id": "filter_recently_played_tracks",
       "type": "filter.by_play_history",
       "config": {
         "min_plays": 1,
-        "days_back": 7,
+        "days_back": 90,
         "include_missing": false
       },
-      "upstream": ["enrich_play_history"]
+      "upstream": [
+        "enrich_play_history"
+      ]
     },
     {
       "id": "sort_by_play_count",
       "type": "sorter.by_metric",
       "config": {
-        "metric_name": "total_plays",
+        "metric_name": "period_plays",
         "reverse": true
       },
-      "upstream": ["filter_recently_played_tracks"]
+      "upstream": [
+        "filter_recently_played_tracks"
+      ]
     },
     {
       "id": "limit_results",
       "type": "selector.limit_tracks",
       "config": {
-        "count": 10,
+        "count": 25,
         "method": "first"
       },
-      "upstream": ["sort_by_play_count"]
+      "upstream": [
+        "sort_by_play_count"
+      ]
     },
     {
       "id": "destination",
       "type": "destination.create_playlist",
       "config": {
         "name": "Most Played Recently",
-        "description": "Top 10 tracks played in the last 7 days",
+        "description": "Top 25 tracks played in the last 90 days",
         "connector": "spotify"
       },
       "upstream": [

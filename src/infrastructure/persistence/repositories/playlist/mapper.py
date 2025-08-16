@@ -137,18 +137,17 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                 continue
 
             # Create the track domain object
-            domain_tracks.append(
-                Track(
-                    id=track.id,
-                    title=track.title,
-                    artists=[Artist(name=name) for name in artist_names],
-                    album=getattr(track, "album", None),
-                    duration_ms=getattr(track, "duration_ms", None),
-                    release_date=ensure_utc(getattr(track, "release_date", None)),
-                    isrc=getattr(track, "isrc", None),
-                    connector_track_ids=connector_track_ids,
-                ),
+            domain_track = Track(
+                id=track.id,
+                title=track.title,
+                artists=[Artist(name=name) for name in artist_names],
+                album=getattr(track, "album", None),
+                duration_ms=getattr(track, "duration_ms", None),
+                release_date=ensure_utc(getattr(track, "release_date", None)),
+                isrc=getattr(track, "isrc", None),
+                connector_track_ids=connector_track_ids,
             )
+            domain_tracks.append(domain_track)
 
         # Get playlist mappings using safe fetch relationship (always returns a list)
         playlist_mappings = await safe_fetch_relationship(db_model, "mappings")

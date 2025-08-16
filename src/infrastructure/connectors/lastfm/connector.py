@@ -8,7 +8,7 @@ backward compatibility across the codebase.
 Key components:
 - LastFMConnector: Main facade implementing connector protocols
 - Delegates to LastFMAPIClient, LastFMOperations, and conversion utilities
-- Maintains exact same public methods and signatures  
+- Maintains exact same public methods and signatures
 - Handles configuration, metrics registration, and protocol compliance
 
 The facade pattern allows the rest of the codebase to use LastFMConnector
@@ -25,7 +25,6 @@ from src.domain.entities import ConnectorTrack, PlayRecord, Track
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
-    extract_metric,
     register_metrics,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
@@ -45,7 +44,7 @@ class LastFMConnector(BaseAPIConnector):
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
-    
+
     # Modular components (initialized in __attrs_post_init__)
     _client: LastFMAPIClient = field(init=False, repr=False)
     _operations: LastFMOperations = field(init=False, repr=False)
@@ -72,13 +71,13 @@ class LastFMConnector(BaseAPIConnector):
     def get_connector_config(self, key: str, default=None):
         """Load Last.fm configuration, extending base class with service-specific settings."""
         base_config = super().get_connector_config(key, default)
-        
+
         # Add Last.fm-specific configuration if needed
         lastfm_config = {
             "api_key": self.api_key,
             "username": self.lastfm_username,
         }
-        
+
         return lastfm_config.get(key, base_config)
 
     # Public API Methods (maintained for backward compatibility)
@@ -95,11 +94,15 @@ class LastFMConnector(BaseAPIConnector):
         """Get track info using intelligent matching (MBID first, then artist/title)."""
         return await self._operations.get_track_info_intelligent(track)
 
-    async def batch_get_track_info(
-        self, tracks: list[Track], **options: Any
+    async def get_external_track_data(
+        self, tracks: list[Track]
     ) -> dict[int, dict[str, Any]]:
-        """Fetch track information for multiple tracks using batch processing."""
-        return await self._operations.batch_get_track_info(tracks, **options)
+        """Unified interface for retrieving complete Last.fm track data (TrackMetadataConnector protocol).
+
+        Uses Last.fm's batch_get_track_info to fetch complete track information objects.
+        This standardizes the interface across all connectors.
+        """
+        return await self._operations.batch_get_track_info(tracks)
 
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track on Last.fm for the authenticated user."""
@@ -118,10 +121,11 @@ class LastFMConnector(BaseAPIConnector):
     def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
+
         return convert_lastfm_track_to_connector(track_data)
 
     async def get_recent_tracks(
-        self, 
+        self,
         username: str | None = None,
         limit: int = 200,
         from_time: datetime | None = None,
@@ -141,15 +145,17 @@ class LastFMConnector(BaseAPIConnector):
         from datetime import UTC
 
         from src.domain.entities import create_lastfm_play_record
-        
+
         # Get raw track data from client
-        tracks_data = await self._client.get_recent_tracks(username, limit, from_time, to_time)
-        
+        tracks_data = await self._client.get_recent_tracks(
+            username, limit, from_time, to_time
+        )
+
         # Convert raw data to PlayRecord objects
         play_records = []
         for track_data in tracks_data:
             timestamp_str = track_data["timestamp"]
-            
+
             # Parse the timestamp (should be UNIX timestamp as string)
             try:
                 # Convert string timestamp to datetime
@@ -201,7 +207,7 @@ class LastFmMetricResolver(BaseMetricResolver):
     # Map metric names to connector metadata fields
     FIELD_MAP: ClassVar[dict[str, str]] = {
         "lastfm_user_playcount": "lastfm_user_playcount",
-        "lastfm_global_playcount": "lastfm_global_playcount", 
+        "lastfm_global_playcount": "lastfm_global_playcount",
         "lastfm_listeners": "lastfm_listeners",
     }
 
@@ -212,20 +218,6 @@ class LastFmMetricResolver(BaseMetricResolver):
 def get_connector_config() -> ConnectorConfig:
     """Last.fm connector configuration."""
     return {
-        "extractors": {
-            "lastfm_user_playcount": lambda obj: extract_metric(
-                obj,
-                ["lastfm_user_playcount", "userplaycount"],
-            ),
-            "lastfm_global_playcount": lambda obj: extract_metric(
-                obj,
-                ["lastfm_global_playcount", "playcount"],
-            ),
-            "lastfm_listeners": lambda obj: extract_metric(
-                obj,
-                ["lastfm_listeners", "listeners"],
-            ),
-        },
         "dependencies": ["musicbrainz"],
         "factory": lambda _params: LastFMConnector(),
         "metrics": LastFmMetricResolver.FIELD_MAP,

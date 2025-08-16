@@ -47,12 +47,19 @@ class CreateCanonicalPlaylistCommand:
         """Check if command has required data for playlist creation.
 
         Returns:
-            True if name is non-empty and tracklist contains tracks
+            True if name is non-empty and tracklist contains tracks or ConnectorPlaylist metadata
         """
         if not self.name.strip():
             return False
 
-        return bool(self.tracklist.tracks)
+        # Accept either tracks OR ConnectorPlaylist metadata for processing
+        has_tracks = bool(self.tracklist.tracks)
+        has_connector_playlist = bool(
+            self.tracklist.metadata
+            and self.tracklist.metadata.get("connector_playlist")
+        )
+
+        return has_tracks or has_connector_playlist
 
 
 @define(frozen=True, slots=True)
@@ -125,15 +132,35 @@ class CreateCanonicalPlaylistUseCase:
             "Starting canonical playlist creation",
             name=command.name,
             track_count=len(command.tracklist.tracks),
+            has_connector_playlist=bool(
+                command.tracklist.metadata
+                and command.tracklist.metadata.get("connector_playlist")
+            ),
         )
 
         async with uow:
             try:
-                # Step 1: Ensure all tracks are persisted
+                # Step 1: Process ConnectorPlaylist data if present
+                processed_tracklist = command.tracklist
+                if command.tracklist.metadata and command.tracklist.metadata.get(
+                    "connector_playlist"
+                ):
+                    from src.application.services.connector_playlist_processing_service import (
+                        ConnectorPlaylistProcessingService,
+                    )
+
+                    processing_service = ConnectorPlaylistProcessingService()
+                    processed_tracklist = (
+                        await processing_service.process_connector_playlist(
+                            command.tracklist.metadata["connector_playlist"], uow
+                        )
+                    )
+
+                # Step 2: Ensure all tracks are persisted
                 track_repo = uow.get_track_repository()
                 persisted_tracks = []
 
-                for track in command.tracklist.tracks:
+                for track in processed_tracklist.tracks:
                     # Save track if it doesn't have an ID (not yet persisted)
                     if track.id is None:
                         saved_track = await track_repo.save_track(track)

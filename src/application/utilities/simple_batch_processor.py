@@ -37,7 +37,7 @@ class SimpleBatchProcessor[T, R]:
 
     Use this for simple utility operations. For specialized needs, use:
     - APIBatchProcessor: External API calls with rate limiting
-    - DatabaseBatchProcessor: Database operations with transaction safety  
+    - DatabaseBatchProcessor: Database operations with transaction safety
     - ImportBatchProcessor: File processing with memory management
 
     Args:
@@ -111,11 +111,11 @@ class SimpleBatchProcessor[T, R]:
                     result = await process_func(batch)
                     results.append(result)
                     processed_batches += 1
-                    
+
                     self.logger_instance.debug(
                         f"Simple batch {batch_num}/{total_batches} completed"
                     )
-                    
+
                     # Emit progress event
                     if progress_callback:
                         progress_callback(
@@ -129,20 +129,22 @@ class SimpleBatchProcessor[T, R]:
                                 "description": f"{progress_description} ({batch_num}/{total_batches})",
                             },
                         )
-                        
+
                 except Exception as e:
                     self.logger_instance.error(
                         f"Simple batch {batch_num} failed: {e}",
                         error_type=type(e).__name__,
-                        batch_size=len(batch)
+                        batch_size=len(batch),
                     )
                     # Continue with next batch - no retry logic
 
         else:
             # Concurrent processing with semaphore
             semaphore = asyncio.Semaphore(self.max_concurrency or len(batches))
-            
-            async def process_batch_with_semaphore(batch_num: int, batch: list[T]) -> R | None:
+
+            async def process_batch_with_semaphore(
+                batch_num: int, batch: list[T]
+            ) -> R | None:
                 async with semaphore:
                     try:
                         result = await process_func(batch)
@@ -154,7 +156,7 @@ class SimpleBatchProcessor[T, R]:
                         self.logger_instance.error(
                             f"Concurrent batch {batch_num} failed: {e}",
                             error_type=type(e).__name__,
-                            batch_size=len(batch)
+                            batch_size=len(batch),
                         )
                         return None
 
@@ -166,13 +168,13 @@ class SimpleBatchProcessor[T, R]:
 
             # Wait for all tasks to complete
             batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Filter successful results
             for i, result in enumerate(batch_results):
                 if result is not None and not isinstance(result, Exception):
                     results.append(result)  # type: ignore  # We've checked it's not an Exception
                     processed_batches += 1
-                    
+
                     # Emit progress event for successful batches
                     if progress_callback:
                         progress_callback(
@@ -189,11 +191,11 @@ class SimpleBatchProcessor[T, R]:
 
         success_count = len(results)
         failure_count = total_batches - success_count
-        
+
         self.logger_instance.debug(
             f"Simple batch processing completed: {success_count}/{total_batches} batches successful"
         )
-        
+
         if failure_count > 0:
             self.logger_instance.warning(
                 f"{failure_count} simple batches failed and were skipped"
@@ -201,79 +203,3 @@ class SimpleBatchProcessor[T, R]:
 
         return results
 
-    def chunk_items(self, items: list[T]) -> list[list[T]]:
-        """Split items into chunks without processing them.
-        
-        Utility method for when you just need to chunk items without async processing.
-        
-        Args:
-            items: Items to chunk
-            
-        Returns:
-            List of item chunks
-        """
-        return [
-            items[i : i + self.batch_size]
-            for i in range(0, len(items), self.batch_size)
-        ]
-
-
-def create_simple_batch_processor(
-    batch_size: int,
-    max_concurrency: int | None = None,
-) -> SimpleBatchProcessor:
-    """Create a SimpleBatchProcessor with specified configuration.
-    
-    Args:
-        batch_size: Items per batch
-        max_concurrency: Max concurrent batches (1 = sequential, None = unlimited)
-        
-    Returns:
-        Configured SimpleBatchProcessor instance
-    """
-    return SimpleBatchProcessor(
-        batch_size=batch_size,
-        max_concurrency=max_concurrency or 1,
-        logger_instance=logger,
-    )
-
-
-# Utility functions for common simple batch operations
-def chunk_list[T](items: list[T], chunk_size: int) -> list[list[T]]:
-    """Simple utility to chunk a list into smaller lists.
-    
-    Args:
-        items: Items to chunk
-        chunk_size: Size of each chunk
-        
-    Returns:
-        List of chunks
-    """
-    return [
-        items[i : i + chunk_size]
-        for i in range(0, len(items), chunk_size)
-    ]
-
-
-async def process_in_simple_batches(
-    items: list[T],
-    process_func: Callable[[list[T]], Awaitable[R]],
-    batch_size: int,
-    max_concurrency: int = 1,
-) -> list[R]:
-    """Convenience function for simple batch processing.
-    
-    Args:
-        items: Items to process
-        process_func: Function that processes a batch of items
-        batch_size: Items per batch
-        max_concurrency: Max concurrent batches
-        
-    Returns:
-        Results from successful batches
-    """
-    processor = create_simple_batch_processor(
-        batch_size=batch_size,
-        max_concurrency=max_concurrency
-    )
-    return await processor.process(items, process_func)

@@ -17,9 +17,9 @@ from src.domain.repositories.interfaces import (
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
 )
-from src.infrastructure.matching_providers.lastfm import LastFMProvider
-from src.infrastructure.matching_providers.musicbrainz import MusicBrainzProvider
-from src.infrastructure.matching_providers.spotify import SpotifyProvider
+from src.infrastructure.connectors.lastfm import LastFMProvider
+from src.infrastructure.connectors.musicbrainz import MusicBrainzProvider
+from src.infrastructure.connectors.spotify import SpotifyProvider
 
 logger = get_logger(__name__)
 
@@ -73,14 +73,18 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         provider = provider_class(connector_instance)
 
         # Fetch raw matches with structured failure handling
-        result: ProviderMatchResult = await provider.fetch_raw_matches_for_tracks(tracks, **additional_options)
-        
+        result: ProviderMatchResult = await provider.fetch_raw_matches_for_tracks(
+            tracks, **additional_options
+        )
+
         # Log failure summary for observability
         if result.failures:
             failure_count = len(result.failures)
-            logger.info(f"Provider {connector} reported {failure_count} failures during matching")
+            logger.info(
+                f"Provider {connector} reported {failure_count} failures during matching"
+            )
             # Individual failures are already logged by providers via log_match_failure()
-            
+
         # Return only matches for backward compatibility
         # Calling code (MatchAndIdentifyTracksUseCase) only expects successful matches
         return result.matches

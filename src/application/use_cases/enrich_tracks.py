@@ -38,7 +38,7 @@ class EnrichmentConfig:
     # External metadata enrichment options
     connector: ConnectorType | None = None
     connector_instance: Any = None
-    extractors: dict[str, Any] = field(factory=dict)
+    track_metric_names: list[str] = field(factory=list)
     max_age_hours: float | None = None
 
     # Play history enrichment options
@@ -59,9 +59,9 @@ class EnrichmentConfig:
                 raise ValueError(
                     "Connector instance must be provided for external metadata enrichment"
                 )
-            if not self.extractors:
+            if not self.track_metric_names:
                 raise ValueError(
-                    "Extractors must be specified for external metadata enrichment"
+                    "Track metric names must be specified for external metadata enrichment"
                 )
         elif self.enrichment_type == "play_history":
             if not self.metrics:
@@ -242,28 +242,35 @@ class EnrichTracksUseCase:
                 "Connector must be specified for external metadata enrichment"
             )
 
-        # Extract metric names from extractor keys (eliminating the extractor functions)
-        # The extractors dict keys represent the metrics we want to retrieve
-        metric_names = list(config.extractors.keys()) if config.extractors else []
-        
+        # Get track metric names directly from configuration
+        metric_names = config.track_metric_names
+
         if not metric_names:
             logger.warning("No metrics specified for enrichment")
             return tracklist, {}
 
         # Get track IDs from the tracklist
         track_ids = [t.id for t in tracklist.tracks if t.id is not None]
-        
+
         if not track_ids:
             logger.warning("No tracks with database IDs found")
             return tracklist, {}
-            
+
         logger.info(
             f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {config.connector}"
         )
 
-        # Use MetricsApplicationService directly for clean cache-first resolution
+        # Step 1: Ensure tracks have connector mappings for metric collection
+        await self._ensure_track_identities(
+            tracklist=tracklist,
+            connector=config.connector,
+            connector_instance=config.connector_instance,
+            uow=uow
+        )
+
+        # Step 2: Use MetricsApplicationService for cache-first metric resolution
         metrics_service = MetricsApplicationService()
-        
+
         metrics = await metrics_service.get_external_track_metrics(
             track_ids=track_ids,
             connector=config.connector,
@@ -271,15 +278,15 @@ class EnrichTracksUseCase:
             uow=uow,
             connector_instance=config.connector_instance,
         )
-        
+
         # Attach metrics to tracklist metadata for consistency with existing interface
         enriched_tracklist = tracklist.with_metadata("metrics", metrics)
-        
+
         logger.info(
             f"Successfully enriched tracklist with {len(metrics)} metric types and "
             f"{sum(len(values) for values in metrics.values())} total values"
         )
-        
+
         return enriched_tracklist, metrics
 
     async def _enrich_play_history(
@@ -344,3 +351,63 @@ class EnrichTracksUseCase:
         enriched_tracklist = tracklist.with_metadata("metrics", combined_metrics)
 
         return enriched_tracklist, play_metrics
+
+    async def _ensure_track_identities(
+        self,
+        tracklist: TrackList,
+        connector: str,
+        connector_instance: Any,
+        uow: UnitOfWorkProtocol,
+    ) -> None:
+        """Ensure tracks have connector mappings by coordinating with the identity resolution system.
+
+        This method serves as a coordinator between enrichment and identity resolution,
+        delegating the actual matching work to the existing MatchAndIdentifyTracksUseCase.
+
+        Args:
+            tracklist: Tracks that may need identity mappings.
+            connector: External service name (e.g., "lastfm").
+            connector_instance: Connector instance for API calls.
+            uow: Unit of work for database access.
+        """
+        from src.application.use_cases.match_and_identify_tracks import (
+            MatchAndIdentifyTracksCommand,
+            MatchAndIdentifyTracksUseCase,
+        )
+
+        logger.info(
+            f"Ensuring track identities for {len(tracklist.tracks)} tracks with {connector}",
+            connector=connector,
+            track_count=len(tracklist.tracks),
+        )
+
+        try:
+            # Use the existing identity resolution system
+            match_command = MatchAndIdentifyTracksCommand(
+                tracklist=tracklist,
+                connector=connector,
+                connector_instance=connector_instance,
+            )
+
+            match_use_case = MatchAndIdentifyTracksUseCase()
+            match_result = await match_use_case.execute(match_command, uow)
+
+            logger.info(
+                f"Identity resolution completed: {match_result.resolved_count}/{match_result.track_count} tracks have {connector} mappings",
+                connector=connector,
+                resolved_count=match_result.resolved_count,
+                total_tracks=match_result.track_count,
+            )
+
+            if match_result.errors:
+                logger.warning(
+                    f"Identity resolution encountered {len(match_result.errors)} errors for {connector}"
+                )
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to ensure track identities for {connector}: {e}",
+                connector=connector,
+                error=str(e),
+            )
+            # Don't raise - metrics collection can proceed with existing mappings

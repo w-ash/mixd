@@ -183,18 +183,11 @@ class ImportSpotifyLikesUseCase:
                             successful_tracks.append(existing_track.id)
                             continue
 
-                    # Track doesn't exist, ingest it
-                    db_track = await connector_repo.ingest_external_track(
-                        connector="spotify",
-                        connector_id=connector_track.connector_track_id,
-                        metadata=connector_track.raw_metadata,
-                        title=connector_track.title,
-                        artists=[a.name for a in connector_track.artists],
-                        album=connector_track.album,
-                        duration_ms=connector_track.duration_ms,
-                        release_date=connector_track.release_date,
-                        isrc=connector_track.isrc,
+                    # Track doesn't exist, ingest it using bulk method
+                    ingested_tracks = await connector_repo.ingest_external_tracks_bulk(
+                        "spotify", [connector_track]
                     )
+                    db_track = ingested_tracks[0] if ingested_tracks else None
 
                     if db_track and db_track.id is not None:
                         successful_tracks.append(db_track.id)
@@ -418,7 +411,11 @@ class ExportLastFmLikesUseCase:
         """
         async with uow:
             return await self._export_likes_to_lastfm_internal(
-                command.user_id, uow, command.batch_size, command.max_exports, command.override_date
+                command.user_id,
+                uow,
+                command.batch_size,
+                command.max_exports,
+                command.override_date,
             )
 
     async def _export_likes_to_lastfm_internal(
@@ -451,7 +448,7 @@ class ExportLastFmLikesUseCase:
         checkpoint = await self._get_or_create_checkpoint(
             user_id, "lastfm", "likes", uow
         )
-        
+
         # Determine which timestamp to use for filtering
         if override_date:
             last_sync_time = override_date
@@ -471,7 +468,9 @@ class ExportLastFmLikesUseCase:
                 uow=uow,
             )
         else:
-            logger.info("Performing full export - no checkpoint or override date specified")
+            logger.info(
+                "Performing full export - no checkpoint or override date specified"
+            )
             liked_tracks = await self._get_unsynced_likes(
                 source_service="narada",
                 target_service="lastfm",
@@ -506,7 +505,7 @@ class ExportLastFmLikesUseCase:
             batch = liked_tracks[i : i + api_batch_size]
             batch_timestamp = datetime.now(UTC)
             batch_num = i // api_batch_size + 1
-            
+
             logger.debug(
                 f"Processing batch {batch_num}: {len(batch)} track likes "
                 f"(tracks {i + 1}-{min(i + len(batch), len(liked_tracks))} of {len(liked_tracks)})"
@@ -517,7 +516,7 @@ class ExportLastFmLikesUseCase:
             tracks_loaded = 0
             tracks_missing = 0
             tracks_no_artists = 0
-            
+
             for track_like in batch:
                 if max_exports is not None and exported_count >= max_exports:
                     break
@@ -528,14 +527,16 @@ class ExportLastFmLikesUseCase:
                         track_like.track_id
                     ])
                     track = tracks_dict.get(track_like.track_id)
-                    
+
                     if not track:
                         tracks_missing += 1
-                        logger.debug(f"Track {track_like.track_id} not found in database")
+                        logger.debug(
+                            f"Track {track_like.track_id} not found in database"
+                        )
                         continue
-                        
+
                     tracks_loaded += 1
-                    
+
                     if not track.artists:
                         tracks_no_artists += 1
                         logger.debug(
@@ -543,14 +544,14 @@ class ExportLastFmLikesUseCase:
                             f"(title: '{track.title}', album: '{track.album}')"
                         )
                         continue
-                        
+
                     logger.debug(
                         f"Track {track_like.track_id} ready for export - "
                         f"'{track.artists[0].name} - {track.title}' "
                         f"({len(track.artists)} artists)"
                     )
                     tracks_to_match.append(track)
-                    
+
                 except Exception as e:
                     logger.exception(
                         f"Error preparing track {track_like.track_id}: {e}"
@@ -571,7 +572,9 @@ class ExportLastFmLikesUseCase:
                 continue
 
             # Process batch with unified processor
-            logger.debug(f"Batch {batch_num}: Sending {len(tracks_to_match)} tracks to Last.fm API")
+            logger.debug(
+                f"Batch {batch_num}: Sending {len(tracks_to_match)} tracks to Last.fm API"
+            )
             lastfm_connector = self._get_lastfm_connector(uow)
             batch_results = await self._process_batch_with_unified_processor(
                 tracks=tracks_to_match,
@@ -584,12 +587,14 @@ class ExportLastFmLikesUseCase:
             batch_exported = 0
             batch_skipped = 0
             batch_errors = 0
-            
+
             for result in batch_results:
                 if result["status"] == "exported":
                     exported_count += 1
                     batch_exported += 1
-                    logger.debug(f"Track {result['track_id']} successfully exported to Last.fm")
+                    logger.debug(
+                        f"Track {result['track_id']} successfully exported to Last.fm"
+                    )
                 elif result["status"] == "skipped":
                     filtered_count += 1
                     batch_skipped += 1
@@ -600,7 +605,7 @@ class ExportLastFmLikesUseCase:
                     batch_errors += 1
                     error_msg = result.get("error", "unknown error")
                     logger.warning(f"Track {result['track_id']} failed: {error_msg}")
-                    
+
             logger.info(
                 f"Batch {batch_num} results: {batch_exported} exported, "
                 f"{batch_skipped} skipped, {batch_errors} errors"
@@ -790,16 +795,20 @@ class ExportLastFmLikesUseCase:
 
         artist_name = track.artists[0].name
         track_title = track.title
-        
-        logger.debug(f"Attempting to love track {track.id}: '{artist_name} - {track_title}'")
+
+        logger.debug(
+            f"Attempting to love track {track.id}: '{artist_name} - {track_title}'"
+        )
 
         try:
             success = await connector.love_track(
                 artist=artist_name,
                 title=track_title,
             )
-            
-            logger.debug(f"Last.fm API response for track {track.id}: success={success}")
+
+            logger.debug(
+                f"Last.fm API response for track {track.id}: success={success}"
+            )
 
             if success:
                 # Save the like status
@@ -809,20 +818,26 @@ class ExportLastFmLikesUseCase:
                         services=["lastfm"],
                         uow=uow,
                     )
-                logger.debug(f"Track {track.id} successfully loved and saved to database")
+                logger.debug(
+                    f"Track {track.id} successfully loved and saved to database"
+                )
                 return {
                     "track_id": track.id,
                     "status": "exported",
                 }
             else:
-                logger.warning(f"Track {track.id} love API call returned False: '{artist_name} - {track_title}'")
+                logger.warning(
+                    f"Track {track.id} love API call returned False: '{artist_name} - {track_title}'"
+                )
                 return {
                     "track_id": track.id,
                     "status": "skipped",
                     "reason": "API call returned False",
                 }
         except Exception as e:
-            logger.error(f"Exception loving track {track.id} '{artist_name} - {track_title}': {e}")
+            logger.error(
+                f"Exception loving track {track.id} '{artist_name} - {track_title}': {e}"
+            )
             return {
                 "track_id": track.id,
                 "status": "error",
@@ -880,7 +895,7 @@ class GetSyncCheckpointStatusUseCase:
         """
         async with uow:
             checkpoint_repo = uow.get_checkpoint_repository()
-            
+
             # We don't need a user_id for status display since we're using "default"
             checkpoint = await checkpoint_repo.get_sync_checkpoint(
                 user_id="default",
@@ -892,7 +907,8 @@ class GetSyncCheckpointStatusUseCase:
                 service=command.service,
                 entity_type=command.entity_type,
                 last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
-                has_previous_sync=checkpoint is not None and checkpoint.last_timestamp is not None,
+                has_previous_sync=checkpoint is not None
+                and checkpoint.last_timestamp is not None,
             )
 
 
@@ -953,7 +969,10 @@ async def run_lastfm_likes_export(
     async with get_session() as session:
         uow = get_unit_of_work(session)
         command = ExportLastFmLikesCommand(
-            user_id=user_id, batch_size=batch_size, max_exports=max_exports, override_date=override_date
+            user_id=user_id,
+            batch_size=batch_size,
+            max_exports=max_exports,
+            override_date=override_date,
         )
         use_case = ExportLastFmLikesUseCase()
         return await use_case.execute(command, uow)

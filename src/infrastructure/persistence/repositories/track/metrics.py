@@ -170,28 +170,3 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
 
         return len(metrics)
 
-    @db_operation("get_metric_history")
-    async def get_metric_history(
-        self,
-        track_id: int,
-        metric_type: str = "play_count",
-        connector: str = "lastfm",
-        days: int = 30,
-    ) -> list[tuple[datetime, float]]:
-        """Get history of a metric over time."""
-        # Calculate cutoff time
-        cutoff = datetime.now(UTC) - timedelta(days=days)
-
-        # Use find_by with ordering
-        metrics = await self.find_by(
-            conditions=[
-                self.model_class.track_id == track_id,
-                self.model_class.connector_name == connector,
-                self.model_class.metric_type == metric_type,
-                self.model_class.collected_at >= cutoff,
-            ],
-            order_by=("collected_at", True),  # ASC order
-        )
-
-        # Convert to tuples of (timestamp, value)
-        return [(m["collected_at"], m["value"]) for m in metrics]

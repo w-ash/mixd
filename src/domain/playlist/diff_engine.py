@@ -15,7 +15,6 @@ from toolz import curry
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
-from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
@@ -97,70 +96,85 @@ class PlaylistDiff:
         return summary
 
 
-async def match_tracks_with_db_lookup(
-    current_tracks: list[Track], target_tracks: list[Track], uow: UnitOfWorkProtocol
+def match_tracks_with_db_lookup(
+    current_tracks: list[Track], target_tracks: list[Track]
 ) -> tuple[list[Track], list[Track], list[Track]]:
-    """Find matching tracks between playlists using database Spotify ID mappings.
+    """Find matching tracks between playlists using canonical track identity.
 
-    Bulk-loads existing Spotify mappings from database to identify which tracks
-    are the same between current and target playlists. Avoids expensive track
-    re-identification for tracks that already have known Spotify IDs.
+    Matches tracks by their canonical track.id first, then falls back to content-based
+    matching for tracks without canonical IDs. This keeps the domain layer 
+    infrastructure-agnostic.
 
     Args:
         current_tracks: Tracks in current playlist state.
         target_tracks: Tracks in desired playlist state.
-        uow: Database access for loading existing Spotify mappings.
 
     Returns:
         Tuple of (matched_tracks, unmatched_current, unmatched_target).
     """
-    # Step 1: Collect all track IDs and build lookup maps
 
-    all_track_ids = [track.id for track in current_tracks + target_tracks if track.id]
-
-    # Step 2: Bulk lookup existing Spotify mappings from database
-    connector_repo = uow.get_connector_repository()
-    db_mappings = await connector_repo.get_connector_mappings(all_track_ids, "spotify")
-
-    # Step 3: Build comprehensive Spotify ID mappings (database only for tracks with IDs)
-    spotify_mappings = {}  # track_id -> spotify_id for tracks with IDs
-
-    # Add database mappings
-    for track_id, connectors in db_mappings.items():
-        if "spotify" in connectors:
-            spotify_mappings[track_id] = connectors["spotify"]
-
-    # Step 4: Match tracks using comprehensive Spotify ID mappings
+    # Match tracks using canonical identity (infrastructure-agnostic)
     matched = []
-    unmatched_current = current_tracks.copy()
-    unmatched_target = target_tracks.copy()
+    unmatched_current = []
+    consumed_target_indices = set()
 
-    def get_spotify_id(track):
-        """Get Spotify ID from database mapping or track's connector_track_ids."""
-        if track.id and track.id in spotify_mappings:
-            return spotify_mappings[track.id]
-        return track.connector_track_ids.get("spotify")
+    def tracks_are_equivalent(track1: Track, track2: Track) -> bool:
+        """Check if two tracks represent the same musical work."""
+        # Primary: Canonical ID matching
+        if track1.id and track2.id:
+            return track1.id == track2.id
+        
+        # Fallback: Content-based matching
+        if not track1.title or not track2.title or not track1.artists or not track2.artists:
+            return False
+            
+        title_match = track1.title.lower().strip() == track2.title.lower().strip()
+        
+        # Artist matching - at least one artist must match
+        track1_artists = {artist.name.lower().strip() for artist in track1.artists}
+        track2_artists = {artist.name.lower().strip() for artist in track2.artists}
+        artist_match = bool(track1_artists & track2_artists)
+        
+        # Album matching (optional - tracks can be same without same album)
+        album_match = True  # Default to True if either has no album
+        if track1.album and track2.album:
+            album_match = track1.album.lower().strip() == track2.album.lower().strip()
+        
+        return title_match and artist_match and album_match
 
+    # Greedy one-to-one matching using canonical identity
     for current_track in current_tracks:
-        current_spotify_id = get_spotify_id(current_track)
-        if not current_spotify_id:
-            continue
-
-        for target_track in target_tracks:
-            target_spotify_id = get_spotify_id(target_track)
-            if target_spotify_id == current_spotify_id:
+        match_found = False
+        
+        # Find first unmatched target track that matches this current track
+        for target_idx, target_track in enumerate(target_tracks):
+            if target_idx in consumed_target_indices:
+                continue  # Target already matched
+                
+            if tracks_are_equivalent(current_track, target_track):
+                # Match found - consume this target track
                 matched.append(current_track)
-                if current_track in unmatched_current:
-                    unmatched_current.remove(current_track)
-                if target_track in unmatched_target:
-                    unmatched_target.remove(target_track)
+                consumed_target_indices.add(target_idx)
+                match_found = True
                 break
 
+        if not match_found:
+            unmatched_current.append(current_track)
+
+    # Remaining target tracks are unmatched
+    unmatched_target = [
+        target_track for target_idx, target_track in enumerate(target_tracks)
+        if target_idx not in consumed_target_indices
+    ]
+
+    # Count tracks with canonical IDs vs content-based matching
+    canonical_matches = sum(1 for track in matched if track.id is not None)
+    content_matches = len(matched) - canonical_matches
+    
     logger.debug(
         f"Track matching results: {len(matched)} matched, "
         f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target. "
-        f"Database provided {len(db_mappings)} mappings, avoided expensive re-matching for "
-        f"{len(matched)} tracks."
+        f"Canonical ID matches: {canonical_matches}, content-based matches: {content_matches}."
     )
 
     return matched, unmatched_current, unmatched_target
@@ -173,6 +187,15 @@ def calculate_remove_operations(
     """Generate REMOVE operations for tracks in current but not target playlist."""
     operations = []
 
+    def get_track_uri(track: Track) -> str | None:
+        """Get track URI for operations (infrastructure-agnostic)."""
+        if track.id:
+            return f"canonical:{track.id}"
+        elif track.title and track.artists:
+            artist_names = ", ".join(artist.name for artist in track.artists)
+            return f"content:{track.title}:{artist_names}"
+        return None
+
     for track in unmatched_current_tracks:
         try:
             position = current_playlist.tracks.index(track)
@@ -182,7 +205,7 @@ def calculate_remove_operations(
                     track=track,
                     position=position,
                     old_position=position,
-                    spotify_uri=track.connector_track_ids.get("spotify"),
+                    spotify_uri=get_track_uri(track),
                 )
             )
         except ValueError:
@@ -202,6 +225,15 @@ def calculate_add_operations(
     """Generate ADD operations for tracks in target but not current playlist."""
     operations = []
 
+    def get_track_uri(track: Track) -> str | None:
+        """Get track URI for operations (infrastructure-agnostic)."""
+        if track.id:
+            return f"canonical:{track.id}"
+        elif track.title and track.artists:
+            artist_names = ", ".join(artist.name for artist in track.artists)
+            return f"content:{track.title}:{artist_names}"
+        return None
+
     for track in unmatched_target_tracks:
         try:
             # Find the correct target position for this track
@@ -211,7 +243,7 @@ def calculate_add_operations(
                     operation_type=PlaylistOperationType.ADD,
                     track=track,
                     position=target_position,
-                    spotify_uri=track.connector_track_ids.get("spotify"),
+                    spotify_uri=get_track_uri(track),
                 )
             )
         except ValueError:
@@ -224,69 +256,232 @@ def calculate_add_operations(
     return operations
 
 
+def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
+    """Calculate the Longest Increasing Subsequence (LIS) of a sequence.
+    
+    Uses dynamic programming to find the LIS in O(n log n) time complexity.
+    Returns the indices of elements that form the LIS.
+    
+    Args:
+        sequence: List of integers representing positions
+        
+    Returns:
+        List of indices forming the longest increasing subsequence
+    """
+    if not sequence:
+        return []
+    
+    n = len(sequence)
+    # dp[i] stores the smallest ending element of increasing subsequence of length i+1
+    dp = []
+    # parent[i] stores the index of previous element in LIS ending at position i
+    parent = [-1] * n
+    # lis_indices[i] stores the actual index in dp array for position i
+    lis_indices = [-1] * n
+    
+    for i in range(n):
+        # Binary search for the position to insert/replace
+        left, right = 0, len(dp)
+        while left < right:
+            mid = (left + right) // 2
+            if dp[mid] < sequence[i]:
+                left = mid + 1
+            else:
+                right = mid
+        
+        # If we're extending the sequence
+        if left == len(dp):
+            dp.append(sequence[i])
+        else:
+            dp[left] = sequence[i]
+        
+        lis_indices[i] = left
+        if left > 0 and dp:
+            # Find the parent by looking for the element that was at position left-1
+            for j in range(i - 1, -1, -1):
+                if lis_indices[j] == left - 1:
+                    parent[i] = j
+                    break
+    
+    # Reconstruct the LIS indices
+    lis_length = len(dp)
+    if lis_length == 0:
+        return []
+    
+    # Find the last element of LIS
+    last_index = -1
+    for i in range(n - 1, -1, -1):
+        if lis_indices[i] == lis_length - 1:
+            last_index = i
+            break
+    
+    # Reconstruct the path
+    result = []
+    current = last_index
+    while current != -1:
+        result.append(current)
+        current = parent[current]
+    
+    result.reverse()
+    return result
+
+
+def calculate_lis_reorder_operations(
+    current_tracks: list[Track], target_tracks: list[Track]
+) -> list[PlaylistOperation]:
+    """Generate minimal MOVE operations using Longest Increasing Subsequence.
+    
+    Uses LIS algorithm to identify tracks that are already in correct relative order,
+    then generates minimal move operations for the remaining tracks to achieve
+    the target ordering with maximum efficiency. Handles duplicates correctly by
+    preserving all position mappings.
+    
+    Args:
+        current_tracks: Current ordered list of tracks
+        target_tracks: Target ordered list of tracks (desired final order)
+        
+    Returns:
+        List of minimal move operations to transform current to target order
+    """
+    if not current_tracks or not target_tracks:
+        return []
+    
+    def get_track_uri(track: Track) -> str | None:
+        """Get track URI for move operations (infrastructure-agnostic)."""
+        if track.id:
+            return f"canonical:{track.id}"
+        elif track.title and track.artists:
+            artist_names = ", ".join(artist.name for artist in track.artists)
+            return f"content:{track.title}:{artist_names}"
+        return None
+    
+    # Position-aware comparison: treat each playlist position as unique entity
+    # Each position represents a unique playlist track instance, even for duplicate tracks
+    target_positions_in_current = []
+    target_track_refs = []
+    
+    # Step 1: Direct position-to-position matching for identical tracks
+    direct_matches = 0
+    first_mismatch = None
+    
+    for target_pos, target_track in enumerate(target_tracks):
+        if target_track.id is None:
+            continue
+            
+        # Check if current playlist has a track at this same position
+        if target_pos < len(current_tracks):
+            current_track = current_tracks[target_pos]
+            
+            # If same track at same position, this is already correct (no move needed)
+            if current_track.id == target_track.id:
+                target_positions_in_current.append(target_pos)
+                target_track_refs.append((target_pos, target_track, target_pos))
+                direct_matches += 1
+            elif first_mismatch is None:
+                # Record first mismatch for debugging
+                first_mismatch = (target_pos, current_track.id, target_track.id)
+    
+    logger.debug(
+        f"Position-by-position matching: {direct_matches} direct matches out of {len(target_tracks)} positions"
+    )
+    if first_mismatch:
+        logger.debug(
+            f"First mismatch at position {first_mismatch[0]}: current track {first_mismatch[1]} vs target track {first_mismatch[2]}"
+        )
+    
+    # Step 2: For remaining target positions, find where those tracks currently are
+    matched_positions = {ref[0] for ref in target_track_refs}  # target positions already matched
+    matched_current_positions = {ref[2] for ref in target_track_refs}  # current positions already used
+    
+    for target_pos, target_track in enumerate(target_tracks):
+        if target_track.id is None or target_pos in matched_positions:
+            continue
+            
+        # Find this track in remaining current positions
+        for current_pos, current_track in enumerate(current_tracks):
+            if (current_track.id == target_track.id and 
+                current_pos not in matched_current_positions):
+                # Found the track - it needs to move from current_pos to target_pos
+                target_positions_in_current.append(current_pos)
+                target_track_refs.append((target_pos, target_track, current_pos))
+                matched_current_positions.add(current_pos)
+                break
+    
+    if not target_positions_in_current:
+        return []  # No tracks to move
+    
+    # Find LIS of current positions - these tracks are already in correct relative order
+    lis_indices = calculate_longest_increasing_subsequence(target_positions_in_current)
+    
+    # Convert LIS indices back to (target_pos, current_pos) pairs that don't need to move
+    positions_in_correct_order = set()
+    for lis_idx in lis_indices:
+        target_pos, target_track, current_pos = target_track_refs[lis_idx]
+        positions_in_correct_order.add((target_pos, current_pos))
+    
+    # Debug: log some examples of what's being identified as needing to move
+    tracks_to_move = [
+        (target_pos, current_pos, target_track.id) 
+        for target_pos, target_track, current_pos in target_track_refs
+        if (target_pos, current_pos) not in positions_in_correct_order
+    ]
+    
+    logger.debug(
+        f"LIS optimization: {len(positions_in_correct_order)} track instances already in correct order, "
+        f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
+    )
+    
+    if tracks_to_move and len(tracks_to_move) <= 10:  # Only log if small number
+        logger.debug(f"Tracks identified as needing moves: {tracks_to_move[:10]}")
+    
+    # Generate move operations only for track instances not in LIS
+    operations = []
+    
+    for target_pos, target_track, current_pos in target_track_refs:
+        if (target_pos, current_pos) not in positions_in_correct_order:
+            current_track = current_tracks[current_pos]
+            
+            operations.append(
+                PlaylistOperation(
+                    operation_type=PlaylistOperationType.MOVE,
+                    track=current_track,
+                    position=target_pos,  # Target position
+                    old_position=current_pos,  # Current position  
+                    spotify_uri=get_track_uri(target_track),
+                )
+            )
+    
+    logger.debug(
+        f"Generated {len(operations)} LIS-optimized move operations "
+        f"(saved {len(positions_in_correct_order)} unnecessary moves)"
+    )
+    
+    return operations
+
+
 @curry
 def calculate_move_operations(
     matched_tracks: list[Track], current_playlist: Playlist, target_tracklist: TrackList
 ) -> list[PlaylistOperation]:
     """Generate MOVE operations for tracks that exist in both but need reordering.
 
-    Compares positions of matched tracks between current and target playlists.
-    Creates move operations for tracks that need to change position.
+    Uses Longest Increasing Subsequence (LIS) algorithm to generate minimal move
+    operations, avoiding unnecessary position changes for tracks already in correct order.
+    Provides true idempotency and mathematical correctness for single-pass execution.
     """
     operations = []
 
     if not matched_tracks:
         return operations
 
-    # Create mapping from track to position in current and target playlists
-    current_positions = {}
-    target_positions = {}
-
-    # Map matched tracks to their positions using Spotify ID matching
-    for track in matched_tracks:
-        # Get Spotify ID for matching
-        spotify_id = track.connector_track_ids.get("spotify")
-        if not spotify_id:
-            continue
-
-        # Find in current playlist
-        for i, current_track in enumerate(current_playlist.tracks):
-            if current_track.connector_track_ids.get("spotify") == spotify_id:
-                current_positions[spotify_id] = i
-                break
-
-        # Find in target playlist
-        for i, target_track in enumerate(target_tracklist.tracks):
-            if target_track.connector_track_ids.get("spotify") == spotify_id:
-                target_positions[spotify_id] = i
-                break
-
-    # Generate move operations for tracks that need repositioning
-    for track in matched_tracks:
-        spotify_id = track.connector_track_ids.get("spotify")
-        if not spotify_id:
-            continue
-
-        current_pos = current_positions.get(spotify_id)
-        target_pos = target_positions.get(spotify_id)
-
-        if (
-            current_pos is not None
-            and target_pos is not None
-            and current_pos != target_pos
-        ):
-            operations.append(
-                PlaylistOperation(
-                    operation_type=PlaylistOperationType.MOVE,
-                    track=track,
-                    position=target_pos,
-                    old_position=current_pos,
-                    spotify_uri=spotify_id,
-                )
-            )
-
+    current_tracks = current_playlist.tracks
+    target_tracks = target_tracklist.tracks
+    
+    # Use LIS-based minimal move calculation
+    operations = calculate_lis_reorder_operations(current_tracks, target_tracks)
+    
     logger.debug(
-        f"Calculated {len(operations)} move operations for {len(matched_tracks)} matched tracks"
+        f"Calculated {len(operations)} LIS-optimized move operations for {len(matched_tracks)} matched tracks"
     )
 
     return operations
@@ -330,19 +525,18 @@ def calculate_confidence_score(
     return len(matched_tracks) / total_tracks
 
 
-async def calculate_playlist_diff(
-    current_playlist: Playlist, target_tracklist: TrackList, uow: UnitOfWorkProtocol
+def calculate_playlist_diff(
+    current_playlist: Playlist, target_tracklist: TrackList
 ) -> PlaylistDiff:
     """Calculate minimal operations to transform current playlist to match target.
 
-    Main diff calculation function. Matches tracks, generates add/remove/move
-    operations, and estimates API costs. Optimized to minimize Spotify API calls
-    by reusing existing track mappings from database.
+    Main diff calculation function. Matches tracks using canonical track IDs,
+    generates add/remove operations, and estimates costs. Pure domain logic
+    with no database dependencies.
 
     Args:
         current_playlist: Current state of the playlist.
         target_tracklist: Desired final state of the playlist.
-        uow: Database access for track matching optimization.
 
     Returns:
         PlaylistDiff containing operations and metadata.
@@ -356,8 +550,8 @@ async def calculate_playlist_diff(
         matched_tracks,
         unmatched_current,
         unmatched_target,
-    ) = await match_tracks_with_db_lookup(
-        current_playlist.tracks, target_tracklist.tracks, uow
+    ) = match_tracks_with_db_lookup(
+        current_playlist.tracks, target_tracklist.tracks
     )
 
     # Step 2: Calculate operations using functional composition
@@ -392,7 +586,6 @@ async def calculate_playlist_diff(
 
 
 # Operation sequencing for Spotify API compatibility
-@curry
 def sequence_operations_for_spotify(
     operations: list[PlaylistOperation],
 ) -> list[PlaylistOperation]:

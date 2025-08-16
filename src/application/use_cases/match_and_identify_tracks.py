@@ -259,23 +259,4 @@ class MatchAndIdentifyTracksUseCase:
     # EVIDENCE: Real API testing showed 11/21 tracks (52%) were relinked successfully
     # RESULT: TrackMappingService and relinking orchestration proven redundant
 
-    def get_supported_connectors(self) -> list[str]:
-        """Get list of supported connectors for identity resolution.
 
-        Returns:
-            List of connector names that can be used for identity resolution
-        """
-        return ["spotify", "lastfm", "musicbrainz"]
-
-    def get_business_confidence_threshold(self, connector: str) -> int:
-        """Get business confidence threshold for a connector.
-
-        Delegates to domain service for business rule consistency.
-
-        Args:
-            connector: Name of external service
-
-        Returns:
-            Minimum confidence threshold for accepting matches
-        """
-        return self._evaluation_service.get_connector_threshold(connector)

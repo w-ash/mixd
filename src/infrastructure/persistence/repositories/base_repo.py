@@ -275,14 +275,6 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
             result.scalar_one_or_none()
         )  # Use scalar_one_or_none for cleaner handling
 
-    async def _execute_scalar(
-        self,
-        stmt: Select,
-    ) -> Any:
-        """Execute a scalar query and return the first result."""
-        result = await self.session.scalar(stmt)
-        return result
-
     # -------------------------------------------------------------------------
     # DECORATED DATABASE OPERATIONS
     # -------------------------------------------------------------------------
@@ -313,33 +305,14 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         id_: int,
         load_relationships: list[str] | None = None,
     ) -> TDomainModel:
-        """Get entity by ID with cleaner fetch pattern."""
-        stmt = self.select_by_id(id_)
-
-        if load_relationships:
-            stmt = self.with_relationship(stmt, *load_relationships)
-        else:
-            stmt = self.with_default_relationships(stmt)
-
-        # Use session.get with identity mapping for better performance
-        db_entity = await self.session.get(
-            self.model_class,
-            id_,
-            options=[
-                selectinload(getattr(self.model_class, rel))
-                for rel in self.mapper.get_default_relationships()
-            ]
-            if not load_relationships
-            else [
-                selectinload(getattr(self.model_class, rel))
-                for rel in load_relationships
-            ],
-        )
-
-        if not db_entity or db_entity.is_deleted:
+        """Get entity by ID - degenerate case of batch operation."""
+        # Single operations are just batch([single_item]) - batch-first principle
+        results = await self.get_by_ids([id_], load_relationships)
+        
+        if not results:
             raise ValueError(f"Entity with ID {id_} not found")
-
-        return await self.mapper.to_domain(db_entity)
+            
+        return results[0]
 
     @db_operation("get_by_ids")
     async def get_by_ids(
@@ -347,7 +320,7 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         ids: list[int],
         load_relationships: list[str] | None = None,
     ) -> list[TDomainModel]:
-        """Get multiple entities by IDs."""
+        """Get multiple entities by IDs - batch-first primary implementation."""
         if not ids:
             return []
 
@@ -360,8 +333,21 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
 
         db_entities = await self._execute_query(stmt)
 
-        # Use the mapper's map_collection method for consistency
-        return await self.mapper.map_collection(db_entities)
+        # Use session-aware mapping for each entity (single code path)
+        domain_models = []
+        for db_entity in db_entities:
+            if not db_entity or db_entity.is_deleted:
+                continue
+                
+            if hasattr(self.mapper, 'to_domain_with_session'):
+                domain_model = await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]
+            else:
+                domain_model = await self.mapper.to_domain(db_entity)
+                
+            if domain_model:
+                domain_models.append(domain_model)
+                
+        return domain_models
 
     @db_operation("find_by")
     async def find_by(
@@ -442,7 +428,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
             if not db_entity or db_entity.is_deleted:
                 return None
 
-            return await self.mapper.to_domain(db_entity)
+            if hasattr(self.mapper, 'to_domain_with_session'):
+                return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            else:
+                return await self.mapper.to_domain(db_entity)
 
         # For other conditions, use a query
         stmt = select(self.model_class).where(
@@ -478,77 +467,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         if not db_entity:
             return None
 
-        return await self.mapper.to_domain(db_entity)
-
-    @db_operation("create")
-    async def create(self, entity: TDomainModel) -> TDomainModel:
-        """Create new entity."""
-        # Convert domain to DB model
-        db_entity = self.mapper.to_db(entity)
-
-        # Add to session
-        self.session.add(db_entity)
-
-        # First just flush to get the ID
-        await self.session.flush()
-
-        # Verify ID was generated
-        if db_entity.id is None:
-            logger.error(f"Failed to generate ID for entity: {entity}")
-            raise ValueError("Failed to create entity: No ID was generated")
-
-        # Use get with explicit eager loading for any relationships
-        # This is safer than refresh with attribute_names for nested relationships
-        if (
-            hasattr(self.mapper, "get_default_relationships")
-            and self.mapper.get_default_relationships()
-        ):
-            options = []
-
-            # Only include direct relationships that exist on this model
-            for rel_name in self.mapper.get_default_relationships():
-                # Skip any nested relationships containing dots
-                if "." in rel_name:
-                    continue
-
-                # Only add relationships that actually exist on this model class
-                if (
-                    hasattr(self.model_class, rel_name)
-                    and rel_name in inspect(self.model_class).relationships
-                ):
-                    options.append(selectinload(getattr(self.model_class, rel_name)))
-
-            # Clear from session to avoid duplicate objects issue
-            self.session.expunge(db_entity)
-
-            # Get the entity with properly loaded relationships
-            if options:
-                refreshed_entity = await self.session.get(
-                    self.model_class, db_entity.id, options=options
-                )
-            else:
-                refreshed_entity = await self.session.get(
-                    self.model_class, db_entity.id
-                )
-
-            # Make sure we got the entity back
-            if refreshed_entity is None:
-                logger.error(
-                    f"Failed to retrieve entity with ID {db_entity.id} after creation"
-                )
-                raise ValueError(
-                    f"Entity with ID {db_entity.id} not found after creation"
-                )
-
-            # Use the refreshed entity
-            db_entity = refreshed_entity
+        if hasattr(self.mapper, 'to_domain_with_session'):
+            return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]
         else:
-            # Simple refresh if no relationships are defined
-            await self.session.refresh(db_entity)
-
-        # Convert back to domain with ID
-        domain_entity = await self.mapper.to_domain(db_entity)
-        return domain_entity
+            return await self.mapper.to_domain(db_entity)
 
     @db_operation("update")
     async def update(
@@ -600,7 +522,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         await self.session.refresh(
             updated_entity, attribute_names=self.mapper.get_default_relationships()
         )
-        return await self.mapper.to_domain(updated_entity)
+        if hasattr(self.mapper, 'to_domain_with_session'):
+            return await self.mapper.to_domain_with_session(updated_entity, self.session)  # type: ignore[attr-defined]
+        else:
+            return await self.mapper.to_domain(updated_entity)
 
     @db_operation("soft_delete")
     async def soft_delete(self, id_: int) -> int:
@@ -758,7 +683,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
                 # Convert to domain model
                 if db_entity is None:
                     raise ValueError("Failed to retrieve entity after update")
-                return await self.mapper.to_domain(db_entity)
+                if hasattr(self.mapper, 'to_domain_with_session'):
+                    return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                else:
+                    return await self.mapper.to_domain(db_entity)
             else:
                 # Phase 2: Entity doesn't exist, create it
                 # Use simple insert instead of complex on_conflict_do_update
@@ -796,7 +724,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
                 # Convert to domain model
                 if db_entity is None:
                     raise ValueError("Failed to retrieve entity after create")
-                return await self.mapper.to_domain(db_entity)
+                if hasattr(self.mapper, 'to_domain_with_session'):
+                    return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                else:
+                    return await self.mapper.to_domain(db_entity)
 
         except Exception as e:
             logger.error(f"Upsert error: {e}")

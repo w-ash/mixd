@@ -1,15 +1,17 @@
-"""Provider implementations for different music services.
+"""Provider registry for managing music service matching providers.
 
-This module provides a registry for all available music service providers
+This module provides a centralized registry for all available music service providers
 and utilities for provider management.
 """
 
 from typing import Any
 
-from .base import MatchProvider
-from .lastfm import LastFMProvider
-from .musicbrainz import MusicBrainzProvider
-from .spotify import SpotifyProvider
+from src.infrastructure.connectors._shared.matching_provider_base import MatchProvider
+from src.infrastructure.connectors.lastfm.matching_provider import LastFMProvider
+from src.infrastructure.connectors.musicbrainz.matching_provider import (
+    MusicBrainzProvider,
+)
+from src.infrastructure.connectors.spotify.matching_provider import SpotifyProvider
 
 __all__ = [
     "LastFMProvider",

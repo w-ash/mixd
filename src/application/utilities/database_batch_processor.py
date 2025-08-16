@@ -3,7 +3,7 @@
 Provides specialized batch processing for database operations with:
 - Sequential processing to prevent SQLite locks
 - Transaction boundary management
-- No API rate limiting (not needed for database operations) 
+- No API rate limiting (not needed for database operations)
 - Optimized for database bulk operations like inserts, updates
 - Simple retry logic for database deadlock scenarios
 
@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 
 from attrs import define, field
 
-from src.config import get_logger, settings
+from src.config import get_logger
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="database_batch_processor")
@@ -41,7 +41,7 @@ class DatabaseBatchProcessor[T, R]:
     Args:
         batch_size: Items per batch (prevents SQLite lock issues)
         retry_count: Max retry attempts for database deadlocks
-        retry_base_delay: Starting delay between retries (seconds) 
+        retry_base_delay: Starting delay between retries (seconds)
         logger_instance: Logger for progress and error reporting
     """
 
@@ -109,7 +109,7 @@ class DatabaseBatchProcessor[T, R]:
         for i in range(0, len(items), self.batch_size):
             batch = items[i : i + self.batch_size]
             current_batch = i // self.batch_size + 1
-            
+
             self.logger_instance.debug(
                 f"Processing database batch {current_batch}/{total_batches}",
                 batch_size=len(batch),
@@ -137,20 +137,22 @@ class DatabaseBatchProcessor[T, R]:
                 try:
                     batch_result = await process_func(batch)
                     break  # Success, exit retry loop
-                    
+
                 except Exception as e:
                     is_final_attempt = attempt == self.retry_count
                     error_msg = str(e).lower()
-                    
+
                     # Check if this is a retriable database error
                     is_retriable = (
-                        "database is locked" in error_msg or
-                        "deadlock" in error_msg or
-                        "busy" in error_msg
+                        "database is locked" in error_msg
+                        or "deadlock" in error_msg
+                        or "busy" in error_msg
                     )
-                    
+
                     if is_retriable and not is_final_attempt:
-                        delay = self.retry_base_delay * (2 ** attempt)  # Exponential backoff
+                        delay = self.retry_base_delay * (
+                            2**attempt
+                        )  # Exponential backoff
                         self.logger_instance.warning(
                             f"Database batch {current_batch} failed (attempt {attempt + 1}), "
                             f"retrying in {delay}s: {e}"
@@ -161,7 +163,7 @@ class DatabaseBatchProcessor[T, R]:
                             f"Database batch {current_batch} failed permanently: {e}",
                             error_type=type(e).__name__,
                             is_retriable=is_retriable,
-                            final_attempt=is_final_attempt
+                            final_attempt=is_final_attempt,
                         )
                         batch_result = None
                         break  # Give up on this batch
@@ -170,14 +172,14 @@ class DatabaseBatchProcessor[T, R]:
             if batch_result is not None:
                 results.append(batch_result)
                 processed_items += len(batch)
-                
+
                 self.logger_instance.debug(
                     f"Database batch {current_batch} completed successfully"
                 )
             else:
                 # Still update processed count for progress tracking even on failure
                 processed_items += len(batch)
-                
+
             # Emit batch completed event
             if progress_callback:
                 progress_callback(
@@ -195,11 +197,11 @@ class DatabaseBatchProcessor[T, R]:
 
         success_count = len(results)
         failure_count = total_batches - success_count
-        
+
         self.logger_instance.info(
             f"Database batch processing completed: {success_count}/{total_batches} batches successful"
         )
-        
+
         if failure_count > 0:
             self.logger_instance.warning(
                 f"{failure_count} database batches failed and were skipped"
@@ -207,25 +209,3 @@ class DatabaseBatchProcessor[T, R]:
 
         return results
 
-
-def create_database_batch_processor(
-    batch_size: int | None = None,
-    retry_count: int | None = None,
-    retry_base_delay: float | None = None,
-) -> DatabaseBatchProcessor:
-    """Create a DatabaseBatchProcessor with standard configuration.
-    
-    Args:
-        batch_size: Override default batch size (defaults to settings.database.batch_size)
-        retry_count: Override default retry count (defaults to settings.database.retry_count)  
-        retry_base_delay: Override default retry delay (defaults to settings.database.retry_base_delay)
-        
-    Returns:
-        Configured DatabaseBatchProcessor instance
-    """
-    return DatabaseBatchProcessor(
-        batch_size=batch_size or int(settings.database_batch.batch_size),
-        retry_count=retry_count or int(settings.database_batch.retry_count),
-        retry_base_delay=retry_base_delay or float(settings.database_batch.retry_base_delay),
-        logger_instance=logger,
-    )

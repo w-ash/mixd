@@ -220,44 +220,57 @@ class TestEnricherNodeFactory:
 class TestHelperFunctions:
     """Test helper functions."""
 
-    def test_get_connector_extractors_lastfm(self):
-        """Test _get_connector_extractors for lastfm."""
-        from src.application.workflows.node_factories import _get_connector_extractors
+    def test_get_connector_metric_names_lastfm(self):
+        """Test _get_connector_metric_names for lastfm."""
+        from src.application.workflows.node_factories import _get_connector_metric_names
 
-        # Mock the lastfm connector config
-        mock_extractors = {
-            "user_playcount": lambda obj: getattr(obj, "user_playcount", 0),
-            "lastfm_user_playcount": lambda obj: getattr(obj, "user_playcount", 0),
-        }
-
+        # Mock the metrics registry
         with patch(
-            "src.infrastructure.connectors.lastfm.get_connector_config"
-        ) as mock_get_config:
-            mock_get_config.return_value = {"extractors": mock_extractors}
+            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+        ) as mock_get_metrics:
+            mock_get_metrics.return_value = [
+                "lastfm_user_playcount",
+                "lastfm_global_playcount",
+                "lastfm_listeners",
+            ]
 
-            extractors = _get_connector_extractors("lastfm", ["user_playcount"])
+            metric_names = _get_connector_metric_names("lastfm", ["user_playcount"])
 
-            assert "user_playcount" in extractors
-            assert callable(extractors["user_playcount"])
+            assert "lastfm_user_playcount" in metric_names
+            assert isinstance(metric_names, list)
+            assert all(isinstance(name, str) for name in metric_names)
 
-    def test_get_connector_extractors_unknown(self):
-        """Test _get_connector_extractors for unknown connector."""
-        from src.application.workflows.node_factories import _get_connector_extractors
+    def test_get_connector_metric_names_unknown(self):
+        """Test _get_connector_metric_names for unknown connector."""
+        from src.application.workflows.node_factories import _get_connector_metric_names
 
-        extractors = _get_connector_extractors("unknown_connector", ["test_attr"])
+        # Mock empty metrics registry for unknown connector
+        with patch(
+            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+        ) as mock_get_metrics:
+            mock_get_metrics.return_value = []
 
-        assert "test_attr" in extractors
-        assert callable(extractors["test_attr"])
+            metric_names = _get_connector_metric_names(
+                "unknown_connector", ["test_attr"]
+            )
 
-    def test_get_connector_extractors_import_error(self):
-        """Test _get_connector_extractors with import error."""
-        from src.application.workflows.node_factories import _get_connector_extractors
+            assert metric_names == []  # Should return empty list for unknown connector
 
-        # This will trigger the ImportError handling for non-existent connector
-        extractors = _get_connector_extractors("non_existent_connector", ["test_attr"])
+    def test_get_connector_metric_names_spotify(self):
+        """Test _get_connector_metric_names for spotify with exact matches."""
+        from src.application.workflows.node_factories import _get_connector_metric_names
 
-        assert "test_attr" in extractors
-        assert callable(extractors["test_attr"])
+        # Mock the metrics registry for spotify
+        with patch(
+            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+        ) as mock_get_metrics:
+            mock_get_metrics.return_value = ["spotify_popularity", "explicit_flag"]
+
+            metric_names = _get_connector_metric_names("spotify", ["popularity"])
+
+            assert (
+                "spotify_popularity" in metric_names
+            )  # Should map popularity -> spotify_popularity
 
 
 class TestWorkflowNodeFactory:

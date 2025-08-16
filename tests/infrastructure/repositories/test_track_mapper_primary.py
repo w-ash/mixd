@@ -10,7 +10,8 @@ class TestTrackMapperArchitecture:
         """Test that mapper contains dual-pass primary logic."""
         import inspect
 
-        source = inspect.getsource(TrackMapper.to_domain)
+        # Primary mapping logic is in _to_domain_with_session (the core implementation)
+        source = inspect.getsource(TrackMapper._to_domain_with_session)
 
         # Should contain primary mapping logic
         assert "is_primary" in source

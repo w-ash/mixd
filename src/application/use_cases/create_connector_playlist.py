@@ -41,13 +41,30 @@ class CreateConnectorPlaylistCommand:
         Returns:
             True if the command contains valid tracks, playlist name, and connector.
         """
+        logger.debug(
+            "Validating CreateConnectorPlaylistCommand",
+            has_tracks=bool(self.tracklist.tracks),
+            track_count=len(self.tracklist.tracks) if self.tracklist.tracks else 0,
+            has_playlist_name=bool(self.playlist_name),
+            playlist_name=self.playlist_name,
+            has_connector=bool(self.connector),
+            connector=self.connector,
+        )
+
         if not self.tracklist.tracks:
+            logger.warning("Validation failed: no tracks in tracklist")
             return False
 
         if not self.playlist_name:
+            logger.warning("Validation failed: missing playlist name")
             return False
 
-        return bool(self.connector)
+        if not self.connector:
+            logger.warning("Validation failed: missing connector")
+            return False
+
+        logger.debug("CreateConnectorPlaylistCommand validation passed")
+        return True
 
 
 @define(frozen=True, slots=True)
@@ -304,12 +321,17 @@ class CreateConnectorPlaylistUseCase:
                 persisted_tracks = []
 
                 for track in command.tracklist.tracks:
-                    try:
-                        saved_track = await track_repo.save_track(track)
-                        persisted_tracks.append(saved_track)
-                    except Exception as e:
-                        logger.warning(f"Failed to persist track {track.title}: {e}")
-                        persisted_tracks.append(track)  # Keep original if persist fails
+                    # Save track if it doesn't have an ID (not yet persisted)
+                    if track.id is None:
+                        try:
+                            saved_track = await track_repo.save_track(track)
+                            persisted_tracks.append(saved_track)
+                        except Exception as e:
+                            logger.warning(f"Failed to persist track {track.title}: {e}")
+                            persisted_tracks.append(track)  # Keep original if persist fails
+                    else:
+                        # Track already persisted, use as-is
+                        persisted_tracks.append(track)
 
                 # Step 2: Create internal playlist with connector mapping
                 playlist = Playlist(

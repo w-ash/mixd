@@ -1,7 +1,7 @@
 """Narada domain layer - pure business logic with zero external dependencies."""
 
 # Export all domain components
-from . import entities, matching, services, transforms
+from . import entities, matching, transforms
 
 # Re-export key types for convenience
 from .entities import (
@@ -57,7 +57,6 @@ __all__ = [
     "limit",
     "matching",
     "rename",
-    "services",
     "sort_by_attribute",
     "transforms",
 ]

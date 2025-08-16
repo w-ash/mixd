@@ -26,7 +26,7 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config import get_logger
+from src.config import get_logger, setup_loguru_logger
 from src.infrastructure.persistence.database.db_connection import (
     DBPlaylist,
     DBPlaylistMapping,

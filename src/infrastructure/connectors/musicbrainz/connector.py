@@ -7,14 +7,13 @@ backward compatibility across the codebase.
 
 Key components:
 - MusicBrainzConnector: Main facade implementing connector protocols
-- Delegates to MusicBrainzAPIClient and conversion utilities  
+- Delegates to MusicBrainzAPIClient and conversion utilities
 - Maintains exact same public methods and signatures
 - Handles batch processing and connector protocol compliance
 
 The facade pattern allows the rest of the codebase to use MusicBrainzConnector
 without changes while benefiting from the new modular architecture underneath.
 """
-
 
 from typing import TYPE_CHECKING
 
@@ -58,7 +57,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         normalized_isrc = normalize_isrc(isrc)
         if not normalized_isrc:
             return None
-            
+
         return await self._client.get_recording_by_isrc(normalized_isrc)
 
     async def search_recording(self, artist: str, title: str) -> dict | None:
@@ -82,11 +81,9 @@ class MusicBrainzConnector(BaseAPIConnector):
         # Get batch processor for rate-limited processing
         batch_processor = self._get_batch_processor()
 
-        # Process using batch processor 
+        # Process using batch processor
         batch_results = await batch_processor.process(
-            items=isrcs,
-            process_func=process_isrc,
-            progress_description=progress_desc
+            items=isrcs, process_func=process_isrc, progress_description=progress_desc
         )
 
         # Convert results to expected format
@@ -102,6 +99,7 @@ class MusicBrainzConnector(BaseAPIConnector):
     def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
         """Convert MusicBrainz recording data to ConnectorTrack domain model."""
         from .conversions import convert_musicbrainz_track_to_connector
+
         return convert_musicbrainz_track_to_connector(track_data)
 
     def _get_batch_processor(self):
@@ -109,7 +107,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         from src.infrastructure.connectors._shared.api_batch_processor import (
             APIBatchProcessor,
         )
-        
+
         return APIBatchProcessor(
             batch_size=1,  # MusicBrainz requires sequential requests
             concurrency_limit=1,  # No concurrency due to rate limiting
@@ -125,7 +123,6 @@ class MusicBrainzConnector(BaseAPIConnector):
 def get_connector_config() -> ConnectorConfig:
     """MusicBrainz connector configuration."""
     return {
-        "extractors": {},  # No specific extractors needed
         "dependencies": [],  # No dependencies on other connectors
         "factory": lambda _params: MusicBrainzConnector(),
         "metrics": {},  # No specific metrics

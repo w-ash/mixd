@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "narada"
-version = "0.2.6"
+version = "0.2.7"
 description = "Music metadata integration and playlist management platform"
 authors = ["Ash Wright <a@ashwright.net>"]
 homepage = "https://github.com/w-ash/narada"
@@ -40,6 +40,7 @@ ruff = "^0.11.5"  # Modern replacement for isort, flake8, etc.
 pre-commit = "^4.2.0"
 pyright = "^1.1.399"
 vulture = "^2.14"
+psutil = "^6.1.0"  # System and process monitoring for performance tests
 
 [tool.poetry.scripts]
 narada = "src.interface.cli.app:main"
@@ -91,8 +92,24 @@ unfixable = []
 # Per-file rule exceptions
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]   # Don't complain about unused imports in __init__ files
-"tests/**/*.py" = ["S101"] # Allow assert in tests
+"tests/**/*.py" = [
+    "S101",    # Allow assert in tests
+    "ARG001",  # Allow unused function arguments (fixtures, mocks) 
+    "ARG002",  # Allow unused method arguments (fixtures, mocks)
+    "RUF029",  # Allow async functions without await (test setup functions)
+    "ASYNC230", # Allow sync file operations in async test functions (test data)
+    "ERA001",  # Allow commented-out code in tests (documentation, debugging)
+    "N806",    # Allow uppercase variables for Mock classes
+    "PT011",   # Allow broad pytest.raises without match (simpler test patterns)
+    "B017",    # Allow pytest.raises(Exception) for general exception testing
+    "E721"     # Allow type() == comparisons for exact type checking in tests
+]
 "src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
+"scripts/**/*.py" = [
+    "ASYNC230", # Allow sync file operations in async scripts
+    "ARG001",   # Allow unused arguments in scripts
+    "RUF029"    # Allow async functions without await in scripts
+]
 
 # Import sorting configuration
 [tool.ruff.lint.isort]

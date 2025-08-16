@@ -31,6 +31,10 @@ class TrackRepositoryProtocol(Protocol):
         """Save track."""
         ...
 
+    def get_by_id(self, id_: int, load_relationships: list[str] | None = None) -> Awaitable["Track"]:
+        """Get track by ID."""
+        ...
+
     def find_tracks_by_ids(self, track_ids: list[int]) -> Awaitable[dict[int, "Track"]]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
@@ -155,22 +159,6 @@ class ConnectorRepositoryProtocol(Protocol):
         """Find track by connector ID."""
         ...
 
-    def ingest_external_track(
-        self,
-        connector: str,
-        connector_id: str,
-        metadata: dict | None,
-        title: str,
-        artists: list[str],
-        album: str | None = None,
-        duration_ms: int | None = None,
-        release_date: "datetime | None" = None,
-        isrc: str | None = None,
-        added_at: str | None = None,
-    ) -> Awaitable["Track | None"]:
-        """Ingest a single track from external source."""
-        ...
-
     def map_track_to_connector(
         self,
         track: "Track",
@@ -239,32 +227,6 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             Dictionary mapping track_id to metadata.
-        """
-        ...
-
-    def save_mapping_confidence(
-        self,
-        track_id: int,
-        connector: str,
-        connector_id: str,
-        confidence: int,
-        match_method: str | None = None,
-        confidence_evidence: dict | None = None,
-        metadata: dict[str, "Any"] | None = None,
-    ) -> Awaitable[bool]:
-        """Save confidence information to the track mapping.
-
-        Args:
-            track_id: Track ID.
-            connector: Connector name.
-            connector_id: External connector track ID.
-            confidence: Confidence score.
-            match_method: Method used for matching.
-            confidence_evidence: Evidence supporting the confidence score.
-            metadata: Additional metadata.
-
-        Returns:
-            True if saved successfully.
         """
         ...
 
@@ -524,6 +486,23 @@ class ServiceConnectorProvider(Protocol):
         ...
 
 
+class TrackMergeServiceProtocol(Protocol):
+    """Service interface for track merging operations."""
+
+    def merge_tracks(self, winner_id: int, loser_id: int, uow: "UnitOfWorkProtocol") -> Awaitable["Track"]:
+        """Merge two canonical tracks by moving references and soft-deleting loser.
+        
+        Args:
+            winner_id: Track ID that will keep all references.
+            loser_id: Track ID that will be soft-deleted.
+            uow: Unit of work for transaction management.
+            
+        Returns:
+            Winner track after merge.
+        """
+        ...
+
+
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
@@ -594,6 +573,19 @@ class UnitOfWorkProtocol(Protocol):
         self,
     ) -> "ConnectorPlaylistRepositoryProtocol":
         """Get connector playlist repository for playlist-related operations."""
+        ...
+
+    def get_track_merge_service(self) -> TrackMergeServiceProtocol:
+        """Get track merge service using this unit of work's transaction."""
+        ...
+
+    def get_session(self) -> Any:
+        """Get the underlying database session for bulk operations.
+        
+        This method provides controlled access to the underlying session for
+        complex transactional operations like bulk updates. Use with caution
+        and prefer repository methods when possible.
+        """
         ...
 
 

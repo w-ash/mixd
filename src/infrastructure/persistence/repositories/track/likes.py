@@ -200,27 +200,3 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             create_attrs=update_values,
         )
 
-    @db_operation("delete_track_like")
-    async def delete_track_like(
-        self,
-        track_id: int,
-        service: str,
-    ) -> bool:
-        """Remove a track like status for a service."""
-        # Find the like
-        like = await self.find_one_by([
-            self.model_class.track_id == track_id,
-            self.model_class.service == service,
-        ])
-
-        if not like:
-            return False
-
-        # Use soft_delete from base repository
-        try:
-            if like.id is None:
-                return False
-            await self.soft_delete(like.id)
-            return True
-        except ValueError:
-            return False

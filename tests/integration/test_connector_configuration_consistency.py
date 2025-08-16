@@ -4,7 +4,6 @@ Tests to verify that the connector refactoring maintains consistent
 configuration patterns across all services.
 """
 
-
 from src.config import settings
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -18,10 +17,10 @@ class TestConnectorConfigurationConsistency:
         connector = SpotifyConnector()
 
         # Test key configuration mappings exist in settings
-        assert hasattr(settings.api, 'spotify_batch_size')
-        assert hasattr(settings.api, 'spotify_concurrency')
-        assert hasattr(settings.api, 'spotify_retry_count')
-        assert hasattr(settings.api, 'spotify_request_timeout')
+        assert hasattr(settings.api, "spotify_batch_size")
+        assert hasattr(settings.api, "spotify_concurrency")
+        assert hasattr(settings.api, "spotify_retry_count")
+        assert hasattr(settings.api, "spotify_request_timeout")
 
         # Test connector can access config without errors
         batch_size = connector.get_connector_config("BATCH_SIZE", 50)
@@ -41,12 +40,12 @@ class TestConnectorConfigurationConsistency:
         connector = LastFMConnector()
 
         # Test key configuration mappings exist in settings
-        assert hasattr(settings.api, 'lastfm_batch_size')
-        assert hasattr(settings.api, 'lastfm_concurrency')
-        assert hasattr(settings.api, 'lastfm_retry_count')
-        assert hasattr(settings.api, 'lastfm_rate_limit')
-        assert hasattr(settings.api, 'lastfm_retry_base_delay')
-        assert hasattr(settings.api, 'lastfm_retry_max_delay')
+        assert hasattr(settings.api, "lastfm_batch_size")
+        assert hasattr(settings.api, "lastfm_concurrency")
+        assert hasattr(settings.api, "lastfm_retry_count")
+        assert hasattr(settings.api, "lastfm_rate_limit")
+        assert hasattr(settings.api, "lastfm_retry_base_delay")
+        assert hasattr(settings.api, "lastfm_retry_max_delay")
 
         # Test connector can access config without errors
         batch_size = connector.get_connector_config("BATCH_SIZE", 30)
@@ -71,7 +70,7 @@ class TestConnectorConfigurationConsistency:
 
         common_keys = [
             "BATCH_SIZE",
-            "CONCURRENCY", 
+            "CONCURRENCY",
             "RETRY_COUNT",
         ]
 
@@ -101,11 +100,11 @@ class TestConnectorConfigurationConsistency:
     def test_no_legacy_get_config_calls_in_connectors(self):
         """Verify connectors don't contain any legacy get_config() calls."""
         import inspect
-        
+
         # Get source code for connector classes
         spotify_source = inspect.getsource(SpotifyConnector)
         lastfm_source = inspect.getsource(LastFMConnector)
-        
+
         # Should not contain legacy imports or calls
         assert "from src.config import get_config" not in spotify_source
         assert "from src.config import get_config" not in lastfm_source
@@ -118,19 +117,19 @@ class TestConnectorConfigurationConsistency:
         lastfm = LastFMConnector()
 
         # Test error_classifier property exists and is callable
-        assert hasattr(spotify, 'error_classifier')
-        assert hasattr(lastfm, 'error_classifier')
+        assert hasattr(spotify, "error_classifier")
+        assert hasattr(lastfm, "error_classifier")
 
         spotify_classifier = spotify.error_classifier
         lastfm_classifier = lastfm.error_classifier
 
         # Test classify_error method exists
-        assert hasattr(spotify_classifier, 'classify_error')
-        assert hasattr(lastfm_classifier, 'classify_error')
+        assert hasattr(spotify_classifier, "classify_error")
+        assert hasattr(lastfm_classifier, "classify_error")
 
         # Test classifier handles basic exceptions
         test_exception = ValueError("Test error")
-        
+
         spotify_result = spotify_classifier.classify_error(test_exception)
         assert isinstance(spotify_result, tuple)
         assert len(spotify_result) == 3  # (error_type, code, description)
@@ -149,8 +148,8 @@ class TestConnectorRetryIntegration:
         lastfm = LastFMConnector()
 
         # Test create_service_aware_retry method exists
-        assert hasattr(spotify, 'create_service_aware_retry')
-        assert hasattr(lastfm, 'create_service_aware_retry')
+        assert hasattr(spotify, "create_service_aware_retry")
+        assert hasattr(lastfm, "create_service_aware_retry")
 
         # Test method returns callable decorator
         spotify_retry = spotify.create_service_aware_retry(max_tries=3, base_delay=1.0)

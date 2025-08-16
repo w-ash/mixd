@@ -11,13 +11,13 @@ from attrs import define, field
 
 class MatchFailureReason(Enum):
     """Reasons why a track match attempt failed.
-    
+
     This enum provides structured failure classification to enable intelligent
     handling of different failure types by calling code.
     """
-    
+
     NO_ISRC = "no_isrc"  # Track missing required ISRC code
-    NO_METADATA = "no_metadata"  # Track missing title/artist data  
+    NO_METADATA = "no_metadata"  # Track missing title/artist data
     API_ERROR = "api_error"  # External service API failure
     NO_RESULTS = "no_results"  # Service found no matching tracks
     INVALID_RESPONSE = "invalid_response"  # Service returned malformed data
@@ -28,11 +28,11 @@ class MatchFailureReason(Enum):
 @define(frozen=True, slots=True)
 class MatchFailure:
     """Details of a track match failure.
-    
+
     This class captures structured information about why a match attempt failed,
     enabling intelligent handling and comprehensive logging.
     """
-    
+
     track_id: int  # ID of the track that failed to match
     reason: MatchFailureReason  # Structured failure reason
     service: str  # Name of the external service ("spotify", "musicbrainz", "lastfm")
@@ -112,23 +112,23 @@ class MatchResult:
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
 
 
-@define(frozen=True, slots=True)  
+@define(frozen=True, slots=True)
 class ProviderMatchResult:
     """Result of provider match attempt including both successes and failures.
-    
+
     This replaces the simple dict return type from providers to capture both
     successful matches and structured failure information.
     """
-    
+
     matches: dict[int, RawProviderMatch] = field(factory=dict)  # Successful matches
     failures: list[MatchFailure] = field(factory=list)  # Failed match attempts
-    
+
     @property
     def total_attempts(self) -> int:
         """Total number of match attempts (successes + failures)."""
         return len(self.matches) + len(self.failures)
-        
-    @property  
+
+    @property
     def success_rate(self) -> float:
         """Success rate as a float between 0.0 and 1.0."""
         if self.total_attempts == 0:

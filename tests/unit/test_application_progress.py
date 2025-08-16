@@ -27,9 +27,7 @@ class TestProgressOperation:
 
     def test_create_operation(self):
         """Test creating progress operations."""
-        operation = ProgressOperation(
-            description="Test operation", total_items=100
-        )
+        operation = ProgressOperation(description="Test operation", total_items=100)
 
         assert operation.description == "Test operation"
         assert operation.total_items == 100
@@ -42,9 +40,7 @@ class TestProgressOperation:
 
     def test_zero_total_items(self):
         """Test edge case with zero total items."""
-        operation = ProgressOperation(
-            description="Empty", total_items=0
-        )
+        operation = ProgressOperation(description="Empty", total_items=0)
 
         assert operation.total_items == 0
 

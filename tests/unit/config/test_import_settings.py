@@ -85,11 +85,11 @@ class TestSettingsAccessibility:
     def test_settings_structure_completeness(self):
         """Test that settings structure provides all needed values."""
         # Import settings should be accessible
-        assert hasattr(settings, 'import_settings')
-        assert hasattr(settings.import_settings, 'play_threshold_ms')
-        assert hasattr(settings.import_settings, 'play_threshold_percentage')
-        assert hasattr(settings.import_settings, 'batch_size')
-        
+        assert hasattr(settings, "import_settings")
+        assert hasattr(settings.import_settings, "play_threshold_ms")
+        assert hasattr(settings.import_settings, "play_threshold_percentage")
+        assert hasattr(settings.import_settings, "batch_size")
+
         # Values should be proper types
         assert isinstance(settings.import_settings.play_threshold_ms, int)
         assert isinstance(settings.import_settings.play_threshold_percentage, float)

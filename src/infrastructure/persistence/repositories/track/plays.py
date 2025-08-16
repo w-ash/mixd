@@ -1,6 +1,6 @@
 """Track repository for play operations."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from attrs import define
@@ -32,14 +32,23 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
     @staticmethod
     async def to_domain(db_model: DBTrackPlay) -> TrackPlay:
         """Convert database play to domain model."""
+        # Ensure datetime fields are timezone-aware
+        played_at = db_model.played_at
+        if played_at and played_at.tzinfo is None:
+            played_at = played_at.replace(tzinfo=UTC)
+            
+        import_timestamp = db_model.import_timestamp
+        if import_timestamp and import_timestamp.tzinfo is None:
+            import_timestamp = import_timestamp.replace(tzinfo=UTC)
+        
         return TrackPlay(
             track_id=db_model.track_id,
             service=db_model.service,
-            played_at=db_model.played_at,
+            played_at=played_at,
             ms_played=db_model.ms_played,
             context=db_model.context,
             id=db_model.id,
-            import_timestamp=db_model.import_timestamp,
+            import_timestamp=import_timestamp,
             import_source=db_model.import_source,
             import_batch_id=db_model.import_batch_id,
         )
@@ -294,13 +303,64 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         # Calculate period plays if requested
         if "period_plays" in metrics and period_start and period_end:
+            # Ensure timezone consistency - if periods are naive, assume UTC
+            start_aware = (
+                period_start.replace(tzinfo=UTC)
+                if period_start.tzinfo is None
+                else period_start
+            )
+            end_aware = (
+                period_end.replace(tzinfo=UTC)
+                if period_end.tzinfo is None
+                else period_end
+            )
+
+            logger.debug(
+                "Period play comparison setup",
+                start_aware=start_aware,
+                start_aware_tz=start_aware.tzinfo,
+                end_aware=end_aware,
+                end_aware_tz=end_aware.tzinfo,
+                original_start_tz=period_start.tzinfo,
+                original_end_tz=period_end.tzinfo,
+            )
 
             def count_period_plays(track_plays):
-                return len([
-                    play
-                    for play in track_plays
-                    if period_start <= play.played_at <= period_end
-                ])
+                matching_plays = []
+                for play in track_plays:
+                    try:
+                        # Defensive validation - ensure play.played_at is timezone-aware
+                        if play.played_at.tzinfo is None:
+                            logger.warning(
+                                "Found timezone-naive play.played_at, converting to UTC",
+                                play_id=play.id,
+                                track_id=play.track_id,
+                                played_at=play.played_at,
+                            )
+                            # Convert naive datetime to UTC for comparison
+                            play_played_at_aware = play.played_at.replace(tzinfo=UTC)
+                        else:
+                            play_played_at_aware = play.played_at
+
+                        if start_aware <= play_played_at_aware <= end_aware:
+                            matching_plays.append(play)
+
+                    except TypeError as e:
+                        logger.error(
+                            "Datetime comparison failed despite defensive measures",
+                            start_aware=start_aware,
+                            start_tz=getattr(start_aware, "tzinfo", None),
+                            play_played_at=play.played_at,
+                            play_tz=getattr(play.played_at, "tzinfo", None),
+                            end_aware=end_aware,
+                            end_tz=getattr(end_aware, "tzinfo", None),
+                            error=str(e),
+                            play_id=play.id,
+                        )
+                        # Skip this play rather than failing the entire operation
+                        continue
+
+                return len(matching_plays)
 
             result["period_plays"] = {
                 track_id: count_period_plays(track_plays)
@@ -317,32 +377,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                         result[metric_name][track_id] = None
 
         return result
-
-    @db_operation("get_total_play_counts")
-    async def get_total_play_counts(self, track_ids: list[int]) -> dict[int, int]:
-        """Get total play counts for specified tracks."""
-        aggregations = await self.get_play_aggregations(track_ids, ["total_plays"])
-        return aggregations.get("total_plays", {})
-
-    @db_operation("get_last_played_dates")
-    async def get_last_played_dates(
-        self, track_ids: list[int]
-    ) -> dict[int, datetime | None]:
-        """Get last played dates for specified tracks."""
-        aggregations = await self.get_play_aggregations(
-            track_ids, ["last_played_dates"]
-        )
-        return aggregations.get("last_played_dates", {})
-
-    @db_operation("get_period_play_counts")
-    async def get_period_play_counts(
-        self, track_ids: list[int], start_date: datetime, end_date: datetime
-    ) -> dict[int, int]:
-        """Get play counts within a specific time period."""
-        aggregations = await self.get_play_aggregations(
-            track_ids, ["period_plays"], start_date, end_date
-        )
-        return aggregations.get("period_plays", {})
 
     @db_operation("get_recent_plays")
     async def get_recent_plays(

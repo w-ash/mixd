@@ -39,32 +39,35 @@ class TestLastfmPlayImporterUnit:
         # Arrange
         mock_checkpoint = SyncCheckpoint(
             user_id="test_user",
-            service="lastfm", 
+            service="lastfm",
             entity_type="plays",
             last_timestamp=datetime(2024, 3, 15, 23, 59, 59, tzinfo=UTC),
-            cursor="2024-03-15"
+            cursor="2024-03-15",
         )
-        mock_repositories["checkpoint_repository"].get_sync_checkpoint.return_value = mock_checkpoint
+        mock_repositories[
+            "checkpoint_repository"
+        ].get_sync_checkpoint.return_value = mock_checkpoint
 
         # Act
         result = await lastfm_importer._resolve_checkpoint(
-            username="test_user", 
-            uow=Mock()
+            username="test_user", uow=Mock()
         )
 
         # Assert
         assert result == mock_checkpoint
-        mock_repositories["checkpoint_repository"].get_sync_checkpoint.assert_called_once_with(
-            user_id="test_user",
-            service="lastfm",
-            entity_type="plays"
+        mock_repositories[
+            "checkpoint_repository"
+        ].get_sync_checkpoint.assert_called_once_with(
+            user_id="test_user", service="lastfm", entity_type="plays"
         )
 
     @pytest.mark.asyncio
     async def test_resolve_checkpoint_no_uow(self, lastfm_importer):
         """Test checkpoint resolution fails gracefully without UoW."""
         # Act
-        result = await lastfm_importer._resolve_checkpoint(username="test_user", uow=None)
+        result = await lastfm_importer._resolve_checkpoint(
+            username="test_user", uow=None
+        )
 
         # Assert
         assert result is None
@@ -77,11 +80,13 @@ class TestLastfmPlayImporterUnit:
         mock_checkpoint = SyncCheckpoint(
             user_id="fallback_user",
             service="lastfm",
-            entity_type="plays", 
+            entity_type="plays",
             last_timestamp=datetime(2024, 3, 15, tzinfo=UTC),
-            cursor="2024-03-15"
+            cursor="2024-03-15",
         )
-        lastfm_importer.checkpoint_repository.get_sync_checkpoint.return_value = mock_checkpoint
+        lastfm_importer.checkpoint_repository.get_sync_checkpoint.return_value = (
+            mock_checkpoint
+        )
 
         # Act
         result = await lastfm_importer._resolve_checkpoint(username=None, uow=Mock())
@@ -98,7 +103,9 @@ class TestLastfmPlayImporterUnit:
         checkpoint = None
 
         # Act
-        start, end = lastfm_importer._determine_date_range(from_date, to_date, checkpoint)
+        start, end = lastfm_importer._determine_date_range(
+            from_date, to_date, checkpoint
+        )
 
         # Assert
         assert start == from_date
@@ -112,7 +119,7 @@ class TestLastfmPlayImporterUnit:
             service="lastfm",
             entity_type="plays",
             last_timestamp=datetime(2024, 3, 15, 12, 30, 0, tzinfo=UTC),
-            cursor="2024-03-15"
+            cursor="2024-03-15",
         )
 
         # Act
@@ -135,10 +142,10 @@ class TestLastfmPlayImporterUnit:
         # Arrange
         checkpoint = SyncCheckpoint(
             user_id="test_user",
-            service="lastfm", 
+            service="lastfm",
             entity_type="plays",
             last_timestamp=None,  # Invalid!
-            cursor="2024-03-15"
+            cursor="2024-03-15",
         )
 
         # Act & Assert
@@ -150,21 +157,23 @@ class TestLastfmPlayImporterUnit:
         """Test daily chunking correctly resumes from checkpoint (critical business logic)."""
         # Arrange
         from_date = datetime(2024, 3, 1, tzinfo=UTC)
-        to_date = datetime(2024, 3, 5, tzinfo=UTC)
-        
+        datetime(2024, 3, 5, tzinfo=UTC)
+
         # Checkpoint shows last completed day was 2024-03-02
         checkpoint = SyncCheckpoint(
             user_id="test_user",
             service="lastfm",
             entity_type="plays",
             last_timestamp=datetime(2024, 3, 2, 23, 59, 59, tzinfo=UTC),
-            cursor="2024-03-02"
+            cursor="2024-03-02",
         )
 
         # Act - simulate the resumption logic from _fetch_date_range_strategy
         checkpoint_date = datetime.fromisoformat(checkpoint.cursor).date()
         resume_date = checkpoint_date + timedelta(days=1)  # Next day after checkpoint
-        start_date = max(resume_date, from_date.date())  # Don't go earlier than requested
+        start_date = max(
+            resume_date, from_date.date()
+        )  # Don't go earlier than requested
 
         # Assert
         expected_start = date(2024, 3, 3)  # Should resume from March 3rd
@@ -175,14 +184,14 @@ class TestLastfmPlayImporterUnit:
         # Arrange
         from_date = datetime(2024, 3, 1, tzinfo=UTC)
         to_date = datetime(2024, 3, 5, tzinfo=UTC)
-        
+
         # Checkpoint shows we're already past the end date
         checkpoint = SyncCheckpoint(
             user_id="test_user",
             service="lastfm",
-            entity_type="plays", 
+            entity_type="plays",
             last_timestamp=datetime(2024, 3, 10, 23, 59, 59, tzinfo=UTC),
-            cursor="2024-03-10"
+            cursor="2024-03-10",
         )
 
         # Act
@@ -194,7 +203,7 @@ class TestLastfmPlayImporterUnit:
         # Assert - should detect we're already caught up
         assert start_date > end_date
 
-    # CRITICAL PATH 4: Track Play Processing 
+    # CRITICAL PATH 4: Track Play Processing
     @pytest.mark.asyncio
     async def test_process_data_empty_input(self, lastfm_importer):
         """Test processing empty data returns empty list (boundary condition)."""
@@ -203,7 +212,7 @@ class TestLastfmPlayImporterUnit:
             raw_data=[],
             batch_id="test-batch",
             import_timestamp=datetime.now(UTC),
-            uow=Mock()
+            uow=Mock(),
         )
 
         # Assert
@@ -215,10 +224,10 @@ class TestLastfmPlayImporterUnit:
         # Arrange
         play_record = PlayRecord(
             track_name="Test Track",
-            artist_name="Test Artist", 
+            artist_name="Test Artist",
             played_at=datetime(2024, 1, 1, tzinfo=UTC),
             service="lastfm",
-            service_metadata={}
+            service_metadata={},
         )
 
         # Act & Assert
@@ -227,5 +236,5 @@ class TestLastfmPlayImporterUnit:
                 raw_data=[play_record],
                 batch_id="test-batch",
                 import_timestamp=datetime.now(UTC),
-                uow=None
+                uow=None,
             )

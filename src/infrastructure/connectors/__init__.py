@@ -23,7 +23,7 @@ from src.infrastructure.connectors.spotify import (
 logger = get_logger(__name__)
 
 # Connector registry cache
-_CONNECTORS: dict[str, ConnectorConfig] = {}
+_connectors: dict[str, ConnectorConfig] = {}
 
 
 def discover_connectors() -> dict[str, ConnectorConfig]:
@@ -36,11 +36,14 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
     Returns:
         dict[str, ConnectorConfig]: Dictionary mapping connector names to their configurations
     """
-    global _CONNECTORS
+    global _connectors, _CONNECTORS_CACHE, CONNECTORS
 
     # Return cached registry if already populated
-    if _CONNECTORS:
-        return _CONNECTORS
+    if _CONNECTORS_CACHE is not None:
+        return _CONNECTORS_CACHE
+
+    # Clear internal cache for fresh discovery
+    _connectors = {}
 
     # Get our own module for introspection
     module = sys.modules[__name__]
@@ -64,19 +67,27 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
             # Check if module implements connector interface
             if hasattr(connector_module, "get_connector_config"):
                 # Register the connector by name
-                _CONNECTORS[module_name] = connector_module.get_connector_config()
+                config = connector_module.get_connector_config()
+                _connectors[module_name] = config
                 logger.debug(f"Registered connector: {module_name}")
         except ImportError as e:
             logger.warning(f"Could not import connector module {module_name}: {e}")
 
     logger.info(
-        f"Discovered {len(_CONNECTORS)} connectors: {', '.join(_CONNECTORS.keys())}",
+        f"Discovered {len(_connectors)} connectors: {', '.join(_connectors.keys())}",
     )
-    return _CONNECTORS
+
+    # Cache the results for subsequent calls
+    _CONNECTORS_CACHE = _connectors.copy()  # pyright: ignore[reportConstantRedefinition]
+    CONNECTORS = _CONNECTORS_CACHE  # Legacy compatibility  # pyright: ignore[reportConstantRedefinition]
+    return _CONNECTORS_CACHE
 
 
-# Initialize connector registry at module load time
-CONNECTORS = discover_connectors()
+# Lazy-initialized connector registry (initialized on first access)
+_CONNECTORS_CACHE: dict[str, ConnectorConfig] | None = None
+
+# Legacy export - initialized by discover_connectors()
+CONNECTORS: dict[str, ConnectorConfig] | None = None
 
 
 # Define public API with explicit exports

@@ -30,7 +30,7 @@ class RetryWrapper:
         logger_instance: Any = None,
     ):
         """Initialize retry wrapper with configuration.
-        
+
         Args:
             retry_count: Max retry attempts per failed operation
             retry_base_delay: Starting delay between retries (seconds)
@@ -76,13 +76,14 @@ class RetryWrapper:
         func: Callable[..., Awaitable[R]],
     ) -> Callable[..., Awaitable[R]]:
         """Wrap async function with exponential backoff retry logic.
-        
+
         Args:
             func: Async function to wrap with retry logic
-            
+
         Returns:
             Wrapped function with exponential backoff retry behavior
         """
+
         @backoff.on_exception(
             backoff.expo,
             Exception,  # Catch all exceptions - can be customized for specific error types
@@ -96,12 +97,12 @@ class RetryWrapper:
         )
         async def wrapped(*args, **kwargs):
             return await func(*args, **kwargs)
-        
+
         return wrapped
 
     def create_retry_decorator(self):
         """Create a backoff decorator with this wrapper's configuration.
-        
+
         Returns:
             Configured backoff decorator for direct application to functions
         """

@@ -1,6 +1,5 @@
 """Tests for LastFM error classification and retry behavior."""
 
-
 import pylast
 import pytest
 
@@ -17,7 +16,7 @@ class TestLastFMErrorClassification:
     def test_classify_rate_limit_errors(self):
         """Test that rate limit errors are properly classified."""
         classifier = LastFMErrorClassifier()
-        
+
         # Test explicit error code 29
         error_29 = pylast.WSError("LastFm", "29", "Rate Limit Exceeded")
         error_type, code, desc = classifier.classify_error(error_29)
@@ -94,14 +93,14 @@ class TestLastFMErrorClassification:
 
         for message in not_found_cases:
             error = pylast.WSError("LastFm", "999", message)
-            error_type, code, desc = LastFMErrorClassifier().classify_error(error)
+            error_type, _code, desc = LastFMErrorClassifier().classify_error(error)
             assert error_type == "not_found", f"'{message}' should be not_found"
             assert desc == "Resource not found"
 
     def test_classify_unknown_errors(self):
         """Test that unknown errors are classified as such."""
         unknown_error = pylast.WSError("LastFm", "999", "Some unknown error")
-        error_type, code, desc = LastFMErrorClassifier().classify_error(unknown_error)
+        error_type, code, _desc = LastFMErrorClassifier().classify_error(unknown_error)
         assert error_type == "unknown"
         assert code == "N/A"
 
@@ -117,7 +116,7 @@ class TestLastFMErrorClassification:
         """Test giveup decisions based on error classification."""
         classifier = LastFMErrorClassifier()
         should_giveup = should_giveup_on_error(classifier)
-        
+
         # Should give up on permanent errors
         permanent_error = pylast.WSError("LastFm", "10", "Invalid API key")
         assert should_giveup(permanent_error) is True
@@ -142,7 +141,7 @@ class TestLastFMErrorClassification:
         """Test that enhanced giveup handler processes error details correctly."""
         classifier = LastFMErrorClassifier()
         giveup_handler = create_giveup_handler(classifier, "lastfm")
-        
+
         # We can't easily test the structured logging in unit tests, but we can test
         # that the handler processes the error classification correctly
         permanent_error = pylast.WSError("LastFm", "10", "Invalid API key")
@@ -159,7 +158,7 @@ class TestLastFMErrorClassification:
             assert True
         except Exception as e:
             pytest.fail(f"Enhanced giveup handler failed: {e}")
-            
+
         # Verify the error classification is working correctly
         error_type, error_code, error_desc = classifier.classify_error(permanent_error)
         assert error_type == "permanent"
@@ -174,12 +173,12 @@ class TestLastFMErrorRetryIntegration:
         """Test that rate limit errors never give up."""
         classifier = LastFMErrorClassifier()
         should_giveup = should_giveup_on_error(classifier)
-        
+
         rate_limit_error = pylast.WSError("LastFm", "29", "Rate Limit Exceeded")
-        
+
         # Should never give up regardless of how many tries
         assert should_giveup(rate_limit_error) is False
-        
+
         # Error should be classified for constant delay retry
         error_type, _, _ = classifier.classify_error(rate_limit_error)
         assert error_type == "rate_limit"
@@ -188,7 +187,7 @@ class TestLastFMErrorRetryIntegration:
         """Test that permanent errors give up without retrying."""
         classifier = LastFMErrorClassifier()
         should_giveup = should_giveup_on_error(classifier)
-        
+
         permanent_errors = [
             pylast.WSError("LastFm", "10", "Invalid API key"),
             pylast.WSError("LastFm", "4", "Authentication Failed"),
@@ -198,7 +197,7 @@ class TestLastFMErrorRetryIntegration:
         for error in permanent_errors:
             # Should give up immediately
             assert should_giveup(error) is True
-            
+
             # Should be classified as permanent
             error_type, _, _ = classifier.classify_error(error)
             assert error_type == "permanent"
@@ -207,16 +206,16 @@ class TestLastFMErrorRetryIntegration:
         """Test error handling during field extraction."""
         classifier = LastFMErrorClassifier()
         should_giveup = should_giveup_on_error(classifier)
-        
+
         # This would be tested in integration with the actual from_pylast_track method
         # For now, verify that the error classification works for field extraction scenarios
-        
+
         # Field not available (should continue with other fields)
         field_not_found = pylast.WSError("LastFm", "999", "track not found")
         error_type, _, _ = classifier.classify_error(field_not_found)
         assert error_type == "not_found"
         assert should_giveup(field_not_found) is False  # Continue with other fields
-        
+
         # Rate limit during field extraction (should retry)
         field_rate_limit = pylast.WSError("LastFm", "29", "Rate Limit Exceeded")
         error_type, _, _ = classifier.classify_error(field_rate_limit)

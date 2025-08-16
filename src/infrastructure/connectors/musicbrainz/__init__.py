@@ -6,6 +6,7 @@ Components:
 - MusicBrainzAPIClient: Pure API wrapper with rate limiting (1 req/sec)
 - MusicBrainzConnector: Main facade implementing connector protocols
 - Conversion utilities: ISRC normalization and metadata extraction
+- MusicBrainzProvider: Track matching provider for identity resolution
 
 Usage:
     from src.infrastructure.connectors.musicbrainz import MusicBrainzConnector
@@ -17,8 +18,12 @@ from src.infrastructure.connectors.musicbrainz.connector import (
     MusicBrainzConnector,
     get_connector_config,
 )
+from src.infrastructure.connectors.musicbrainz.matching_provider import (
+    MusicBrainzProvider,
+)
 
 __all__ = [
     "MusicBrainzConnector",
+    "MusicBrainzProvider",
     "get_connector_config",
 ]

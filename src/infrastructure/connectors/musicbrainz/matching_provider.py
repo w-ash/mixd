@@ -14,8 +14,8 @@ from src.domain.matching.types import (
     RawProviderMatch,
 )
 from src.infrastructure.connectors._shared.api_batch_processor import APIBatchProcessor
-from src.infrastructure.matching_providers.failure_logging import log_failure_summary
-from src.infrastructure.matching_providers.failure_utils import (
+from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
+from src.infrastructure.connectors._shared.failure_utils import (
     create_and_log_failure,
     handle_track_processing_failure,
     merge_results,

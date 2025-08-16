@@ -207,7 +207,7 @@ class TestGetPlayedTracksUseCase:
 
         # Should filter to only spotify plays (track_ids 1 and 3)
         track_repo = mock_uow.get_track_repository.return_value
-        requested_track_ids = track_repo.find_tracks_by_ids.call_args[0][0]
+        track_repo.find_tracks_by_ids.call_args[0][0]
 
         # The exact filtering logic may vary, but we should see filtering effect
         assert result_with_filter.tracklist.metadata["connector_filter"] == "spotify"
@@ -222,7 +222,7 @@ class TestGetPlayedTracksUseCase:
         command = GetPlayedTracksCommand(limit=5)
         use_case = GetPlayedTracksUseCase()
 
-        result = await use_case.execute(command, mock_uow)
+        await use_case.execute(command, mock_uow)
 
         # Track IDs should be limited
         track_repo = mock_uow.get_track_repository.return_value
@@ -281,7 +281,7 @@ class TestGetPlayedTracksUseCase:
         command = GetPlayedTracksCommand()
         use_case = GetPlayedTracksUseCase()
 
-        result = await use_case.execute(command, mock_uow)
+        await use_case.execute(command, mock_uow)
 
         # Should only request tracks for valid track_ids (1, 2)
         track_repo = mock_uow.get_track_repository.return_value

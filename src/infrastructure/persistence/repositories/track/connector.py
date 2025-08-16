@@ -389,7 +389,7 @@ class TrackConnectorRepository:
         if mapping_data:
             await self.mapping_repo.bulk_upsert(
                 mapping_data,
-                lookup_keys=["track_id", "connector_track_id"],
+                lookup_keys=["connector_track_id", "connector_name"],
                 return_models=False,
             )
 
@@ -551,6 +551,7 @@ class TrackConnectorRepository:
                     track_mappings_data.append({
                         "track_id": domain_track.id,
                         "connector_track_id": connector_track_id,
+                        "connector_name": connector,
                         "match_method": "direct",
                         "confidence": 100,
                         "is_primary": True,  # Direct ingestion mappings are primary (no conflicts expected)
@@ -564,7 +565,7 @@ class TrackConnectorRepository:
         if track_mappings_data:
             await self.mapping_repo.bulk_upsert(
                 track_mappings_data,
-                lookup_keys=["track_id", "connector_track_id"],
+                lookup_keys=["connector_track_id", "connector_name"],
                 return_models=False,
             )
 
@@ -573,104 +574,6 @@ class TrackConnectorRepository:
         # Metrics extraction is handled at the application layer
 
         return domain_tracks
-
-    @db_operation("ingest_external_track")
-    async def ingest_external_track(
-        self,
-        connector: str,
-        connector_id: str,
-        metadata: dict | None,
-        title: str,
-        artists: list[str],
-        album: str | None = None,
-        duration_ms: int | None = None,
-        release_date: datetime | None = None,
-        isrc: str | None = None,
-        added_at: str | None = None,
-    ) -> Track | None:
-        """Import a single track from an external music service.
-
-        Convenience method that uses the bulk ingestion logic internally.
-
-        Args:
-            connector: Service name (e.g., "spotify", "lastfm").
-            connector_id: Track ID in the external service.
-            metadata: Raw metadata from the external service API.
-            title: Track title.
-            artists: List of artist names.
-            album: Album name.
-            duration_ms: Track length in milliseconds.
-            release_date: When the track was released.
-            isrc: International Standard Recording Code.
-            added_at: When track was added to a playlist.
-
-        Returns:
-            Internal Track object created or updated.
-        """
-        # Ensure we have a metadata dictionary
-        actual_metadata = metadata or {}
-
-        # Add the added_at timestamp to metadata if provided
-        if added_at and "added_at" not in actual_metadata:
-            actual_metadata["added_at"] = added_at
-
-        # Convert parameters to a ConnectorTrack
-        connector_track = ConnectorTrack(
-            connector_name=connector,
-            connector_track_id=connector_id,
-            title=title,
-            artists=[Artist(name=name) for name in artists] if artists else [],
-            album=album,
-            duration_ms=duration_ms,
-            release_date=release_date,
-            isrc=isrc,
-            raw_metadata=actual_metadata,
-        )
-
-        # Call the bulk method with a list of one item
-        tracks = await self.ingest_external_tracks_bulk(connector, [connector_track])
-        if not tracks:
-            logger.warning(f"Failed to ingest track {connector}:{connector_id}")
-            return None
-        return tracks[0]
-
-    @db_operation("create_track_from_connector_data")
-    async def create_track_from_connector_data(
-        self, track: Track, connector: str
-    ) -> Track | None:
-        """Create an internal track using data from an external service.
-
-        Convenience method that uses the ingestion logic internally.
-        """
-        if not track.title or not track.artists:
-            raise ValueError("Track must have title and artists")
-
-        if connector not in track.connector_track_ids:
-            raise ValueError(f"Track doesn't have an ID for connector {connector}")
-
-        # Use the ingest method to avoid duplicating logic
-        connector_id = track.connector_track_ids[connector]
-        metadata = (
-            track.connector_metadata.get(connector, {})
-            if hasattr(track, "connector_metadata")
-            else {}
-        )
-
-        # Extract added_at from metadata if present
-        added_at = metadata.get("added_at")
-
-        return await self.ingest_external_track(
-            connector=connector,
-            connector_id=connector_id,
-            metadata=metadata,
-            title=track.title,
-            artists=[a.name for a in track.artists] if track.artists else [],
-            album=track.album,
-            duration_ms=track.duration_ms,
-            release_date=track.release_date,
-            isrc=track.isrc,
-            added_at=added_at,
-        )
 
     @db_operation("get_connector_mappings")
     async def get_connector_mappings(
@@ -774,102 +677,6 @@ class TrackConnectorRepository:
             }
         else:
             return {track_id: metadata for track_id, metadata in result if metadata}
-
-    @db_operation("get_connector_metadata_with_timestamps")
-    async def get_connector_metadata_with_timestamps(
-        self,
-        track_ids: list[int],
-        connector: str,
-    ) -> dict[int, dict[str, Any]]:
-        """Get service metadata for tracks with last update timestamps."""
-        if not track_ids:
-            return {}
-
-        # Build efficient join query including last_updated
-        stmt = (
-            select(
-                self.mapping_repo.model_class.track_id,
-                self.connector_repo.model_class.raw_metadata,
-                self.connector_repo.model_class.last_updated,
-            )
-            .join(
-                self.connector_repo.model_class,
-                self.mapping_repo.model_class.connector_track_id
-                == self.connector_repo.model_class.id,
-            )
-            .where(
-                self.mapping_repo.model_class.track_id.in_(track_ids),
-                self.connector_repo.model_class.connector_name == connector,
-                self.mapping_repo.model_class.is_deleted == False,  # noqa: E712
-                self.connector_repo.model_class.is_deleted == False,  # noqa: E712
-            )
-        )
-
-        # Execute and build response
-        result = await self.session.execute(stmt)
-
-        response = {}
-        for track_id, metadata, last_updated in result:
-            if metadata:
-                response[track_id] = {"data": metadata, "last_updated": last_updated}
-        return response
-
-    @db_operation("save_mapping_confidence")
-    async def save_mapping_confidence(
-        self,
-        track_id: int,
-        connector: str,
-        connector_id: str,
-        confidence: int,
-        match_method: str | None = None,
-        confidence_evidence: dict | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> bool:
-        """Update confidence score for track-to-service mapping."""
-        # Find the connector track first
-        connector_track = await self.connector_repo.find_one_by({
-            "connector_name": connector,
-            "connector_track_id": connector_id,
-        })
-
-        if not connector_track or "id" not in connector_track:
-            return False
-
-        # Update connector track metadata if provided
-        if metadata is not None:
-            try:
-                from datetime import UTC, datetime
-
-                # Update the connector track with fresh metadata and timestamp
-                await self.connector_repo.update(
-                    connector_track["id"],
-                    {
-                        "raw_metadata": metadata,
-                        "last_updated": datetime.now(UTC),
-                    },
-                )
-            except Exception as e:
-                logger.warning(f"Failed to update connector track metadata: {e}")
-                # Don't fail the entire operation if metadata update fails
-
-        # Update mapping using upsert
-        update_data: dict[str, Any] = {"confidence": confidence, "is_primary": True}
-        if match_method:
-            update_data["match_method"] = match_method
-        if confidence_evidence:
-            update_data["confidence_evidence"] = confidence_evidence
-
-        try:
-            await self.mapping_repo.upsert(
-                lookup_attrs={
-                    "track_id": track_id,
-                    "connector_track_id": connector_track["id"],
-                },
-                create_attrs=update_data,
-            )
-            return True
-        except ValueError:
-            return False
 
     @db_operation("get_metadata_timestamps")
     async def get_metadata_timestamps(

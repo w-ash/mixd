@@ -30,7 +30,7 @@ logger = get_logger(__name__).bind(service="musicbrainz_client")
 # Configure MusicBrainz client globally
 pkg_meta = metadata("narada")
 app_name = pkg_meta.get("Name", "Narada")
-app_version = pkg_meta.get("Version", "0.1.0") 
+app_version = pkg_meta.get("Version", "0.1.0")
 app_url = pkg_meta.get("Home-page", "https://github.com/user/narada")
 musicbrainzngs.set_useragent(app_name, app_version, app_url)
 
@@ -38,7 +38,7 @@ musicbrainzngs.set_useragent(app_name, app_version, app_url)
 @define(slots=True)
 class MusicBrainzAPIClient:
     """Pure MusicBrainz API client with rate limiting.
-    
+
     Provides thin wrapper around musicbrainzngs with proper rate limiting
     and individual API method calls. No business logic or complex orchestration.
     """
@@ -115,7 +115,7 @@ class MusicBrainzAPIClient:
             # Enforce 1-second minimum interval between requests
             current_time = time.time()
             time_since_last = current_time - self._last_request_time
-            
+
             if time_since_last < 1.0:
                 sleep_time = 1.0 - time_since_last
                 logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")

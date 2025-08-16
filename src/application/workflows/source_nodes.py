@@ -10,6 +10,9 @@ All functions return standardized track data for playlist creation and analysis.
 
 from typing import Any
 
+from src.application.services.connector_playlist_sync_service import (
+    ConnectorPlaylistSyncService,
+)
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
 )
@@ -28,7 +31,7 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
 )
 from src.config import get_logger
-from src.domain.entities.track import ConnectorTrack, Track, TrackList
+from src.domain.entities.track import TrackList
 
 from .node_context import NodeContext
 
@@ -112,11 +115,20 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
         # Connector-based playlist with upsert logic
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
-        # Get connector instance
-        connector_instance = ctx.get_connector(connector)
-
-        # Step 1: Fetch playlist from connector using generic method
-        connector_playlist = await connector_instance.get_playlist(playlist_id)
+        # Step 1: Sync connector playlist (fetch + store in database)
+        # Use the session provider to get UnitOfWork for the sync service
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+        
+        sync_service = ConnectorPlaylistSyncService()
+        session = workflow_context.session_provider.get_session()
+        
+        async with session as db_session:
+            uow = get_unit_of_work(db_session)
+            connector_playlist = await sync_service.sync_connector_playlist(
+                connector, playlist_id, uow
+            )
 
         if not connector_playlist or not connector_playlist.items:
             logger.warning(f"Playlist empty or not found: {playlist_id}")
@@ -132,27 +144,7 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
                 "track_count": 0,
             }
 
-        # Step 2: Get tracks with bulk operations
-        track_ids = connector_playlist.track_ids
-        logger.info(f"Fetching {len(track_ids)} tracks in bulk from {connector}")
-
-        track_data_map = await connector_instance.get_tracks_by_ids(track_ids)
-
-        # Step 3: Convert to domain models using polymorphic conversion
-        domain_tracks = []
-        for track_data in track_data_map.values():
-            # Use polymorphic conversion method from connector
-            connector_track = connector_instance.convert_track_to_connector(track_data)
-            domain_track = _convert_connector_track_to_domain(connector_track)
-            domain_tracks.append(domain_track)
-
-        logger.info(f"Retrieved {len(domain_tracks)}/{len(track_ids)} tracks in bulk")
-
-        # Create tracklist for use case
-        tracklist = TrackList(tracks=domain_tracks)
-
-        # Step 4: Check if local playlist already exists for this service playlist
-        # Read from database to avoid duplicates
+        # Step 2: Check if local playlist already exists for this service playlist
         existing_playlist = None
 
         try:
@@ -172,6 +164,25 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
                 f"No existing playlist found for {connector}:{playlist_id}: {e}"
             )
             existing_playlist = None
+
+        # Step 3: Create ConnectorPlaylist-aware TrackList that preserves playlist structure
+        # This delegates to the use case layer for proper track processing
+
+        logger.info(
+            f"Processing ConnectorPlaylist with {len(connector_playlist.items)} items from {connector}"
+        )
+
+        # Create a TrackList that includes playlist item metadata for the use case layer
+        tracklist = TrackList(
+            tracks=[],  # Will be populated by use case
+            metadata={
+                "connector_playlist": connector_playlist,
+                "preserve_duplicates": True,
+                "include_playlist_metadata": True,
+            },
+        )
+
+        # Step 6: Process playlist (update existing or create new)
 
         if existing_playlist:
             # Update existing canonical playlist
@@ -269,34 +280,6 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
             }
 
 
-def _convert_connector_track_to_domain(connector_track: ConnectorTrack) -> Track:
-    """Convert service-specific track to standardized Track format.
-
-    Args:
-        connector_track: Track data from music service.
-
-    Returns:
-        Track with service metadata preserved in connector_metadata field.
-    """
-    return Track(
-        title=connector_track.title,
-        artists=connector_track.artists,
-        album=connector_track.album,
-        duration_ms=connector_track.duration_ms,
-        release_date=connector_track.release_date,
-        isrc=connector_track.isrc,
-        connector_track_ids={
-            connector_track.connector_name: connector_track.connector_track_id
-        },
-        connector_metadata={
-            connector_track.connector_name: {
-                "popularity": getattr(connector_track, "popularity", None),
-                "preview_url": getattr(connector_track, "preview_url", None),
-            }
-        },
-    )
-
-
 # === User Music Library Access ===
 
 
@@ -337,9 +320,7 @@ async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
 
     # Execute business logic in use case
     use_case = GetLikedTracksUseCase()
-    result = await workflow_context.execute_use_case(
-        lambda: use_case, command
-    )
+    result = await workflow_context.execute_use_case(lambda: use_case, command)
 
     # Return standardized result for workflow composition
     return {
@@ -392,9 +373,7 @@ async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
 
     # Execute business logic in use case
     use_case = GetPlayedTracksUseCase()
-    result = await workflow_context.execute_use_case(
-        lambda: use_case, command
-    )
+    result = await workflow_context.execute_use_case(lambda: use_case, command)
 
     # Return standardized result for workflow composition
     return {

@@ -5,7 +5,7 @@ plus common protocols used by batch processing systems.
 
 For actual batch processing, use the specialized processors:
 - APIBatchProcessor: External API operations with rate limiting
-- DatabaseBatchProcessor: Database operations with transaction safety  
+- DatabaseBatchProcessor: Database operations with transaction safety
 - ImportBatchProcessor: File/import operations with memory management
 - SimpleBatchProcessor: Basic chunking operations
 """
@@ -99,8 +99,8 @@ class BatchResult:
 
 
 # BatchProcessor classes have been separated by use case:
-# 
+#
 # APIBatchProcessor: External API operations with rate limiting
-# DatabaseBatchProcessor: Database operations with transaction safety  
+# DatabaseBatchProcessor: Database operations with transaction safety
 # ImportBatchProcessor: File/import operations with memory management
 # SimpleBatchProcessor: Basic chunking operations

@@ -6,7 +6,7 @@ are used across the Spotify connector architecture.
 
 Key components:
 - Track conversion: Spotify API track data → ConnectorTrack domain models
-- Playlist conversion: Spotify API playlist data → ConnectorPlaylist domain models  
+- Playlist conversion: Spotify API playlist data → ConnectorPlaylist domain models
 - Helper utilities: URI extraction, validation, data processing
 
 The conversion functions are stateless and can be used independently across
@@ -105,18 +105,17 @@ def convert_spotify_playlist_to_connector(
     # Extract owner information with fallback handling
     owner = None
     owner_id = None
-    
+
     if "owner" in spotify_playlist:
-        owner = (
-            spotify_playlist["owner"].get("display_name") 
-            or spotify_playlist["owner"].get("id")
-        )
+        owner = spotify_playlist["owner"].get("display_name") or spotify_playlist[
+            "owner"
+        ].get("id")
         owner_id = spotify_playlist["owner"].get("id")
 
     # Extract playlist metadata
     collaborative = spotify_playlist.get("collaborative", False)
     is_public = spotify_playlist.get("public", False)
-    
+
     # Extract follower count
     follower_count = None
     if "followers" in spotify_playlist:
@@ -149,20 +148,22 @@ def parse_spotify_timestamp(timestamp_str: str) -> datetime | None:
     """Parse Spotify timestamp to datetime, or None if invalid."""
     if not timestamp_str:
         return None
-        
+
     try:
         # Spotify timestamp format: "2023-09-21T15:48:56Z"
         return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
     except ValueError as e:
-        logger.warning(f"Could not parse Spotify timestamp: {timestamp_str}, error: {e}")
+        logger.warning(
+            f"Could not parse Spotify timestamp: {timestamp_str}, error: {e}"
+        )
         return None
 
 
-def extract_track_metadata_for_playlist_item(spotify_track: dict[str, Any]) -> dict[str, Any]:
+def extract_track_metadata_for_playlist_item(
+    spotify_track: dict[str, Any],
+) -> dict[str, Any]:
     """Extract minimal track metadata for playlist item storage."""
     return {
         "track_name": spotify_track.get("name"),
         "artist_names": [a["name"] for a in spotify_track.get("artists", [])],
     }
-
-

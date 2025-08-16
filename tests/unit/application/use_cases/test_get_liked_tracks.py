@@ -172,7 +172,7 @@ class TestGetLikedTracksUseCase:
         command = GetLikedTracksCommand(limit=5)
         use_case = GetLikedTracksUseCase()
 
-        result = await use_case.execute(command, mock_uow)
+        await use_case.execute(command, mock_uow)
 
         # Should only request 5 tracks from track repository
         track_repo = mock_uow.get_track_repository.return_value

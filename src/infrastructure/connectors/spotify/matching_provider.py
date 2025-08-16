@@ -14,8 +14,8 @@ from src.domain.matching.types import (
     RawProviderMatch,
 )
 from src.infrastructure.connectors._shared.api_batch_processor import APIBatchProcessor
-from src.infrastructure.matching_providers.failure_logging import log_failure_summary
-from src.infrastructure.matching_providers.failure_utils import (
+from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
+from src.infrastructure.connectors._shared.failure_utils import (
     create_and_log_failure,
     handle_track_processing_failure,
     merge_results,
@@ -35,7 +35,7 @@ class SpotifyProvider:
             connector_instance: Spotify service connector for API calls.
         """
         self.connector_instance = connector_instance
-        
+
         # Create APIBatchProcessor with Spotify settings
         self._batch_processor = APIBatchProcessor[Track, dict[int, RawProviderMatch]](
             batch_size=settings.api.spotify_batch_size,
@@ -78,8 +78,10 @@ class SpotifyProvider:
         with logger.contextualize(operation="match_spotify", track_count=len(tracks)):
             # Group tracks by matching method for processing efficiency
             isrc_tracks = [t for t in tracks if t.isrc]
-            artist_title_tracks = [t for t in tracks if not t.isrc and t.artists and t.title]
-            
+            artist_title_tracks = [
+                t for t in tracks if not t.isrc and t.artists and t.title
+            ]
+
             # Handle unprocessable tracks
             unprocessable_failures = [
                 create_and_log_failure(
@@ -89,71 +91,91 @@ class SpotifyProvider:
                     method="unknown",
                     details="Track missing artist or title data",
                 )
-                for t in tracks 
+                for t in tracks
                 if t.id and not t.isrc and (not t.artists or not t.title)
             ]
 
             # Process tracks by method and merge results
-            isrc_result = await self._process_tracks_by_method(isrc_tracks, "isrc") if isrc_tracks else ProviderMatchResult()
-            remaining_tracks = [t for t in artist_title_tracks if t.id not in isrc_result.matches]
-            artist_result = await self._process_tracks_by_method(remaining_tracks, "artist_title") if remaining_tracks else ProviderMatchResult()
-            
+            isrc_result = (
+                await self._process_tracks_by_method(isrc_tracks, "isrc")
+                if isrc_tracks
+                else ProviderMatchResult()
+            )
+            remaining_tracks = [
+                t for t in artist_title_tracks if t.id not in isrc_result.matches
+            ]
+            artist_result = (
+                await self._process_tracks_by_method(remaining_tracks, "artist_title")
+                if remaining_tracks
+                else ProviderMatchResult()
+            )
+
             # Merge all results
             final_result = merge_results(
                 isrc_result,
                 artist_result,
-                ProviderMatchResult(failures=unprocessable_failures)
+                ProviderMatchResult(failures=unprocessable_failures),
             )
-            
+
             # Log summary
-            log_failure_summary(self.service_name, len(final_result.matches), len(final_result.failures))
-            logger.info(f"Found {len(final_result.matches)} matches from {len(tracks)} tracks")
-            
+            log_failure_summary(
+                self.service_name, len(final_result.matches), len(final_result.failures)
+            )
+            logger.info(
+                f"Found {len(final_result.matches)} matches from {len(tracks)} tracks"
+            )
+
             return final_result
 
-    async def _process_tracks_by_method(self, tracks: list[Track], method: str) -> ProviderMatchResult:
+    async def _process_tracks_by_method(
+        self, tracks: list[Track], method: str
+    ) -> ProviderMatchResult:
         """Process tracks using specified method with structured failure handling."""
         logger.info(f"Processing {len(tracks)} tracks with {method}")
-        
+
         matches = {}
         failures = []
-        
+
         # Define method-specific validators and connectors
         validators = {
             "isrc": lambda t: bool(t.isrc),
             "artist_title": lambda t: bool(t.artists and t.title),
         }
-        
+
         api_calls = {
             "isrc": lambda t: self.connector_instance.search_by_isrc(t.isrc),
             "artist_title": lambda t: self.connector_instance.search_track(
                 t.artists[0].name if t.artists else "", t.title
             ),
         }
-        
+
         failure_reasons = {
             "isrc": MatchFailureReason.NO_ISRC,
             "artist_title": MatchFailureReason.NO_METADATA,
         }
-        
+
         failure_messages = {
             "isrc": "Track missing ISRC code",
             "artist_title": "Track missing artist or title data",
         }
-        
+
         for track in tracks:
             if not track.id:
                 continue
-                
+
             # Validate track for method
             validation_failure = validate_track_for_method(
-                track, method, self.service_name, validators[method],
-                failure_reasons[method], failure_messages[method]
+                track,
+                method,
+                self.service_name,
+                validators[method],
+                failure_reasons[method],
+                failure_messages[method],
             )
             if validation_failure:
                 failures.append(validation_failure)
                 continue
-                
+
             # Attempt API call
             try:
                 result = await api_calls[method](track)
@@ -162,20 +184,38 @@ class SpotifyProvider:
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
-                        failures.append(create_and_log_failure(
-                            track.id, MatchFailureReason.INVALID_RESPONSE, self.service_name,
-                            method, "Failed to create raw match from Spotify response"
-                        ))
+                        failures.append(
+                            create_and_log_failure(
+                                track.id,
+                                MatchFailureReason.INVALID_RESPONSE,
+                                self.service_name,
+                                method,
+                                "Failed to create raw match from Spotify response",
+                            )
+                        )
                 else:
-                    details = f"No Spotify results for ISRC: {track.isrc}" if method == "isrc" else \
-                             f"No Spotify results for '{track.artists[0].name if track.artists else ''} - {track.title}'"
-                    failures.append(create_and_log_failure(
-                        track.id, MatchFailureReason.NO_RESULTS, self.service_name, method, details
-                    ))
-                    
+                    details = (
+                        f"No Spotify results for ISRC: {track.isrc}"
+                        if method == "isrc"
+                        else f"No Spotify results for '{track.artists[0].name if track.artists else ''} - {track.title}'"
+                    )
+                    failures.append(
+                        create_and_log_failure(
+                            track.id,
+                            MatchFailureReason.NO_RESULTS,
+                            self.service_name,
+                            method,
+                            details,
+                        )
+                    )
+
             except Exception as e:
-                failures.append(handle_track_processing_failure(track.id, self.service_name, method, e))
-                
+                failures.append(
+                    handle_track_processing_failure(
+                        track.id, self.service_name, method, e
+                    )
+                )
+
         return ProviderMatchResult(matches=matches, failures=failures)
 
     def _create_raw_match(

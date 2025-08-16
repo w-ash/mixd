@@ -1,12 +1,12 @@
 """Core track repository implementation for basic track operations."""
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.domain.entities import Artist, Track
+from src.domain.entities import Track
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -42,18 +42,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         """Create select statement with standard relations loaded."""
         return self.with_default_relationships(self.select())
 
-    def select_by_id_type(self, id_type: str, id_value: str) -> Select:
-        """Build a query to fetch tracks by a specific ID type."""
-        # Direct attribute lookup for known ID types
-        if id_type in self._TRACK_ID_TYPES:
-            column_name = self._TRACK_ID_TYPES[id_type]
-            return self.select_with_relations().where(
-                getattr(self.model_class, column_name) == id_value,
-            )
-
-        # Return empty result for unsupported ID types
-        return self.select().where(self.model_class.id == -1)
-
     # -------------------------------------------------------------------------
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
@@ -73,21 +61,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not track:
             raise ValueError(f"Track with {id_type}={id_value} not found")
         return track
-
-    @db_operation("find_track")
-    async def find_track(self, id_type: str, id_value: str) -> Track | None:
-        """Find track by identifier, returning None if not found."""
-        if id_type not in self._TRACK_ID_TYPES:
-            return None
-
-        if id_type == "internal":
-            try:
-                return await self.get_by_id(int(id_value))
-            except ValueError:
-                return None
-
-        # Use find_one_by for other ID types
-        return await self.find_one_by({self._TRACK_ID_TYPES[id_type]: id_value})
 
     @db_operation("find_tracks_by_ids")
     async def find_tracks_by_ids(self, track_ids: list[int]) -> dict[int, Track]:
@@ -164,53 +137,5 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             await self.session.refresh(db_track)
 
         # Map back to domain model - the to_domain method has been updated to use AsyncAttrs safely
-        return await TrackMapper.to_domain(db_track, self.session)
+        return await TrackMapper.to_domain_with_session(db_track, self.session)
 
-    @db_operation("get_or_create")
-    async def get_or_create(
-        self,
-        lookup_attrs: dict[str, Any],
-        create_attrs: dict[str, Any] | None = None,
-    ) -> tuple[Track, bool]:
-        """Find a track by attributes or create it if it doesn't exist."""
-        # Try to find using lookup attributes
-        conditions = [
-            getattr(self.model_class, k) == v
-            for k, v in lookup_attrs.items()
-            if hasattr(self.model_class, k)
-        ]
-
-        existing = await self.find_one_by(conditions)
-        if existing:
-            return existing, False
-
-        # Prepare combined attributes
-        all_attrs = {**lookup_attrs}
-        if create_attrs:
-            all_attrs.update(create_attrs)
-
-        # Process artists data
-        artists = []
-        for artist_data in all_attrs.get("artists", []):
-            if isinstance(artist_data, str):
-                artists.append(Artist(name=artist_data))
-            elif isinstance(artist_data, Artist):
-                artists.append(artist_data)
-            elif isinstance(artist_data, dict) and "name" in artist_data:
-                artists.append(Artist(name=artist_data["name"]))
-
-        # Create track object
-        track = Track(
-            title=all_attrs.get("title", ""),
-            artists=artists or [Artist(name="")] if all_attrs.get("title") else [],
-            album=all_attrs.get("album"),
-            duration_ms=all_attrs.get("duration_ms"),
-            release_date=all_attrs.get("release_date"),
-            isrc=all_attrs.get("isrc"),
-            connector_track_ids=all_attrs.get("connector_track_ids", {}),
-            connector_metadata=all_attrs.get("connector_metadata", {}),
-        )
-
-        # Create and return
-        created_track = await self.create(track)
-        return created_track, True

@@ -17,8 +17,6 @@ swapped without requiring changes to dependent code.
 from collections.abc import Callable
 from typing import Any, Protocol, TypedDict, runtime_checkable
 
-# Metric freshness is now defined in metrics_registry.py
-
 
 class ConnectorConfig(TypedDict):
     """Type definition for connector configuration.
@@ -27,14 +25,12 @@ class ConnectorConfig(TypedDict):
     structure across all connector implementations.
 
     Attributes:
-        extractors: Mapping of metric names to extractor functions
         factory: Factory function to create connector instance
         dependencies: Optional list of connector dependencies
         metrics: Optional mapping of metric names to connector metadata fields
     """
 
     # Required fields
-    extractors: dict[str, Callable[[Any], Any]]
     factory: Callable[[dict[str, Any]], Any]
 
     # Optional fields (marked using NotRequired)
@@ -42,7 +38,38 @@ class ConnectorConfig(TypedDict):
     metrics: dict[str, str]
 
 
-# MetricResolverProtocol is now defined in metrics_registry.py
+@runtime_checkable
+class TrackMetadataConnector(Protocol):
+    """Protocol defining interface for connectors that can fetch complete external track data.
+
+    Provides a unified interface for all connectors to retrieve complete track records from
+    external services, eliminating the inconsistency between different connector methods
+    (e.g., Spotify's get_tracks_by_ids vs Last.fm's batch_get_track_info). All implementations
+    work with Track domain objects and return complete service data keyed by track.id.
+
+    This protocol follows DDD principles by using domain entities (Track) rather than
+    primitive types (external service IDs) in the interface.
+    """
+
+    async def get_external_track_data(
+        self, tracks: list["Track"]
+    ) -> dict[int, dict[str, Any]]:
+        """Retrieve complete track data from the external service for multiple tracks.
+
+        Args:
+            tracks: List of Track domain objects with IDs and connector mappings.
+                   Each track should have connector_track_ids populated for this service.
+
+        Returns:
+            Dictionary mapping track.id to complete service track data dict containing
+            all available fields from the external service (e.g., Spotify track object,
+            Last.fm track info). Only tracks with successful data retrieval are included
+            in the result.
+
+        Raises:
+            Exception: Service-specific errors (network, authentication, rate limits)
+        """
+        ...
 
 
 @runtime_checkable

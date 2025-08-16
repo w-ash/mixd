@@ -279,16 +279,38 @@ Declarative transformation pipelines.
 ### Track Resolution Engine
 
 **Challenge**: Music services use inconsistent track identifiers
-**Solution**: Multi-stage resolution with confidence scoring
+**Solution**: Multi-stage resolution with pluggable matching providers
 
 ```
-Stage 1: Deterministic ID Matching (Spotify ID → ISRC → MusicBrainz ID)
-Stage 2: Metadata Similarity Matching (Artist/Title fuzzy matching)
-Stage 3: Graceful Degradation (Preserve all data, even unmatched)
+Stage 1: Provider-Based Matching (Service-specific matching via MatchProvider protocol)
+Stage 2: Metadata Similarity Matching (Artist/Title fuzzy matching with rapidfuzz)
+Stage 3: Confidence Scoring (Domain layer evaluates match quality)
+Stage 4: Graceful Degradation (Preserve all data, even unmatched)
+```
+
+#### Matching Provider Architecture
+
+The track resolution system uses a pluggable provider architecture:
+
+```python
+# Shared provider protocol
+class MatchProvider(Protocol):
+    async def fetch_raw_matches_for_tracks(
+        self, tracks: list[Any], **options
+    ) -> ProviderMatchResult: ...
+    
+    @property
+    def service_name(self) -> str: ...
+
+# Service-specific implementations
+# - src/infrastructure/connectors/spotify/matching_provider.py
+# - src/infrastructure/connectors/lastfm/matching_provider.py  
+# - src/infrastructure/connectors/musicbrainz/matching_provider.py
 ```
 
 **Benefits**: 
 - 90% exact match rate with deterministic IDs
+- Pluggable service-specific matching strategies
 - Handles real-world data inconsistencies
 - Preserves complete data for manual review
 
@@ -659,7 +681,7 @@ Narada follows modern clean architecture principles with strict adherence to dep
 **Principle**: When modernizing architecture, make clean breaks rather than maintaining compatibility layers.
 
 **Implementation**:
-- ✅ **Deleted adapter classes completely** (`AdapterRepositoryProvider`, `WorkflowConnectorAdapter`)
+- ✅ **Eliminated adapter pattern completely** - direct connector and repository injection
 - ✅ **Direct dependency injection** without wrapper objects
 - ✅ **No temporary compatibility code** that would accumulate technical debt
 - ✅ **Immediate cleanup** of all references to removed patterns
@@ -768,10 +790,10 @@ Leverages modern workflow orchestration with:
 
 #### Node System Design
 Declarative, composable workflow nodes with:
-- Single factory pattern for all node types
-- Direct connector access without adapters
-- Clean separation of transformation logic
-- Type-safe configuration and validation
+- Unified factory functions for transform, enrichment, and destination nodes
+- Direct connector and repository injection through protocols
+- Clean separation of transformation logic from infrastructure concerns
+- Type-safe configuration and validation with comprehensive error handling
 
 ## Development Philosophy
 

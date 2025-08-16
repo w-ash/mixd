@@ -26,7 +26,7 @@ logger = get_logger(__name__).bind(service="connectors")
 
 # Dynamic registries populated by connectors at runtime
 _connector_metrics: dict[str, list[str]] = {}
-_field_mappings: dict[str, str] = {}  
+_field_mappings: dict[str, str] = {}
 _metric_freshness: dict[str, float] = {}
 
 # Default freshness period in hours
@@ -110,6 +110,7 @@ def get_connector_metrics(connector_name: str) -> list[str]:
     """
     return _connector_metrics.get(connector_name, [])
 
+
 # ============================================================================
 # REGISTRATION FUNCTIONS
 # ============================================================================
@@ -156,9 +157,9 @@ def get_registered_metrics() -> list[str]:
 
 
 def register_metric_config(
-    metric_name: str, 
-    field_name: str | None = None, 
-    freshness_hours: float | None = None
+    metric_name: str,
+    field_name: str | None = None,
+    freshness_hours: float | None = None,
 ) -> None:
     """Register metric configuration including field mapping and freshness.
 
@@ -169,14 +170,13 @@ def register_metric_config(
     """
     if field_name is not None:
         _field_mappings[metric_name] = field_name
-        
+
     if freshness_hours is not None:
         _metric_freshness[metric_name] = freshness_hours
 
 
 def register_connector_metrics(
-    connector_name: str, 
-    metric_configs: dict[str, dict[str, Any]]
+    connector_name: str, metric_configs: dict[str, dict[str, Any]]
 ) -> None:
     """Register all metrics for a connector in batch.
 
@@ -187,23 +187,21 @@ def register_connector_metrics(
     """
     if connector_name not in _connector_metrics:
         _connector_metrics[connector_name] = []
-        
+
     for metric_name, config in metric_configs.items():
         # Add to connector's metric list
         if metric_name not in _connector_metrics[connector_name]:
             _connector_metrics[connector_name].append(metric_name)
-            
+
         # Register configuration
         register_metric_config(
-            metric_name,
-            config.get('field_name'),
-            config.get('freshness_hours')
+            metric_name, config.get("field_name"), config.get("freshness_hours")
         )
 
 
 def get_all_connectors_metrics() -> dict[str, list[str]]:
     """Get mapping of all registered connectors to their metrics.
-    
+
     Returns:
         Dict mapping connector names to lists of their metric names
     """
@@ -212,7 +210,7 @@ def get_all_connectors_metrics() -> dict[str, list[str]]:
 
 def get_all_field_mappings() -> dict[str, str]:
     """Get mapping of all metric names to their field names.
-    
+
     Returns:
         Dict mapping metric names to connector field names
     """

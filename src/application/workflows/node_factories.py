@@ -41,78 +41,69 @@ logger = get_logger(__name__)
 # === HELPER FUNCTIONS ===
 
 
-def _get_connector_extractors(enricher_type: str, attribute_names: list[str]) -> dict:
-    """Build extractor functions for retrieving metadata from music service APIs.
+def _get_connector_metric_names(
+    connector_name: str, requested_attributes: list[str]
+) -> list[str]:
+    """Get metric names supported by a connector using the metrics registry.
 
-    Maps generic attribute names to service-specific extraction logic since each
-    connector (Last.fm, Spotify) has different response formats.
+    Uses the proper metrics registry instead of creating extractor functions.
+    Maps generic attribute names to service-specific metric names.
 
     Args:
-        enricher_type: Music service identifier ("lastfm", "spotify", etc.)
-        attribute_names: Metadata fields to extract ("user_playcount", "artist_tags", etc.)
+        connector_name: Music service identifier ("lastfm", "spotify", etc.)
+        requested_attributes: Metadata fields requested ("user_playcount", "popularity", etc.)
 
     Returns:
-        Dictionary mapping attribute names to extractor functions
+        List of metric names that can be resolved for this connector
     """
-    try:
-        if enricher_type == "lastfm":
-            from src.infrastructure.connectors.lastfm import get_connector_config
+    from src.infrastructure.connectors._shared.metrics import get_connector_metrics
 
-            connector_config = get_connector_config()
-            available_extractors = connector_config.get("extractors", {})
+    # Get all metrics supported by this connector from the registry
+    available_metrics = get_connector_metrics(connector_name)
 
-            # Map attribute names to actual extractors
-            extractors = {}
-            for attr_name in attribute_names:
-                # Handle both full names and short names
-                if attr_name in available_extractors:
-                    extractors[attr_name] = available_extractors[attr_name]
-                elif f"lastfm_{attr_name}" in available_extractors:
-                    extractors[f"lastfm_{attr_name}"] = available_extractors[
-                        f"lastfm_{attr_name}"
-                    ]
-                else:
-                    logger.warning(
-                        f"Unknown extractor: {attr_name} for {enricher_type}"
-                    )
+    if not available_metrics:
+        logger.warning(f"No metrics registered for connector: {connector_name}")
+        return []
 
-        elif enricher_type == "spotify":
-            from src.infrastructure.connectors.spotify import get_connector_config
-
-            connector_config = get_connector_config()
-            available_extractors = connector_config.get("extractors", {})
-
-            # Map attribute names to actual extractors
-            extractors = {}
-            for attr_name in attribute_names:
-                if attr_name in available_extractors:
-                    extractors[attr_name] = available_extractors[attr_name]
-                elif f"spotify_{attr_name}" in available_extractors:
-                    extractors[f"spotify_{attr_name}"] = available_extractors[
-                        f"spotify_{attr_name}"
-                    ]
-                else:
-                    logger.warning(
-                        f"Unknown extractor: {attr_name} for {enricher_type}"
-                    )
+    # Map requested attributes to actual metric names
+    metric_names = []
+    for attr_name in requested_attributes:
+        # Try exact match first
+        if attr_name in available_metrics:
+            metric_names.append(attr_name)
+        # Try with connector prefix
+        elif f"{connector_name}_{attr_name}" in available_metrics:
+            metric_names.append(f"{connector_name}_{attr_name}")
+        # Try common mappings for legacy attribute names
+        elif connector_name == "lastfm":
+            if (
+                attr_name == "user_playcount"
+                and "lastfm_user_playcount" in available_metrics
+            ):
+                metric_names.append("lastfm_user_playcount")
+            elif (
+                attr_name == "global_playcount"
+                and "lastfm_global_playcount" in available_metrics
+            ):
+                metric_names.append("lastfm_global_playcount")
+            elif attr_name == "listeners" and "lastfm_listeners" in available_metrics:
+                metric_names.append("lastfm_listeners")
+            else:
+                logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
+        elif connector_name == "spotify":
+            if attr_name == "popularity" and "spotify_popularity" in available_metrics:
+                metric_names.append("spotify_popularity")
+            elif attr_name == "explicit" and "explicit_flag" in available_metrics:
+                metric_names.append("explicit_flag")
+            else:
+                logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
         else:
-            # Fallback: create simple extractors for unknown connectors
-            def make_extractor(field_name):
-                return lambda obj: getattr(obj, field_name, None)
+            logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
 
-            extractors = {attr: make_extractor(attr) for attr in attribute_names}
-
-    except ImportError as e:
-        logger.warning(
-            f"Could not import connector config for {enricher_type}: {e}, using fallback"
-        )
-
-        def make_extractor(field_name):
-            return lambda obj: getattr(obj, field_name, None)
-
-        extractors = {attr: make_extractor(attr) for attr in attribute_names}
-
-    return extractors
+    logger.debug(
+        f"Mapped {len(requested_attributes)} attributes to {len(metric_names)} metrics for {connector_name}"
+    )
+    return metric_names
 
 
 # === CORE NODE FACTORY ===
@@ -350,14 +341,14 @@ def create_enricher_node(config: dict) -> NodeFn:
 
         # Use EnrichTracksUseCase - already extracted above
 
-        # Get extractors from connector configuration
-        # The config may specify attribute names, but we need actual extractor functions
+        # Get metric names from connector registry
+        # The config may specify attribute names, but we need actual metric names
         attribute_names = config.get(
             "attributes", ["user_playcount"]
         )  # Default for lastfm
 
-        # Get extractors using helper function
-        extractors = _get_connector_extractors(enricher_type, attribute_names)
+        # Get metric names using helper function
+        metric_names = _get_connector_metric_names(enricher_type, attribute_names)
 
         # Create enrichment command
 
@@ -365,7 +356,7 @@ def create_enricher_node(config: dict) -> NodeFn:
             enrichment_type="external_metadata",
             connector=enricher_type,
             connector_instance=connector_instance,
-            extractors=extractors,
+            track_metric_names=metric_names,
             max_age_hours=max_age_hours,
         )
 

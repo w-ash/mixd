@@ -114,11 +114,13 @@ class DBTrack(NaradaDBBase):
         passive_deletes=True,
     )
 
-    # Add table constraints - simplified to rely on naming convention
+    # Add table constraints with partial unique indexes for soft-delete support
     __table_args__ = (
-        UniqueConstraint("isrc"),
-        UniqueConstraint("spotify_id"),
-        UniqueConstraint("mbid"),
+        # Partial unique constraints - only apply to active (non-deleted) records
+        Index("uq_tracks_spotify_id_active", "spotify_id", unique=True, sqlite_where=text("is_deleted = 0 AND spotify_id IS NOT NULL")),
+        Index("uq_tracks_isrc_active", "isrc", unique=True, sqlite_where=text("is_deleted = 0 AND isrc IS NOT NULL")),
+        Index("uq_tracks_mbid_active", "mbid", unique=True, sqlite_where=text("is_deleted = 0 AND mbid IS NOT NULL")),
+        # Regular index for title searches
         Index(None, "title"),  # Let naming convention handle the name
     )
 
@@ -152,6 +154,14 @@ class DBConnectorTrack(NaradaDBBase):
     __table_args__ = (
         UniqueConstraint("connector_name", "connector_track_id"),
         Index(None, "connector_name", "isrc"),
+        # Performance index for orphan detection and LEFT JOIN operations
+        Index("ix_connector_tracks_active_lookup", "id", "is_deleted"),
+        # Covering index for orphan detection queries - includes ordering column
+        Index(
+            "ix_connector_tracks_orphan_detection",
+            "is_deleted", "created_at", "id",
+            sqlite_where=text("is_deleted = 0")
+        ),
     )
 
 
@@ -181,8 +191,8 @@ class DBTrackMapping(NaradaDBBase):
     )
 
     __table_args__ = (
-        # Existing unique constraint for mapping integrity
-        UniqueConstraint("track_id", "connector_track_id"),
+        # CRITICAL: Prevent multiple canonical tracks mapping to same connector track
+        UniqueConstraint("connector_track_id", "connector_name", name="uq_connector_track_canonical_mapping"),
         # NEW: Partial unique constraint - only one primary per track-connector pair
         Index(
             "uq_primary_mapping",

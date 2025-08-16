@@ -5,14 +5,13 @@ MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
 from datetime import UTC, datetime
-from typing import Any, ClassVar
 
 from sqlalchemy import Select, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
-from src.domain.entities import Playlist, Track
+from src.domain.entities import ConnectorTrack, Playlist, Track
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
     DBPlaylistMapping,
@@ -41,14 +40,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     music services like Spotify and Last.fm.
     """
 
-    # Extended relationship mapping for automatic loading
-    _RELATIONSHIP_PATHS: ClassVar[dict[str, list[str]]] = {
-        "full": [
-            "mappings",
-            "tracks.track.mappings.connector_track",
-        ],
-    }
-
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session and dependent repositories.
 
@@ -67,10 +58,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     # -------------------------------------------------------------------------
     # ENHANCED QUERY METHODS
     # -------------------------------------------------------------------------
-
-    def select_with_relations(self) -> Select:
-        """Build query that loads playlist with tracks and external mappings."""
-        return self.with_playlist_relationships(self.select())
 
     def select_by_connector(self, connector: str, connector_id: str) -> Select:
         """Build query to find playlist by external service ID.
@@ -139,45 +126,74 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         if not tracks:
             return []
 
-        updated_tracks = []
-        for track in tracks:
-            if not track.id:
-                try:
-                    if connector and connector in track.connector_track_ids:
-                        # Use connector-first approach for tracks with connector data
-                        connector_id = track.connector_track_ids[connector]
-                        metadata = (
-                            track.connector_metadata.get(connector, {})
-                            if hasattr(track, "connector_metadata")
-                            else {}
-                        )
-
-                        # Use the new ingest method that handles all aspects of track creation
-                        saved_track = (
-                            await self.connector_repository.ingest_external_track(
-                                connector=connector,
-                                connector_id=connector_id,
-                                metadata=metadata,
-                                title=track.title,
-                                artists=[a.name for a in track.artists]
-                                if track.artists
-                                else [],
-                                album=track.album,
-                                duration_ms=track.duration_ms,
-                                release_date=track.release_date,
-                                isrc=track.isrc,
-                            )
-                        )
-                        updated_tracks.append(saved_track)
-                    else:
-                        # For tracks without connector data, just save directly
-                        saved_track = await self.track_repository.save_track(track)
-                        updated_tracks.append(saved_track)
-                except Exception as e:
-                    # Use proper exception chaining
-                    raise ValueError(f"Failed to save track: {e}") from e
+        # Separate tracks by processing type for batch operations
+        connector_tracks_to_save = []
+        direct_tracks_to_save = []
+        track_positions = {}  # Track original positions for result ordering
+        
+        for idx, track in enumerate(tracks):
+            if track.id:
+                # Track already has ID, no processing needed
+                track_positions[idx] = ("existing", track)
+            elif connector and connector in track.connector_track_ids:
+                # Track needs connector ingestion
+                connector_track = ConnectorTrack(
+                    connector_name=connector,
+                    connector_track_id=track.connector_track_ids[connector],
+                    title=track.title,
+                    artists=track.artists,
+                    album=track.album,
+                    duration_ms=track.duration_ms,
+                    release_date=track.release_date,
+                    isrc=track.isrc,
+                    raw_metadata=(
+                        track.connector_metadata.get(connector, {})
+                        if hasattr(track, "connector_metadata")
+                        else {}
+                    ),
+                )
+                connector_tracks_to_save.append(connector_track)
+                track_positions[idx] = ("connector", len(connector_tracks_to_save) - 1)
             else:
-                updated_tracks.append(track)
+                # Track needs direct saving
+                direct_tracks_to_save.append(track)
+                track_positions[idx] = ("direct", len(direct_tracks_to_save) - 1)
+
+        # Batch process connector tracks
+        saved_connector_tracks = []
+        if connector_tracks_to_save and connector:
+            try:
+                saved_connector_tracks = await self.connector_repository.ingest_external_tracks_bulk(
+                    connector, connector_tracks_to_save
+                )
+            except Exception as e:
+                raise ValueError(f"Failed to save connector tracks: {e}") from e
+
+        # Process direct tracks individually (they may have different external IDs)
+        saved_direct_tracks = []
+        for track in direct_tracks_to_save:
+            try:
+                saved_track = await self.track_repository.save_track(track)
+                saved_direct_tracks.append(saved_track)
+            except Exception as e:
+                raise ValueError(f"Failed to save track: {e}") from e
+
+        # Reconstruct results in original order
+        updated_tracks = []
+        for idx in range(len(tracks)):
+            track_type, position = track_positions[idx]
+            if track_type == "existing":
+                updated_tracks.append(position)  # position is the track itself
+            elif track_type == "connector":
+                if position < len(saved_connector_tracks):
+                    updated_tracks.append(saved_connector_tracks[position])
+                else:
+                    raise ValueError(f"Connector track at position {position} failed to save")
+            elif track_type == "direct":
+                if position < len(saved_direct_tracks):
+                    updated_tracks.append(saved_direct_tracks[position])
+                else:
+                    raise ValueError(f"Direct track at position {position} failed to save")
 
         return updated_tracks
 
@@ -235,47 +251,70 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 await self.session.flush()
 
         elif operation == "update":
-            # Get existing playlist tracks
+            # Respect the precise track ordering from the use case layer
+            # The use case layer has calculated exact diffs - we just need to update the ordering
+            
+            # Get existing tracks sorted by sort_key (current position order)
             stmt = select(DBPlaylistTrack).where(
                 DBPlaylistTrack.playlist_id == playlist_id,
                 DBPlaylistTrack.is_deleted == False,  # noqa: E712
-            )
+            ).order_by(DBPlaylistTrack.sort_key)
             result = await self.session.scalars(stmt)
-            existing_tracks = {pt.track_id: pt for pt in result.all()}
-
-            # Track current IDs, updates and new additions
-            current_track_ids = set()
-            updates = []
-            new_tracks = []
-
-            # Process each track in the list
+            existing_tracks = list(result.all())
+            
+            # Step 1: Identify tracks to remove (exist in current but not in target)
+            target_track_ids = {track.id for track in tracks if track.id is not None}
+            existing_track_ids = {pt.track_id for pt in existing_tracks}
+            
+            tracks_to_remove_ids = existing_track_ids - target_track_ids
+            
+            # Step 2: Explicitly remove the identified tracks
+            records_to_remove = []
+            for existing_record in existing_tracks:
+                if existing_record.track_id in tracks_to_remove_ids:
+                    existing_record.is_deleted = True
+                    existing_record.deleted_at = now
+                    records_to_remove.append(existing_record)
+            
+            # Step 3: Get remaining tracks (after removals) for position mapping
+            remaining_tracks = [
+                pt for pt in existing_tracks 
+                if pt.track_id not in tracks_to_remove_ids
+            ]
+            
+            # Step 4: Map target tracks to existing position records (preserve metadata)
+            values_to_insert = []
+            records_to_update = []
+            
             for idx, track in enumerate(tracks):
-                if not track.id:
+                if track.id is None:
                     continue
-
-                current_track_ids.add(track.id)
+                    
                 sort_key = self._generate_sort_key(idx)
-
-                if track.id in existing_tracks:
-                    # Update existing track's position if needed
-                    pt = existing_tracks[track.id]
-                    current_sort_key = getattr(pt, "sort_key", None)
-                    if current_sort_key != sort_key:
-                        updates.append((pt.id, sort_key))
+                
+                if idx < len(remaining_tracks):
+                    # Update existing record at this position with new track and sort_key
+                    existing_record = remaining_tracks[idx]
+                    existing_record.track_id = track.id
+                    existing_record.sort_key = sort_key
+                    existing_record.updated_at = now
+                    records_to_update.append(existing_record)
                 else:
-                    # Add new track to playlist with added_at from connector metadata if available
+                    # Insert new record for additional tracks
                     added_at = None
-                    for metadata in track.connector_metadata.values():
-                        if metadata.get("added_at"):
-                            try:
-                                added_at = datetime.fromisoformat(
-                                    metadata["added_at"].replace("Z", "+00:00")
-                                )
-                                break
-                            except (ValueError, TypeError):
-                                pass
-
-                    new_tracks.append({
+                    if hasattr(track, 'connector_metadata'):
+                        # Get added_at from connector metadata if available
+                        for metadata in track.connector_metadata.values():
+                            if metadata.get("added_at"):
+                                try:
+                                    added_at = datetime.fromisoformat(
+                                        metadata["added_at"].replace("Z", "+00:00")
+                                    )
+                                    break
+                                except (ValueError, TypeError):
+                                    pass
+                    
+                    values_to_insert.append({
                         "playlist_id": playlist_id,
                         "track_id": track.id,
                         "sort_key": sort_key,
@@ -283,33 +322,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                         "created_at": now,
                         "updated_at": now,
                     })
-
-            # Execute updates in batch
-            if updates:
-                for pt_id, sort_key in updates:
-                    await self.session.execute(
-                        update(DBPlaylistTrack)
-                        .where(DBPlaylistTrack.id == pt_id)
-                        .values(sort_key=sort_key, updated_at=now),
-                    )
-
-            # Handle new tracks in batch
-            if new_tracks:
-                await self.session.execute(insert(DBPlaylistTrack).values(new_tracks))
-
-            # Soft delete tracks no longer in the playlist
-            tracks_to_remove = set(existing_tracks.keys()) - current_track_ids
-            if tracks_to_remove:
-                await self.session.execute(
-                    update(DBPlaylistTrack)
-                    .where(
-                        DBPlaylistTrack.playlist_id == playlist_id,
-                        DBPlaylistTrack.track_id.in_(tracks_to_remove),
-                        DBPlaylistTrack.is_deleted == False,  # noqa: E712
-                    )
-                    .values(is_deleted=True, deleted_at=now),
-                )
-
+                
+            # Commit all changes while preserving metadata
+            
+            if records_to_update:
+                self.session.add_all(records_to_update)
+            
+            if records_to_remove:
+                self.session.add_all(records_to_remove)
+                
+            if values_to_insert:
+                await self.session.execute(insert(DBPlaylistTrack).values(values_to_insert))
+                
             await self.session.flush()
 
     async def _manage_connector_mappings(
@@ -581,11 +605,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         playlist: Playlist,
     ) -> Playlist:
         """Execute playlist update with track reordering and mapping sync."""
+        # Count actual tracks that will be inserted (not input count)
+        actual_track_count = len([track for track in playlist.tracks if track.id is not None])
+        
         # Update basic properties using base repository's update method
         updates = {
             "name": playlist.name,
             "description": playlist.description,
-            "track_count": len(playlist.tracks) if playlist.tracks else 0,
+            "track_count": actual_track_count,  # Use actual count, not input count
             "updated_at": datetime.now(UTC),
         }
 
@@ -623,177 +650,11 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             operation="update",
         )
 
+        # Flush changes to ensure they're visible to subsequent queries
+        await self.session.flush()
+        
         # Return the updated playlist with all relationships
         return await self.get_playlist_by_id(playlist_id)
-
-    async def get_or_create(
-        self,
-        lookup_attrs: dict[str, Any],
-        create_attrs: dict[str, Any] | None = None,
-    ) -> tuple[Playlist, bool]:
-        """Find existing playlist or create new one with given attributes.
-
-        Degenerate case of get_or_create_many for single playlist.
-
-        Args:
-            lookup_attrs: Search criteria for existing playlist.
-            create_attrs: Additional attributes for playlist creation.
-
-        Returns:
-            Tuple of (playlist, created_flag) where created_flag is True
-            if playlist was newly created.
-
-        Raises:
-            ValueError: If playlist creation requires missing name.
-        """
-        results = await self.get_or_create_many([
-            {"lookup_attrs": lookup_attrs, "create_attrs": create_attrs or {}}
-        ])
-        return results[0]
-
-    @db_operation("get_or_create_many")
-    async def get_or_create_many(
-        self,
-        playlist_specs: list[dict[str, Any]],
-    ) -> list[tuple[Playlist, bool]]:
-        """Batch find-or-create operation using proper batch queries.
-
-        Uses batch lookups by name followed by individual creates for new playlists.
-        Avoids invalid upsert usage since DBPlaylist has no unique constraints on name.
-
-        Args:
-            playlist_specs: List of dicts with 'lookup_attrs' and optional 'create_attrs'
-
-        Returns:
-            List of (playlist, created_flag) tuples in same order as input
-
-        Raises:
-            ValueError: If any playlist spec is invalid
-        """
-        if not playlist_specs:
-            return []
-
-        return await self.execute_transaction(
-            lambda: self._get_or_create_many_impl(playlist_specs)
-        )
-
-    async def _get_or_create_many_impl(
-        self,
-        playlist_specs: list[dict[str, Any]],
-    ) -> list[tuple[Playlist, bool]]:
-        """Execute batch get-or-create using proper batch queries (no invalid upsert)."""
-        # Validate and prepare specs
-        validated_specs = []
-        names_to_find = []
-
-        for spec in playlist_specs:
-            lookup_attrs = spec["lookup_attrs"]
-            create_attrs = spec.get("create_attrs", {})
-
-            # Merge all attributes
-            all_attrs = {**lookup_attrs, **create_attrs}
-
-            # Validate required name
-            if "name" not in all_attrs or not all_attrs["name"]:
-                raise ValueError("Playlist requires a name")
-
-            validated_specs.append((all_attrs, spec))
-            names_to_find.append(all_attrs["name"])
-
-        # Phase 1: Batch lookup existing playlists by name
-        existing_playlists = {}
-        if names_to_find:
-            # Use find_by to get playlists with any of these names
-            found_playlists = (
-                await self.find_by({"name": names_to_find[0]})
-                if len(names_to_find) == 1
-                else []
-            )
-
-            # For multiple names, we need to query each (since find_by doesn't support IN queries)
-            if len(names_to_find) > 1:
-                found_playlists = []
-                for name in names_to_find:
-                    name_results = await self.find_by({"name": name})
-                    found_playlists.extend(name_results)
-
-            # Map by name for quick lookup (take first if multiple with same name)
-            for playlist in found_playlists:
-                if playlist.name not in existing_playlists:
-                    existing_playlists[playlist.name] = playlist
-
-        # Phase 2: Separate existing vs new playlists
-        results = []
-        playlists_to_create = []
-
-        for all_attrs, original_spec in validated_specs:
-            playlist_name = all_attrs["name"]
-
-            if playlist_name in existing_playlists:
-                # Found existing playlist
-                existing_playlist = existing_playlists[playlist_name]
-
-                # Handle complex playlist updates with tracks/mappings if needed
-                if original_spec.get("create_attrs", {}).get(
-                    "tracks"
-                ) or original_spec.get("create_attrs", {}).get(
-                    "connector_playlist_ids"
-                ):
-                    # Update existing playlist with new content
-                    full_playlist = Playlist(
-                        id=existing_playlist.id,
-                        name=existing_playlist.name,
-                        description=all_attrs.get(
-                            "description", existing_playlist.description
-                        ),
-                        tracks=original_spec.get("create_attrs", {}).get("tracks", []),
-                        connector_playlist_ids=original_spec.get(
-                            "create_attrs", {}
-                        ).get("connector_playlist_ids", {}),
-                    )
-
-                    if full_playlist.tracks or full_playlist.connector_playlist_ids:
-                        if existing_playlist.id is None:
-                            raise ValueError("Existing playlist ID is None")
-                        updated_playlist = await self.update_playlist(
-                            existing_playlist.id, full_playlist
-                        )
-                        results.append((updated_playlist, False))  # Found and updated
-                    else:
-                        results.append((
-                            existing_playlist,
-                            False,
-                        ))  # Found, no updates needed
-                else:
-                    results.append((existing_playlist, False))  # Found existing
-            else:
-                # Need to create new playlist
-                playlists_to_create.append((all_attrs, original_spec))
-
-        # Phase 3: Bulk create new playlists
-        if playlists_to_create:
-            for all_attrs, original_spec in playlists_to_create:
-                # Create playlist domain object
-                new_playlist = Playlist(
-                    name=all_attrs["name"],
-                    description=all_attrs.get("description"),
-                    tracks=original_spec.get("create_attrs", {}).get("tracks", []),
-                    connector_playlist_ids=original_spec.get("create_attrs", {}).get(
-                        "connector_playlist_ids", {}
-                    ),
-                )
-
-                # Use appropriate creation method based on complexity
-                if new_playlist.tracks or new_playlist.connector_playlist_ids:
-                    # Complex playlist with tracks/mappings - use full save_playlist
-                    created_playlist = await self.save_playlist(new_playlist)
-                else:
-                    # Simple playlist - use basic create
-                    created_playlist = await self.create(new_playlist)
-
-                results.append((created_playlist, True))  # Created new
-
-        return results
 
     @db_operation("playlist delete")
     async def delete_playlist(self, playlist_id: int) -> bool:

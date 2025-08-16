@@ -40,11 +40,12 @@ class TestImportIdempotency:
         # Create necessary track record first (foreign key requirement)
         track_repo = uow.get_track_repository()
         from src.domain.entities import Artist, Track
+
         test_track = Track(
             id=None,
             title="Test Track",
             artists=[Artist(name="Test Artist")],
-            connector_track_ids={}
+            connector_track_ids={},
         )
         saved_track = await track_repo.save_track(test_track)
 
@@ -52,7 +53,7 @@ class TestImportIdempotency:
         batch_id = str(uuid4())
         test_play = TrackPlay(
             track_id=saved_track.id,
-            service="spotify", 
+            service="spotify",
             played_at=datetime(2023, 1, 15, 14, 30, 22, tzinfo=UTC),
             ms_played=180000,
             context={"test": "data"},
@@ -62,22 +63,18 @@ class TestImportIdempotency:
         )
 
         # First import
-        first_result = await plays_repo.bulk_insert_plays([test_play])
+        await plays_repo.bulk_insert_plays([test_play])
 
         # Second import - same exact data
-        second_result = await plays_repo.bulk_insert_plays([test_play])
+        await plays_repo.bulk_insert_plays([test_play])
 
         # Verify no duplicates were created
         all_plays = await plays_repo.get_plays_by_batch(batch_id)
 
         # CRITICAL: Should only have 1 play, not 2
         if len(all_plays) != 1:
-            print(
-                f"CRITICAL BUG: Import created {len(all_plays)} plays instead of 1!"
-            )
-            print(
-                "This means imports are NOT idempotent and will create duplicates!"
-            )
+            print(f"CRITICAL BUG: Import created {len(all_plays)} plays instead of 1!")
+            print("This means imports are NOT idempotent and will create duplicates!")
             for i, play in enumerate(all_plays):
                 print(
                     f"Play {i + 1}: track_id={play.track_id}, played_at={play.played_at}, id={play.id}"
@@ -102,11 +99,12 @@ class TestImportIdempotency:
         # Create necessary track record first (foreign key requirement)
         track_repo = uow.get_track_repository()
         from src.domain.entities import Artist, Track
+
         test_track_2 = Track(
             id=None,
             title="Test Track 2",
             artists=[Artist(name="Test Artist 2")],
-            connector_track_ids={}
+            connector_track_ids={},
         )
         saved_track_2 = await track_repo.save_track(test_track_2)
 
@@ -128,9 +126,7 @@ class TestImportIdempotency:
         play_2 = TrackPlay(
             track_id=saved_track_2.id,  # Same track
             service="lastfm",  # Same service
-            played_at=datetime(
-                2023, 2, 10, 15, 45, 30, tzinfo=UTC
-            ),  # Same play time
+            played_at=datetime(2023, 2, 10, 15, 45, 30, tzinfo=UTC),  # Same play time
             ms_played=240000,  # Same duration
             context={"batch": "second"},  # Different context
             import_timestamp=datetime.now(UTC),
@@ -154,9 +150,9 @@ class TestImportIdempotency:
         if total_plays == 1:
             # Idempotent behavior - good!
             # One of the batches should have the play, the other should be empty
-            assert (
-                len(all_plays_batch_1) == 1 and len(all_plays_batch_2) == 0
-            ) or (len(all_plays_batch_1) == 0 and len(all_plays_batch_2) == 1)
+            assert (len(all_plays_batch_1) == 1 and len(all_plays_batch_2) == 0) or (
+                len(all_plays_batch_1) == 0 and len(all_plays_batch_2) == 1
+            )
         elif total_plays == 2:
             # Non-idempotent behavior - this indicates a problem with upsert logic
             pytest.fail(

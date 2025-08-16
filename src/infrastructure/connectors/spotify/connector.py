@@ -29,7 +29,6 @@ from src.domain.entities import (
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
-    extract_metric,
     register_metrics,
 )
 from src.infrastructure.connectors.protocols import ConnectorConfig
@@ -84,24 +83,47 @@ class SpotifyConnector(BaseAPIConnector):
     def __attrs_post_init__(self) -> None:
         """Initialize modular components."""
         logger.debug("Initializing modular Spotify connector")
-        
+
         # Initialize client and operations
         self._client = SpotifyAPIClient()
         self._operations = SpotifyOperations(self._client)
 
     # Track Operations - Delegate to operations
 
+    async def get_external_track_data(
+        self, tracks: list[Track]
+    ) -> dict[int, dict[str, Any]]:
+        """Unified interface for retrieving complete Spotify track data (TrackMetadataConnector protocol).
+
+        Extracts Spotify IDs from Track objects and returns complete Spotify track objects
+        keyed by track.id. This standardizes the interface across all connectors.
+        """
+        # Extract Spotify IDs from tracks that have them
+        spotify_mapped = [
+            (track, track.connector_track_ids.get("spotify"))
+            for track in tracks
+            if track.id is not None and track.connector_track_ids.get("spotify")
+        ]
+
+        if not spotify_mapped:
+            return {}
+
+        # Get spotify IDs and call existing bulk method
+        spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
+        raw_metadata = await self._operations.get_tracks_by_ids(spotify_ids)
+
+        # Map back to track.id format expected by the protocol
+        return {
+            track.id: raw_metadata[spotify_id]
+            for track, spotify_id in spotify_mapped
+            if spotify_id in raw_metadata and track.id is not None
+        }
+
     async def get_tracks_by_ids(
         self, track_ids: list[str]
     ) -> dict[str, dict[str, Any]]:
         """Fetch multiple tracks from Spotify in bulk."""
         return await self._operations.get_tracks_by_ids(track_ids)
-
-    async def batch_get_track_info(
-        self, tracks: list[Track], **options: Any
-    ) -> dict[int, dict[str, Any]]:
-        """Fetch track metadata for multiple tracks using bulk Spotify API."""
-        return await self._operations.batch_get_track_info(tracks, **options)
 
     async def search_by_isrc(self, isrc: str) -> dict[str, Any] | None:
         """Search for a track using ISRC identifier."""
@@ -179,6 +201,7 @@ class SpotifyConnector(BaseAPIConnector):
     def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert Spotify track data to ConnectorTrack domain model."""
         from .conversions import convert_spotify_track_to_connector
+
         return convert_spotify_track_to_connector(track_data)
 
 
@@ -199,20 +222,6 @@ class SpotifyMetricResolver(BaseMetricResolver):
 def get_connector_config() -> ConnectorConfig:
     """Spotify connector configuration."""
     return {
-        "extractors": {
-            "popularity": lambda obj: extract_metric(
-                obj,
-                ["popularity", "spotify_popularity"],
-            ),
-            "spotify_popularity": lambda obj: extract_metric(
-                obj,
-                ["popularity", "spotify_popularity"],
-            ),
-            "explicit_flag": lambda obj: extract_metric(
-                obj,
-                ["explicit", "explicit_flag"],
-            ),
-        },
         "dependencies": ["auth"],
         "factory": lambda _params: SpotifyConnector(),
         "metrics": SpotifyMetricResolver.FIELD_MAP,
@@ -221,5 +230,3 @@ def get_connector_config() -> ConnectorConfig:
 
 # Register all metric resolvers at once
 register_metrics(SpotifyMetricResolver(), SpotifyMetricResolver.FIELD_MAP)
-
-# Track converter registration removed - handled directly in conversions module

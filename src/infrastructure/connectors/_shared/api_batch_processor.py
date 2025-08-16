@@ -62,12 +62,16 @@ class APIBatchProcessor[T, R]:
 
     def __attrs_post_init__(self):
         """Initialize retry wrapper with configured parameters."""
-        object.__setattr__(self, '_retry_wrapper', RetryWrapper(
-            retry_count=self.retry_count,
-            retry_base_delay=self.retry_base_delay,
-            retry_max_delay=self.retry_max_delay,
-            logger_instance=self.logger_instance,
-        ))
+        object.__setattr__(
+            self,
+            "_retry_wrapper",
+            RetryWrapper(
+                retry_count=self.retry_count,
+                retry_base_delay=self.retry_base_delay,
+                retry_max_delay=self.retry_max_delay,
+                logger_instance=self.logger_instance,
+            ),
+        )
 
     async def process(
         self,
@@ -116,19 +120,21 @@ class APIBatchProcessor[T, R]:
 
         async def process_with_rate_limit_and_retry(item: T) -> R:
             """Process item with rate limiting and automatic retry on failure."""
-            
+
             async def rate_limited_call() -> R:
                 """Apply rate limiting and concurrency control."""
                 # Rate limit before API call using AsyncLimiter (concurrent-safe)
                 if self.rate_limiter:
                     await self.rate_limiter.acquire()
-                
+
                 # Use semaphore for concurrency control
                 async with semaphore:
                     return await process_func(item)
-            
+
             # Use centralized retry wrapper
-            retry_wrapped_call = self._retry_wrapper.with_exponential_backoff(rate_limited_call)
+            retry_wrapped_call = self._retry_wrapper.with_exponential_backoff(
+                rate_limited_call
+            )
             return await retry_wrapped_call()
 
         # Process in batches for memory efficiency and rate limit management
@@ -196,7 +202,9 @@ class APIBatchProcessor[T, R]:
 
             self.logger_instance.debug(
                 f"Created {len(batch_tasks)} concurrent tasks for batch {current_batch}",
-                rate_per_second=self.rate_limiter.max_rate if self.rate_limiter else "unlimited",
+                rate_per_second=self.rate_limiter.max_rate
+                if self.rate_limiter
+                else "unlimited",
             )
 
             # Process items as they complete for real-time progress

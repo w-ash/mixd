@@ -5,7 +5,7 @@ playlists while preserving track timestamps and minimizing API calls.
 """
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from attrs import define, field
 
@@ -14,11 +14,10 @@ from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
 from src.domain.entities.track import TrackList
 from src.domain.playlist import (
-    PlaylistOperation,
     PlaylistOperationType,
     calculate_playlist_diff,
-    sequence_operations_for_spotify,
 )
+from src.domain.playlist.execution_strategies import get_execution_strategy
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -115,19 +114,13 @@ class UpdateConnectorPlaylistUseCase:
     def _count_operation_types(self, operations: list) -> tuple[int, int, int]:
         """Count add/remove/move operations. Returns (added, removed, moved)."""
         tracks_added = sum(
-            1
-            for op in operations
-            if op.operation_type == PlaylistOperationType.ADD
+            1 for op in operations if op.operation_type == PlaylistOperationType.ADD
         )
         tracks_removed = sum(
-            1
-            for op in operations
-            if op.operation_type == PlaylistOperationType.REMOVE
+            1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE
         )
         tracks_moved = sum(
-            1
-            for op in operations
-            if op.operation_type == PlaylistOperationType.MOVE
+            1 for op in operations if op.operation_type == PlaylistOperationType.MOVE
         )
         return tracks_added, tracks_removed, tracks_moved
 
@@ -185,8 +178,8 @@ class UpdateConnectorPlaylistUseCase:
                     confidence_score = 1.0  # High confidence for simple append
                 else:
                     # Overwrite mode: use diff engine with preservation
-                    diff = await calculate_playlist_diff(
-                        current_playlist, command.new_tracklist, uow
+                    diff = calculate_playlist_diff(
+                        current_playlist, command.new_tracklist
                     )
 
                     if not diff.has_changes:
@@ -202,18 +195,20 @@ class UpdateConnectorPlaylistUseCase:
                             confidence_score=diff.confidence_score,
                         )
 
-                    # Step 3: Apply proper operation sequencing for external service
-                    sequenced_operations: list[PlaylistOperation] = cast(
-                        "list[PlaylistOperation]",
-                        sequence_operations_for_spotify(diff.operations),
-                    )
+                    # Step 3: Use unified execution strategy for API operations 
+                    api_strategy = get_execution_strategy("api")
+                    execution_plan = api_strategy.plan_operations(diff)
+                    sequenced_operations = execution_plan.operations
 
-                    tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
+                    tracks_added, tracks_removed, tracks_moved = (
+                        self._count_operation_types(sequenced_operations)
+                    )
                     logger.debug(
-                        f"Sequenced {len(sequenced_operations)} operations for {command.connector}",
+                        f"Planned {len(sequenced_operations)} operations for {command.connector}",
                         remove_ops=tracks_removed,
                         add_ops=tracks_added,
                         move_ops=tracks_moved,
+                        execution_metadata=execution_plan.execution_metadata,
                     )
 
                     # Step 4: Execute operations against external service (if not dry run)
@@ -343,7 +338,9 @@ class UpdateConnectorPlaylistUseCase:
         )
 
         # Count operations by type
-        tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
+        tracks_added, tracks_removed, tracks_moved = self._count_operation_types(
+            sequenced_operations
+        )
 
         # Step 1: Execute operations against external API
         api_response = await self._execute_connector_api_operations(
@@ -393,7 +390,9 @@ class UpdateConnectorPlaylistUseCase:
             connector_provider = uow.get_service_connector_provider()
             connector = connector_provider.get_connector(command.connector)
 
-            tracks_added, tracks_removed, tracks_moved = self._count_operation_types(sequenced_operations)
+            tracks_added, tracks_removed, tracks_moved = self._count_operation_types(
+                sequenced_operations
+            )
             logger.info(
                 "Executing differential operations on external playlist",
                 connector=command.connector,
@@ -449,7 +448,7 @@ class UpdateConnectorPlaylistUseCase:
         """Updates local database after successful external API calls."""
         try:
             connector_repo = uow.get_connector_playlist_repository()
-            
+
             # Create playlist items from final desired state
             updated_items = self._create_playlist_items_from_tracklist(command)
 

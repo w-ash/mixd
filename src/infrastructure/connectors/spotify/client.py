@@ -6,7 +6,7 @@ handling without any business logic or complex orchestration.
 
 Key components:
 - SpotifyAPIClient: OAuth-authenticated client for individual API calls
-- Authentication management using SpotifyOAuth  
+- Authentication management using SpotifyOAuth
 - Basic retry and error handling for API requests
 - Market-aware API calls with configurable timeouts
 
@@ -48,7 +48,7 @@ async def spotify_api_call(client, method_name: str, *args, **kwargs):
 
     Returns:
         API response
-        
+
     Raises:
         spotipy.SpotifyException: For API-related errors
     """
@@ -59,10 +59,10 @@ async def spotify_api_call(client, method_name: str, *args, **kwargs):
 @define(slots=True)
 class SpotifyAPIClient:
     """Pure Spotify API client with OAuth authentication.
-    
+
     Provides thin wrapper around spotipy with authentication, basic retries,
     and individual API method calls. No business logic or complex orchestration.
-    
+
     Example:
         >>> client = SpotifyAPIClient()
         >>> track_data = await client.get_track("4iV5W9uYEdYUVa79Axb7Rh")
@@ -79,12 +79,12 @@ class SpotifyAPIClient:
     def __attrs_post_init__(self) -> None:
         """Initialize Spotify client with OAuth configuration and timeout settings."""
         logger.debug("Initializing Spotify API client")
-        
+
         self.client = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
                 scope=[
                     "playlist-modify-public",
-                    "playlist-modify-private", 
+                    "playlist-modify-private",
                     "playlist-read-private",
                     "playlist-read-collaborative",
                     "user-library-read",
@@ -103,7 +103,9 @@ class SpotifyAPIClient:
     async def get_tracks_bulk(self, track_ids: list[str]) -> dict[str, Any] | None:
         """Fetch multiple tracks from Spotify (up to 50 per request)."""
         if not track_ids or len(track_ids) > 50:
-            logger.warning(f"Invalid track_ids list: {len(track_ids) if track_ids else 0} items")
+            logger.warning(
+                f"Invalid track_ids list: {len(track_ids) if track_ids else 0} items"
+            )
             return None
 
         try:
@@ -122,22 +124,22 @@ class SpotifyAPIClient:
     async def search_by_isrc(self, isrc: str) -> dict[str, Any] | None:
         """Search for a track using ISRC identifier."""
         logger.debug(f"Searching Spotify for ISRC: {isrc}")
-        
+
         try:
             results = await spotify_api_call(
                 self.client,
-                "search", 
+                "search",
                 f"isrc:{isrc}",
                 type="track",
                 limit=1,
                 market=self.market,
             )
-            
+
             tracks = results.get("tracks", {}).get("items", []) if results else []
             if not tracks:
                 logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
                 return None
-                
+
             return tracks[0]
         except Exception as e:
             logger.error(f"ISRC search failed for {isrc}: {e}")
@@ -149,17 +151,17 @@ class SpotifyAPIClient:
         """Search for a track by artist and title."""
         query = f"artist:{artist} track:{title}"
         logger.debug(f"Searching Spotify with query: {query}")
-        
+
         try:
             results = await spotify_api_call(
                 self.client,
                 "search",
                 query,
-                type="track", 
+                type="track",
                 limit=1,
                 market=self.market,
             )
-            
+
             tracks = results.get("tracks", {}).get("items", []) if results else []
             return tracks[0] if tracks else None
         except Exception as e:
@@ -200,11 +202,13 @@ class SpotifyAPIClient:
             return None
 
     @resilient_operation("get_spotify_next_page")
-    async def get_next_page(self, current_page: dict[str, Any]) -> dict[str, Any] | None:
+    async def get_next_page(
+        self, current_page: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Fetch next page of paginated Spotify API results."""
         if not current_page or not current_page.get("next"):
             return None
-            
+
         try:
             return await spotify_api_call(self.client, "next", current_page)
         except Exception as e:
@@ -221,11 +225,11 @@ class SpotifyAPIClient:
             # Get current user ID
             user_info = await spotify_api_call(self.client, "me")
             user_id = user_info.get("id", "") if user_info else ""
-            
+
             if not user_id:
                 logger.error("Could not determine user ID for playlist creation")
                 return None
-                
+
             return await spotify_api_call(
                 self.client,
                 "user_playlist_create",
@@ -333,7 +337,7 @@ class SpotifyAPIClient:
         """Replace all items in a Spotify playlist.
 
         Args:
-            playlist_id: Spotify playlist ID  
+            playlist_id: Spotify playlist ID
             items: List of track URIs to set as playlist contents
 
         Returns:
@@ -366,10 +370,13 @@ class SpotifyAPIClient:
                 kwargs["name"] = name
             if description is not None:
                 kwargs["description"] = description
-                
+
             if kwargs:
                 await spotify_api_call(
-                    self.client, "playlist_change_details", playlist_id=playlist_id, **kwargs
+                    self.client,
+                    "playlist_change_details",
+                    playlist_id=playlist_id,
+                    **kwargs,
                 )
         except Exception as e:
             logger.error(f"Failed to update playlist {playlist_id} metadata: {e}")
@@ -394,7 +401,7 @@ class SpotifyAPIClient:
         try:
             return await spotify_api_call(
                 self.client,
-                "current_user_saved_tracks", 
+                "current_user_saved_tracks",
                 limit=min(limit, 50),
                 offset=offset,
                 market=self.market,

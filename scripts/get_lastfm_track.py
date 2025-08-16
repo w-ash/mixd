@@ -44,18 +44,16 @@ async def get_track_details_by_mbid(mbid: str, lastfm_username: str) -> dict[str
     """Fetch detailed track information from Last.fm using MusicBrainz ID."""
     connector = LastFMConnector(lastfm_username=lastfm_username)
 
-    if not connector.client:
+    if not connector._client.client:
         print("Error: Last.fm client not initialized. Check your API credentials.")
         sys.exit(1)
 
     try:
         # Use our connector's method to get track info
-        track_info = await connector.get_lastfm_track_info(
-            mbid=mbid, lastfm_username=lastfm_username
-        )
+        track_info = await connector.get_track_info_by_mbid(mbid)
 
         # Also get raw pylast Track object for comparison
-        raw_track = await asyncio.to_thread(connector.client.get_track_by_mbid, mbid)
+        raw_track = await asyncio.to_thread(connector._client.client.get_track_by_mbid, mbid)
         raw_details = await _extract_track_details(raw_track, lastfm_username)
 
         return {
@@ -82,34 +80,70 @@ async def get_track_details_by_artist_title(
     """Fetch detailed track information from Last.fm using artist and title."""
     connector = LastFMConnector(lastfm_username=lastfm_username)
 
-    if not connector.client:
+    if not connector._client.client:
         print("Error: Last.fm client not initialized. Check your API credentials.")
         sys.exit(1)
 
     try:
-        # Use our connector's method to get track info
-        track_info = await connector.get_lastfm_track_info(
-            artist_name=artist, track_title=title, lastfm_username=lastfm_username
-        )
-
-        # Also get raw pylast Track object for comparison
-        raw_track = await asyncio.to_thread(connector.client.get_track, artist, title)
+        print(f"\n=== TESTING NARADA CONNECTOR FLOW ===")
+        print(f"Calling connector.get_track_info('{artist}', '{title}')")
+        
+        # Test our connector's normal flow first
+        track_info = await connector.get_track_info(artist, title)
+        print(f"Connector result: {track_info}")
+        
+        print(f"\n=== TESTING RAW PYLAST FLOW ===")
+        print(f"Calling raw pylast get_track(artist='{artist}', title='{title}')")
+        
+        # Get raw pylast Track object to see what actually comes back
+        raw_track = await asyncio.to_thread(connector._client.client.get_track, artist, title)
+        print(f"Raw track object: {raw_track}")
+        print(f"Track type: {type(raw_track)}")
+        
+        # Try to extract details (this will trigger our improved error handling)
+        print(f"\n=== TESTING METADATA EXTRACTION ===")
         raw_details = await _extract_track_details(raw_track, lastfm_username)
 
         return {
             "narada_track_info": _track_info_to_dict(track_info),
+            "raw_pylast_object": {
+                "type": str(type(raw_track)),
+                "string_representation": str(raw_track),
+            },
             "raw_pylast_details": raw_details,
         }
 
     except pylast.WSError as e:
-        if "not found" in str(e).lower():
-            print(f"Track '{artist} - {title}' not found on Last.fm")
-        else:
-            print(f"Last.fm API error: {e}")
-        sys.exit(1)
+        print(f"\n=== LAST.FM API ERROR ===")
+        print(f"Error type: {type(e)}")
+        print(f"Error message: {e}")
+        print(f"Error args: {e.args}")
+        if hasattr(e, 'get_id'):
+            print(f"Error ID: {e.get_id()}")
+        if hasattr(e, 'details'):
+            print(f"Error details: {e.details}")
+        print(f"Raw error: {repr(e)}")
+        
+        return {
+            "error": {
+                "type": str(type(e)),
+                "message": str(e),
+                "args": e.args,
+                "raw_repr": repr(e),
+            }
+        }
     except Exception as e:
-        print(f"Error retrieving track details: {e}")
-        sys.exit(1)
+        print(f"\n=== UNEXPECTED ERROR ===")
+        print(f"Error type: {type(e)}")
+        print(f"Error message: {e}")
+        print(f"Raw error: {repr(e)}")
+        return {
+            "unexpected_error": {
+                "type": str(type(e)),
+                "message": str(e),
+                "raw_repr": repr(e),
+            }
+        }
 
 
 async def _extract_track_details(

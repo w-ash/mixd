@@ -18,16 +18,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseConfig(BaseModel):
-    """Database connection and pooling configuration."""
+    """Database connection configuration."""
 
     url: str = "sqlite+aiosqlite:///data/db/narada.db"
-    echo: bool = False
-    pool_size: int = 5
-    max_overflow: int = 10
-    pool_timeout: int = 30
-    pool_recycle: int = 1800
-    connect_retries: int = 3
-    retry_interval: int = 5
 
 
 class LoggingConfig(BaseModel):
@@ -63,41 +56,18 @@ class CredentialsConfig(BaseModel):
 class APIConfig(BaseModel):
     """External API configuration and rate limiting."""
 
-    # Global API defaults
-    default_batch_size: int = 50
-    default_concurrency: int = 10
-    default_retry_count: int = 5
-    default_retry_base_delay: float = 1.0
-    default_retry_max_delay: float = 30.0
-    default_request_delay: float = 0.2
-
     # LastFM API Configuration (rate limited to ~5 calls/second)
     lastfm_batch_size: int = 50  # Tracks per batch
     lastfm_concurrency: int = 200  # Max concurrent requests in-flight
     lastfm_rate_limit: float = (
         4.5  # Request starts per second (10% buffer from 5.0 limit)
     )
-    lastfm_rate_limit_burst: int = (
-        1  # Initial burst capacity (1 = steady drip, 4-5 = allow burst then rate limit)
-    )
-    lastfm_rapid_task_creation: bool = (
-        True  # Enable rapid task creation for batch processing
-    )
     lastfm_retry_count: int = 8  # Max retries for network/rate limit errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
     lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
-    lastfm_retry_constant_delay: float = 8.0  # Constant delay for rate limit errors (seconds) - increased for better rate limit recovery
-    lastfm_retry_unknown_max: int = 2  # Max retries for unknown errors
-    lastfm_max_retry_time: int = (
-        180  # Total retry timeout (seconds) - extended for rate limits
-    )
-    lastfm_rate_limit_pause: int = 4  # Seconds to pause new requests when rate limited
-    lastfm_love_track_retry_count: int = 3  # Retries for track love operations
+    lastfm_request_delay: float = 0.2  # Delay between requests (seconds)
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
     lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
-    lastfm_recent_tracks_page_limit: int = (
-        200  # Default page limit for user.getRecentTracks API calls
-    )
 
     # Spotify API Configuration
     spotify_batch_size: int = 50
@@ -124,8 +94,6 @@ class BatchConfig(BaseModel):
     """Batch processing and progress reporting configuration."""
 
     progress_log_frequency: int = 10
-    track_batch_retry_count: int = 3
-    track_batch_retry_delay: int = 5
 
 
 class ImportConfig(BaseModel):
@@ -141,15 +109,6 @@ class ImportConfig(BaseModel):
     retry_base_delay: float = 1.0  # Base retry delay in seconds
     memory_limit_mb: int = 100  # Advisory memory limit per batch
     progress_frequency: int = 100
-
-
-class DatabaseBatchConfig(BaseModel):
-    """Database batch processing configuration."""
-
-    # Database batch processing (DatabaseBatchProcessor)
-    batch_size: int = 10  # Small batch size to prevent SQLite locks
-    retry_count: int = 3  # Retry attempts for database deadlock scenarios
-    retry_base_delay: float = 1.0  # Base retry delay for database locks
 
 
 class MatchingConfig(BaseModel):
@@ -222,7 +181,6 @@ class Settings(BaseSettings):
 
     # Nested configuration groups
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    database_batch: DatabaseBatchConfig = Field(default_factory=DatabaseBatchConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
     api: APIConfig = Field(default_factory=APIConfig)
@@ -252,13 +210,6 @@ class Settings(BaseSettings):
         # Database mappings
         db_mapping = {
             "database_url": "url",
-            "database_echo": "echo",
-            "database_pool_size": "pool_size",
-            "database_max_overflow": "max_overflow",
-            "database_pool_timeout": "pool_timeout",
-            "database_pool_recycle": "pool_recycle",
-            "database_connect_retries": "connect_retries",
-            "database_retry_interval": "retry_interval",
         }
         for env_key, field_key in db_mapping.items():
             if env_key in data:

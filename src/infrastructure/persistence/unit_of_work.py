@@ -17,6 +17,7 @@ from src.domain.repositories.interfaces import (
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     TrackIdentityServiceProtocol,
+    TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
 )
 from src.infrastructure.persistence.repositories.playlist.connector import (
@@ -134,8 +135,18 @@ class DatabaseUnitOfWork:
             """Simple service connector provider that accesses the CONNECTORS registry."""
 
             def get_connector(self, service_name: str):
-                if service_name not in CONNECTORS:
+                if CONNECTORS is None or service_name not in CONNECTORS:
                     raise ValueError(f"Unknown connector: {service_name}")
                 return CONNECTORS[service_name]["factory"]({})
 
         return SimpleServiceConnectorProvider()
+
+    def get_track_merge_service(self) -> TrackMergeServiceProtocol:
+        """Get track merge service using this unit of work's transaction."""
+        from src.application.services.track_merge_service import TrackMergeService
+        
+        return TrackMergeService()
+
+    def get_session(self) -> AsyncSession:
+        """Get the underlying database session for bulk operations."""
+        return self._session

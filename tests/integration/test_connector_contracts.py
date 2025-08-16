@@ -46,11 +46,11 @@ class TestConnectorContracts:
         connector = registry.get_connector("lastfm")
 
         # Verify it has required methods for enricher nodes
-        assert hasattr(connector, "get_lastfm_track_info"), (
-            "Last.fm connector must have get_lastfm_track_info method for enrichment"
+        assert hasattr(connector, "get_track_info"), (
+            "Last.fm connector must have get_track_info method for enrichment"
         )
-        assert callable(connector.get_lastfm_track_info), (
-            "get_lastfm_track_info must be callable"
+        assert callable(connector.get_track_info), (
+            "get_track_info must be callable"
         )
 
     def test_connector_registry_get_connector_returns_direct_instance(self):
@@ -185,16 +185,16 @@ class TestLastFmConnectorContract:
         from src.infrastructure.connectors.lastfm import get_connector_config
 
         config = get_connector_config()
-        extractors = config.get("extractors", {})
+        metrics = config.get("metrics", {})
 
-        # Check key extractors are available
-        assert "lastfm_user_playcount" in extractors, (
-            "lastfm_user_playcount extractor must be available"
+        # Check key metrics are available (renamed from extractors)
+        assert "lastfm_user_playcount" in metrics, (
+            "lastfm_user_playcount metric must be available"
         )
-        assert "lastfm_global_playcount" in extractors, (
-            "lastfm_global_playcount extractor must be available"
+        assert "lastfm_global_playcount" in metrics, (
+            "lastfm_global_playcount metric must be available"
         )
 
-        # Check extractors are callable
-        for name, extractor in extractors.items():
-            assert callable(extractor), f"Extractor {name} must be callable"
+        # Check metrics are accessible (they're field mappings, not callables)
+        for name, field_mapping in metrics.items():
+            assert isinstance(field_mapping, str), f"Metric {name} must be a string field mapping"

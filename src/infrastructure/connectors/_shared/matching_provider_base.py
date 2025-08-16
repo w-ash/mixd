@@ -36,7 +36,7 @@ class MatchProvider(Protocol):
         Note:
             Handle retries and rate limiting internally. Return structured failure
             information for individual track failures rather than raising exceptions.
-            This method returns raw data only - confidence scoring and business 
+            This method returns raw data only - confidence scoring and business
             decisions are handled by the domain layer.
         """
         ...

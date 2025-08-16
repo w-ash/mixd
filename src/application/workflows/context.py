@@ -10,7 +10,7 @@ from typing import Any
 from src.config import get_logger
 
 # Repository interfaces imported only where needed by use case providers
-from src.infrastructure.connectors import CONNECTORS, discover_connectors
+from src.infrastructure.connectors import discover_connectors
 from src.infrastructure.persistence.database.db_connection import get_session
 
 # Repository factory functions will be imported locally where needed
@@ -122,8 +122,7 @@ class ConnectorRegistryImpl:
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""
-        discover_connectors()
-        self._connectors = CONNECTORS
+        self._connectors = discover_connectors()
 
     def get_connector(self, name: str):
         """Create a connector instance for the specified music service.
@@ -200,7 +199,7 @@ class SharedSessionProvider:
         """
         return self._session
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, _exc_val, _exc_tb):
         """Exit async context without closing session.
 
         The session is managed by the workflow and should not be closed here.
@@ -341,12 +340,19 @@ class ConcreteWorkflowContext:
     connectors: ConnectorRegistry
     use_cases: UseCaseProvider
     session_provider: DatabaseSessionProvider
+    shared_session: Any = (
+        None  # Optional shared session for workflow transaction boundaries
+    )
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
         """Execute a business logic use case with proper resource management.
 
         Handles database session lifecycle, unit of work creation, and
         cleanup automatically for any workflow use case execution.
+
+        If a shared session is available, uses that instead of creating a new one.
+        This prevents transaction boundary issues when multiple use cases need
+        to operate on the same data within a single workflow.
 
         Args:
             use_case_getter: Async function that returns a use case instance
@@ -360,16 +366,27 @@ class ConcreteWorkflowContext:
             get_unit_of_work,
         )
 
-        # Get session from session provider
-        async with self.session_provider.get_session() as session:
-            # Create UnitOfWork from session
-            uow = get_unit_of_work(session)
+        # Use shared session if available, otherwise create new one
+        if self.shared_session is not None:
+            # Use shared session (transaction managed by caller)
+            uow = get_unit_of_work(self.shared_session)
 
             # Get use case instance
             use_case = await use_case_getter()
 
-            # Execute use case with command and UnitOfWork
+            # Execute use case with shared UnitOfWork (don't manage transaction here)
             return await use_case.execute(command, uow)
+        else:
+            # Create new session for this use case (legacy behavior)
+            async with self.session_provider.get_session() as session:
+                # Create UnitOfWork from session
+                uow = get_unit_of_work(session)
+
+                # Get use case instance
+                use_case = await use_case_getter()
+
+                # Execute use case with command and UnitOfWork
+                return await use_case.execute(command, uow)
 
 
 def create_workflow_context(shared_session=None) -> WorkflowContext:
@@ -397,4 +414,5 @@ def create_workflow_context(shared_session=None) -> WorkflowContext:
         connectors=connectors,
         use_cases=use_cases,
         session_provider=session_provider,
+        shared_session=shared_session,
     )

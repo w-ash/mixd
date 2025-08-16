@@ -46,7 +46,7 @@ class TrackMatchEvaluationService:
             threshold = settings.matching.threshold_artist_title
         else:
             threshold = settings.matching.threshold_default
-            
+
         return confidence >= threshold
 
     def evaluate_single_match(
@@ -79,7 +79,7 @@ class TrackMatchEvaluationService:
         confidence, evidence = calculate_confidence(
             internal_track_data, raw_match["service_data"], raw_match["match_method"]
         )
-        
+
         # Apply business rule for match acceptance
         success = self.should_accept_match(confidence, raw_match["match_method"])
 
@@ -142,8 +142,9 @@ class TrackMatchEvaluationService:
             else:
                 # Log rejected matches with key details for debugging
                 from src.config import get_logger
+
                 logger = get_logger(__name__)
-                
+
                 # Get threshold from configuration
                 if match_result.match_method == "isrc":
                     threshold = settings.matching.threshold_isrc
@@ -153,7 +154,7 @@ class TrackMatchEvaluationService:
                     threshold = settings.matching.threshold_artist_title
                 else:
                     threshold = settings.matching.threshold_default
-                
+
                 logger.warning(
                     f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
                     f"(confidence {match_result.confidence} < {threshold})",
@@ -161,19 +162,20 @@ class TrackMatchEvaluationService:
                     confidence=match_result.confidence,
                     threshold=threshold,
                     match_method=match_result.match_method,
-                    connector=connector
+                    connector=connector,
                 )
 
         # Log evaluation summary with contextual insights
         from src.config import get_logger
+
         logger = get_logger(__name__)
-        
+
         total_tracks = len(tracks)
         raw_matches_found = len(raw_matches)
         accepted_matches = len(results)
         rejected_matches = raw_matches_found - accepted_matches
         no_matches_found = total_tracks - raw_matches_found
-        
+
         if accepted_matches > 0:
             logger.info(
                 f"Match evaluation complete: {accepted_matches}/{total_tracks} tracks matched to {connector}",
@@ -181,21 +183,21 @@ class TrackMatchEvaluationService:
                 accepted=accepted_matches,
                 rejected=rejected_matches,
                 no_matches=no_matches_found,
-                total=total_tracks
+                total=total_tracks,
             )
-        
+
         if rejected_matches > 0:
             logger.info(
                 f"Rejected {rejected_matches} matches with {connector} due to low confidence",
                 connector=connector,
-                rejected_count=rejected_matches
+                rejected_count=rejected_matches,
             )
-            
+
         if no_matches_found > 0:
             logger.info(
                 f"{no_matches_found} tracks had no matches found in {connector}",
                 connector=connector,
-                no_matches_count=no_matches_found
+                no_matches_count=no_matches_found,
             )
 
         return results

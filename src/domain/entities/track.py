@@ -109,6 +109,33 @@ class Track:
         """Get a specific attribute from connector metadata."""
         return self.connector_metadata.get(connector, {}).get(attribute, default)
 
+    def has_same_identity_as(self, other: "Track") -> bool:
+        """Compare tracks by external identifiers for identity resolution.
+        
+        Business rule: tracks with identical external identifiers (ISRC, 
+        Spotify ID, etc.) represent the same song and can be merged.
+        
+        Args:
+            other: Track to compare against.
+            
+        Returns:
+            True if tracks have matching external identifiers.
+        """
+        if not isinstance(other, Track):
+            return False
+            
+        # Check ISRC first - most reliable identifier
+        if self.isrc and other.isrc and self.isrc == other.isrc:
+            return True
+            
+        # Check connector track IDs for overlap
+        for connector, my_id in self.connector_track_ids.items():
+            other_id = other.connector_track_ids.get(connector)
+            if other_id and my_id == other_id:
+                return True
+                
+        return False
+
 
 @define(frozen=True, slots=True)
 class TrackLike:

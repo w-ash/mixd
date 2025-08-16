@@ -44,6 +44,24 @@ def list() -> None:
     _list_workflows()
 
 
+@app.command()
+def backup(
+    connector: str = typer.Argument(..., help="Connector name (e.g., 'spotify')"),
+    playlist_id: str = typer.Argument(..., help="Playlist ID from the connector service"),
+) -> None:
+    """Backup a playlist from a music service to your local database.
+
+    Downloads a playlist from the specified connector (Spotify, etc.) and saves it
+    to your local database. If the playlist already exists locally, it will be updated
+    with the latest tracks and metadata from the service.
+
+    Examples:
+        narada playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
+        narada playlist backup spotify 1A2B3C4D5E6F7G8H9I0J1K
+    """
+    asyncio.run(_backup_playlist_async(connector, playlist_id))
+
+
 def _show_interactive_workflow_menu() -> None:
     """Display interactive workflow selection menu."""
     workflows = _get_available_workflows()
@@ -198,3 +216,64 @@ def _get_available_workflows():
             continue
 
     return workflows
+
+
+async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
+    """Backup a playlist from a connector service to the local database."""
+    # Import here to avoid circular dependencies
+    from src.application.services.playlist_backup_service import run_playlist_backup
+    
+    console.print(
+        Panel.fit(
+            f"[bold]{connector_name.title()} Playlist Backup[/bold]\n"
+            f"[dim]Playlist ID: {playlist_id}[/dim]",
+            title="[bold bright_blue]🎵 Starting Backup[/bold bright_blue]",
+            border_style="blue",
+        )
+    )
+    
+    try:
+        with console.status(f"[bold blue]Backing up playlist from {connector_name}..."):
+            result = await run_playlist_backup(
+                connector_name=connector_name,
+                playlist_id=playlist_id
+            )
+        
+        # Display results based on result type
+        from src.application.use_cases.update_canonical_playlist import (
+            UpdateCanonicalPlaylistResult,
+        )
+        
+        if isinstance(result, UpdateCanonicalPlaylistResult):
+            # Updated existing playlist
+            console.print(
+                Panel.fit(
+                    f"[bold green]✓ Playlist Updated[/bold green]\n"
+                    f"[cyan]Name:[/cyan] {result.playlist.name}\n"
+                    f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
+                    f"[cyan]Operations:[/cyan] {result.operations_performed} changes\n"
+                    f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
+                    title="[bold green]🎵 Backup Complete[/bold green]",
+                    border_style="green",
+                )
+            )
+        else:
+            # Created new playlist
+            console.print(
+                Panel.fit(
+                    f"[bold green]✓ Playlist Created[/bold green]\n"
+                    f"[cyan]Name:[/cyan] {result.playlist.name}\n"
+                    f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+                    f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
+                    f"[cyan]New tracks saved:[/cyan] {result.tracks_created}",
+                    title="[bold green]🎵 Backup Complete[/bold green]",
+                    border_style="green",
+                )
+            )
+            
+    except ValueError as e:
+        console.print(f"❌ [red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
+    except Exception as e:
+        console.print(f"❌ [bold red]Backup failed:[/bold red] {e}")
+        raise typer.Exit(1) from e

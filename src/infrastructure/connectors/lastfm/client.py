@@ -25,20 +25,20 @@ import pylast
 
 from src.config import get_logger, resilient_operation, settings
 
-# Get contextual logger for API client operations  
+# Get contextual logger for API client operations
 logger = get_logger(__name__).bind(service="lastfm_client")
 
 
 @define(slots=True)
 class LastFMAPIClient:
     """Pure Last.fm API client with authentication and rate limiting.
-    
+
     Provides thin wrapper around pylast with authentication, rate limiting,
     and individual API method calls. No business logic or complex orchestration.
     """
 
     api_key: str | None = field(default=None)
-    api_secret: str | None = field(default=None) 
+    api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
     client: pylast.LastFMNetwork | None = field(default=None, init=False, repr=False)
     rate_limiter: AsyncLimiter | None = field(default=None, init=False, repr=False)
@@ -46,11 +46,17 @@ class LastFMAPIClient:
     def __attrs_post_init__(self) -> None:
         """Initialize Last.fm client with authentication and rate limiting."""
         logger.debug("Initializing Last.fm API client")
-        
+
         # Set up API credentials from settings or provided values
         self.api_key = self.api_key or settings.credentials.lastfm_key
-        self.api_secret = self.api_secret or (settings.credentials.lastfm_secret.get_secret_value() if settings.credentials.lastfm_secret else None)
-        self.lastfm_username = self.lastfm_username or settings.credentials.lastfm_username
+        self.api_secret = self.api_secret or (
+            settings.credentials.lastfm_secret.get_secret_value()
+            if settings.credentials.lastfm_secret
+            else None
+        )
+        self.lastfm_username = (
+            self.lastfm_username or settings.credentials.lastfm_username
+        )
 
         if not self.api_key:
             logger.warning("Last.fm API key not provided")
@@ -62,17 +68,25 @@ class LastFMAPIClient:
             "api_secret": self.api_secret,
             "username": self.lastfm_username,
         }
-        
+
         # Add password hash for authenticated write operations (like love_track)
-        lastfm_password = settings.credentials.lastfm_password.get_secret_value() if settings.credentials.lastfm_password else None
+        lastfm_password = (
+            settings.credentials.lastfm_password.get_secret_value()
+            if settings.credentials.lastfm_password
+            else None
+        )
         if self.api_secret and self.lastfm_username and lastfm_password:
             client_args["password_hash"] = pylast.md5(lastfm_password)
-            logger.debug("Last.fm client initialized with authentication for write operations")
+            logger.debug(
+                "Last.fm client initialized with authentication for write operations"
+            )
         else:
-            logger.warning("Last.fm client initialized without password - write operations (like love_track) will fail")
-            
+            logger.warning(
+                "Last.fm client initialized without password - write operations (like love_track) will fail"
+            )
+
         self.client = pylast.LastFMNetwork(**client_args)
-        
+
         # Set up rate limiting using API settings
         self.rate_limiter = AsyncLimiter(
             max_rate=settings.api.lastfm_rate_limit,
@@ -83,10 +97,10 @@ class LastFMAPIClient:
     def is_configured(self) -> bool:
         """Check if client is properly configured."""
         return self.client is not None and self.rate_limiter is not None
-    
+
     # Individual Track API Methods
 
-    @resilient_operation("lastfm_get_track_by_mbid")  
+    @resilient_operation("lastfm_get_track_by_mbid")
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def get_track_by_mbid(self, mbid: str) -> pylast.Track | None:
         """Get track by MusicBrainz ID."""
@@ -95,28 +109,26 @@ class LastFMAPIClient:
 
         # Create contextual logger for this API call
         call_logger = logger.bind(
-            operation="get_track_by_mbid",
-            mbid=mbid,
-            api="lastfm"
+            operation="get_track_by_mbid", mbid=mbid, api="lastfm"
         )
-        
+
         call_logger.debug("Starting LastFM API call", method="get_track_by_mbid")
         start_time = time.time()
 
         try:
             # Rate limit API call
             await self.rate_limiter.acquire()
-            
-            # Use standard asyncio threading for concurrent execution  
+
+            # Use standard asyncio threading for concurrent execution
             result = await asyncio.to_thread(self.client.get_track_by_mbid, mbid)
-            
+
             duration_ms = int((time.time() - start_time) * 1000)
             call_logger.debug(
-                "LastFM API call completed", 
+                "LastFM API call completed",
                 duration_ms=duration_ms,
-                found=result is not None
+                found=result is not None,
             )
-            
+
             return result
         except pylast.WSError as e:
             if "not found" in str(e).lower():
@@ -127,38 +139,35 @@ class LastFMAPIClient:
             logger.error(f"Failed to get track by MBID {mbid}: {e}")
             return None
 
-    @resilient_operation("lastfm_get_track") 
+    @resilient_operation("lastfm_get_track")
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def get_track(self, artist: str, title: str) -> pylast.Track | None:
-        """Get track by artist and title.""" 
+        """Get track by artist and title."""
         if not self.is_configured or self.client is None or self.rate_limiter is None:
             return None
 
         # Create contextual logger for this API call
         call_logger = logger.bind(
-            operation="get_track",
-            artist=artist,
-            title=title,
-            api="lastfm"
+            operation="get_track", artist=artist, title=title, api="lastfm"
         )
-        
+
         call_logger.debug("Starting LastFM API call", method="get_track")
         start_time = time.time()
 
         try:
             # Rate limit API call
             await self.rate_limiter.acquire()
-            
+
             # Use standard asyncio threading for concurrent execution
             result = await asyncio.to_thread(self.client.get_track, artist, title)
-            
+
             duration_ms = int((time.time() - start_time) * 1000)
             call_logger.debug(
-                "LastFM API call completed", 
+                "LastFM API call completed",
                 duration_ms=duration_ms,
-                found=result is not None
+                found=result is not None,
             )
-            
+
             return result
         except pylast.WSError as e:
             if "not found" in str(e).lower():
@@ -172,20 +181,25 @@ class LastFMAPIClient:
     # User Library API Methods
 
     @resilient_operation("lastfm_love_track")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3) 
+    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track for the authenticated user."""
-        if not self.is_configured or not self.lastfm_username or self.client is None or self.rate_limiter is None:
+        if (
+            not self.is_configured
+            or not self.lastfm_username
+            or self.client is None
+            or self.rate_limiter is None
+        ):
             logger.warning("Cannot love track - no username configured")
             return False
 
         try:
             # Rate limit API calls
             await self.rate_limiter.acquire()
-            
+
             # Use standard asyncio threading for concurrent execution
             track = await asyncio.to_thread(self.client.get_track, artist, title)
-            
+
             # Rate limit the love call as well
             await self.rate_limiter.acquire()
             await asyncio.to_thread(track.love)
@@ -200,16 +214,16 @@ class LastFMAPIClient:
     @resilient_operation("lastfm_get_recent_tracks")
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def get_recent_tracks(
-        self, 
+        self,
         username: str | None = None,
         limit: int = 200,
         from_time: datetime | None = None,
         to_time: datetime | None = None,
     ) -> list[dict]:
         """Get recent tracks from Last.fm user.getRecentTracks API.
-        
+
         Returns raw track data that will be converted to PlayRecord objects by the connector.
-        
+
         Args:
             username: Last.fm username (defaults to configured username)
             limit: Number of tracks to fetch (default 200, max 200)
@@ -246,7 +260,7 @@ class LastFMAPIClient:
 
             # Rate limit API calls
             await self.rate_limiter.acquire()
-            
+
             # Use standard asyncio threading for concurrent execution
             # Get Last.fm user
             lastfm_user = await asyncio.to_thread(self.client.get_user, user)
@@ -256,7 +270,7 @@ class LastFMAPIClient:
 
             # Rate limit the recent tracks call as well
             await self.rate_limiter.acquire()
-            
+
             # Get recent tracks using pylast (time-range based fetching)
             recent_tracks = await asyncio.to_thread(
                 lastfm_user.get_recent_tracks,
@@ -277,7 +291,9 @@ class LastFMAPIClient:
                     continue
 
                 # Extract track metadata for PlayRecord creation
-                track_name = track.get_title() if hasattr(track, "get_title") else str(track)
+                track_name = (
+                    track.get_title() if hasattr(track, "get_title") else str(track)
+                )
                 artist_name = (
                     track.get_artist().get_name()
                     if hasattr(track, "get_artist") and track.get_artist()
@@ -370,11 +386,11 @@ class LastFMAPIClient:
     def _extract_metadata_sync(self, track: pylast.Track) -> dict:
         """Synchronously extract metadata fields from pylast track."""
         metadata = {}
-        
+
         extractors = {
             "title": lambda t: t.get_title(),
             "mbid": lambda t: t.get_mbid(),
-            "url": lambda t: t.get_url(), 
+            "url": lambda t: t.get_url(),
             "duration": lambda t: t.get_duration(),
             "artist_name": lambda t: t.get_artist() and t.get_artist().get_name(),
             "artist_mbid": lambda t: t.get_artist() and t.get_artist().get_mbid(),
@@ -382,7 +398,9 @@ class LastFMAPIClient:
             "album_name": lambda t: t.get_album() and t.get_album().get_name(),
             "album_mbid": lambda t: t.get_album() and t.get_album().get_mbid(),
             "album_url": lambda t: t.get_album() and t.get_album().get_url(),
-            "user_playcount": lambda t: int(t.get_userplaycount() or 0) if t.username else None,
+            "user_playcount": lambda t: int(t.get_userplaycount() or 0)
+            if t.username
+            else None,
             "user_loved": lambda t: bool(t.get_userloved()) if t.username else False,
             "global_playcount": lambda t: int(t.get_playcount() or 0),
             "listeners": lambda t: int(t.get_listener_count() or 0),

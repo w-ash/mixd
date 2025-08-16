@@ -664,7 +664,10 @@ class LastfmPlayImporter(BasePlayImporter):
         return track_plays
 
     async def _handle_checkpoints(
-        self, raw_data: list[PlayRecord], uow: Any | None = None, **_kwargs  # noqa: ARG002
+        self,
+        raw_data: list[PlayRecord],  # noqa: ARG002
+        uow: Any | None = None,  # noqa: ARG002
+        **_kwargs,
     ) -> None:
         """Handle sync checkpoints for Last.fm imports.
 

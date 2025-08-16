@@ -21,6 +21,10 @@ from src.domain.playlist import (
     PlaylistOperationType,
     calculate_playlist_diff,
 )
+from src.domain.playlist.execution_strategies import (
+    execute_with_strategy,
+    get_execution_strategy,
+)
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.metrics import (
     get_all_connectors_metrics,
@@ -58,12 +62,19 @@ class UpdateCanonicalPlaylistCommand:
         """Checks if command has required data for execution.
 
         Returns:
-            True if playlist_id exists and tracklist has tracks
+            True if playlist_id exists and tracklist has tracks or ConnectorPlaylist metadata
         """
         if not self.playlist_id:
             return False
 
-        return bool(self.new_tracklist.tracks)
+        # Allow empty tracks if ConnectorPlaylist metadata is present for processing
+        has_tracks = bool(self.new_tracklist.tracks)
+        has_connector_playlist = bool(
+            self.new_tracklist.metadata
+            and self.new_tracklist.metadata.get("connector_playlist")
+        )
+
+        return has_tracks or has_connector_playlist
 
 
 @define(frozen=True, slots=True)
@@ -155,6 +166,23 @@ class UpdateCanonicalPlaylistUseCase:
                     command.playlist_id, uow
                 )
 
+                # Step 1.5: Process ConnectorPlaylist data if present
+                processed_tracklist = command.new_tracklist
+                if (
+                    command.new_tracklist.metadata
+                    and command.new_tracklist.metadata.get("connector_playlist")
+                ):
+                    from src.application.services.connector_playlist_processing_service import (
+                        ConnectorPlaylistProcessingService,
+                    )
+
+                    processing_service = ConnectorPlaylistProcessingService()
+                    processed_tracklist = (
+                        await processing_service.process_connector_playlist(
+                            command.new_tracklist.metadata["connector_playlist"], uow
+                        )
+                    )
+
                 # Step 2: Handle metadata updates (name/description)
                 if command.playlist_name or command.playlist_description:
                     current_playlist = await self._update_playlist_metadata(
@@ -169,7 +197,7 @@ class UpdateCanonicalPlaylistUseCase:
                         operations_performed,
                         tracks_added,
                     ) = await self._append_tracks(
-                        current_playlist, command.new_tracklist, uow, command.dry_run
+                        current_playlist, processed_tracklist, uow, command.dry_run
                     )
                     tracks_removed = 0
                     tracks_moved = 0
@@ -178,12 +206,12 @@ class UpdateCanonicalPlaylistUseCase:
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
                         await self._extract_track_metrics(
-                            command.new_tracklist.tracks, uow
+                            processed_tracklist.tracks, uow
                         )
                 else:
                     # Overwrite mode: use diff engine with preservation
-                    diff = await calculate_playlist_diff(
-                        current_playlist, command.new_tracklist, uow
+                    diff = calculate_playlist_diff(
+                        current_playlist, processed_tracklist
                     )
 
                     if not diff.has_changes:
@@ -210,13 +238,13 @@ class UpdateCanonicalPlaylistUseCase:
                             tracks_added,
                             tracks_removed,
                             tracks_moved,
-                        ) = await self._execute_operations(current_playlist, diff, uow)
+                        ) = await self._execute_operations(current_playlist, diff, processed_tracklist, uow)
                     confidence_score = diff.confidence_score
 
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
                         await self._extract_track_metrics(
-                            command.new_tracklist.tracks, uow
+                            processed_tracklist.tracks, uow
                         )
 
                 # Commit changes if not dry run
@@ -287,6 +315,7 @@ class UpdateCanonicalPlaylistUseCase:
         self,
         current_playlist: Playlist,
         diff: PlaylistDiff,
+        target_tracklist: TrackList,
         uow: UnitOfWorkProtocol,
     ) -> tuple[Playlist, int, int, int, int]:
         """Applies calculated add/remove operations to transform playlist.
@@ -316,30 +345,26 @@ class UpdateCanonicalPlaylistUseCase:
             for op in diff.operations
             if op.operation_type == PlaylistOperationType.REMOVE
         )
-        # MOVE operations not needed for canonical - track order is handled by ADD positions
-        tracks_moved = 0
-
-        # Apply operations to create the updated track list
-
-        # Process REMOVE operations (in reverse order to avoid index shifting)
-        remove_ops = [
-            op
+        tracks_moved = sum(
+            1
             for op in diff.operations
-            if op.operation_type == PlaylistOperationType.REMOVE
-        ]
-        for op in sorted(remove_ops, key=lambda x: x.position, reverse=True):
-            if 0 <= op.position < len(updated_tracks):
-                updated_tracks.pop(op.position)
+            if op.operation_type == PlaylistOperationType.MOVE
+        )
 
-        # Process ADD operations
-        add_ops = [
-            op
-            for op in diff.operations
-            if op.operation_type == PlaylistOperationType.ADD
-        ]
-        for op in add_ops:
-            position = min(op.position, len(updated_tracks))
-            updated_tracks.insert(position, op.track)
+        # Use unified execution strategy for canonical playlists
+        # This provides consistent behavior with mathematical guarantees from LIS algorithm
+        canonical_strategy = get_execution_strategy("canonical")
+        updated_tracks, execution_metadata = execute_with_strategy(
+            canonical_strategy,
+            current_playlist,
+            target_tracklist,
+            diff
+        )
+        
+        logger.debug(
+            "Applied canonical execution strategy",
+            execution_metadata=execution_metadata,
+        )
 
         # Create updated playlist with preserved metadata
         updated_playlist = evolve(
@@ -349,6 +374,7 @@ class UpdateCanonicalPlaylistUseCase:
                 **current_playlist.metadata,
                 "last_updated": datetime.now(UTC).isoformat(),
                 "update_operations": len(diff.operations),
+                "execution_strategy": execution_metadata,
             },
         )
 

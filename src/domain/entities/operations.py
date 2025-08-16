@@ -4,7 +4,7 @@ Contains classes for recording play events, sync progress, and operation results
 from music services like Spotify and Last.fm.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from attrs import define, field
@@ -54,16 +54,16 @@ class SyncCheckpoint:
 @define(frozen=True, slots=True)
 class SyncCheckpointStatus:
     """Status information about a sync checkpoint for UI display.
-    
+
     Provides checkpoint information that interfaces need to show users
     the current state of sync operations and help them make informed decisions.
     """
-    
+
     service: str
     entity_type: str
     last_sync_timestamp: datetime | None = None
     has_previous_sync: bool = False
-    
+
     def format_timestamp(self) -> str | None:
         """Format timestamp for display."""
         if self.last_sync_timestamp:
@@ -138,6 +138,15 @@ class PlayRecord:
     raw_data: dict[str, Any] = field(factory=dict)
 
 
+def _validate_timezone_aware_datetime(_instance, attribute, value):
+    """Validator to ensure datetime fields are timezone-aware."""
+    if value is not None and value.tzinfo is None:
+        raise ValueError(
+            f"Field '{attribute.name}' must be timezone-aware. "
+            f"Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
+        )
+
+
 @define(frozen=True, slots=True)
 class TrackPlay:
     """Normalized record of when a user played a track on any music service.
@@ -148,26 +157,41 @@ class TrackPlay:
     Args:
         track_id: Database ID of the track
         service: Source service ("spotify", "lastfm", etc.)
-        played_at: When the track was played
+        played_at: When the track was played (must be timezone-aware)
         ms_played: Duration played in milliseconds
         context: Service metadata and behavioral data
         id: Database ID of this play record
-        import_timestamp: When this play was imported
+        import_timestamp: When this play was imported (must be timezone-aware if provided)
         import_source: How this play was imported (API, export file, etc.)
         import_batch_id: Batch identifier for bulk imports
     """
 
     track_id: int | None
     service: str
-    played_at: datetime
+    played_at: datetime = field(validator=_validate_timezone_aware_datetime)
     ms_played: int | None = None
     context: dict[str, Any] | None = None
     id: int | None = None
 
     # Import tracking (service-agnostic)
-    import_timestamp: datetime | None = None
+    import_timestamp: datetime | None = field(
+        default=None, validator=_validate_timezone_aware_datetime
+    )
     import_source: str | None = None  # "spotify_export", "lastfm_api", "manual"
     import_batch_id: str | None = None
+
+    @classmethod
+    def create_with_current_import_timestamp(
+        cls, track_id: int | None, service: str, played_at: datetime, **kwargs
+    ) -> "TrackPlay":
+        """Create TrackPlay with current UTC timestamp for import tracking."""
+        return cls(
+            track_id=track_id,
+            service=service,
+            played_at=played_at,
+            import_timestamp=datetime.now(UTC),
+            **kwargs,
+        )
 
     def to_track_metadata(self) -> dict[str, Any]:
         """Extracts track identifying metadata for duplicate detection.

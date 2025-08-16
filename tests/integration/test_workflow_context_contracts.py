@@ -32,18 +32,14 @@ class TestWorkflowContextContracts:
         )
 
         # Verify critical use case provider methods exist
-        assert hasattr(
-            context.use_cases, "get_create_canonical_playlist_use_case"
-        ), (
+        assert hasattr(context.use_cases, "get_create_canonical_playlist_use_case"), (
             "Use case provider must have get_create_canonical_playlist_use_case method"
         )
         assert callable(context.use_cases.get_create_canonical_playlist_use_case), (
             "get_create_canonical_playlist_use_case must be callable"
         )
 
-        assert hasattr(
-            context.use_cases, "get_create_connector_playlist_use_case"
-        ), (
+        assert hasattr(context.use_cases, "get_create_connector_playlist_use_case"), (
             "Use case provider must have get_create_connector_playlist_use_case method"
         )
         assert callable(context.use_cases.get_create_connector_playlist_use_case), (
@@ -155,56 +151,84 @@ class TestExtractorContracts:
     """Contract tests for extractor configuration integration."""
 
     def test_lastfm_extractor_config_accessible(self):
-        """Test that Last.fm extractor configuration can be accessed.
+        """Test that Last.fm connector configuration can be accessed.
 
-        Prevents: ImportError or missing extractor configuration
+        Prevents: ImportError or missing connector configuration
         """
         try:
             from src.infrastructure.connectors.lastfm import get_connector_config
 
             config = get_connector_config()
 
-            assert "extractors" in config, (
-                "Last.fm connector config must provide extractors"
+            # Check for updated connector configuration structure
+            assert "metrics" in config, (
+                "Last.fm connector config must provide metrics"
+            )
+            assert "factory" in config, (
+                "Last.fm connector config must provide factory"
+            )
+            assert "dependencies" in config, (
+                "Last.fm connector config must provide dependencies"
             )
 
-            extractors = config["extractors"]
-            assert isinstance(extractors, dict), "Extractors must be a dictionary"
+            metrics = config["metrics"]
+            assert isinstance(metrics, dict), "Metrics must be a dictionary"
 
-            # Check for key extractors used by workflow
-            expected_extractors = [
+            # Check for key metrics used by workflow (renamed from extractors)
+            expected_metrics = [
                 "lastfm_user_playcount",
-                "lastfm_global_playcount",
+                "lastfm_global_playcount", 
                 "lastfm_listeners",
             ]
 
-            for extractor_name in expected_extractors:
-                assert extractor_name in extractors, (
-                    f"Missing required extractor: {extractor_name}"
+            for metric_name in expected_metrics:
+                assert metric_name in metrics, (
+                    f"Missing required metric: {metric_name}"
                 )
-                assert callable(extractors[extractor_name]), (
-                    f"Extractor {extractor_name} must be callable"
-                )
+
+            # Verify factory is callable
+            assert callable(config["factory"]), "Factory must be callable"
 
         except ImportError as e:
             pytest.fail(f"Could not import Last.fm connector config: {e}")
 
     def test_spotify_extractor_config_accessible(self):
-        """Test that Spotify extractor configuration can be accessed.
+        """Test that Spotify connector configuration can be accessed.
 
-        Prevents: ImportError or missing extractor configuration
+        Prevents: ImportError or missing connector configuration
         """
         try:
             from src.infrastructure.connectors.spotify import get_connector_config
 
             config = get_connector_config()
 
-            assert "extractors" in config, (
-                "Spotify connector config must provide extractors"
+            # Check for updated connector configuration structure
+            assert "metrics" in config, (
+                "Spotify connector config must provide metrics"
+            )
+            assert "factory" in config, (
+                "Spotify connector config must provide factory"
+            )
+            assert "dependencies" in config, (
+                "Spotify connector config must provide dependencies"
             )
 
-            extractors = config["extractors"]
-            assert isinstance(extractors, dict), "Extractors must be a dictionary"
+            metrics = config["metrics"]
+            assert isinstance(metrics, dict), "Metrics must be a dictionary"
+
+            # Check for key metrics used by workflow (renamed from extractors)
+            expected_metrics = [
+                "spotify_popularity",
+                "explicit_flag",
+            ]
+
+            for metric_name in expected_metrics:
+                assert metric_name in metrics, (
+                    f"Missing required metric: {metric_name}"
+                )
+
+            # Verify factory is callable
+            assert callable(config["factory"]), "Factory must be callable"
 
         except ImportError as e:
             pytest.fail(f"Could not import Spotify connector config: {e}")

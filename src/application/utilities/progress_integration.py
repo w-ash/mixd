@@ -201,8 +201,8 @@ class DatabaseProgressContext:
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
     ) -> None:
         """Stop progress tracking and show results if operation succeeded."""
         # Complete progress operation
@@ -224,5 +224,3 @@ class DatabaseProgressContext:
     def set_result(self, result: OperationResult) -> None:
         """Store operation results for display when context exits."""
         self._result = result
-
-

@@ -133,14 +133,16 @@ def export_lastfm_cmd(
     if date:
         try:
             # Try parsing with time first, then date only
-            if 'T' in date:
-                override_date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+            if "T" in date:
+                override_date = datetime.fromisoformat(date.replace("Z", "+00:00"))
             else:
                 override_date = datetime.fromisoformat(f"{date}T00:00:00+00:00")
         except ValueError:
-            console.print(f"[red]Error: Invalid date format '{date}'. Use ISO format like 2025-08-01 or 2025-08-01T10:00:00[/red]")
+            console.print(
+                f"[red]Error: Invalid date format '{date}'. Use ISO format like 2025-08-01 or 2025-08-01T10:00:00[/red]"
+            )
             raise typer.Exit(1) from None
-    
+
     # Execute the export
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
         result = asyncio.run(
@@ -242,23 +244,27 @@ def _interactive_lastfm_export() -> None:
         default_msg = f"incremental since {checkpoint_info}"
     else:
         default_msg = "full export"
-    
+
     date_str = Prompt.ask(
         f"Override date (leave empty for {default_msg})",
         default="",
     )
-    
+
     override_date = None
     if date_str:
         try:
             # Parse the date
-            if 'T' in date_str:
-                override_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            if "T" in date_str:
+                override_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
             else:
                 override_date = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
-            console.print(f"[green]Using override date: {override_date.strftime('%Y-%m-%d %H:%M:%S')}[/green]")
+            console.print(
+                f"[green]Using override date: {override_date.strftime('%Y-%m-%d %H:%M:%S')}[/green]"
+            )
         except ValueError:
-            console.print(f"[red]Invalid date format '{date_str}'. Using {default_msg} instead.[/red]")
+            console.print(
+                f"[red]Invalid date format '{date_str}'. Using {default_msg} instead.[/red]"
+            )
 
     batch_size_str = Prompt.ask(
         "API batch size (tracks per request, leave empty for default)",

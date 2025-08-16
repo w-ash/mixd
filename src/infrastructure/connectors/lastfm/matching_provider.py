@@ -13,8 +13,8 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.matching_providers.failure_logging import log_failure_summary
-from src.infrastructure.matching_providers.failure_utils import (
+from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
+from src.infrastructure.connectors._shared.failure_utils import (
     create_and_log_failure,
     handle_track_processing_failure,
 )
@@ -68,9 +68,8 @@ class LastFMProvider:
                 # Get batch track info from LastFM
                 logger.info(f"Fetching LastFM metadata for {len(tracks)} tracks")
 
-                track_infos = await self.connector_instance.batch_get_track_info(
-                    tracks=tracks,
-                    lastfm_username=self.connector_instance.lastfm_username,
+                track_infos = await self.connector_instance.get_external_track_data(
+                    tracks=tracks
                 )
                 logger.info(
                     f"LastFM API completed: retrieved {len(track_infos)} track metadata results"
@@ -165,11 +164,7 @@ class LastFMProvider:
 
             # Determine match method based on available data
             # Note: This is data classification, not business logic
-            match_method = (
-                "mbid"
-                if track_info.get("lastfm_mbid")
-                else "artist_title"
-            )
+            match_method = "mbid" if track_info.get("lastfm_mbid") else "artist_title"
 
             # Return raw data - no confidence calculation or business logic
             return RawProviderMatch(

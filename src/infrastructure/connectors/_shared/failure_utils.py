@@ -11,7 +11,7 @@ from src.domain.matching.types import (
     MatchFailureReason,
     ProviderMatchResult,
 )
-from src.infrastructure.matching_providers.failure_logging import log_match_failure
+from src.infrastructure.connectors._shared.failure_logging import log_match_failure
 
 
 def create_and_log_failure(

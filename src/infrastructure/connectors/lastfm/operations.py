@@ -8,7 +8,7 @@ services for optimization.
 Key components:
 - LastFMOperations: High-level business workflows
 - Track information retrieval with intelligent matching
-- Batch processing for multiple track metadata requests  
+- Batch processing for multiple track metadata requests
 - Integration with APIBatchProcessor for optimization
 - User library operations (love track, get play history)
 
@@ -32,7 +32,7 @@ from src.infrastructure.connectors.lastfm.conversions import (
 logger = get_logger(__name__).bind(service="lastfm_operations")
 
 
-@define(slots=True) 
+@define(slots=True)
 class LastFMOperations:
     """Business logic service for complex Last.fm operations."""
 
@@ -41,7 +41,7 @@ class LastFMOperations:
     @property
     def batch_processor(self):
         """Get pre-configured batch processor for Last.fm operations.
-        
+
         Uses AsyncLimiter for optimal Last.fm performance: creates all tasks immediately
         and lets AsyncLimiter handle rate limiting (4.5/sec) while allowing high concurrency.
         This enables parallel API processing while respecting rate limits.
@@ -49,14 +49,14 @@ class LastFMOperations:
         from src.infrastructure.connectors._shared.api_batch_processor import (
             APIBatchProcessor,
         )
-        
+
         return APIBatchProcessor(
             batch_size=settings.api.lastfm_batch_size,
             concurrency_limit=settings.api.lastfm_concurrency,
             retry_count=settings.api.lastfm_retry_count,
             retry_base_delay=settings.api.lastfm_retry_base_delay,
             retry_max_delay=settings.api.lastfm_retry_max_delay,
-            request_delay=settings.api.default_request_delay,
+            request_delay=settings.api.lastfm_request_delay,
             rate_limiter=None,  # Rate limiting handled at API client level
             logger_instance=logger,
         )
@@ -78,7 +78,7 @@ class LastFMOperations:
             return LastFMTrackInfo.empty()
 
     async def get_track_info(self, artist: str, title: str) -> LastFMTrackInfo:
-        """Get comprehensive track information by artist and title.""" 
+        """Get comprehensive track information by artist and title."""
         if not artist or not title:
             return LastFMTrackInfo.empty()
 
@@ -94,7 +94,9 @@ class LastFMOperations:
     async def get_track_info_intelligent(self, track: Track) -> LastFMTrackInfo:
         """Get track info using intelligent matching (MBID first, then artist/title)."""
         # Try MBID first if available (check lastfm or musicbrainz metadata)
-        mbid = track.get_connector_attribute("lastfm", "lastfm_mbid") or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
+        mbid = track.get_connector_attribute(
+            "lastfm", "lastfm_mbid"
+        ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
         if mbid:
             lastfm_info = await self.get_track_info_by_mbid(mbid)
             if lastfm_info and lastfm_info.lastfm_title:
@@ -117,39 +119,44 @@ class LastFMOperations:
             return {}
 
         async def process_track(track: Track) -> tuple[int, dict[str, Any]]:
-            """Process a single track and return its ID with metadata.""" 
+            """Process a single track and return its ID with metadata."""
             if track.id is None:
-                raise ValueError(f"Track must have an ID for batch processing: {track.title}")
-                
+                raise ValueError(
+                    f"Track must have an ID for batch processing: {track.title}"
+                )
+
             lastfm_info = await self.get_track_info_intelligent(track)
-            
+
             # Convert to metadata dictionary using attrs introspection
             metadata = {}
             if lastfm_info:
                 import attrs
+
                 for attrs_field in attrs.fields(type(lastfm_info)):
                     value = getattr(lastfm_info, attrs_field.name)
                     if value is not None:
                         metadata[attrs_field.name] = value
-            
+
             return track.id, metadata
 
         # Process using batch processor
         batch_results = await self.batch_processor.process(
             items=tracks,
             process_func=process_track,
-            progress_description="Fetching Last.fm track metadata"
+            progress_description="Fetching Last.fm track metadata",
         )
 
         # Convert results to expected format (filter only tracks with metadata)
-        results = {track_id: metadata for track_id, metadata in batch_results if metadata}
+        results = {
+            track_id: metadata for track_id, metadata in batch_results if metadata
+        }
 
         logger.info(
             f"Retrieved Last.fm metadata for {len(results)}/{len(tracks)} tracks"
         )
         return results
 
-    # User Library Operations  
+    # User Library Operations
 
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track on Last.fm for the authenticated user."""
@@ -157,7 +164,7 @@ class LastFMOperations:
 
     async def enrich_track_with_lastfm_metadata(self, track: Track) -> Track:
         """Enrich a track with Last.fm metadata."""
-        lastfm_info = await self.get_track_info_intelligent(track)  
+        lastfm_info = await self.get_track_info_intelligent(track)
         return convert_lastfm_to_domain_track(track, lastfm_info)
 
     # Play History Operations
@@ -167,24 +174,26 @@ class LastFMOperations:
     ) -> PlayRecord:
         """Create a Last.fm play record from a track."""
         from datetime import UTC, datetime
-        
+
         # Get Last.fm info to enrich the play record
         lastfm_info = await self.get_track_info_intelligent(track)
-        
+
         # Parse timestamp or use current time
         scrobbled_at = datetime.now(UTC)
         if timestamp:
             try:
                 if isinstance(timestamp, str):
-                    scrobbled_at = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    scrobbled_at = datetime.fromisoformat(
+                        timestamp.replace("Z", "+00:00")
+                    )
             except ValueError:
                 # Keep default current time if parsing fails
                 pass
-        
+
         # Extract artist and track names
         artist_name = track.artists[0].name if track.artists else "Unknown Artist"
         track_name = track.title or "Unknown Track"
-        
+
         # Create enriched play record
         return create_lastfm_play_record(
             artist_name=artist_name,

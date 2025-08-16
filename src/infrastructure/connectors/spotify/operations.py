@@ -6,7 +6,7 @@ the SpotifyAPIClient for individual API calls and integrates with shared
 services for optimization.
 
 Key components:
-- SpotifyOperations: High-level business workflows 
+- SpotifyOperations: High-level business workflows
 - Playlist creation and management with batch processing
 - Bulk track operations with intelligent batching
 - Integration with PlaylistOperationService for optimization
@@ -48,10 +48,10 @@ logger = get_logger(__name__).bind(service="spotify_operations")
 @define(slots=True)
 class SpotifyOperations:
     """Business logic service for complex Spotify operations.
-    
+
     Handles multi-step workflows, batch processing, and coordination of
     multiple API calls. Uses SpotifyAPIClient for individual API interactions.
-    
+
     Example:
         >>> client = SpotifyAPIClient()
         >>> operations = SpotifyOperations(client)
@@ -66,7 +66,7 @@ class SpotifyOperations:
         from src.infrastructure.connectors._shared.api_batch_processor import (
             APIBatchProcessor,
         )
-        
+
         return APIBatchProcessor(
             batch_size=settings.api.spotify_batch_size,
             concurrency_limit=settings.api.spotify_concurrency,
@@ -80,7 +80,9 @@ class SpotifyOperations:
 
     # Bulk Track Operations
 
-    async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, dict[str, Any]]:
+    async def get_tracks_by_ids(
+        self, track_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
         """Fetch multiple tracks from Spotify with intelligent batching."""
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
@@ -90,7 +92,7 @@ class SpotifyOperations:
         async def process_batch(batch_ids: list[str]) -> dict[str, dict[str, Any]]:
             """Process a single batch of track IDs."""
             batch_results = {}
-            
+
             try:
                 # Use bulk tracks API - single call for up to 50 tracks
                 tracks_response = await self.client.get_tracks_bulk(batch_ids)
@@ -121,11 +123,11 @@ class SpotifyOperations:
         # Process using batch processor
         batch_results = await self.batch_processor.process(
             items=[
-                track_ids[i:i + settings.api.spotify_batch_size] 
+                track_ids[i : i + settings.api.spotify_batch_size]
                 for i in range(0, len(track_ids), settings.api.spotify_batch_size)
             ],
             process_func=process_batch,
-            progress_description="Fetching Spotify track metadata"
+            progress_description="Fetching Spotify track metadata",
         )
 
         # Merge all batch results
@@ -207,12 +209,14 @@ class SpotifyOperations:
                         "is_local": item.get("is_local", False),
                         **extract_track_metadata_for_playlist_item(track),
                         "added_at": added_at,  # Store in extras for easy access
+                        "full_track_data": track,  # Store complete track data to avoid additional API calls
                     },
                 )
                 playlist_items.append(playlist_item)
 
         # Add items to the playlist
         from attrs import evolve
+
         connector_playlist = evolve(connector_playlist, items=playlist_items)
 
         return connector_playlist
@@ -243,7 +247,9 @@ class SpotifyOperations:
 
             # Add tracks in batches if any
             if spotify_track_uris:
-                await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
+                await self._add_tracks_to_playlist_batched(
+                    playlist_id, spotify_track_uris
+                )
 
             return playlist_id
 
@@ -270,7 +276,9 @@ class SpotifyOperations:
             if replace:
                 await self._replace_playlist_content(playlist_id, spotify_track_uris)
             else:
-                await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
+                await self._add_tracks_to_playlist_batched(
+                    playlist_id, spotify_track_uris
+                )
 
         except Exception as e:
             logger.error(f"Error updating playlist {playlist_id}: {e}")
@@ -290,7 +298,9 @@ class SpotifyOperations:
             # Add remaining tracks in batches
             remaining_tracks = track_uris[large_batch_size:]
             if remaining_tracks:
-                await self._add_tracks_to_playlist_batched(playlist_id, remaining_tracks)
+                await self._add_tracks_to_playlist_batched(
+                    playlist_id, remaining_tracks
+                )
         else:
             # Clear playlist if no tracks
             await self.client.playlist_replace_items(playlist_id, [])
@@ -313,11 +323,11 @@ class SpotifyOperations:
         # Process using batch processor
         await self.batch_processor.process(
             items=[
-                track_uris[i:i + large_batch_size] 
+                track_uris[i : i + large_batch_size]
                 for i in range(0, len(track_uris), large_batch_size)
             ],
             process_func=add_batch,
-            progress_description="Adding tracks to playlist"
+            progress_description="Adding tracks to playlist",
         )
 
     # Differential Playlist Operations
@@ -341,16 +351,13 @@ class SpotifyOperations:
 
         # Group operations by type for cleaner execution
         remove_ops = [
-            op for op in operations 
-            if op.operation_type == PlaylistOperationType.REMOVE
+            op for op in operations if op.operation_type == PlaylistOperationType.REMOVE
         ]
         move_ops = [
-            op for op in operations 
-            if op.operation_type == PlaylistOperationType.MOVE
+            op for op in operations if op.operation_type == PlaylistOperationType.MOVE
         ]
         add_ops = [
-            op for op in operations 
-            if op.operation_type == PlaylistOperationType.ADD
+            op for op in operations if op.operation_type == PlaylistOperationType.ADD
         ]
 
         try:
@@ -407,10 +414,12 @@ class SpotifyOperations:
             # Process in batches of 100
             for i in range(0, len(items_to_remove), 100):
                 batch = items_to_remove[i : i + 100]
-                result = await self.client.playlist_remove_specific_occurrences_of_items(
-                    playlist_id=playlist_id,
-                    items=batch,
-                    snapshot_id=snapshot_id,
+                result = (
+                    await self.client.playlist_remove_specific_occurrences_of_items(
+                        playlist_id=playlist_id,
+                        items=batch,
+                        snapshot_id=snapshot_id,
+                    )
                 )
                 snapshot_id = result.get("snapshot_id") if result else snapshot_id
                 await asyncio.sleep(settings.api.spotify_request_delay)
@@ -507,7 +516,9 @@ class SpotifyOperations:
                 if added_at:
                     parsed_time = parse_spotify_timestamp(added_at)
                     if parsed_time:
-                        connector_track.raw_metadata["liked_at"] = parsed_time.isoformat()
+                        connector_track.raw_metadata["liked_at"] = (
+                            parsed_time.isoformat()
+                        )
                         connector_track.raw_metadata["is_liked"] = True
 
                 connector_tracks.append(connector_track)
@@ -637,7 +648,9 @@ class SpotifyOperations:
 
             # Calculate API calls made
             large_batch_size = settings.api.spotify_large_batch_size
-            api_calls_made = (len(spotify_track_uris) + large_batch_size - 1) // large_batch_size
+            api_calls_made = (
+                len(spotify_track_uris) + large_batch_size - 1
+            ) // large_batch_size
 
             # Get updated playlist info for snapshot_id
             playlist_info = await self.client.get_playlist(playlist_id)
@@ -646,7 +659,9 @@ class SpotifyOperations:
             return {
                 "tracks_added": len(spotify_track_uris),
                 "api_calls_made": api_calls_made,
-                "snapshot_id": playlist_info.get("snapshot_id") if playlist_info else None,
+                "snapshot_id": playlist_info.get("snapshot_id")
+                if playlist_info
+                else None,
                 "last_modified": datetime.now(UTC).isoformat(),
             }
 

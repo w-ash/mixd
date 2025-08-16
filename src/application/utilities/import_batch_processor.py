@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 
 from attrs import define, field
 
-from src.config import get_logger, settings
+from src.config import get_logger
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="import_batch_processor")
@@ -65,7 +65,7 @@ class ImportBatchProcessor[T, R]:
         items: list[T],
         process_func: Callable[[list[T]], Awaitable[R]],
         progress_callback: Callable[[str, dict], None] | None = None,
-        progress_task_name: str = "import_batch_processing", 
+        progress_task_name: str = "import_batch_processing",
         progress_description: str = "Processing import data",
     ) -> list[R]:
         """Process items in batches optimized for import operations.
@@ -91,13 +91,9 @@ class ImportBatchProcessor[T, R]:
         total_batches = (len(items) + self.batch_size - 1) // self.batch_size
         total_items = len(items)
         processed_items = 0
-        
+
         # Track errors across batches for reporting
-        error_summary = {
-            "total_errors": 0,
-            "error_types": {},
-            "failed_batches": []
-        }
+        error_summary = {"total_errors": 0, "error_types": {}, "failed_batches": []}
 
         # Emit batch processing started event
         if progress_callback:
@@ -121,7 +117,7 @@ class ImportBatchProcessor[T, R]:
         for i in range(0, len(items), self.batch_size):
             batch = items[i : i + self.batch_size]
             current_batch = i // self.batch_size + 1
-            
+
             self.logger_instance.debug(
                 f"Processing import batch {current_batch}/{total_batches}",
                 batch_size=len(batch),
@@ -131,7 +127,7 @@ class ImportBatchProcessor[T, R]:
             # Emit batch progress event with import-specific details
             if progress_callback:
                 progress_callback(
-                    "batch_progress", 
+                    "batch_progress",
                     {
                         "task_name": progress_task_name,
                         "batch_number": current_batch,
@@ -147,27 +143,29 @@ class ImportBatchProcessor[T, R]:
             # Process batch with retry logic for transient errors
             batch_result = None
             batch_error = None
-            
+
             for attempt in range(self.retry_count + 1):
                 try:
                     batch_result = await process_func(batch)
                     break  # Success, exit retry loop
-                    
+
                 except Exception as e:
                     batch_error = e
                     is_final_attempt = attempt == self.retry_count
-                    
+
                     # Check if this is a retriable error (not file format errors, etc.)
                     error_msg = str(e).lower()
                     is_retriable = (
-                        "timeout" in error_msg or
-                        "connection" in error_msg or 
-                        "temporary" in error_msg or
-                        "busy" in error_msg
+                        "timeout" in error_msg
+                        or "connection" in error_msg
+                        or "temporary" in error_msg
+                        or "busy" in error_msg
                     )
-                    
+
                     if is_retriable and not is_final_attempt:
-                        delay = self.retry_base_delay * (2 ** attempt)  # Exponential backoff
+                        delay = self.retry_base_delay * (
+                            2**attempt
+                        )  # Exponential backoff
                         self.logger_instance.warning(
                             f"Import batch {current_batch} failed (attempt {attempt + 1}), "
                             f"retrying in {delay}s: {e}"
@@ -180,9 +178,9 @@ class ImportBatchProcessor[T, R]:
                             error_type=type(e).__name__,
                             is_retriable=is_retriable,
                             final_attempt=is_final_attempt,
-                            batch_size=len(batch)
+                            batch_size=len(batch),
                         )
-                        
+
                         # Track error for summary
                         error_type = type(e).__name__
                         error_summary["total_errors"] += 1
@@ -193,7 +191,7 @@ class ImportBatchProcessor[T, R]:
                             "batch_number": current_batch,
                             "error": str(e),
                             "error_type": error_type,
-                            "batch_size": len(batch)
+                            "batch_size": len(batch),
                         })
                         break
 
@@ -207,12 +205,12 @@ class ImportBatchProcessor[T, R]:
                 # Add error result to maintain batch ordering
                 error_result = {
                     "status": "error",
-                    "batch_number": current_batch, 
+                    "batch_number": current_batch,
                     "error": str(batch_error) if batch_error else "Unknown error",
-                    "batch_size": len(batch)
+                    "batch_size": len(batch),
                 }
                 results.append(error_result)  # type: ignore
-                
+
             processed_items += len(batch)
 
             # Emit batch completed event
@@ -232,45 +230,25 @@ class ImportBatchProcessor[T, R]:
                 )
 
         # Final summary logging
-        success_count = sum(1 for r in results if not (isinstance(r, dict) and r.get("status") == "error"))
+        success_count = sum(
+            1
+            for r in results
+            if not (isinstance(r, dict) and r.get("status") == "error")
+        )
         failure_count = total_batches - success_count
-        
+
         self.logger_instance.info(
             f"Import batch processing completed: {success_count}/{total_batches} batches successful, "
             f"{processed_items} total items processed"
         )
-        
+
         if error_summary["total_errors"] > 0:
             self.logger_instance.warning(
                 f"Import errors encountered: {error_summary['total_errors']} errors "
                 f"across {failure_count} batches",
-                error_types=error_summary["error_types"]
+                error_types=error_summary["error_types"],
             )
 
         return results
 
 
-def create_import_batch_processor(
-    batch_size: int | None = None,
-    retry_count: int | None = None,
-    retry_base_delay: float | None = None,
-    memory_limit_mb: int | None = None,
-) -> ImportBatchProcessor:
-    """Create an ImportBatchProcessor with standard configuration.
-    
-    Args:
-        batch_size: Override default batch size (defaults to settings.import.batch_size)
-        retry_count: Override default retry count (defaults to settings.import.retry_count)  
-        retry_base_delay: Override default retry delay (defaults to settings.import.retry_base_delay)
-        memory_limit_mb: Override default memory limit (defaults to settings.import.memory_limit_mb)
-        
-    Returns:
-        Configured ImportBatchProcessor instance
-    """
-    return ImportBatchProcessor(
-        batch_size=batch_size or int(settings.import_settings.batch_size),
-        retry_count=retry_count or int(settings.import_settings.retry_count),
-        retry_base_delay=retry_base_delay or float(settings.import_settings.retry_base_delay),
-        memory_limit_mb=memory_limit_mb or int(settings.import_settings.memory_limit_mb),
-        logger_instance=logger,
-    )

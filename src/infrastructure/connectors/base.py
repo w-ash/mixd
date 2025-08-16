@@ -23,7 +23,7 @@ Example:
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from attrs import define
 import backoff
@@ -49,27 +49,6 @@ from src.infrastructure.connectors._shared.metrics import (
 logger = get_logger(__name__).bind(service="connectors")
 
 # Type variables are now defined in api_batch_processor.py
-
-
-class ConnectorConfigProtocol(Protocol):
-    """Protocol defining the configuration interface for connectors."""
-    
-    @property
-    def connector_name(self) -> str:
-        """Service identifier for this connector (e.g., 'spotify', 'lastfm')."""
-        ...
-    
-    def get_connector_config(self, key: str, default=None) -> Any:
-        """Load configuration value from modern settings structure."""
-        ...
-    
-    @property
-    def batch_processor(self):
-        """Get pre-configured batch processor with service-specific settings."""
-        ...
-
-
-# ConnectorPlaylistItem is now imported from src.domain.entities where needed
 
 
 @define(frozen=True, slots=True)
@@ -153,14 +132,14 @@ class BaseAPIConnector(ABC):
     @property
     def batch_processor(self):
         """Get pre-configured batch processor with service-specific settings.
-        
+
         Creates APIBatchProcessor with default configuration. Services can override
         this method for custom batch processor configuration.
         """
         from src.infrastructure.connectors._shared.api_batch_processor import (
             APIBatchProcessor,
         )
-        
+
         return APIBatchProcessor(
             batch_size=int(self.get_connector_config("BATCH_SIZE") or 50),
             concurrency_limit=int(self.get_connector_config("CONCURRENCY") or 5),
@@ -191,31 +170,33 @@ class BaseAPIConnector(ABC):
         # Map common keys to modern settings structure
         key_mapping = {
             "BATCH_SIZE": "batch_size",
-            "CONCURRENCY": "concurrency", 
+            "CONCURRENCY": "concurrency",
             "RETRY_COUNT": "retry_count",
             "RETRY_BASE_DELAY": "retry_base_delay",
             "RETRY_MAX_DELAY": "retry_max_delay",
             "REQUEST_DELAY": "request_delay",
             "RAPID_TASK_CREATION": "rapid_task_creation",
         }
-        
+
         # Convert key to modern format
         modern_key = key_mapping.get(key, key.lower())
         setting_name = f"{self.connector_name.lower()}_{modern_key}"
-        
+
         # Get value from modern settings
         return getattr(settings.api, setting_name, default)
 
-    def create_service_aware_retry(self, backoff_strategy=backoff.expo, **backoff_kwargs):
+    def create_service_aware_retry(
+        self, backoff_strategy=backoff.expo, **backoff_kwargs
+    ):
         """Create a retry decorator that uses this connector's error classifier.
-        
+
         Args:
             backoff_strategy: Backoff strategy function (backoff.expo, backoff.constant, etc.)
             **backoff_kwargs: Additional arguments passed to backoff decorator
-            
+
         Returns:
             Configured backoff decorator with service-specific error handling
-            
+
         Example:
             @self.create_service_aware_retry(max_tries=3, base=1.0, max_value=30.0)
             async def api_method(self):
@@ -224,30 +205,36 @@ class BaseAPIConnector(ABC):
         """
         # Set up default backoff parameters using connector config
         defaults = {
-            'max_tries': int(self.get_connector_config("RETRY_COUNT") or 3) + 1,
-            'jitter': backoff.full_jitter,
+            "max_tries": int(self.get_connector_config("RETRY_COUNT") or 3) + 1,
+            "jitter": backoff.full_jitter,
         }
-        
+
         # Add strategy-specific defaults
         if backoff_strategy == backoff.expo:
             defaults.update({
-                'base': float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
-                'max_value': float(self.get_connector_config("RETRY_MAX_DELAY") or 30.0),
+                "base": float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+                "max_value": float(
+                    self.get_connector_config("RETRY_MAX_DELAY") or 30.0
+                ),
             })
         elif backoff_strategy == backoff.constant:
             # For constant backoff, use interval instead of base/max_value
             defaults.update({
-                'interval': float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
+                "interval": float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
             })
-        
+
         # Merge with provided kwargs, giving precedence to explicit values
         backoff_config = {**defaults, **backoff_kwargs}
-        
+
         # Create service-specific handlers (these work for all strategies)
-        backoff_config['giveup'] = should_giveup_on_error(self.error_classifier)
-        backoff_config['on_backoff'] = create_backoff_handler(self.error_classifier, self.connector_name)
-        backoff_config['on_giveup'] = create_giveup_handler(self.error_classifier, self.connector_name)
-        
+        backoff_config["giveup"] = should_giveup_on_error(self.error_classifier)
+        backoff_config["on_backoff"] = create_backoff_handler(
+            self.error_classifier, self.connector_name
+        )
+        backoff_config["on_giveup"] = create_giveup_handler(
+            self.error_classifier, self.connector_name
+        )
+
         # Return configured decorator
         return backoff.on_exception(backoff_strategy, Exception, **backoff_config)
 
@@ -282,68 +269,22 @@ class BaseAPIConnector(ABC):
     @abstractmethod
     def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
         """Convert service-specific track data to ConnectorTrack domain model.
-        
+
         Each connector must implement this method to handle conversion from their
         service's API response format to the standardized ConnectorTrack domain model.
-        
+
         Args:
             track_data: Raw track data from the service's API
-            
+
         Returns:
             ConnectorTrack with standardized fields and service-specific metadata
-            
+
         Example:
             # In SpotifyConnector
             def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
                 from .conversions import convert_spotify_track_to_connector
                 return convert_spotify_track_to_connector(track_data)
         """
-
-
-def extract_metric(obj: Any, field_names: list[str]) -> int | None:
-    """Extract a metric value from various object types.
-    
-    Tries multiple access patterns to retrieve metric values from objects:
-    - Direct attribute access
-    - service_data dictionary (used by enricher)
-    - metadata dictionary
-    - get() method (for dict-like objects)
-    
-    Args:
-        obj: Object to extract metric from
-        field_names: List of field names to try (in order)
-        
-    Returns:
-        Metric value if found, None otherwise
-    """
-    # First check for direct attribute access
-    for field_name in field_names:
-        if hasattr(obj, field_name) and getattr(obj, field_name) is not None:
-            return getattr(obj, field_name)
-
-    # Then check service_data dictionary access (used by enricher)
-    if hasattr(obj, "service_data") and obj.service_data:
-        for field_name in field_names:
-            if (
-                field_name in obj.service_data
-                and obj.service_data[field_name] is not None
-            ):
-                return obj.service_data[field_name]
-
-    # Then check metadata dictionary access
-    if hasattr(obj, "metadata"):
-        for field_name in field_names:
-            if field_name in obj.metadata and obj.metadata[field_name] is not None:
-                return obj.metadata[field_name]
-
-    # Finally check dictionary access
-    if hasattr(obj, "get"):
-        for field_name in field_names:
-            value = obj.get(field_name)
-            if value is not None:
-                return value
-
-    return None
 
 
 def register_metrics(
@@ -359,5 +300,9 @@ def register_metrics(
         metric_resolver: Resolver instance that can fetch metric values
         field_map: Maps metric names to connector metadata field names
     """
-    for metric_name in field_map:
+    from src.infrastructure.connectors._shared.metrics import register_metric_config
+    
+    for metric_name, field_name in field_map.items():
         register_metric_resolver(metric_name, metric_resolver)
+        # Register the field mapping so get_field_name() works correctly
+        register_metric_config(metric_name, field_name)

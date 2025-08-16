@@ -64,6 +64,7 @@ def _register_commands():
             playlist_commands,
             setup_commands,
             status_commands,
+            track_commands,
         )
 
         # Add command groups using Typer best practices
@@ -86,6 +87,13 @@ def _register_commands():
             name="likes",
             help="Import and export your liked tracks across music services",
             rich_help_panel="🔄 Track Data Sync",
+        )
+
+        app.add_typer(
+            track_commands.track_app,
+            name="tracks",
+            help="Track management operations including merging duplicates",
+            rich_help_panel="🎵 Track Operations",
         )
 
         # Register individual utility commands
