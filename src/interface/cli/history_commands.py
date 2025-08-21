@@ -11,6 +11,7 @@ from rich.prompt import Prompt
 import typer
 
 from src.application.use_cases.import_play_history import run_import
+from src.config import settings
 from src.interface.shared.ui import display_operation_result
 
 console = Console()
@@ -145,7 +146,7 @@ def import_spotify_cmd(
 
     # Check file size and warn if very large
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
-    if file_size_mb > 100:
+    if file_size_mb > settings.import_settings.file_size_warning_mb:
         console.print(
             f"[yellow]Large file detected ({file_size_mb:.1f}MB). This may take several minutes.[/yellow]"
         )

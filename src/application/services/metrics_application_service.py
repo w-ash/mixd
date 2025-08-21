@@ -94,7 +94,9 @@ class MetricsApplicationService:
 
             # Step 3: Get field name from mapping
             field_name = field_map.get(metric_name)
-            logger.debug(f"Field mapping: {metric_name} -> {field_name} (field_map: {field_map})")
+            logger.debug(
+                f"Field mapping: {metric_name} -> {field_name} (field_map: {field_map})"
+            )
             if not field_name:
                 logger.warning(f"No field mapping for {metric_name}")
                 return cached_values
@@ -336,15 +338,9 @@ class MetricsApplicationService:
                 """Save a batch of metrics to the database."""
                 return await metrics_repo.save_track_metrics(metrics_batch)
 
-            # Split metrics into batches and process using BatchProcessor
-            batch_size = 10
-            batches = [
-                all_metrics_batch[i : i + batch_size]
-                for i in range(0, len(all_metrics_batch), batch_size)
-            ]
-
+            # Process using BatchProcessor (it handles batching internally)
             batch_results = await batch_processor.process(
-                items=batches,
+                items=all_metrics_batch,
                 process_func=save_metrics_batch,
                 progress_description=f"Saving {len(all_metrics_batch)} metrics to database",
             )
@@ -446,7 +442,9 @@ class MetricsApplicationService:
                     field_values[track_id] = field_value
                 else:
                     # DEBUG: Log what fields are actually available
-                    logger.debug(f"Field '{field_name}' not found in metadata for track {track_id}. Available fields: {list(metadata.keys())}")
+                    logger.debug(
+                        f"Field '{field_name}' not found in metadata for track {track_id}. Available fields: {list(metadata.keys())}"
+                    )
 
         logger.info(
             f"Successfully extracted {len(field_values)} {field_name} values from {connector} API",

@@ -3,15 +3,42 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypedDict
 from uuid import uuid4
 
 from src.application.utilities.results import ImportResultData, ResultFactory
 from src.config import get_logger
-from src.domain.entities import OperationResult, TrackPlay
-from src.domain.repositories.interfaces import PlaysRepositoryProtocol
+from src.domain.entities import ConnectorTrackPlay, OperationResult
+from src.domain.repositories.interfaces import (
+    PlaysRepositoryProtocol,
+    UnitOfWorkProtocol,
+)
 
 logger = get_logger(__name__)
+
+
+class CommonImportParams(TypedDict, total=False):
+    """Common import parameters shared across all importers."""
+
+    import_batch_id: str | None
+    progress_callback: Callable[[int, int, str], None] | None
+    uow: UnitOfWorkProtocol | None
+
+
+class LastFMImportParams(CommonImportParams, total=False):
+    """Last.fm-specific import parameters."""
+
+    username: str | None
+    from_date: datetime | None
+    to_date: datetime | None
+    limit: int | None
+
+
+class SpotifyImportParams(CommonImportParams, total=False):
+    """Spotify-specific import parameters."""
+
+    file_path: str | None
+    batch_size: int | None
 
 
 class BasePlayImporter(ABC):
@@ -33,20 +60,24 @@ class BasePlayImporter(ABC):
         6. Return import statistics
     """
 
-    def __init__(self, plays_repository: PlaysRepositoryProtocol) -> None:
+    def __init__(self, plays_repository: PlaysRepositoryProtocol | None) -> None:
         """Initialize with database repository for saving track plays.
 
         Args:
             plays_repository: Repository for persisting TrackPlay objects.
+                Can be None for services using connector-based deferred resolution.
         """
         self.plays_repository = plays_repository
         self.operation_name = "Base Import"  # Override in subclasses
+        self._saved_connector_plays: list[
+            ConnectorTrackPlay
+        ] = []  # For orchestrator retrieval
 
     async def import_data(
         self,
         import_batch_id: str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
-        uow: Any | None = None,
+        uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> OperationResult:
         """Import music listening data from external source to database.
@@ -122,7 +153,7 @@ class BasePlayImporter(ABC):
                     80, 100, f"Saving {len(track_plays)} plays to database..."
                 )
 
-            imported_count, duplicate_count = await self._save_data(track_plays)
+            imported_count, duplicate_count = await self._save_data(track_plays, uow)
 
             # Step 5: Handle checkpoints (Strategy pattern - delegated to subclasses)
             if progress_callback:
@@ -160,7 +191,7 @@ class BasePlayImporter(ABC):
 
             result = self._create_success_result(
                 raw_data=raw_data,
-                track_plays=track_plays,
+                processed_data=track_plays,
                 imported_count=imported_count,
                 duplicate_count=duplicate_count,
                 batch_id=batch_id,
@@ -185,7 +216,7 @@ class BasePlayImporter(ABC):
     async def _fetch_data(
         self,
         progress_callback: Callable[[int, int, str], None] | None = None,
-        uow: Any | None = None,
+        uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> list[Any]:
         """Fetch raw listening data from external source.
@@ -209,14 +240,14 @@ class BasePlayImporter(ABC):
         batch_id: str,
         import_timestamp: datetime,
         progress_callback: Callable[[int, int, str], None] | None = None,
-        uow: Any | None = None,
+        uow: UnitOfWorkProtocol | None = None,
         **kwargs,
-    ) -> list[TrackPlay]:
-        """Convert raw source data into standardized TrackPlay objects.
+    ) -> list[Any]:
+        """Convert raw source data into standardized domain objects.
 
         Implemented by each subclass to parse their specific data format and create
-        TrackPlay objects with normalized track/artist names, play timestamps, and
-        metadata. Should handle data cleaning and validation.
+        domain objects (TrackPlay for immediate resolution, ConnectorTrackPlay for deferred).
+        Should handle data cleaning and validation.
 
         Args:
             raw_data: Raw data objects returned from _fetch_data.
@@ -226,7 +257,7 @@ class BasePlayImporter(ABC):
             **kwargs: Source-specific processing parameters.
 
         Returns:
-            TrackPlay objects ready for database insertion.
+            Domain objects ready for database insertion (TrackPlay or ConnectorTrackPlay).
         """
 
     @abstractmethod
@@ -244,23 +275,71 @@ class BasePlayImporter(ABC):
             **kwargs: Source-specific checkpoint parameters and strategies.
         """
 
-    async def _save_data(self, track_plays: list[TrackPlay]) -> tuple[int, int]:
-        """Save track plays to database with automatic deduplication.
+    def _store_connector_plays(self, connector_plays: list[ConnectorTrackPlay]) -> None:
+        """Store connector plays for orchestrator retrieval.
 
         Args:
-            track_plays: TrackPlay objects to persist.
+            connector_plays: List of connector plays to store for later orchestrator access.
+        """
+        self._saved_connector_plays = connector_plays
+
+    def _get_stored_connector_plays(self) -> list[ConnectorTrackPlay]:
+        """Retrieve stored connector plays for orchestrator.
+
+        Returns:
+            List of connector plays stored from the most recent import.
+        """
+        return self._saved_connector_plays
+
+    async def _save_connector_plays_via_uow(
+        self, connector_plays: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol
+    ) -> tuple[int, int]:
+        """Common logic for saving connector plays via UnitOfWork.
+
+        Args:
+            connector_plays: ConnectorTrackPlay objects to persist.
+            uow: UnitOfWork instance for repository access.
+
+        Returns:
+            Tuple of (inserted_count, duplicate_count) - duplicate_count is always 0 for connector plays.
+        """
+        if not connector_plays:
+            self._store_connector_plays([])
+            return 0, 0
+
+        connector_play_repository = uow.get_connector_play_repository()
+        await connector_play_repository.bulk_insert_connector_plays(connector_plays)
+
+        logger.info(f"💾 Saved {len(connector_plays)} connector plays via UnitOfWork")
+        self._store_connector_plays(connector_plays)
+        return len(connector_plays), 0  # No duplicates for connector plays
+
+    async def _save_data(
+        self, data: list[Any], uow: UnitOfWorkProtocol | None = None
+    ) -> tuple[int, int]:
+        """Save processed data to database with automatic deduplication.
+
+        Args:
+            data: Processed objects to persist (TrackPlay or ConnectorTrackPlay).
+            uow: Unit of work for database operations (required).
 
         Returns:
             tuple[int, int]: (inserted_count, duplicate_count)
         """
-        if not track_plays:
+        if not data:
             return (0, 0)
+
+        # Modern UnitOfWork pattern - no legacy fallbacks
+        if uow is None:
+            raise ValueError("UnitOfWork is required for _save_data")
+
+        plays_repository = uow.get_plays_repository()
 
         try:
             (
                 inserted_count,
                 duplicate_count,
-            ) = await self.plays_repository.bulk_insert_plays(track_plays)
+            ) = await plays_repository.bulk_insert_plays(data)
 
             # Log database operation results with visibility
             if inserted_count > 0:
@@ -272,7 +351,7 @@ class BasePlayImporter(ABC):
         except Exception as e:
             logger.error(
                 f"bulk_insert_plays failed with exception: {e}",
-                sent_count=len(track_plays),
+                sent_count=len(data),
                 error_type=type(e).__name__,
                 error_str=str(e),
             )
@@ -281,7 +360,7 @@ class BasePlayImporter(ABC):
     def _create_success_result(
         self,
         raw_data: list[Any],
-        track_plays: list[TrackPlay],
+        processed_data: list[Any],
         imported_count: int,
         duplicate_count: int,
         batch_id: str,
@@ -293,9 +372,9 @@ class BasePlayImporter(ABC):
 
         Args:
             raw_data: Raw data that was processed.
-            track_plays: TrackPlay objects that were created.
-            imported_count: Number of new plays saved to database.
-            duplicate_count: Number of duplicate plays found.
+            processed_data: Processed objects that were created (TrackPlay or ConnectorTrackPlay).
+            imported_count: Number of new items saved to database.
+            duplicate_count: Number of duplicate items found.
             batch_id: Unique identifier for this import batch.
 
         Returns:
@@ -309,11 +388,11 @@ class BasePlayImporter(ABC):
             imported_count=imported_count,
             duplicate_count=duplicate_count,
             batch_id=batch_id,
-            tracks=track_plays,
+            tracks=processed_data,  # Note: this might contain ConnectorTrackPlay objects
         )
 
         # Allow subclasses to enrich with service-specific statistics
-        enriched_data = self._enrich_import_data(import_data, raw_data, track_plays)
+        enriched_data = self._enrich_import_data(import_data, raw_data, processed_data)
 
         return ResultFactory.create_import_result(
             operation_name=self.operation_name,
@@ -324,7 +403,7 @@ class BasePlayImporter(ABC):
         self,
         base_data: "ImportResultData",
         raw_data: list[Any],  # noqa: ARG002 - Used by subclasses
-        track_plays: list[TrackPlay],  # noqa: ARG002 - Used by subclasses
+        processed_data: list[Any],  # noqa: ARG002 - Used by subclasses (TrackPlay or ConnectorTrackPlay)
     ) -> "ImportResultData":
         """Enrich import data with service-specific statistics.
 
@@ -334,7 +413,7 @@ class BasePlayImporter(ABC):
         Args:
             base_data: Base import data structure
             raw_data: Original raw data that was processed
-            track_plays: Final TrackPlay objects that were created
+            processed_data: Final processed objects that were created (TrackPlay or ConnectorTrackPlay)
 
         Returns:
             Enriched ImportResultData with service-specific statistics
@@ -377,3 +456,30 @@ class BasePlayImporter(ABC):
             error_message=error_msg,
             batch_id=batch_id,
         )
+
+    @staticmethod
+    def _extract_common_params(
+        **params: Any,
+    ) -> tuple[CommonImportParams, dict[str, Any]]:
+        """Extract common import parameters and return them with remaining service-specific params.
+
+        Args:
+            **params: All import parameters
+
+        Returns:
+            Tuple of (common_params, remaining_service_specific_params)
+        """
+        common_params: CommonImportParams = {
+            "import_batch_id": params.get("import_batch_id"),
+            "progress_callback": params.get("progress_callback"),
+            "uow": params.get("uow"),
+        }
+
+        # Remove common parameters from the original params dict
+        remaining_params = {
+            k: v
+            for k, v in params.items()
+            if k not in {"import_batch_id", "progress_callback", "uow"}
+        }
+
+        return common_params, remaining_params

@@ -5,9 +5,12 @@ from music services like Spotify and Last.fm.
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from attrs import define, field
+
+if TYPE_CHECKING:
+    from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
 from .track import Artist, Track, TrackList
 
@@ -144,6 +147,189 @@ def _validate_timezone_aware_datetime(_instance, attribute, value):
         raise ValueError(
             f"Field '{attribute.name}' must be timezone-aware. "
             f"Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
+        )
+
+
+@define(frozen=True, slots=True)
+class ConnectorTrackPlay:
+    """Raw play data from external music services before resolution to canonical tracks.
+
+    Unified entity for both Spotify and Last.fm play imports using deferred resolution pattern.
+    Stores complete raw API data with resolution tracking for eventual conversion to TrackPlay.
+
+    This replaces the PlayRecord entity and implements the connector pattern for plays,
+    following the same architecture as ConnectorTrack for consistent separation of
+    ingestion and resolution concerns.
+    """
+
+    # Raw API data (core fields from all services)
+    artist_name: str
+    track_name: str
+    played_at: datetime = field(validator=_validate_timezone_aware_datetime)
+    service: str  # "spotify", "lastfm"
+    album_name: str | None = None
+    ms_played: int | None = None
+    service_metadata: dict[str, Any] = field(factory=dict)
+
+    # Import tracking (for debugging and batch management)
+    api_page: int | None = None
+    raw_data: dict[str, Any] = field(factory=dict)
+    import_timestamp: datetime | None = field(
+        default=None, validator=_validate_timezone_aware_datetime
+    )
+    import_source: str | None = None  # "lastfm_api", "spotify_export"
+    import_batch_id: str | None = None
+
+    # Connector identification (auto-derived in __attrs_post_init__)
+    connector_name: str = field(init=False)
+    connector_track_identifier: str = field(init=False)
+
+    # Resolution tracking (nullable until resolved)
+    resolved_track_id: int | None = None
+    resolved_at: datetime | None = field(
+        default=None, validator=_validate_timezone_aware_datetime
+    )
+
+    # Database persistence
+    id: int | None = None
+
+    def __attrs_post_init__(self) -> None:
+        """Auto-derive connector fields based on service type."""
+        # Set connector_name from service
+        object.__setattr__(self, "connector_name", self.service)
+
+        # Create service-specific track identifier
+        if self.service == "spotify":
+            # Use Spotify track URI if available, fallback to artist::title
+            track_uri = self.service_metadata.get("track_uri")
+            identifier = track_uri or f"{self.artist_name}::{self.track_name}"
+        elif self.service == "lastfm":
+            # Last.fm uses artist::title pattern (no stable IDs)
+            identifier = f"{self.artist_name}::{self.track_name}"
+        else:
+            # Generic fallback for other services
+            identifier = f"{self.artist_name}::{self.track_name}"
+
+        object.__setattr__(self, "connector_track_identifier", identifier)
+
+    @classmethod
+    def create_from_spotify_record(
+        cls,
+        spotify_record: "SpotifyPlayRecord",
+        import_timestamp: datetime | None = None,
+        import_batch_id: str | None = None,
+    ) -> "ConnectorTrackPlay":
+        """Create ConnectorTrackPlay from SpotifyPlayRecord for unified processing.
+
+        Args:
+            spotify_record: Parsed Spotify personal data record
+            import_timestamp: When this import was initiated
+            import_batch_id: Batch identifier for bulk imports
+
+        Returns:
+            ConnectorTrackPlay object ready for deferred resolution
+        """
+        return cls(
+            artist_name=spotify_record.artist_name,
+            track_name=spotify_record.track_name,
+            played_at=spotify_record.timestamp,
+            service="spotify",
+            album_name=spotify_record.album_name,
+            ms_played=spotify_record.ms_played,
+            service_metadata={
+                "track_uri": spotify_record.track_uri,
+                "platform": spotify_record.platform,
+                "country": spotify_record.country,
+                "reason_start": spotify_record.reason_start,
+                "reason_end": spotify_record.reason_end,
+                "shuffle": spotify_record.shuffle,
+                "skipped": spotify_record.skipped,
+                "offline": spotify_record.offline,
+                "incognito_mode": spotify_record.incognito_mode,
+            },
+            import_timestamp=import_timestamp,
+            import_source="spotify_export",
+            import_batch_id=import_batch_id,
+            raw_data={
+                "original_spotify_record": {
+                    "timestamp": spotify_record.timestamp.isoformat(),
+                    "track_uri": spotify_record.track_uri,
+                    "track_name": spotify_record.track_name,
+                    "artist_name": spotify_record.artist_name,
+                    "album_name": spotify_record.album_name,
+                    "ms_played": spotify_record.ms_played,
+                }
+            },
+        )
+
+    @classmethod
+    def create_from_lastfm_data(
+        cls,
+        artist_name: str,
+        track_name: str,
+        played_at: datetime,
+        album_name: str | None = None,
+        ms_played: int | None = None,
+        service_metadata: dict[str, Any] | None = None,
+        api_page: int | None = None,
+        raw_data: dict[str, Any] | None = None,
+        import_timestamp: datetime | None = None,
+        import_batch_id: str | None = None,
+    ) -> "ConnectorTrackPlay":
+        """Create ConnectorTrackPlay from Last.fm API data for unified processing.
+
+        Args:
+            artist_name: Track artist name
+            track_name: Track title
+            played_at: When track was scrobbled
+            album_name: Album name if available
+            ms_played: Play duration (Last.fm doesn't provide this)
+            service_metadata: Last.fm specific metadata
+            api_page: Source API page for debugging
+            raw_data: Complete API response for debugging
+            import_timestamp: When this import was initiated
+            import_batch_id: Batch identifier for bulk imports
+
+        Returns:
+            ConnectorTrackPlay object ready for deferred resolution
+        """
+        return cls(
+            artist_name=artist_name,
+            track_name=track_name,
+            played_at=played_at,
+            service="lastfm",
+            album_name=album_name,
+            ms_played=ms_played,
+            service_metadata=service_metadata or {},
+            api_page=api_page,
+            raw_data=raw_data or {},
+            import_timestamp=import_timestamp,
+            import_source="lastfm_api",
+            import_batch_id=import_batch_id,
+        )
+
+    def is_resolved(self) -> bool:
+        """Check if this connector play has been resolved to a canonical track."""
+        return self.resolved_track_id is not None
+
+    def with_resolution(
+        self, track_id: int, resolved_at: datetime | None = None
+    ) -> "ConnectorTrackPlay":
+        """Create new ConnectorTrackPlay with resolution information.
+
+        Args:
+            track_id: Canonical track ID this play resolves to
+            resolved_at: When resolution occurred (defaults to now)
+
+        Returns:
+            New ConnectorTrackPlay instance with resolution data
+        """
+        import attrs
+
+        return attrs.evolve(
+            self,
+            resolved_track_id=track_id,
+            resolved_at=resolved_at or datetime.now(UTC),
         )
 
 

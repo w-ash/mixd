@@ -47,7 +47,9 @@ def list() -> None:
 @app.command()
 def backup(
     connector: str = typer.Argument(..., help="Connector name (e.g., 'spotify')"),
-    playlist_id: str = typer.Argument(..., help="Playlist ID from the connector service"),
+    playlist_id: str = typer.Argument(
+        ..., help="Playlist ID from the connector service"
+    ),
 ) -> None:
     """Backup a playlist from a music service to your local database.
 
@@ -130,7 +132,7 @@ def _run_workflow(
     try:
         # Load and execute workflow
         workflow_path = Path(workflow_info["path"])
-        workflow_def = json.loads(workflow_path.read_text())
+        workflow_def = json.loads(workflow_path.read_text(encoding="utf-8"))
 
         console.print(
             Panel.fit(
@@ -222,7 +224,7 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
     """Backup a playlist from a connector service to the local database."""
     # Import here to avoid circular dependencies
     from src.application.services.playlist_backup_service import run_playlist_backup
-    
+
     console.print(
         Panel.fit(
             f"[bold]{connector_name.title()} Playlist Backup[/bold]\n"
@@ -231,19 +233,18 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             border_style="blue",
         )
     )
-    
+
     try:
         with console.status(f"[bold blue]Backing up playlist from {connector_name}..."):
             result = await run_playlist_backup(
-                connector_name=connector_name,
-                playlist_id=playlist_id
+                connector_name=connector_name, playlist_id=playlist_id
             )
-        
+
         # Display results based on result type
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistResult,
         )
-        
+
         if isinstance(result, UpdateCanonicalPlaylistResult):
             # Updated existing playlist
             console.print(
@@ -270,7 +271,7 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
                     border_style="green",
                 )
             )
-            
+
     except ValueError as e:
         console.print(f"❌ [red]Error: {e}[/red]")
         raise typer.Exit(1) from e

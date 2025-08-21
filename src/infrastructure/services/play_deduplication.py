@@ -5,6 +5,8 @@ the same song play gets recorded twice. This module detects and scores these
 duplicates by comparing track metadata and timestamps within a time window.
 """
 
+import operator
+
 from src.domain.entities import TrackPlay
 from src.domain.matching.algorithms import calculate_confidence
 from src.domain.matching.types import ConfidenceEvidence
@@ -140,6 +142,6 @@ def find_potential_duplicate_plays(
             duplicates.append((candidate, confidence, evidence))
 
     # Sort by confidence (highest first)
-    duplicates.sort(key=lambda x: x[1], reverse=True)
+    duplicates.sort(key=operator.itemgetter(1), reverse=True)
 
     return duplicates

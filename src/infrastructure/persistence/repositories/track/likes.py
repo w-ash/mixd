@@ -199,4 +199,3 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             lookup_attrs={"track_id": track_id, "service": service},
             create_attrs=update_values,
         )
-

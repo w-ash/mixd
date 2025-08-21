@@ -6,8 +6,6 @@ These tests validate Phase 3 of the Clean Architecture refactor:
 - Test that plays with different Spotify IDs reference the same canonical track
 """
 
-from unittest.mock import Mock
-
 import pytest
 
 from src.application.use_cases.match_and_identify_tracks import (
@@ -21,7 +19,6 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 
 class TestSpotifyRelinkingValidation:
     """Test suite for validating Spotify relinking and canonical track deduplication."""
-
 
     @pytest.fixture
     def relinked_track_data(self):
@@ -72,36 +69,38 @@ class TestSpotifyRelinkingValidation:
             )
         ]
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_spotify_connector_handles_relinking_correctly(
         self, relinked_track_data
     ):
         """Test that SpotifyConnector maps both old and new IDs to the same track data."""
         from unittest.mock import AsyncMock, patch
-        
+
         # Mock the Spotify operations to return relinking data
-        with patch('src.infrastructure.connectors.spotify.connector.SpotifyOperations') as mock_operations_class:
+        with patch(
+            "src.infrastructure.connectors.spotify.connector.SpotifyOperations"
+        ) as mock_operations_class:
             mock_operations = AsyncMock()
-            
+
             # Mock get_tracks_by_ids to simulate relinking behavior
             mock_operations.get_tracks_by_ids.return_value = {
                 "old_id_123": relinked_track_data["current_id_456"],
-                "current_id_456": relinked_track_data["current_id_456"]
+                "current_id_456": relinked_track_data["current_id_456"],
             }
-            
+
             mock_operations_class.return_value = mock_operations
-            
+
             # Create connector with mocked operations
             connector = SpotifyConnector()
-            
+
             # Test relinking behavior
             result = await connector.get_tracks_by_ids(["old_id_123"])
-            
+
             # Should map both IDs to the same track data
             assert "old_id_123" in result, "Original ID should be mapped"
             assert "current_id_456" in result, "Current ID should be mapped"
 
-            # Both should reference the same track data  
+            # Both should reference the same track data
             old_track_data = result["old_id_123"]
             current_track_data = result["current_id_456"]
 

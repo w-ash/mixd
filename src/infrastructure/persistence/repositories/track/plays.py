@@ -36,11 +36,11 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
         played_at = db_model.played_at
         if played_at and played_at.tzinfo is None:
             played_at = played_at.replace(tzinfo=UTC)
-            
+
         import_timestamp = db_model.import_timestamp
         if import_timestamp and import_timestamp.tzinfo is None:
             import_timestamp = import_timestamp.replace(tzinfo=UTC)
-        
+
         return TrackPlay(
             track_id=db_model.track_id,
             service=db_model.service,
@@ -182,7 +182,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             else:
                 combined_condition = conditions[0]
                 for condition in conditions[1:]:
-                    combined_condition = combined_condition | condition
+                    combined_condition |= condition
 
             # Query for existing plays in this batch
             existing_db_plays = await self.find_by([combined_condition])
@@ -228,7 +228,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         """Get all plays from a specific import batch."""
         return await self.find_by([
             self.model_class.import_batch_id == import_batch_id,
-            self.model_class.is_deleted == False,  # noqa: E712
         ])
 
     @db_operation("get_play_aggregations")
@@ -271,7 +270,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         # Build base query
         base_query = select(DBTrackPlay).where(
             DBTrackPlay.track_id.in_(track_ids),
-            DBTrackPlay.is_deleted == False,  # noqa: E712
         )
 
         # Execute query to get all relevant plays
@@ -371,7 +369,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         for metric_name in result:
             for track_id in track_ids:
                 if track_id not in result[metric_name]:
-                    if metric_name == "total_plays" or metric_name == "period_plays":
+                    if metric_name in {"total_plays", "period_plays"}:
                         result[metric_name][track_id] = 0
                     else:  # last_played_dates
                         result[metric_name][track_id] = None
@@ -393,7 +391,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 # Get plays grouped by track_id, ordered by count
                 stmt = (
                     select(self.model_class.track_id, func.count().label("play_count"))
-                    .where(self.model_class.is_deleted == False)  # noqa: E712
                     .group_by(self.model_class.track_id)
                     .order_by(func.count().desc())
                     .limit(limit)
@@ -415,7 +412,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                         select(self.model_class)
                         .where(
                             self.model_class.track_id == track_id,
-                            self.model_class.is_deleted == False,  # noqa: E712
                         )
                         .order_by(self.model_class.played_at.desc())
                         .limit(1)
@@ -441,7 +437,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                             order_by=self.model_class.played_at.desc(),
                         )
                         .label("rn"),
-                    ).where(self.model_class.is_deleted == False)  # noqa: E712
+                    )
                 ).subquery()
 
                 stmt = (
@@ -472,7 +468,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 stmt = (
                     select(self.model_class)
                     .join(DBTrack, self.model_class.track_id == DBTrack.id)
-                    .where(self.model_class.is_deleted == False)  # noqa: E712
                     .order_by(DBTrack.title)
                     .limit(limit)
                 )
@@ -482,12 +477,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 return [await self.mapper.to_domain(model) for model in db_models]
 
             elif sort_by == "random":
-                stmt = (
-                    select(self.model_class)
-                    .where(self.model_class.is_deleted == False)  # noqa: E712
-                    .order_by(func.random())
-                    .limit(limit)
-                )
+                stmt = select(self.model_class).order_by(func.random()).limit(limit)
 
                 result = await self.session.execute(stmt)
                 db_models = result.scalars().all()

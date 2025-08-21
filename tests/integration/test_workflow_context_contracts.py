@@ -161,12 +161,8 @@ class TestExtractorContracts:
             config = get_connector_config()
 
             # Check for updated connector configuration structure
-            assert "metrics" in config, (
-                "Last.fm connector config must provide metrics"
-            )
-            assert "factory" in config, (
-                "Last.fm connector config must provide factory"
-            )
+            assert "metrics" in config, "Last.fm connector config must provide metrics"
+            assert "factory" in config, "Last.fm connector config must provide factory"
             assert "dependencies" in config, (
                 "Last.fm connector config must provide dependencies"
             )
@@ -177,14 +173,12 @@ class TestExtractorContracts:
             # Check for key metrics used by workflow (renamed from extractors)
             expected_metrics = [
                 "lastfm_user_playcount",
-                "lastfm_global_playcount", 
+                "lastfm_global_playcount",
                 "lastfm_listeners",
             ]
 
             for metric_name in expected_metrics:
-                assert metric_name in metrics, (
-                    f"Missing required metric: {metric_name}"
-                )
+                assert metric_name in metrics, f"Missing required metric: {metric_name}"
 
             # Verify factory is callable
             assert callable(config["factory"]), "Factory must be callable"
@@ -203,12 +197,8 @@ class TestExtractorContracts:
             config = get_connector_config()
 
             # Check for updated connector configuration structure
-            assert "metrics" in config, (
-                "Spotify connector config must provide metrics"
-            )
-            assert "factory" in config, (
-                "Spotify connector config must provide factory"
-            )
+            assert "metrics" in config, "Spotify connector config must provide metrics"
+            assert "factory" in config, "Spotify connector config must provide factory"
             assert "dependencies" in config, (
                 "Spotify connector config must provide dependencies"
             )
@@ -223,9 +213,7 @@ class TestExtractorContracts:
             ]
 
             for metric_name in expected_metrics:
-                assert metric_name in metrics, (
-                    f"Missing required metric: {metric_name}"
-                )
+                assert metric_name in metrics, f"Missing required metric: {metric_name}"
 
             # Verify factory is callable
             assert callable(config["factory"]), "Factory must be callable"

@@ -17,6 +17,7 @@ from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import Artist
 
 
+@pytest.mark.unit
 class TestGetPlayedTracksCommand:
     """Test command validation - critical for preventing invalid requests."""
 

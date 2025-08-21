@@ -58,7 +58,7 @@ class TrackMetadataConnector(Protocol):
 
         Args:
             tracks: List of Track domain objects with IDs and connector mappings.
-                   Each track should have connector_track_ids populated for this service.
+                   Each track should have connector_track_identifiers populated for this service.
 
         Returns:
             Dictionary mapping track.id to complete service track data dict containing

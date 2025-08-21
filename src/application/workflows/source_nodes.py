@@ -120,10 +120,10 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
         from src.infrastructure.persistence.repositories.factories import (
             get_unit_of_work,
         )
-        
+
         sync_service = ConnectorPlaylistSyncService()
         session = workflow_context.session_provider.get_session()
-        
+
         async with session as db_session:
             uow = get_unit_of_work(db_session)
             connector_playlist = await sync_service.sync_connector_playlist(
@@ -145,25 +145,21 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
             }
 
         # Step 2: Check if local playlist already exists for this service playlist
-        existing_playlist = None
+        read_command = ReadCanonicalPlaylistCommand(
+            playlist_id=playlist_id, connector=connector
+        )
+        result = await workflow_context.execute_use_case(
+            workflow_context.use_cases.get_read_canonical_playlist_use_case,
+            read_command,
+        )
+        existing_playlist = result.playlist
 
-        try:
-            read_command = ReadCanonicalPlaylistCommand(
-                playlist_id=playlist_id, connector=connector
-            )
-            result = await workflow_context.execute_use_case(
-                workflow_context.use_cases.get_read_canonical_playlist_use_case,
-                read_command,
-            )
-            existing_playlist = result.playlist
+        if existing_playlist:
             logger.info(
                 f"Found existing canonical playlist {existing_playlist.id} for {connector}:{playlist_id}"
             )
-        except ValueError as e:
-            logger.debug(
-                f"No existing playlist found for {connector}:{playlist_id}: {e}"
-            )
-            existing_playlist = None
+        else:
+            logger.debug(f"No existing playlist found for {connector}:{playlist_id}")
 
         # Step 3: Create ConnectorPlaylist-aware TrackList that preserves playlist structure
         # This delegates to the use case layer for proper track processing

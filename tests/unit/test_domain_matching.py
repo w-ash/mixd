@@ -15,6 +15,7 @@ from src.domain.matching import (
 )
 
 
+@pytest.mark.unit
 class TestTitleSimilarity:
     """Test title similarity calculation algorithm."""
 

@@ -94,6 +94,8 @@ class BatchConfig(BaseModel):
     """Batch processing and progress reporting configuration."""
 
     progress_log_frequency: int = 10
+    move_log_threshold: int = 10  # Only log moves if count is below this threshold
+    truncation_limit: int = 5  # Number of items to show before truncating lists
 
 
 class ImportConfig(BaseModel):
@@ -109,6 +111,11 @@ class ImportConfig(BaseModel):
     retry_base_delay: float = 1.0  # Base retry delay in seconds
     memory_limit_mb: int = 100  # Advisory memory limit per batch
     progress_frequency: int = 100
+    
+    # Warning thresholds
+    memory_warning_threshold: int = 10000  # Warn if batch size exceeds this
+    file_size_warning_mb: int = 100  # Warn if file size exceeds this (MB)
+    full_history_import_threshold: int = 10000  # Threshold to detect full history imports
 
 
 class MatchingConfig(BaseModel):

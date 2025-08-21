@@ -1,7 +1,14 @@
 """SQLAlchemy database models for the Narada music platform.
 
-This module defines the core domain entities and their relationships using
-SQLAlchemy 2.0 patterns with proper type annotations and relationship definitions.
+This module implements a simplified architecture using hard deletes for all entities,
+following SQLAlchemy 2.0 best practices with modern type annotations.
+
+Architecture:
+- DatabaseModel: Single DeclarativeBase foundation for all entities
+- TimestampMixin: Provides created_at/updated_at for audit trails
+
+All entities use hard deletes for simplicity and performance.
+Data recovery relies on external API re-import and database backups.
 """
 
 from datetime import UTC, datetime
@@ -14,21 +21,24 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     MetaData,
-    Select,
     String,
     UniqueConstraint,
-    select,
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+)
 
 from src.config import get_logger
 
 # Create module logger
 logger = get_logger(__name__)
 
-# Define naming convention for constraints
+# Define naming convention for constraints (SQLAlchemy 2.0 best practice)
 convention = {
     "ix": "ix_%(table_name)s_%(column_0_name)s",  # Index
     "uq": "uq_%(table_name)s_%(column_0_label)s",  # Unique constraint
@@ -37,17 +47,29 @@ convention = {
     "pk": "pk_%(table_name)s",  # Primary key
 }
 
-# Create metadata with naming convention
+# Create metadata with naming convention (single source of truth)
 metadata = MetaData(naming_convention=convention)
 
 
-class NaradaDBBase(AsyncAttrs, DeclarativeBase):
-    """Base class for all database models with timestamps and soft delete."""
+class DatabaseModel(AsyncAttrs, DeclarativeBase):
+    """Foundation model for all database entities.
 
-    # Use the metadata with naming convention
+    Single DeclarativeBase inheritance following SQLAlchemy 2.0 best practices.
+    All database models inherit from this class to ensure consistent metadata handling.
+    """
+
     metadata = metadata
 
-    id: Mapped[int] = mapped_column(primary_key=True)  # Remove _position_in_table
+    id: Mapped[int] = mapped_column(primary_key=True, sort_order=-1)
+
+
+class TimestampMixin:
+    """Provides created_at/updated_at timestamps for all entities.
+
+    Mixin pattern following SQLAlchemy 2.0 declarative mixins best practices.
+    Applied to all entities for audit trail.
+    """
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -59,22 +81,24 @@ class NaradaDBBase(AsyncAttrs, DeclarativeBase):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
-
-    def mark_soft_deleted(self) -> None:
-        """Mark record as logically deleted (soft delete)."""
-        self.is_deleted = True
-        self.deleted_at = datetime.now(UTC)
-
-    @classmethod
-    def active_records(cls) -> Select:
-        """Return a select statement for non-deleted records."""
-        return select(cls).where(cls.is_deleted == False)  # noqa: E712
 
 
-class DBTrack(NaradaDBBase):
-    """Core track entity with essential metadata."""
+class BaseEntity(DatabaseModel, TimestampMixin):
+    """Base class for all database entities.
+
+    All entities inherit from this class for consistent timestamp behavior.
+    Uses hard deletes for simplicity and performance.
+    """
+
+    __abstract__ = True
+
+
+class DBTrack(BaseEntity):
+    """Core track entity with essential metadata.
+
+    Represents the user's music library with plays, likes, and playlist associations.
+    Uses hard deletes for simplicity and performance.
+    """
 
     __tablename__ = "tracks"
 
@@ -90,48 +114,51 @@ class DBTrack(NaradaDBBase):
     # Relationships
     mappings: Mapped[list["DBTrackMapping"]] = relationship(
         back_populates="track",
-        cascade="all, delete-orphan",
         passive_deletes=True,
     )
     metrics: Mapped[list["DBTrackMetric"]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
-        passive_deletes=True,
     )
     likes: Mapped[list["DBTrackLike"]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
-        passive_deletes=True,
     )
     plays: Mapped[list["DBTrackPlay"]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
-        passive_deletes=True,
     )
     playlist_tracks: Mapped[list["DBPlaylistTrack"]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+    )
+    connector_plays: Mapped[list["DBConnectorPlay"]] = relationship(
+        back_populates="resolved_track",
         passive_deletes=True,
     )
 
-    # Add table constraints with partial unique indexes for soft-delete support
+    # Standard unique constraints that work with SQLite bulk upsert
     __table_args__ = (
-        # Partial unique constraints - only apply to active (non-deleted) records
-        Index("uq_tracks_spotify_id_active", "spotify_id", unique=True, sqlite_where=text("is_deleted = 0 AND spotify_id IS NOT NULL")),
-        Index("uq_tracks_isrc_active", "isrc", unique=True, sqlite_where=text("is_deleted = 0 AND isrc IS NOT NULL")),
-        Index("uq_tracks_mbid_active", "mbid", unique=True, sqlite_where=text("is_deleted = 0 AND mbid IS NOT NULL")),
+        # Standard unique constraints for external identifiers
+        UniqueConstraint("spotify_id", name="uq_tracks_spotify_id"),
+        UniqueConstraint("isrc", name="uq_tracks_isrc"),
+        UniqueConstraint("mbid", name="uq_tracks_mbid"),
         # Regular index for title searches
-        Index(None, "title"),  # Let naming convention handle the name
+        Index("ix_tracks_title", "title"),
     )
 
 
-class DBConnectorTrack(NaradaDBBase):
-    """External track representation from a specific music service."""
+class DBConnectorTrack(BaseEntity):
+    """External track representation from a specific music service.
+
+    Represents cached track data from external APIs (Spotify, Last.fm).
+    Can be recreated from external sources when needed.
+    """
 
     __tablename__ = "connector_tracks"
 
     connector_name: Mapped[str] = mapped_column(String(32))
-    connector_track_id: Mapped[str] = mapped_column(String(64))
+    connector_track_identifier: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(255))
     artists: Mapped[dict[str, Any]] = mapped_column(JSON)
     album: Mapped[str | None] = mapped_column(String(255))
@@ -147,26 +174,21 @@ class DBConnectorTrack(NaradaDBBase):
     # Mapping relationship - plural to reflect conceptual many-to-one possibility
     mappings: Mapped[list["DBTrackMapping"]] = relationship(
         back_populates="connector_track",
-        cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
     __table_args__ = (
-        UniqueConstraint("connector_name", "connector_track_id"),
+        UniqueConstraint("connector_name", "connector_track_identifier"),
         Index(None, "connector_name", "isrc"),
-        # Performance index for orphan detection and LEFT JOIN operations
-        Index("ix_connector_tracks_active_lookup", "id", "is_deleted"),
-        # Covering index for orphan detection queries - includes ordering column
-        Index(
-            "ix_connector_tracks_orphan_detection",
-            "is_deleted", "created_at", "id",
-            sqlite_where=text("is_deleted = 0")
-        ),
     )
 
 
-class DBTrackMapping(NaradaDBBase):
-    """Maps external connector tracks to internal canonical tracks."""
+class DBTrackMapping(BaseEntity):
+    """Maps external connector tracks to internal canonical tracks.
+
+    Represents the relationship between external API tracks and canonical tracks.
+    Mappings can be recreated from connector data when needed.
+    """
 
     __tablename__ = "track_mappings"
 
@@ -192,7 +214,11 @@ class DBTrackMapping(NaradaDBBase):
 
     __table_args__ = (
         # CRITICAL: Prevent multiple canonical tracks mapping to same connector track
-        UniqueConstraint("connector_track_id", "connector_name", name="uq_connector_track_canonical_mapping"),
+        UniqueConstraint(
+            "connector_track_id",
+            "connector_name",
+            name="uq_connector_track_canonical_mapping",
+        ),
         # NEW: Partial unique constraint - only one primary per track-connector pair
         Index(
             "uq_primary_mapping",
@@ -202,26 +228,17 @@ class DBTrackMapping(NaradaDBBase):
             sqlite_where=text("is_primary = TRUE"),
         ),
         # Performance indexes for common lookup patterns
-        Index(
-            "ix_track_mappings_track_lookup",
-            "track_id",
-            sqlite_where=text("is_deleted = FALSE"),
-        ),
-        Index(
-            "ix_track_mappings_connector_lookup",
-            "connector_track_id",
-            sqlite_where=text("is_deleted = FALSE"),
-        ),
-        Index(
-            "ix_track_mappings_connector_name",
-            "connector_name",
-            sqlite_where=text("is_deleted = FALSE"),
-        ),
+        Index("ix_track_mappings_track_lookup", "track_id"),
+        Index("ix_track_mappings_connector_lookup", "connector_track_id"),
+        Index("ix_track_mappings_connector_name", "connector_name"),
     )
 
 
-class DBTrackMetric(NaradaDBBase):
-    """Time-series metrics for tracks from external services."""
+class DBTrackMetric(BaseEntity):
+    """Time-series metrics for tracks from external services.
+
+    Stores track performance metrics (play counts, popularity scores) for analytics and trends.
+    """
 
     __tablename__ = "track_metrics"
     __table_args__ = (
@@ -247,8 +264,11 @@ class DBTrackMetric(NaradaDBBase):
     )
 
 
-class DBTrackLike(NaradaDBBase):
-    """Track preference state across music services."""
+class DBTrackLike(BaseEntity):
+    """Track preference state across music services.
+
+    Represents user preferences for tracks across different services.
+    """
 
     __tablename__ = "track_likes"
     __table_args__ = (
@@ -270,8 +290,11 @@ class DBTrackLike(NaradaDBBase):
     )
 
 
-class DBTrackPlay(NaradaDBBase):
-    """Immutable record of track plays across services."""
+class DBTrackPlay(BaseEntity):
+    """Immutable record of track plays across services.
+
+    Represents user listening history across music services for analytics and insights.
+    """
 
     __tablename__ = "track_plays"
     __table_args__ = (
@@ -322,8 +345,78 @@ class DBTrackPlay(NaradaDBBase):
     )
 
 
-class DBPlaylist(NaradaDBBase):
-    """User playlist metadata."""
+class DBConnectorPlay(BaseEntity):
+    """Raw play data from external music services before resolution.
+
+    Stores play events from external APIs (Spotify, Last.fm) with complete metadata
+    for eventual resolution to canonical tracks. Follows the same pattern as
+    DBConnectorTrack for separation of ingestion and resolution concerns.
+    """
+
+    __tablename__ = "connector_plays"
+
+    # Connector identification
+    connector_name: Mapped[str] = mapped_column(String(32))  # "lastfm", "spotify"
+    connector_track_identifier: Mapped[str] = mapped_column(
+        String(255)
+    )  # "artist::title" for lastfm
+
+    # Play event data
+    played_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    ms_played: Mapped[int | None]
+
+    # Raw API data preservation
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+    # Resolution tracking (nullable until resolved)
+    resolved_track_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tracks.id", ondelete="CASCADE"),
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+
+    # Import tracking
+    import_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    import_source: Mapped[str | None] = mapped_column(
+        String(32)
+    )  # "lastfm_api", "spotify_export"
+    import_batch_id: Mapped[str | None] = mapped_column(String(64))
+
+    # Relationships (only to resolved track, if any)
+    resolved_track: Mapped["DBTrack | None"] = relationship(
+        back_populates="connector_plays",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        # Prevent duplicate connector plays (same as track_plays deduplication pattern)
+        UniqueConstraint(
+            "connector_name",
+            "connector_track_identifier",
+            "played_at",
+            "ms_played",
+            name="uq_connector_plays_deduplication",
+        ),
+        # Performance indexes for common queries
+        Index("ix_connector_plays_connector", "connector_name"),
+        Index("ix_connector_plays_played_at", "played_at"),
+        Index("ix_connector_plays_resolved_track", "resolved_track_id"),
+        Index(
+            "ix_connector_plays_unresolved", "connector_name", "resolved_track_id"
+        ),  # For finding unresolved plays
+        Index("ix_connector_plays_import_batch", "import_batch_id"),
+    )
+
+
+class DBPlaylist(BaseEntity):
+    """User playlist metadata.
+
+    Represents user-created playlists with track associations.
+    """
 
     __tablename__ = "playlists"
 
@@ -335,22 +428,24 @@ class DBPlaylist(NaradaDBBase):
     tracks: Mapped[list["DBPlaylistTrack"]] = relationship(
         back_populates="playlist",
         cascade="all, delete-orphan",
-        passive_deletes=True,
     )
     mappings: Mapped[list["DBPlaylistMapping"]] = relationship(
         back_populates="playlist",
-        cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
 
-class DBConnectorPlaylist(NaradaDBBase):
-    """External service-specific playlist representation."""
+class DBConnectorPlaylist(BaseEntity):
+    """External service-specific playlist representation.
+
+    Represents cached playlist data from external APIs.
+    Can be recreated from external sources when needed.
+    """
 
     __tablename__ = "connector_playlists"
 
     connector_name: Mapped[str]
-    connector_playlist_id: Mapped[str]
+    connector_playlist_identifier: Mapped[str]
     name: Mapped[str]
     description: Mapped[str | None]
     owner: Mapped[str | None]
@@ -363,37 +458,38 @@ class DBConnectorPlaylist(NaradaDBBase):
     # Add JSON field to store track positional information
     last_updated: Mapped[datetime]
 
-    __table_args__ = (UniqueConstraint("connector_name", "connector_playlist_id"),)
+    # Relationships
+    mappings: Mapped[list["DBPlaylistMapping"]] = relationship(
+        back_populates="connector_playlist",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("connector_name", "connector_playlist_identifier"),
+    )
 
 
-class DBPlaylistMapping(NaradaDBBase):
-    """External service playlist mappings."""
+class DBPlaylistMapping(BaseEntity):
+    """External service playlist mappings.
+
+    Represents the relationship between canonical playlists and external service playlists.
+    """
 
     __tablename__ = "playlist_mappings"
     __table_args__ = (
         # Prevent one canonical playlist from having multiple mappings to same connector
-        Index(
-            "uq_playlist_connector_active",
-            "playlist_id",
-            "connector_name",
-            unique=True,
-            sqlite_where=text("is_deleted = 0"),
-        ),
+        UniqueConstraint("playlist_id", "connector_name", name="uq_playlist_connector"),
         # Prevent multiple canonical playlists from claiming same external playlist
-        Index(
-            "uq_connector_playlist_active",
-            "connector_name",
-            "connector_playlist_id",
-            unique=True,
-            sqlite_where=text("is_deleted = 0"),
-        ),
+        UniqueConstraint("connector_playlist_id", name="uq_connector_playlist"),
     )
 
     playlist_id: Mapped[int] = mapped_column(
         ForeignKey("playlists.id", ondelete="CASCADE"),
     )
     connector_name: Mapped[str] = mapped_column(String(32))
-    connector_playlist_id: Mapped[str] = mapped_column(String(64))
+    connector_playlist_id: Mapped[int] = mapped_column(
+        ForeignKey("connector_playlists.id", ondelete="CASCADE")
+    )
     last_synced: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -404,10 +500,17 @@ class DBPlaylistMapping(NaradaDBBase):
         back_populates="mappings",
         passive_deletes=True,
     )
+    connector_playlist: Mapped["DBConnectorPlaylist"] = relationship(
+        back_populates="mappings",
+        passive_deletes=True,
+    )
 
 
-class DBPlaylistTrack(NaradaDBBase):
-    """Playlist track ordering and metadata."""
+class DBPlaylistTrack(BaseEntity):
+    """Playlist track ordering and metadata.
+
+    Represents tracks within playlists with ordering information.
+    """
 
     __tablename__ = "playlist_tracks"
     __table_args__ = (Index(None, "playlist_id", "sort_key"),)
@@ -434,8 +537,11 @@ class DBPlaylistTrack(NaradaDBBase):
     )
 
 
-class DBSyncCheckpoint(NaradaDBBase):
-    """Sync state tracking for incremental operations."""
+class DBSyncCheckpoint(BaseEntity):
+    """Sync state tracking for incremental operations.
+
+    Represents synchronization state for external services.
+    """
 
     __tablename__ = "sync_checkpoints"
     __table_args__ = (UniqueConstraint("user_id", "service", "entity_type"),)
@@ -471,7 +577,7 @@ async def init_db() -> None:
 
         # Create tables - SQLAlchemy will skip tables that already exist
         async with engine.begin() as conn:
-            await conn.run_sync(NaradaDBBase.metadata.create_all)
+            await conn.run_sync(DatabaseModel.metadata.create_all)
             logger.info("Database schema verified - all tables exist")
 
     except Exception as e:

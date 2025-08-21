@@ -16,7 +16,7 @@ class ConnectorPlaylistItem:
     """Represents a track within an external service playlist with its position metadata."""
 
     # Track identity - just the ID, not the full object
-    connector_track_id: str
+    connector_track_identifier: str
 
     # Position information
     position: int
@@ -46,7 +46,7 @@ class Playlist:
     # The internal database ID - source of truth for our system
     id: int | None = field(default=None)
     # External service IDs (spotify, apple_music, etc) - NOT for internal DB ID
-    connector_playlist_ids: dict[str, str] = field(factory=dict)
+    connector_playlist_identifiers: dict[str, str] = field(factory=dict)
     # Additional metadata for playlist management (snapshot IDs, sync state, etc.)
     metadata: dict[str, Any] = field(factory=dict)
 
@@ -57,7 +57,7 @@ class Playlist:
             tracks=tracks,
             description=self.description,
             id=self.id,
-            connector_playlist_ids=self.connector_playlist_ids.copy(),
+            connector_playlist_identifiers=self.connector_playlist_identifiers.copy(),
             metadata=self.metadata.copy(),
         )
 
@@ -78,7 +78,7 @@ class Playlist:
                 f"Cannot use '{connector}' as connector name - use the id field instead",
             )
 
-        new_ids = self.connector_playlist_ids.copy()
+        new_ids = self.connector_playlist_identifiers.copy()
         new_ids[connector] = external_id
 
         return self.__class__(
@@ -86,7 +86,7 @@ class Playlist:
             tracks=self.tracks,
             description=self.description,
             id=self.id,
-            connector_playlist_ids=new_ids,
+            connector_playlist_identifiers=new_ids,
             metadata=self.metadata.copy(),
         )
 
@@ -105,7 +105,7 @@ class Playlist:
             tracks=self.tracks,
             description=self.description,
             id=db_id,
-            connector_playlist_ids=self.connector_playlist_ids.copy(),
+            connector_playlist_identifiers=self.connector_playlist_identifiers.copy(),
             metadata=self.metadata.copy(),
         )
 
@@ -115,7 +115,7 @@ class ConnectorPlaylist:
     """External service-specific playlist representation."""
 
     connector_name: str
-    connector_playlist_id: str
+    connector_playlist_identifier: str
     name: str
     description: str | None = None
     items: list[ConnectorPlaylistItem] = field(
@@ -133,7 +133,7 @@ class ConnectorPlaylist:
     @property
     def track_ids(self) -> list[str]:
         """Get all track IDs in this playlist."""
-        return [item.connector_track_id for item in self.items]
+        return [item.connector_track_identifier for item in self.items]
 
 
 @define(frozen=True, slots=True)

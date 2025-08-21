@@ -6,7 +6,7 @@ MusicBrainz), maintaining track ordering and synchronizing external IDs.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Select, insert, select, update
+from sqlalchemy import Select, delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,13 +69,20 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Returns:
             SQLAlchemy select statement.
         """
+        from src.infrastructure.persistence.database.db_models import (
+            DBConnectorPlaylist,
+        )
+
         return (
             self.select()
             .join(DBPlaylistMapping)
+            .join(
+                DBConnectorPlaylist,
+                DBPlaylistMapping.connector_playlist_id == DBConnectorPlaylist.id,
+            )
             .where(
                 DBPlaylistMapping.connector_name == connector,
-                DBPlaylistMapping.connector_playlist_id == connector_id,
-                DBPlaylistMapping.is_deleted == False,  # noqa: E712
+                DBConnectorPlaylist.connector_playlist_identifier == connector_id,
             )
         )
 
@@ -130,16 +137,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         connector_tracks_to_save = []
         direct_tracks_to_save = []
         track_positions = {}  # Track original positions for result ordering
-        
+
         for idx, track in enumerate(tracks):
             if track.id:
                 # Track already has ID, no processing needed
                 track_positions[idx] = ("existing", track)
-            elif connector and connector in track.connector_track_ids:
+            elif connector and connector in track.connector_track_identifiers:
                 # Track needs connector ingestion
                 connector_track = ConnectorTrack(
                     connector_name=connector,
-                    connector_track_id=track.connector_track_ids[connector],
+                    connector_track_identifier=track.connector_track_identifiers[
+                        connector
+                    ],
                     title=track.title,
                     artists=track.artists,
                     album=track.album,
@@ -163,8 +172,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         saved_connector_tracks = []
         if connector_tracks_to_save and connector:
             try:
-                saved_connector_tracks = await self.connector_repository.ingest_external_tracks_bulk(
-                    connector, connector_tracks_to_save
+                saved_connector_tracks = (
+                    await self.connector_repository.ingest_external_tracks_bulk(
+                        connector, connector_tracks_to_save
+                    )
                 )
             except Exception as e:
                 raise ValueError(f"Failed to save connector tracks: {e}") from e
@@ -188,12 +199,16 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 if position < len(saved_connector_tracks):
                     updated_tracks.append(saved_connector_tracks[position])
                 else:
-                    raise ValueError(f"Connector track at position {position} failed to save")
+                    raise ValueError(
+                        f"Connector track at position {position} failed to save"
+                    )
             elif track_type == "direct":
                 if position < len(saved_direct_tracks):
                     updated_tracks.append(saved_direct_tracks[position])
                 else:
-                    raise ValueError(f"Direct track at position {position} failed to save")
+                    raise ValueError(
+                        f"Direct track at position {position} failed to save"
+                    )
 
         return updated_tracks
 
@@ -230,9 +245,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 for metadata in track.connector_metadata.values():
                     if metadata.get("added_at"):
                         try:
-                            added_at = datetime.fromisoformat(
-                                metadata["added_at"].replace("Z", "+00:00")
-                            )
+                            added_at = datetime.fromisoformat(metadata["added_at"])
                             break
                         except (ValueError, TypeError):
                             pass
@@ -253,45 +266,46 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         elif operation == "update":
             # Respect the precise track ordering from the use case layer
             # The use case layer has calculated exact diffs - we just need to update the ordering
-            
+
             # Get existing tracks sorted by sort_key (current position order)
-            stmt = select(DBPlaylistTrack).where(
-                DBPlaylistTrack.playlist_id == playlist_id,
-                DBPlaylistTrack.is_deleted == False,  # noqa: E712
-            ).order_by(DBPlaylistTrack.sort_key)
+            stmt = (
+                select(DBPlaylistTrack)
+                .where(
+                    DBPlaylistTrack.playlist_id == playlist_id,
+                )
+                .order_by(DBPlaylistTrack.sort_key)
+            )
             result = await self.session.scalars(stmt)
             existing_tracks = list(result.all())
-            
+
             # Step 1: Identify tracks to remove (exist in current but not in target)
             target_track_ids = {track.id for track in tracks if track.id is not None}
             existing_track_ids = {pt.track_id for pt in existing_tracks}
-            
+
             tracks_to_remove_ids = existing_track_ids - target_track_ids
-            
-            # Step 2: Explicitly remove the identified tracks
-            records_to_remove = []
-            for existing_record in existing_tracks:
-                if existing_record.track_id in tracks_to_remove_ids:
-                    existing_record.is_deleted = True
-                    existing_record.deleted_at = now
-                    records_to_remove.append(existing_record)
-            
+
+            # Step 2: Explicitly remove the identified tracks (hard delete)
+            records_to_remove = [
+                existing_record
+                for existing_record in existing_tracks
+                if existing_record.track_id in tracks_to_remove_ids
+            ]
+
             # Step 3: Get remaining tracks (after removals) for position mapping
             remaining_tracks = [
-                pt for pt in existing_tracks 
-                if pt.track_id not in tracks_to_remove_ids
+                pt for pt in existing_tracks if pt.track_id not in tracks_to_remove_ids
             ]
-            
+
             # Step 4: Map target tracks to existing position records (preserve metadata)
             values_to_insert = []
             records_to_update = []
-            
+
             for idx, track in enumerate(tracks):
                 if track.id is None:
                     continue
-                    
+
                 sort_key = self._generate_sort_key(idx)
-                
+
                 if idx < len(remaining_tracks):
                     # Update existing record at this position with new track and sort_key
                     existing_record = remaining_tracks[idx]
@@ -302,18 +316,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 else:
                     # Insert new record for additional tracks
                     added_at = None
-                    if hasattr(track, 'connector_metadata'):
+                    if hasattr(track, "connector_metadata"):
                         # Get added_at from connector metadata if available
                         for metadata in track.connector_metadata.values():
                             if metadata.get("added_at"):
                                 try:
                                     added_at = datetime.fromisoformat(
-                                        metadata["added_at"].replace("Z", "+00:00")
+                                        metadata["added_at"]
                                     )
                                     break
                                 except (ValueError, TypeError):
                                     pass
-                    
+
                     values_to_insert.append({
                         "playlist_id": playlist_id,
                         "track_id": track.id,
@@ -322,18 +336,21 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                         "created_at": now,
                         "updated_at": now,
                     })
-                
+
             # Commit all changes while preserving metadata
-            
+
             if records_to_update:
                 self.session.add_all(records_to_update)
-            
+
             if records_to_remove:
-                self.session.add_all(records_to_remove)
-                
+                for record in records_to_remove:
+                    await self.session.delete(record)
+
             if values_to_insert:
-                await self.session.execute(insert(DBPlaylistTrack).values(values_to_insert))
-                
+                await self.session.execute(
+                    insert(DBPlaylistTrack).values(values_to_insert)
+                )
+
             await self.session.flush()
 
     async def _manage_connector_mappings(
@@ -355,19 +372,61 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         if not connector_ids:
             return
 
+        from src.infrastructure.persistence.database.db_models import (
+            DBConnectorPlaylist,
+        )
+
         now = datetime.now(UTC)
 
+        # First ensure connector playlists exist and get their database IDs
+        connector_playlist_db_ids = {}
+        for connector_name, external_id in connector_ids.items():
+            # Check if connector playlist exists
+            stmt = select(DBConnectorPlaylist).where(
+                DBConnectorPlaylist.connector_name == connector_name,
+                DBConnectorPlaylist.connector_playlist_identifier == external_id,
+            )
+            result = await self.session.execute(stmt)
+            connector_playlist = result.scalar_one_or_none()
+
+            if connector_playlist:
+                connector_playlist_db_ids[connector_name] = connector_playlist.id
+            else:
+                # Create minimal connector playlist entry if it doesn't exist
+                # This allows mappings to work even if the full playlist sync hasn't happened yet
+                new_connector_playlist = DBConnectorPlaylist(
+                    connector_name=connector_name,
+                    connector_playlist_identifier=external_id,
+                    name=f"Playlist {external_id}",  # Placeholder name
+                    description=None,
+                    owner=None,
+                    owner_id=None,
+                    is_public=False,
+                    collaborative=False,
+                    follower_count=None,
+                    items=[],
+                    raw_metadata={},
+                    last_updated=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.session.add(new_connector_playlist)
+                await self.session.flush()
+                await self.session.refresh(new_connector_playlist)
+                connector_playlist_db_ids[connector_name] = new_connector_playlist.id
+
         if operation == "create":
-            # Bulk create all mappings
+            # Bulk create all mappings using connector playlist database IDs
             values = [
                 {
                     "playlist_id": playlist_id,
-                    "connector_name": connector,
-                    "connector_playlist_id": external_id,
+                    "connector_name": connector_name,
+                    "connector_playlist_id": connector_playlist_db_ids[connector_name],
                     "created_at": now,
                     "updated_at": now,
                 }
-                for connector, external_id in connector_ids.items()
+                for connector_name in connector_ids
+                if connector_name in connector_playlist_db_ids
             ]
 
             if values:
@@ -378,7 +437,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             # Get existing mappings
             stmt = select(DBPlaylistMapping).where(
                 DBPlaylistMapping.playlist_id == playlist_id,
-                DBPlaylistMapping.is_deleted == False,  # noqa: E712
             )
             result = await self.session.scalars(stmt)
             existing = {m.connector_name: m for m in result.all()}
@@ -388,20 +446,25 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             update_mappings = []
 
             # Process each mapping
-            for connector, connector_id in connector_ids.items():
-                if connector in existing:
-                    # Update if connector ID changed
-                    mapping = existing[connector]
-                    if mapping.connector_playlist_id != connector_id:
-                        mapping.connector_playlist_id = connector_id
+            for connector_name in connector_ids:
+                if connector_name not in connector_playlist_db_ids:
+                    continue  # Skip if we couldn't resolve the connector playlist
+
+                connector_playlist_db_id = connector_playlist_db_ids[connector_name]
+
+                if connector_name in existing:
+                    # Update if connector playlist ID changed
+                    mapping = existing[connector_name]
+                    if mapping.connector_playlist_id != connector_playlist_db_id:
+                        mapping.connector_playlist_id = connector_playlist_db_id
                         mapping.updated_at = now
                         update_mappings.append(mapping)
                 else:
                     # Add new mapping
                     new_mappings.append({
                         "playlist_id": playlist_id,
-                        "connector_name": connector,
-                        "connector_playlist_id": connector_id,
+                        "connector_name": connector_name,
+                        "connector_playlist_id": connector_playlist_db_id,
                         "created_at": now,
                         "updated_at": now,
                     })
@@ -539,7 +602,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """Execute playlist creation with tracks and mappings."""
         # Determine source connector if available
         source_connector = self._determine_source_connector(
-            playlist.connector_playlist_ids
+            playlist.connector_playlist_identifiers
         )
 
         # Save tracks first with source connector for proper mappings
@@ -561,7 +624,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Add mappings and tracks with batch operations
         await self._manage_connector_mappings(
             db_playlist.id,
-            playlist.connector_playlist_ids,
+            playlist.connector_playlist_identifiers,
             operation="create",
         )
         await self._manage_playlist_tracks(
@@ -606,8 +669,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     ) -> Playlist:
         """Execute playlist update with track reordering and mapping sync."""
         # Count actual tracks that will be inserted (not input count)
-        actual_track_count = len([track for track in playlist.tracks if track.id is not None])
-        
+        actual_track_count = len([
+            track for track in playlist.tracks if track.id is not None
+        ])
+
         # Update basic properties using base repository's update method
         updates = {
             "name": playlist.name,
@@ -621,14 +686,13 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             update(self.model_class)
             .where(
                 self.model_class.id == playlist_id,
-                self.model_class.is_deleted == False,  # noqa: E712
             )
             .values(**updates),
         )
 
         # Determine source connector if available
         source_connector = self._determine_source_connector(
-            playlist.connector_playlist_ids
+            playlist.connector_playlist_identifiers
         )
 
         # Process tracks and mappings in parallel
@@ -646,13 +710,13 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Update connector mappings
         await self._manage_connector_mappings(
             playlist_id,
-            playlist.connector_playlist_ids,
+            playlist.connector_playlist_identifiers,
             operation="update",
         )
 
         # Flush changes to ensure they're visible to subsequent queries
         await self.session.flush()
-        
+
         # Return the updated playlist with all relationships
         return await self.get_playlist_by_id(playlist_id)
 
@@ -668,53 +732,21 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """
         logger.info("Deleting playlist", playlist_id=playlist_id)
 
-        # Soft delete the playlist
-        now = datetime.now(UTC)
+        # Hard delete the playlist (CASCADE will handle related records)
         result = await self.session.execute(
-            update(DBPlaylist)
-            .where(
-                DBPlaylist.id == playlist_id,
-                DBPlaylist.is_deleted == False,  # noqa: E712
-            )
-            .values(is_deleted=True, deleted_at=now)
+            delete(DBPlaylist)
+            .where(DBPlaylist.id == playlist_id)
+            .returning(DBPlaylist.id)
         )
 
-        playlist_deleted = result.rowcount > 0
+        deleted_ids = result.scalars().all()
+        playlist_deleted = len(deleted_ids) > 0
 
         if playlist_deleted:
-            # Also soft delete all playlist tracks and mappings
-            await self._soft_delete_playlist_relations(playlist_id, now)
             logger.info("Playlist deleted successfully", playlist_id=playlist_id)
         else:
             logger.warning("Playlist not found for deletion", playlist_id=playlist_id)
 
         return playlist_deleted
 
-    async def _soft_delete_playlist_relations(
-        self, playlist_id: int, deletion_time: datetime
-    ) -> None:
-        """Mark playlist tracks and external mappings as deleted.
-
-        Args:
-            playlist_id: Playlist ID whose relations to delete.
-            deletion_time: Timestamp for deletion.
-        """
-        # Soft delete playlist tracks
-        await self.session.execute(
-            update(DBPlaylistTrack)
-            .where(
-                DBPlaylistTrack.playlist_id == playlist_id,
-                DBPlaylistTrack.is_deleted == False,  # noqa: E712
-            )
-            .values(is_deleted=True, deleted_at=deletion_time)
-        )
-
-        # Soft delete playlist mappings (connector connections)
-        await self.session.execute(
-            update(DBPlaylistMapping)
-            .where(
-                DBPlaylistMapping.playlist_id == playlist_id,
-                DBPlaylistMapping.is_deleted == False,  # noqa: E712
-            )
-            .values(is_deleted=True, deleted_at=deletion_time)
-        )
+    # _soft_delete_playlist_relations method removed - CASCADE handles related record deletion

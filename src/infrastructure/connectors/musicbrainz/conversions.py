@@ -16,6 +16,7 @@ different parts of the MusicBrainz integration.
 from typing import TYPE_CHECKING, Any
 
 from src.config import get_logger
+from src.config.constants import MusicBrainzConstants
 
 if TYPE_CHECKING:
     from src.domain.entities import ConnectorTrack
@@ -88,12 +89,12 @@ def extract_recording_metadata(recording_data: dict[str, Any]) -> dict[str, Any]
 
 def validate_isrc_format(isrc: str) -> bool:
     """Validate ISRC format (12 characters: CC-XXX-YY-NNNNN)."""
-    if not isrc or len(isrc) != 12:
+    if not isrc or len(isrc) != MusicBrainzConstants.ISRC_LENGTH:
         return False
 
     # Check basic format (allowing with or without hyphens)
     cleaned_isrc = isrc.replace("-", "")
-    if len(cleaned_isrc) != 12:
+    if len(cleaned_isrc) != MusicBrainzConstants.ISRC_LENGTH:
         return False
 
     # Check if it's alphanumeric
@@ -181,7 +182,7 @@ def convert_musicbrainz_track_to_connector(
 
     return ConnectorTrack(
         connector_name="musicbrainz",
-        connector_track_id=mbid,
+        connector_track_identifier=mbid,
         title=title,
         artists=artists,
         album=album,

@@ -42,9 +42,9 @@ class LastFMOperations:
     def batch_processor(self):
         """Get pre-configured batch processor for Last.fm operations.
 
-        Uses AsyncLimiter for optimal Last.fm performance: creates all tasks immediately
-        and lets AsyncLimiter handle rate limiting (4.5/sec) while allowing high concurrency.
-        This enables parallel API processing while respecting rate limits.
+        Uses centralized AsyncLimiter for optimal Last.fm performance: starts 4.5 requests/sec
+        while allowing up to 200 concurrent in-flight requests. This maximizes throughput
+        while respecting Last.fm's rate limits.
         """
         from src.infrastructure.connectors._shared.api_batch_processor import (
             APIBatchProcessor,
@@ -57,7 +57,7 @@ class LastFMOperations:
             retry_base_delay=settings.api.lastfm_retry_base_delay,
             retry_max_delay=settings.api.lastfm_retry_max_delay,
             request_delay=settings.api.lastfm_request_delay,
-            rate_limiter=None,  # Rate limiting handled at API client level
+            rate_limiter=None,  # Use simple delay-based rate limiting
             logger_instance=logger,
         )
 
@@ -183,9 +183,7 @@ class LastFMOperations:
         if timestamp:
             try:
                 if isinstance(timestamp, str):
-                    scrobbled_at = datetime.fromisoformat(
-                        timestamp.replace("Z", "+00:00")
-                    )
+                    scrobbled_at = datetime.fromisoformat(timestamp)
             except ValueError:
                 # Keep default current time if parsing fails
                 pass

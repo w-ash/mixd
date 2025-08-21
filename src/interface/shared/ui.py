@@ -58,8 +58,10 @@ def _display_table_result(
 
     # Play-based operations show both plays and tracks
     if hasattr(result, "plays_processed") and result.plays_processed > 0:
-        summary_data.append(("Plays Processed", str(result.plays_processed)))
-        summary_data.append(("Plays Saved", str(len(result.tracks))))
+        summary_data.extend((
+            ("Raw Plays Found", str(result.plays_processed)),
+            ("Plays Saved", str(len(result.tracks))),
+        ))
 
         # Add play-level metrics
         if hasattr(result, "play_metrics"):
@@ -101,7 +103,7 @@ def _display_table_result(
 
         # Only show sync metrics that have been set
         if imported is not None:
-            summary_data.append(("Imported", str(imported)))
+            summary_data.append(("Track Plays Created", str(imported)))
         if exported is not None:
             summary_data.append(("Exported", str(exported)))
         if filtered is not None and filtered > 0:

@@ -165,7 +165,7 @@ class CreateConnectorPlaylistUseCase:
                     name=command.playlist_name,
                     description=command.playlist_description,
                     tracks=command.tracklist.tracks,
-                    connector_playlist_ids={
+                    connector_playlist_identifiers={
                         command.connector: external_result["playlist_id"]
                     },
                 )
@@ -327,8 +327,12 @@ class CreateConnectorPlaylistUseCase:
                             saved_track = await track_repo.save_track(track)
                             persisted_tracks.append(saved_track)
                         except Exception as e:
-                            logger.warning(f"Failed to persist track {track.title}: {e}")
-                            persisted_tracks.append(track)  # Keep original if persist fails
+                            logger.warning(
+                                f"Failed to persist track {track.title}: {e}"
+                            )
+                            persisted_tracks.append(
+                                track
+                            )  # Keep original if persist fails
                     else:
                         # Track already persisted, use as-is
                         persisted_tracks.append(track)
@@ -338,7 +342,9 @@ class CreateConnectorPlaylistUseCase:
                     name=command.playlist_name,
                     description=command.playlist_description,
                     tracks=persisted_tracks,
-                    connector_playlist_ids={command.connector: external_playlist_id},
+                    connector_playlist_identifiers={
+                        command.connector: external_playlist_id
+                    },
                 )
 
                 # Save internal playlist
@@ -404,16 +410,19 @@ class CreateConnectorPlaylistUseCase:
             # Create track items list for connector_playlist table
             items = []
             for i, track in enumerate(saved_playlist.tracks):
-                if track.connector_track_ids and track.connector_track_ids.get(
-                    command.connector
+                if (
+                    track.connector_track_identifiers
+                    and track.connector_track_identifiers.get(command.connector)
                 ):
                     item = ConnectorPlaylistItem(
-                        connector_track_id=track.connector_track_ids[command.connector],
+                        connector_track_identifier=track.connector_track_identifiers[
+                            command.connector
+                        ],
                         position=i,
                         added_at=datetime.now(UTC).isoformat(),
                         added_by_id="narada",
                         extras={
-                            "track_uri": f"{command.connector}:track:{track.connector_track_ids[command.connector]}",
+                            "track_uri": f"{command.connector}:track:{track.connector_track_identifiers[command.connector]}",
                             "local": False,
                             "primary_color": None,
                             "video_thumbnail": None,
@@ -424,7 +433,7 @@ class CreateConnectorPlaylistUseCase:
             # Create ConnectorPlaylist domain model
             connector_playlist = ConnectorPlaylist(
                 connector_name=command.connector,
-                connector_playlist_id=external_playlist_id,
+                connector_playlist_identifier=external_playlist_id,
                 name=command.playlist_name,
                 description=command.playlist_description,
                 owner=external_metadata.get("owner"),

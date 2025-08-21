@@ -14,7 +14,6 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from aiolimiter import AsyncLimiter
 from attrs import define, field
 
 from src.config import get_logger, settings
@@ -45,8 +44,8 @@ class APIBatchProcessor[T, R]:
         retry_count: Max retry attempts per failed item
         retry_base_delay: Starting delay between retries (seconds)
         retry_max_delay: Maximum delay between retries (seconds)
-        request_delay: Minimum delay between requests (seconds)
-        rate_limiter: Optional external rate limiter
+        request_delay: Delay between request starts (seconds) for rate limiting
+        rate_limiter: Deprecated - use request_delay instead
         logger_instance: Logger for progress and error reporting
     """
 
@@ -56,7 +55,7 @@ class APIBatchProcessor[T, R]:
     retry_base_delay: float
     retry_max_delay: float
     request_delay: float
-    rate_limiter: AsyncLimiter | None = field(default=None)
+    rate_limiter: Any | None = field(default=None)  # Deprecated, ignored
     logger_instance: Any = field(factory=lambda: get_logger(__name__))
     _retry_wrapper: RetryWrapper = field(init=False)
 
@@ -101,7 +100,6 @@ class APIBatchProcessor[T, R]:
             return []
 
         results: list[R] = []
-        semaphore = asyncio.Semaphore(self.concurrency_limit)
         total_batches = (len(items) + self.batch_size - 1) // self.batch_size
         total_items = len(items)
         processed_items = 0
@@ -118,24 +116,10 @@ class APIBatchProcessor[T, R]:
                 },
             )
 
-        async def process_with_rate_limit_and_retry(item: T) -> R:
-            """Process item with rate limiting and automatic retry on failure."""
-
-            async def rate_limited_call() -> R:
-                """Apply rate limiting and concurrency control."""
-                # Rate limit before API call using AsyncLimiter (concurrent-safe)
-                if self.rate_limiter:
-                    await self.rate_limiter.acquire()
-
-                # Use semaphore for concurrency control
-                async with semaphore:
-                    return await process_func(item)
-
-            # Use centralized retry wrapper
-            retry_wrapped_call = self._retry_wrapper.with_exponential_backoff(
-                rate_limited_call
-            )
-            return await retry_wrapped_call()
+        async def process_item(item: T) -> R:
+            """Process item directly (individual methods handle their own retries)."""
+            # Call process_func directly since individual API methods already have retry logic
+            return await process_func(item)
 
         # Process in batches for memory efficiency and rate limit management
         for i in range(0, len(items), self.batch_size):
@@ -172,7 +156,9 @@ class APIBatchProcessor[T, R]:
                 batch_num: int = current_batch,
             ) -> R:
                 """Process item and emit periodic progress events."""
-                result = await process_with_rate_limit_and_retry(item)
+                # Critical: yield control immediately to allow task creation to proceed
+                await asyncio.sleep(0)
+                result = await process_item(item)
 
                 # Emit progress at configured intervals
                 current_item = batch_start + item_index + 1
@@ -194,20 +180,25 @@ class APIBatchProcessor[T, R]:
 
                 return result
 
-            # Create all tasks immediately using standard asyncio patterns
-            batch_tasks = [
-                asyncio.create_task(process_item_with_progress(item, idx))
-                for idx, item in enumerate(batch)
-            ]
+            # Create tasks with simple delay-based rate limiting
+            batch_tasks = []
+            for idx, item in enumerate(batch):
+                # Simple rate limiting: delay between task starts
+                if idx > 0 and self.request_delay > 0:
+                    await asyncio.sleep(self.request_delay)
+
+                task = asyncio.create_task(process_item_with_progress(item, idx))
+                batch_tasks.append(task)
 
             self.logger_instance.debug(
                 f"Created {len(batch_tasks)} concurrent tasks for batch {current_batch}",
-                rate_per_second=self.rate_limiter.max_rate
-                if self.rate_limiter
+                rate_delay=f"{self.request_delay}s"
+                if self.request_delay > 0
                 else "unlimited",
             )
 
             # Process items as they complete for real-time progress
+            # Python 3.13 enhancement: as_completed() now returns original task objects
             valid_results = []
             completed_in_batch = 0
 
@@ -217,19 +208,32 @@ class APIBatchProcessor[T, R]:
                     valid_results.append(result)
                     completed_in_batch += 1
 
-                    # Log real-time completion within batch
+                    # Python 3.13: Can now identify which specific task completed
+                    task_index = (
+                        batch_tasks.index(completed_task)
+                        if completed_task in batch_tasks
+                        else -1
+                    )
                     self.logger_instance.debug(
                         f"Item {completed_in_batch}/{len(batch)} completed in batch {current_batch}",
                         batch_progress=f"{completed_in_batch}/{len(batch)}",
                         total_progress=f"{processed_items + completed_in_batch}/{total_items}",
+                        task_index=task_index,
                     )
 
                 except Exception as e:
                     completed_in_batch += 1
+                    # Python 3.13: Better task identification for error tracking
+                    task_index = (
+                        batch_tasks.index(completed_task)
+                        if completed_task in batch_tasks
+                        else -1
+                    )
                     self.logger_instance.error(
                         f"Item {completed_in_batch} failed in batch {current_batch}",
                         error=str(e),
                         error_type=type(e).__name__,
+                        task_index=task_index,
                     )
 
             results.extend(valid_results)

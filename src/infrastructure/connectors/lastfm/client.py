@@ -18,7 +18,6 @@ import asyncio
 from datetime import datetime
 import time
 
-from aiolimiter import AsyncLimiter
 from attrs import define, field
 import backoff
 import pylast
@@ -31,20 +30,20 @@ logger = get_logger(__name__).bind(service="lastfm_client")
 
 @define(slots=True)
 class LastFMAPIClient:
-    """Pure Last.fm API client with authentication and rate limiting.
+    """Pure Last.fm API client with authentication.
 
-    Provides thin wrapper around pylast with authentication, rate limiting,
-    and individual API method calls. No business logic or complex orchestration.
+    Provides thin wrapper around pylast with authentication and individual API
+    method calls. No business logic, rate limiting, or complex orchestration.
+    Rate limiting is handled at the batch processor level for optimal performance.
     """
 
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
     client: pylast.LastFMNetwork | None = field(default=None, init=False, repr=False)
-    rate_limiter: AsyncLimiter | None = field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Initialize Last.fm client with authentication and rate limiting."""
+        """Initialize Last.fm client with authentication."""
         logger.debug("Initializing Last.fm API client")
 
         # Set up API credentials from settings or provided values
@@ -87,16 +86,10 @@ class LastFMAPIClient:
 
         self.client = pylast.LastFMNetwork(**client_args)
 
-        # Set up rate limiting using API settings
-        self.rate_limiter = AsyncLimiter(
-            max_rate=settings.api.lastfm_rate_limit,
-            time_period=1.0,  # per second
-        )
-
     @property
     def is_configured(self) -> bool:
         """Check if client is properly configured."""
-        return self.client is not None and self.rate_limiter is not None
+        return self.client is not None
 
     # Individual Track API Methods
 
@@ -104,7 +97,7 @@ class LastFMAPIClient:
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def get_track_by_mbid(self, mbid: str) -> pylast.Track | None:
         """Get track by MusicBrainz ID."""
-        if not self.is_configured or self.client is None or self.rate_limiter is None:
+        if not self.is_configured or self.client is None:
             return None
 
         # Create contextual logger for this API call
@@ -116,9 +109,6 @@ class LastFMAPIClient:
         start_time = time.time()
 
         try:
-            # Rate limit API call
-            await self.rate_limiter.acquire()
-
             # Use standard asyncio threading for concurrent execution
             result = await asyncio.to_thread(self.client.get_track_by_mbid, mbid)
 
@@ -143,7 +133,7 @@ class LastFMAPIClient:
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def get_track(self, artist: str, title: str) -> pylast.Track | None:
         """Get track by artist and title."""
-        if not self.is_configured or self.client is None or self.rate_limiter is None:
+        if not self.is_configured or self.client is None:
             return None
 
         # Create contextual logger for this API call
@@ -155,9 +145,6 @@ class LastFMAPIClient:
         start_time = time.time()
 
         try:
-            # Rate limit API call
-            await self.rate_limiter.acquire()
-
             # Use standard asyncio threading for concurrent execution
             result = await asyncio.to_thread(self.client.get_track, artist, title)
 
@@ -184,24 +171,13 @@ class LastFMAPIClient:
     @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track for the authenticated user."""
-        if (
-            not self.is_configured
-            or not self.lastfm_username
-            or self.client is None
-            or self.rate_limiter is None
-        ):
+        if not self.is_configured or not self.lastfm_username or self.client is None:
             logger.warning("Cannot love track - no username configured")
             return False
 
         try:
-            # Rate limit API calls
-            await self.rate_limiter.acquire()
-
             # Use standard asyncio threading for concurrent execution
             track = await asyncio.to_thread(self.client.get_track, artist, title)
-
-            # Rate limit the love call as well
-            await self.rate_limiter.acquire()
             await asyncio.to_thread(track.love)
             return True
         except pylast.WSError as e:
@@ -233,7 +209,7 @@ class LastFMAPIClient:
         Returns:
             List of raw track data dictionaries for PlayRecord creation
         """
-        if not self.is_configured or self.client is None or self.rate_limiter is None:
+        if not self.is_configured or self.client is None:
             logger.error("Last.fm client not initialized")
             return []
 
@@ -258,18 +234,12 @@ class LastFMAPIClient:
             if to_time:
                 params["time_to"] = int(to_time.timestamp())
 
-            # Rate limit API calls
-            await self.rate_limiter.acquire()
-
             # Use standard asyncio threading for concurrent execution
             # Get Last.fm user
             lastfm_user = await asyncio.to_thread(self.client.get_user, user)
             if not lastfm_user:
                 logger.error(f"Could not get Last.fm user: {user}")
                 return []
-
-            # Rate limit the recent tracks call as well
-            await self.rate_limiter.acquire()
 
             # Get recent tracks using pylast (time-range based fetching)
             recent_tracks = await asyncio.to_thread(
@@ -300,7 +270,7 @@ class LastFMAPIClient:
                     else ""
                 )
                 # Use PlayedTrack.album attribute instead of track.get_album()
-                album_name = played_track.album if played_track.album else None
+                album_name = played_track.album or None
 
                 # Extract URLs and MBIDs
                 track_url = track.get_url() if hasattr(track, "get_url") else None

@@ -11,6 +11,7 @@ from typing import Any
 from attrs import define, field
 
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -43,7 +44,7 @@ class GetPlayedTracksCommand:
         Returns:
             True if all parameters meet business rules.
         """
-        valid_limit = self.limit > 0 and self.limit <= 10000
+        valid_limit = self.limit > 0 and self.limit <= BusinessLimits.MAX_USER_LIMIT
         valid_days = self.days_back is None or self.days_back > 0
 
         # Validate sort_by if provided

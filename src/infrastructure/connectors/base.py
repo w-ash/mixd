@@ -18,6 +18,7 @@ Example:
         @property
         def connector_name(self) -> str:
             return "spotify"
+
         # Implement service-specific methods...
     ```
 """
@@ -301,7 +302,7 @@ def register_metrics(
         field_map: Maps metric names to connector metadata field names
     """
     from src.infrastructure.connectors._shared.metrics import register_metric_config
-    
+
     for metric_name, field_name in field_map.items():
         register_metric_resolver(metric_name, metric_resolver)
         # Register the field mapping so get_field_name() works correctly

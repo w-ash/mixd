@@ -10,6 +10,7 @@ from typing import Any
 from attrs import define, field
 
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -40,7 +41,7 @@ class GetLikedTracksCommand:
         Returns:
             True if limit is 1-10000 and sort_by is a valid option.
         """
-        valid_limit = self.limit > 0 and self.limit <= 10000
+        valid_limit = self.limit > 0 and self.limit <= BusinessLimits.MAX_USER_LIMIT
 
         # Validate sort_by if provided
         valid_sort_options = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]

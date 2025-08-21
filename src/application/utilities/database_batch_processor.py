@@ -18,6 +18,7 @@ from typing import Any, TypeVar
 from attrs import define, field
 
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="database_batch_processor")
@@ -52,7 +53,7 @@ class DatabaseBatchProcessor[T, R]:
 
     def __attrs_post_init__(self):
         """Validate configuration for database operations."""
-        if self.batch_size > 100:
+        if self.batch_size > BusinessLimits.SQLITE_BATCH_WARNING_THRESHOLD:
             self.logger_instance.warning(
                 f"Large batch size {self.batch_size} may cause SQLite locks. "
                 "Consider using smaller batch sizes (10-50) for database operations."
@@ -208,4 +209,3 @@ class DatabaseBatchProcessor[T, R]:
             )
 
         return results
-

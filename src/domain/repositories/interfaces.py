@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from src.domain.entities import (
         ConnectorPlaylist,
         ConnectorTrack,
+        ConnectorTrackPlay,
         Playlist,
         SyncCheckpoint,
         Track,
@@ -31,7 +32,9 @@ class TrackRepositoryProtocol(Protocol):
         """Save track."""
         ...
 
-    def get_by_id(self, id_: int, load_relationships: list[str] | None = None) -> Awaitable["Track"]:
+    def get_by_id(
+        self, id_: int, load_relationships: list[str] | None = None
+    ) -> Awaitable["Track"]:
         """Get track by ID."""
         ...
 
@@ -412,6 +415,59 @@ class PlaysRepositoryProtocol(Protocol):
         ...
 
 
+class ConnectorPlayRepositoryProtocol(Protocol):
+    """Repository interface for connector play operations.
+
+    Handles raw play data from external music services before resolution to canonical plays.
+    Follows the same clean pattern as other connector repositories with simple resolution tracking.
+    """
+
+    def bulk_insert_connector_plays(
+        self, connector_plays: list["ConnectorTrackPlay"]
+    ) -> Awaitable[tuple[int, int]]:
+        """Bulk insert connector plays from external API data.
+
+        Args:
+            connector_plays: List of ConnectorTrackPlay domain objects from API ingestion
+
+        Returns:
+            tuple[int, int]: (inserted_count, duplicate_count)
+        """
+        ...
+
+    def get_unresolved_connector_plays(
+        self,
+        connector: str | None = None,
+        limit: int | None = None,
+    ) -> Awaitable[list["ConnectorTrackPlay"]]:
+        """Get connector plays that haven't been resolved to canonical tracks yet.
+
+        Args:
+            connector: Optional connector name to filter by (e.g., "lastfm", "spotify")
+            limit: Optional limit on number of plays to return
+
+        Returns:
+            List of unresolved ConnectorTrackPlay domain objects ordered by played_at
+        """
+        ...
+
+    def mark_plays_resolved(
+        self,
+        connector_play_ids: list[int],
+        resolved_track_id: int,
+    ) -> Awaitable[int]:
+        """Mark connector plays as resolved to a canonical track.
+
+        Args:
+            connector_play_ids: List of connector play database IDs
+            resolved_track_id: Canonical track ID they resolve to
+
+        Returns:
+            Number of connector plays successfully marked as resolved
+        """
+        ...
+
+
 class TrackIdentityServiceProtocol(Protocol):
     """Service interface for track identity resolution operations.
 
@@ -489,14 +545,16 @@ class ServiceConnectorProvider(Protocol):
 class TrackMergeServiceProtocol(Protocol):
     """Service interface for track merging operations."""
 
-    def merge_tracks(self, winner_id: int, loser_id: int, uow: "UnitOfWorkProtocol") -> Awaitable["Track"]:
+    def merge_tracks(
+        self, winner_id: int, loser_id: int, uow: "UnitOfWorkProtocol"
+    ) -> Awaitable["Track"]:
         """Merge two canonical tracks by moving references and soft-deleting loser.
-        
+
         Args:
             winner_id: Track ID that will keep all references.
             loser_id: Track ID that will be soft-deleted.
             uow: Unit of work for transaction management.
-            
+
         Returns:
             Winner track after merge.
         """
@@ -575,13 +633,17 @@ class UnitOfWorkProtocol(Protocol):
         """Get connector playlist repository for playlist-related operations."""
         ...
 
+    def get_connector_play_repository(self) -> ConnectorPlayRepositoryProtocol:
+        """Get connector play repository for play ingestion and resolution operations."""
+        ...
+
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""
         ...
 
     def get_session(self) -> Any:
         """Get the underlying database session for bulk operations.
-        
+
         This method provides controlled access to the underlying session for
         complex transactional operations like bulk updates. Use with caution
         and prefer repository methods when possible.

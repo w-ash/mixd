@@ -238,7 +238,9 @@ class UpdateCanonicalPlaylistUseCase:
                             tracks_added,
                             tracks_removed,
                             tracks_moved,
-                        ) = await self._execute_operations(current_playlist, diff, processed_tracklist, uow)
+                        ) = await self._execute_operations(
+                            current_playlist, diff, processed_tracklist, uow
+                        )
                     confidence_score = diff.confidence_score
 
                     # Extract metrics from new tracks (only for non-dry runs)
@@ -355,12 +357,9 @@ class UpdateCanonicalPlaylistUseCase:
         # This provides consistent behavior with mathematical guarantees from LIS algorithm
         canonical_strategy = get_execution_strategy("canonical")
         updated_tracks, execution_metadata = execute_with_strategy(
-            canonical_strategy,
-            current_playlist,
-            target_tracklist,
-            diff
+            canonical_strategy, current_playlist, target_tracklist, diff
         )
-        
+
         logger.debug(
             "Applied canonical execution strategy",
             execution_metadata=execution_metadata,
@@ -425,7 +424,7 @@ class UpdateCanonicalPlaylistUseCase:
             # Preserve connector mappings when updating metadata
             updated_playlist = evolve(
                 current_playlist,
-                connector_playlist_ids=current_playlist.connector_playlist_ids.copy(),
+                connector_playlist_identifiers=current_playlist.connector_playlist_identifiers.copy(),
                 **updates,
             )
 

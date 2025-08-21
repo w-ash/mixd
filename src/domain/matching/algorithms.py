@@ -138,7 +138,7 @@ def calculate_confidence(
                 / settings.matching.high_similarity_threshold,
             )
             # Square or cube the factor to make the penalty curve steeper
-            penalty_factor = penalty_factor**2  # Square for quadratic curve
+            penalty_factor **= 2  # Square for quadratic curve
             artist_score = -settings.matching.artist_max_penalty * penalty_factor
 
     # 3. Duration comparison

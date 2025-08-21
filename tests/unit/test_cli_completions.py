@@ -2,9 +2,12 @@
 
 import json
 
+import pytest
+
 from src.interface.cli.completions import complete_workflow_names
 
 
+@pytest.mark.unit
 def test_complete_workflow_names_empty_directory():
     """Test completion with no workflow files."""
     # Should return empty list when no workflows exist

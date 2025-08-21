@@ -31,9 +31,9 @@ logger = get_logger(__name__).bind(service="spotify_conversions")
 def extract_spotify_track_uris(tracks: list[Track]) -> list[str]:
     """Extract Spotify track URIs from domain tracks."""
     return [
-        f"spotify:track:{t.connector_track_ids['spotify']}"
+        f"spotify:track:{t.connector_track_identifiers['spotify']}"
         for t in tracks
-        if "spotify" in t.connector_track_ids
+        if "spotify" in t.connector_track_identifiers
     ]
 
 
@@ -86,7 +86,7 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
 
     return ConnectorTrack(
         connector_name="spotify",
-        connector_track_id=spotify_track["id"],
+        connector_track_identifier=spotify_track["id"],
         title=spotify_track["name"],
         artists=artists,
         album=album_name,
@@ -131,7 +131,7 @@ def convert_spotify_playlist_to_connector(
 
     return ConnectorPlaylist(
         connector_name="spotify",
-        connector_playlist_id=spotify_playlist["id"],
+        connector_playlist_identifier=spotify_playlist["id"],
         name=spotify_playlist["name"],
         description=spotify_playlist.get("description"),
         owner=owner,
@@ -151,7 +151,7 @@ def parse_spotify_timestamp(timestamp_str: str) -> datetime | None:
 
     try:
         # Spotify timestamp format: "2023-09-21T15:48:56Z"
-        return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        return datetime.fromisoformat(timestamp_str)
     except ValueError as e:
         logger.warning(
             f"Could not parse Spotify timestamp: {timestamp_str}, error: {e}"

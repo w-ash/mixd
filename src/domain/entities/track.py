@@ -41,14 +41,14 @@ class Track:
 
     # Extended properties
     id: int | None = field(default=None)
-    connector_track_ids: dict[str, str] = field(factory=dict)
+    connector_track_identifiers: dict[str, str] = field(factory=dict)
     connector_metadata: dict[str, dict[str, Any]] = field(factory=dict)
 
     def with_connector_track_id(self, connector: str, sid: str) -> "Track":
         """Create a new track with additional connector identifier."""
-        new_ids = self.connector_track_ids.copy()
+        new_ids = self.connector_track_identifiers.copy()
         new_ids[connector] = sid
-        return attrs.evolve(self, connector_track_ids=new_ids)
+        return attrs.evolve(self, connector_track_identifiers=new_ids)
 
     def with_id(self, db_id: int) -> "Track":
         """Set the internal database ID for this track."""
@@ -111,29 +111,29 @@ class Track:
 
     def has_same_identity_as(self, other: "Track") -> bool:
         """Compare tracks by external identifiers for identity resolution.
-        
-        Business rule: tracks with identical external identifiers (ISRC, 
+
+        Business rule: tracks with identical external identifiers (ISRC,
         Spotify ID, etc.) represent the same song and can be merged.
-        
+
         Args:
             other: Track to compare against.
-            
+
         Returns:
             True if tracks have matching external identifiers.
         """
         if not isinstance(other, Track):
             return False
-            
+
         # Check ISRC first - most reliable identifier
         if self.isrc and other.isrc and self.isrc == other.isrc:
             return True
-            
+
         # Check connector track IDs for overlap
-        for connector, my_id in self.connector_track_ids.items():
-            other_id = other.connector_track_ids.get(connector)
+        for connector, my_id in self.connector_track_identifiers.items():
+            other_id = other.connector_track_identifiers.get(connector)
             if other_id and my_id == other_id:
                 return True
-                
+
         return False
 
 
@@ -166,7 +166,7 @@ class ConnectorTrack:
     """External track representation from a specific music service."""
 
     connector_name: str
-    connector_track_id: str
+    connector_track_identifier: str
     title: str
     artists: list[Artist]
     album: str | None = None
@@ -187,7 +187,7 @@ class ConnectorTrackMapping:
     """
 
     connector_name: str = field(validator=validators.instance_of(str))
-    connector_track_id: str = field(validator=validators.instance_of(str))
+    connector_track_identifier: str = field(validator=validators.instance_of(str))
     match_method: str = field(
         validator=validators.in_([
             "direct",  # Direct match where internal object was created from the connector

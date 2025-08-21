@@ -277,18 +277,6 @@ async def transaction(session: AsyncSession) -> AsyncGenerator[AsyncSession]:
         yield session
 
 
-async def soft_delete_record(session: AsyncSession, record: Any) -> None:
-    """Soft delete a record by setting is_deleted flag.
-
-    Args:
-        session: SQLAlchemy session
-        record: Database record with is_deleted attribute
-    """
-    record.is_deleted = True
-    session.add(record)
-    await session.flush()
-
-
 class SafeQuery[T: Any]:
     """Utility for safe query execution with error handling.
 
@@ -297,9 +285,11 @@ class SafeQuery[T: Any]:
 
     Example:
         ```python
-        result = await SafeQuery(session).execute(
-            select(User).where(User.id == user_id)
-        ).scalar_one_or_none()
+        result = (
+            await SafeQuery(session)
+            .execute(select(User).where(User.id == user_id))
+            .scalar_one_or_none()
+        )
         ```
     """
 
@@ -371,6 +361,5 @@ __all__ = [
     "get_session",
     "get_session_factory",
     "session_factory",
-    "soft_delete_record",
     "transaction",
 ]

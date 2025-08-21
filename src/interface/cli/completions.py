@@ -23,7 +23,7 @@ def complete_workflow_names(incomplete: str) -> list[str]:
         workflow_names = []
         for json_file in definitions_path.glob("*.json"):
             try:
-                with open(json_file) as f:
+                with json_file.open(encoding="utf-8") as f:
                     definition = json.load(f)
                 workflow_id = definition.get("id", json_file.stem)
                 if workflow_id.startswith(incomplete):

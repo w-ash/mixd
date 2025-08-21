@@ -38,6 +38,7 @@ Quick Start:
 1. Get a logger for your module:
     ```python
     from src.config import get_logger
+
     logger = get_logger(__name__)
     ```
 
@@ -230,7 +231,7 @@ def resilient_operation(operation_name=None):
     Example:
         >>> @resilient_operation("spotify_playlist_fetch")
         >>> async def get_spotify_playlist(playlist_id):
-        >>>     # Implementation that can raise exceptions
+        >>> # Implementation that can raise exceptions
         >>>     return await spotify.get_playlist(playlist_id)
     """
 

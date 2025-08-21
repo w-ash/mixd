@@ -9,7 +9,7 @@ from typing import Any
 
 from attrs import define, field
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
 from src.domain.entities.track import TrackList
@@ -59,7 +59,7 @@ class UpdateConnectorPlaylistCommand:
         if not self.connector:
             return False
 
-        if self.batch_size > 100:  # Spotify API limit
+        if self.batch_size > settings.api.spotify_large_batch_size:  # Spotify API limit
             return False
 
         return not self.max_api_calls < 1
@@ -195,7 +195,7 @@ class UpdateConnectorPlaylistUseCase:
                             confidence_score=diff.confidence_score,
                         )
 
-                    # Step 3: Use unified execution strategy for API operations 
+                    # Step 3: Use unified execution strategy for API operations
                     api_strategy = get_execution_strategy("api")
                     execution_plan = api_strategy.plan_operations(diff)
                     sequenced_operations = execution_plan.operations
@@ -461,7 +461,7 @@ class UpdateConnectorPlaylistUseCase:
             updated_connector_playlist = ConnectorPlaylist(
                 id=existing.id if existing else None,
                 connector_name=command.connector,
-                connector_playlist_id=command.playlist_id,
+                connector_playlist_identifier=command.playlist_id,
                 name=current_playlist.name,
                 description=current_playlist.description,
                 items=updated_items,
@@ -494,12 +494,15 @@ class UpdateConnectorPlaylistUseCase:
         """Creates playlist items from target track list."""
         items = []
         for i, track in enumerate(command.new_tracklist.tracks):
-            if track.connector_track_ids and track.connector_track_ids.get(
-                command.connector
+            if (
+                track.connector_track_identifiers
+                and track.connector_track_identifiers.get(command.connector)
             ):
-                connector_track_id = track.connector_track_ids[command.connector]
+                connector_track_id = track.connector_track_identifiers[
+                    command.connector
+                ]
                 item = ConnectorPlaylistItem(
-                    connector_track_id=connector_track_id,
+                    connector_track_identifier=connector_track_id,
                     position=i,
                     added_at=datetime.now(UTC).isoformat(),
                     added_by_id="narada",
@@ -643,7 +646,7 @@ class UpdateConnectorPlaylistUseCase:
                 "description", f"Imported from {connector.title()}"
             ),
             tracks=[],  # Will be populated separately if needed
-            connector_playlist_ids={connector: connector_playlist_id},
+            connector_playlist_identifiers={connector: connector_playlist_id},
             metadata={
                 "created_from_connector": connector,
                 "original_connector_id": connector_playlist_id,

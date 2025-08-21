@@ -21,26 +21,28 @@ musicbrainzngs = "^0.7.1"
 loguru = "^0.7.3"
 python-dotenv = "^1.1.0"
 rich = "^14.0.0"
-typer = "^0.15.2"  # Modern CLI framework
+typer = "^0.16.1"  # Modern CLI framework
 attrs = "^25.3.0"
 toolz = "^1.0.0"
 backoff = "^2.2.1"
 prefect = "^3.3.3"
 aiosqlite = "^0.21.0"  # Async SQLite support
 rapidfuzz = "^3.13.0"  # High-performance fuzzy string matching
-aiolimiter = "^1.1.0"  # Async rate limiting for API calls
+orjson = "^3.10.11"  # Fast JSON serialization/deserialization
 pydantic-settings = "^2.10.1"  # Modern settings management with env loading
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
-pytest-asyncio = "^0.26.0"  # Async test support
+pytest-asyncio = "^1.1.0"  # Async test support
 pytest-cov = "^6.1.1"
-black = "^25.1.0"
-ruff = "^0.11.5"  # Modern replacement for isort, flake8, etc.
+pytest-xdist = "^3.6.1"  # Parallel test execution for faster development
+ruff = "^0.12.9"  # Latest version with Python 3.13 enhancements
 pre-commit = "^4.2.0"
-pyright = "^1.1.399"
+basedpyright = "^1.31.3"  # Modern Python-focused type checker (replaces pyright)
 vulture = "^2.14"
-psutil = "^6.1.0"  # System and process monitoring for performance tests
+interrogate = "^1.7.0"  # Documentation coverage measurement
+bandit = "^1.7.10"  # Python security linter
+psutil = "^7.0.0"  # System and process monitoring for performance tests
 
 [tool.poetry.scripts]
 narada = "src.interface.cli.app:main"
@@ -50,12 +52,14 @@ test-db = "narada.data.test_database:main"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-# Ruff configuration for version 0.9.9
+# Ruff configuration for version 0.12.9+ with Python 3.13 enhancements
 [tool.ruff]
 # Basic settings
 line-length = 88
 target-version = "py313"
-preview = true
+preview = true  # Enable latest lint rules and formatter improvements
+# Python 3.13 specific: Enhanced version-aware parsing
+output-format = "full"
 
 [tool.ruff.lint]
 # Linting rules
@@ -83,9 +87,33 @@ select = [
     "ARG",   # Function argument validation
     "TD003", # Mark TODOs with an assignee
     "PYI",   # Stub file linting
+    "FURB",  # Refurb - modernize Python code patterns
+    "LOG",   # Logging best practices
+    "FA",    # Future annotations (Python 3.13 ready)
+    "PERF",  # Performance anti-patterns
+    "TRY",   # Exception handling best practices
+    "PL",    # Pylint (additional logic checks)
+    "PTH",   # Use pathlib for path operations
 ]
 
-ignore = ["E501", "COM812"]  # Line too long (handled by formatter), COM812 conflicts with formatter
+ignore = [
+    "E501",      # Line too long (handled by formatter)
+    "COM812",    # COM812 conflicts with formatter
+    "PLR0912",   # Too many branches (complexity is fine for orchestration code)
+    "PLR0915",   # Too many statements (orchestration functions can be long)
+    "PLR0914",   # Too many local variables (data processing needs variables)
+    "PLR1702",   # Too many nested blocks (error handling requires nesting)
+    "PLR6301",   # Method could be function (DI pattern requires methods)
+    "PLC0415",   # Import not at top (lazy imports for CLI performance)
+    "TRY003",    # Long exception messages (clear error messages are good)
+    "PLR6201",   # Use set for membership (tuples are fine for small static checks)
+    "PLC2701",   # Private name imports (_shared modules are internal API)
+    "PLR0913",   # Too many arguments (data processing functions need arguments)
+    "PLR0917",   # Too many positional arguments (same as above)
+    "PLR0911",   # Too many return statements (complex logic needs returns)
+    "TRY300",    # Maybe we'll fix these eventually
+    "TRY400",    # Use logging.exception (doesn't apply to Loguru)
+]
 fixable = ["ALL"]
 unfixable = []
 
@@ -132,12 +160,16 @@ keep-runtime-typing = true
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
-# Formatter configuration (Compatible with Ruff 0.9.9)
+# Formatter configuration (Ruff 0.12.9+ with Python 3.13 support)
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+# 2025 best practice: Format code in docstrings
+docstring-code-format = true
+# Enhanced Python 3.13 support
+docstring-code-line-length = "dynamic"
 
 # flake8-annotations settings
 [tool.ruff.lint.flake8-annotations]
@@ -159,8 +191,8 @@ markers = ["integration: marks tests as integration tests"]
 source = ["narada", "src"]
 omit = ["tests/*"]
 
-# Type checking configuration
-[tool.pyright]
+# Type checking configuration - BasedPyright (modern Python-focused type checker)
+[tool.basedpyright]
 include = ["src"]
 exclude = ["tests", "**/__pycache__"]
 typeCheckingMode = "strict"
@@ -173,8 +205,21 @@ reportUntypedBaseClass = true
 reportUntypedClassDecorator = true
 reportUntypedFunctionDecorator = true
 reportUntypedNamedTuple = true
+# Python 3.13 and 2025 specific type checking features
+reportDeprecated = "warning"
+reportUnnecessaryTypeIgnoreComment = "warning"  
+reportImplicitOverride = "warning"
+# BasedPyright specific enhancements (2025)
+reportAny = "warning"
+reportUnknownParameterType = "warning"
+reportUnknownVariableType = "warning"
+# Python 3.13 typing features (3.14 ready when dependencies support it)
+enableTypeIgnoreComments = true
 pythonVersion = "3.13"
 pythonPlatform = "All"
+# Modern virtual environment detection
+venvPath = "."
+venv = ".venv"
 
 [tool.poetry.urls]
 "Documentation" = "https://github.com/w-ash/narada/docs"

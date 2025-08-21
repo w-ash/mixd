@@ -27,6 +27,7 @@ def sample_tracklist():
     return TrackList(tracks=tracks)
 
 
+@pytest.mark.unit
 class TestNodeFactories:
     """Test node factory functions."""
 

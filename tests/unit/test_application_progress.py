@@ -123,7 +123,7 @@ class TestWithProgressDecorator:
 
         @with_progress(
             "Processing items",
-            estimate_total=lambda items: len(items),
+            estimate_total=len,
             progress_provider_factory=lambda: mock_provider,
         )
         async def process_items(items):

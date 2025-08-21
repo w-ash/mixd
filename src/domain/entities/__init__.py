@@ -3,6 +3,7 @@
 # Track-related entities
 # Operation-related entities
 from .operations import (
+    ConnectorTrackPlay,
     OperationResult,
     PlayRecord,
     SyncCheckpoint,
@@ -41,6 +42,7 @@ __all__ = [
     "ConnectorPlaylistItem",
     "ConnectorTrack",
     "ConnectorTrackMapping",
+    "ConnectorTrackPlay",
     # Operation entities
     "OperationResult",
     "PlayRecord",

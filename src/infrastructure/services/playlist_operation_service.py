@@ -9,7 +9,7 @@ from typing import Any
 
 from attrs import define
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 
 logger = get_logger(__name__)
@@ -140,7 +140,7 @@ class PlaylistOperationService:
             if (
                 op.old_position == expected_old_pos
                 and op.position == expected_new_pos
-                and len(current_block_ops) < 100
+                and len(current_block_ops) < settings.api.spotify_large_batch_size
             ):  # API limit
                 # Extend current block
                 current_block_ops.append(op)
@@ -193,7 +193,7 @@ class PlaylistOperationService:
             expected_position = sorted_adds[0].position + len(current_batch_ops)
 
             if (
-                op.position == expected_position and len(current_batch_ops) < 100
+                op.position == expected_position and len(current_batch_ops) < settings.api.spotify_large_batch_size
             ):  # API limit
                 # Extend current batch
                 current_batch_ops.append(op)

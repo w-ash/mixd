@@ -5,7 +5,7 @@ use case orchestration with mocked dependencies.
 """
 
 # Import all domain fixtures to make them available to unit tests
-from tests.domain.conftest import (
+from tests.unit.domain.conftest import (
     artist,
     empty_playlist,
     playlist,

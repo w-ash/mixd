@@ -27,7 +27,6 @@ from src.infrastructure.persistence.database.db_connection import (
     engine,
     get_session,
     session_factory,
-    soft_delete_record,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -59,5 +58,4 @@ __all__ = [
     "get_session",
     "init_db",
     "session_factory",
-    "soft_delete_record",
 ]

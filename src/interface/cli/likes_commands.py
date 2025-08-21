@@ -134,7 +134,7 @@ def export_lastfm_cmd(
         try:
             # Try parsing with time first, then date only
             if "T" in date:
-                override_date = datetime.fromisoformat(date.replace("Z", "+00:00"))
+                override_date = datetime.fromisoformat(date)
             else:
                 override_date = datetime.fromisoformat(f"{date}T00:00:00+00:00")
         except ValueError:
@@ -255,7 +255,7 @@ def _interactive_lastfm_export() -> None:
         try:
             # Parse the date
             if "T" in date_str:
-                override_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                override_date = datetime.fromisoformat(date_str)
             else:
                 override_date = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
             console.print(

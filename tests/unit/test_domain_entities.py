@@ -23,6 +23,7 @@ from src.domain.entities import (
 )
 
 
+@pytest.mark.unit
 class TestTrackEntities:
     """Test track-related domain entities."""
 
@@ -67,10 +68,10 @@ class TestTrackEntities:
             "spotify", "4uLU6hMCjMI75M1A2tKUQC"
         )
         assert (
-            track_with_spotify.connector_track_ids["spotify"]
+            track_with_spotify.connector_track_identifiers["spotify"]
             == "4uLU6hMCjMI75M1A2tKUQC"
         )
-        assert track.connector_track_ids == {}  # Original unchanged
+        assert track.connector_track_identifiers == {}  # Original unchanged
 
     def test_track_like_status(self):
         """Test track like status management."""
@@ -133,10 +134,10 @@ class TestPlaylistEntities:
             "spotify", "37i9dQZF1DX0XUsuxWHRQd"
         )
         assert (
-            playlist_with_spotify.connector_playlist_ids["spotify"]
+            playlist_with_spotify.connector_playlist_identifiers["spotify"]
             == "37i9dQZF1DX0XUsuxWHRQd"
         )
-        assert playlist.connector_playlist_ids == {}  # Original unchanged
+        assert playlist.connector_playlist_identifiers == {}  # Original unchanged
 
     def test_playlist_connector_id_validation(self):
         """Test that internal connector names are rejected."""
@@ -151,12 +152,12 @@ class TestPlaylistEntities:
     def test_connector_playlist_item(self):
         """Test ConnectorPlaylistItem creation."""
         item = ConnectorPlaylistItem(
-            connector_track_id="4uLU6hMCjMI75M1A2tKUQC",
+            connector_track_identifier="4uLU6hMCjMI75M1A2tKUQC",
             position=1,
             added_at="2023-01-01T00:00:00Z",
         )
 
-        assert item.connector_track_id == "4uLU6hMCjMI75M1A2tKUQC"
+        assert item.connector_track_identifier == "4uLU6hMCjMI75M1A2tKUQC"
         assert item.position == 1
         assert item.added_at == "2023-01-01T00:00:00Z"
 

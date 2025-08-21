@@ -100,9 +100,9 @@ class SpotifyConnector(BaseAPIConnector):
         """
         # Extract Spotify IDs from tracks that have them
         spotify_mapped = [
-            (track, track.connector_track_ids.get("spotify"))
+            (track, track.connector_track_identifiers.get("spotify"))
             for track in tracks
-            if track.id is not None and track.connector_track_ids.get("spotify")
+            if track.id is not None and track.connector_track_identifiers.get("spotify")
         ]
 
         if not spotify_mapped:

@@ -33,7 +33,7 @@ class ConnectorPlaylistRepository(
         """Create a select statement for a connector playlist by its external ID."""
         return self.select().where(
             self.model_class.connector_name == connector,
-            self.model_class.connector_playlist_id == connector_id,
+            self.model_class.connector_playlist_identifier == connector_id,
         )
 
     @db_operation("get_by_connector_id")
@@ -66,7 +66,7 @@ class ConnectorPlaylistRepository(
         # Use lookup by connector name and ID
         lookup_attrs = {
             "connector_name": connector_playlist.connector_name,
-            "connector_playlist_id": connector_playlist.connector_playlist_id,
+            "connector_playlist_identifier": connector_playlist.connector_playlist_identifier,
         }
 
         # Convert domain model to dict for database

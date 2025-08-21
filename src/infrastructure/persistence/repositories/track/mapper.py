@@ -26,70 +26,72 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     async def to_domain(db_model: DBTrack) -> Track:
         """Convert database track to domain model."""
         return await TrackMapper._to_domain_with_session(db_model, None, None)
-    
+
     @staticmethod
     async def to_domain_with_session(
         db_model: DBTrack, session: AsyncSession | None = None
     ) -> Track:
         """Convert database track to domain model with session for auto-healing."""
         return await TrackMapper._to_domain_with_session(db_model, session, None)
-    
+
     @staticmethod
     async def _to_domain_with_session(
-        db_model: DBTrack, 
+        db_model: DBTrack,
         session: AsyncSession | None = None,
-        connector_filter: set[str] | None = None
+        connector_filter: set[str] | None = None,
     ) -> Track:
         """Convert database track to domain model."""
         if not db_model:
             return None
 
         # Use only eager-loaded relationships to avoid greenlet issues
-        # Check if relationships are loaded to prevent lazy loading that causes MissingGreenlet  
+        # Check if relationships are loaded to prevent lazy loading that causes MissingGreenlet
         from sqlalchemy import inspect
         from sqlalchemy.orm.base import NEVER_SET
-        
+
         state = inspect(db_model)
-        
+
         # Safely access mappings - only if already loaded
         active_mappings = []
         mappings_attr = state.attrs.get("mappings")
         if mappings_attr and mappings_attr.loaded_value is not NEVER_SET:
             mappings = mappings_attr.loaded_value or []
-            active_mappings = [m for m in mappings if not m.is_deleted]
-            
-        # Safely access likes - only if already loaded  
+            active_mappings = mappings
+
+        # Safely access likes - only if already loaded
         active_likes = []
         likes_attr = state.attrs.get("likes")
         if likes_attr and likes_attr.loaded_value is not NEVER_SET:
             likes = likes_attr.loaded_value or []
-            active_likes = [like for like in likes if not like.is_deleted]
+            active_likes = likes
 
         # Build connector IDs and metadata
-        connector_track_ids = {}
+        connector_track_identifiers = {}
         connector_metadata = {}
 
         # Add internal ID first
         if db_model.id:
-            connector_track_ids["db"] = str(db_model.id)
+            connector_track_identifiers["db"] = str(db_model.id)
 
         # Add direct IDs from the track model
         if db_model.spotify_id:
-            connector_track_ids["spotify"] = db_model.spotify_id
+            connector_track_identifiers["spotify"] = db_model.spotify_id
         if db_model.mbid:
-            connector_track_ids["musicbrainz"] = db_model.mbid
+            connector_track_identifiers["musicbrainz"] = db_model.mbid
 
         # Process connector track mappings with primary awareness
         # First pass: collect all primary mappings
         for mapping in active_mappings:
             if mapping.is_primary:
                 conn_track = await TrackMapper._get_connector_track(mapping)
-                if conn_track and not conn_track.is_deleted:
+                if conn_track:
                     connector_name = conn_track.connector_name
                     # Skip connectors not in filter (if filter is specified)
                     if connector_filter and connector_name not in connector_filter:
                         continue
-                    connector_track_ids[connector_name] = conn_track.connector_track_id
+                    connector_track_identifiers[connector_name] = (
+                        conn_track.connector_track_identifier
+                    )
                     connector_metadata[connector_name] = conn_track.raw_metadata or {}
 
         # Second pass: fill in any missing connectors with non-primary mappings (fallback)
@@ -100,15 +102,15 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         for mapping in active_mappings:
             if not mapping.is_primary:
                 conn_track = await TrackMapper._get_connector_track(mapping)
-                if conn_track and not conn_track.is_deleted:
+                if conn_track:
                     connector_name = conn_track.connector_name
                     # Skip connectors not in filter (if filter is specified)
                     if connector_filter and connector_name not in connector_filter:
                         continue
                     # Only use non-primary if no primary exists for this connector
-                    if connector_name not in connector_track_ids:
-                        connector_track_ids[connector_name] = (
-                            conn_track.connector_track_id
+                    if connector_name not in connector_track_identifiers:
+                        connector_track_identifiers[connector_name] = (
+                            conn_track.connector_track_identifier
                         )
                         connector_metadata[connector_name] = (
                             conn_track.raw_metadata or {}
@@ -156,7 +158,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
             isrc=db_model.isrc,
-            connector_track_ids=connector_track_ids,
+            connector_track_identifiers=connector_track_identifiers,
             connector_metadata=connector_metadata,
         )
 
@@ -197,7 +199,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                             f"Auto-healed primary mapping: track_id={track_id}, "
                             f"connector={connector_name}, "
                             f"connector_track_db_id={conn_track.id}, "
-                            f"external_id={conn_track.connector_track_id}"
+                            f"external_id={conn_track.connector_track_identifier}"
                         )
                     else:
                         logger.warning(
@@ -250,8 +252,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             duration_ms=domain_model.duration_ms,
             release_date=domain_model.release_date,
             isrc=domain_model.isrc,
-            spotify_id=domain_model.connector_track_ids.get("spotify"),
-            mbid=domain_model.connector_track_ids.get("musicbrainz"),
+            spotify_id=domain_model.connector_track_identifiers.get("spotify"),
+            mbid=domain_model.connector_track_identifiers.get("musicbrainz"),
         )
 
     @staticmethod

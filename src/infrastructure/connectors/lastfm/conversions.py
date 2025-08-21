@@ -98,7 +98,11 @@ class LastFMTrackInfo:
 
             except pylast.WSError as e:
                 # Check if this is a "Track not found" error (code 6)
-                if hasattr(e, 'status') and e.status == "6" and "Track not found" in str(e):
+                if (
+                    hasattr(e, "status")
+                    and e.status == "6"
+                    and "Track not found" in str(e)
+                ):
                     track_not_found = True
                     # Stop processing immediately - no point trying other fields
                     break
@@ -118,9 +122,19 @@ class LastFMTrackInfo:
 
         # If track was not found, log once at warning level with clear context
         if track_not_found:
-            artist_name = getattr(track, 'artist', 'Unknown Artist') if hasattr(track, 'artist') else 'Unknown Artist'
-            track_title = getattr(track, 'title', 'Unknown Track') if hasattr(track, 'title') else 'Unknown Track'
-            logger.warning(f"Track not found on Last.fm: '{artist_name} - {track_title}'")
+            artist_name = (
+                getattr(track, "artist", "Unknown Artist")
+                if hasattr(track, "artist")
+                else "Unknown Artist"
+            )
+            track_title = (
+                getattr(track, "title", "Unknown Track")
+                if hasattr(track, "title")
+                else "Unknown Track"
+            )
+            logger.warning(
+                f"Track not found on Last.fm: '{artist_name} - {track_title}'"
+            )
             return cls.empty()
 
         # Log extraction errors only for non-"track not found" cases
@@ -228,7 +242,7 @@ def convert_lastfm_track_to_connector(lastfm_track_data: dict) -> "ConnectorTrac
 
     return ConnectorTrack(
         connector_name="lastfm",
-        connector_track_id=connector_track_id,
+        connector_track_identifier=connector_track_id,
         title=title,
         artists=artists,
         album=album,

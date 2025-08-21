@@ -110,18 +110,18 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         }
 
         # Add connector IDs if available
-        if "spotify" in track.connector_track_ids:
-            values["spotify_id"] = track.connector_track_ids["spotify"]
-        if "musicbrainz" in track.connector_track_ids:
-            values["mbid"] = track.connector_track_ids["musicbrainz"]
+        if "spotify" in track.connector_track_identifiers:
+            values["spotify_id"] = track.connector_track_identifiers["spotify"]
+        if "musicbrainz" in track.connector_track_identifiers:
+            values["mbid"] = track.connector_track_identifiers["musicbrainz"]
 
         # Handle lookups by ISRC or Spotify ID - leverage the improved upsert with direct values
         # The upsert method has been updated to use a two-phase approach that avoids greenlet issues
         if track.isrc:
             return await self.upsert({"isrc": track.isrc}, values)
-        elif "spotify" in track.connector_track_ids:
+        elif "spotify" in track.connector_track_identifiers:
             return await self.upsert(
-                {"spotify_id": track.connector_track_ids["spotify"]}, values
+                {"spotify_id": track.connector_track_identifiers["spotify"]}, values
             )
 
         # Create new track with explicit eager loading for relationships
@@ -138,4 +138,3 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         # Map back to domain model - the to_domain method has been updated to use AsyncAttrs safely
         return await TrackMapper.to_domain_with_session(db_track, self.session)
-

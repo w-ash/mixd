@@ -2,6 +2,7 @@
 
 import spotipy
 
+from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classification import (
     BaseErrorClassifier,
 )
@@ -47,37 +48,37 @@ class SpotifyErrorClassifier(BaseErrorClassifier):
         # Classify based on HTTP status codes
         if http_status:
             # Client errors (4xx) - mostly permanent
-            if http_status == 400:
+            if http_status == HTTPStatus.BAD_REQUEST:
                 return (
                     "permanent",
                     str(http_status),
                     "Bad Request - malformed request",
                 )
-            elif http_status == 401:
+            elif http_status == HTTPStatus.UNAUTHORIZED:
                 return (
                     "permanent",
                     str(http_status),
                     "Unauthorized - invalid or expired token",
                 )
-            elif http_status == 403:
+            elif http_status == HTTPStatus.FORBIDDEN:
                 return (
                     "permanent",
                     str(http_status),
                     "Forbidden - insufficient permissions",
                 )
-            elif http_status == 404:
+            elif http_status == HTTPStatus.NOT_FOUND:
                 return (
                     "not_found",
                     str(http_status),
                     "Not Found - resource doesn't exist",
                 )
-            elif http_status == 429:
+            elif http_status == HTTPStatus.TOO_MANY_REQUESTS:
                 return (
                     "rate_limit",
                     str(http_status),
                     "Too Many Requests - rate limit exceeded",
                 )
-            elif 400 <= http_status < 500:
+            elif HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX:
                 return (
                     "permanent",
                     str(http_status),
@@ -85,19 +86,19 @@ class SpotifyErrorClassifier(BaseErrorClassifier):
                 )
 
             # Server errors (5xx) - temporary
-            elif http_status == 500:
+            elif http_status == HTTPStatus.INTERNAL_SERVER_ERROR:
                 return ("temporary", str(http_status), "Internal Server Error")
-            elif http_status == 502:
+            elif http_status == HTTPStatus.BAD_GATEWAY:
                 return (
                     "temporary",
                     str(http_status),
                     "Bad Gateway - upstream server issue",
                 )
-            elif http_status == 503:
+            elif http_status == HTTPStatus.SERVICE_UNAVAILABLE:
                 return ("temporary", str(http_status), "Service Unavailable")
-            elif http_status == 504:
+            elif http_status == HTTPStatus.GATEWAY_TIMEOUT:
                 return ("temporary", str(http_status), "Gateway Timeout")
-            elif 500 <= http_status < 600:
+            elif HTTPStatus.INTERNAL_SERVER_ERROR <= http_status < HTTPStatus.SERVER_ERROR_MAX:
                 return (
                     "temporary",
                     str(http_status),

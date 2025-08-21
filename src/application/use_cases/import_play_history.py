@@ -231,137 +231,139 @@ class ImportTracksUseCase:
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
 
-    async def _create_lastfm_service(self, uow: UnitOfWorkProtocol):
-        """Create LastFM service with repositories from provided UnitOfWork.
+    async def _create_play_import_orchestrator(self):
+        """Create play import orchestrator for two-phase workflow.
+
+        Returns:
+            Configured PlayImportOrchestrator instance for coordinating ingestion and resolution.
+        """
+        from src.application.services.play_import_orchestrator import (
+            PlayImportOrchestrator,
+        )
+
+        return PlayImportOrchestrator()
+
+    async def _create_service_importer(self, service: str, uow: UnitOfWorkProtocol):
+        """Create service-specific importer using infrastructure registry.
+
+        CLEAN ARCHITECTURE: Application layer never mentions specific connectors.
+        Uses infrastructure registry to map service names to implementations.
 
         Args:
+            service: Generic service identifier (handled by infrastructure layer)
             uow: Database transaction manager providing repository access.
 
         Returns:
-            Configured LastfmPlayImporter instance ready for use.
+            Service-specific importer implementing PlayImporterProtocol
         """
-        from src.infrastructure.connectors.lastfm import LastFMConnector
-        from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
-
-        return LastfmPlayImporter(
-            plays_repository=uow.get_plays_repository(),
-            checkpoint_repository=uow.get_checkpoint_repository(),
-            connector_repository=uow.get_connector_repository(),
-            track_repository=uow.get_track_repository(),
-            lastfm_connector=LastFMConnector(),
+        from src.infrastructure.services.play_import_registry import (
+            get_play_import_registry,
         )
 
-    async def _create_spotify_service(self, uow: UnitOfWorkProtocol):
-        """Create Spotify service with repositories from provided UnitOfWork.
-
-        Args:
-            uow: Database transaction manager providing repository access.
-
-        Returns:
-            Configured SpotifyImportService instance ready for use.
-        """
-        from src.infrastructure.services.spotify_import_service import (
-            SpotifyImportService,
-        )
-
-        return SpotifyImportService(
-            plays_repository=uow.get_plays_repository(),
-            track_repository=uow.get_track_repository(),
-            connector_repository=uow.get_connector_repository(),
-        )
+        registry = get_play_import_registry()
+        return await registry.create_play_importer(service, uow)
 
     async def _run_lastfm_recent(
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Downloads recent plays from LastFM API.
+        """Downloads recent plays using two-phase workflow.
 
-        Fetches the most recent listening history up to specified limit.
-        All tracks are automatically resolved and linked to canonical tracks.
+        Phase 1: Ingests raw play data as connector_plays
+        Phase 2: Resolves connector_plays to canonical track_plays
+
+        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
 
         Args:
             command: Contains limit (default 1000).
             uow: Database transaction manager for atomic operations.
 
         Returns:
-            Import statistics with number of plays downloaded and stored.
+            Import statistics with number of plays downloaded and resolved to canonical tracks.
         """
         limit = command.limit or 1000
 
-        # Create import service using provided UnitOfWork
-        lastfm_service = await self._create_lastfm_service(uow)
+        # Create generic service importer and orchestrator
+        importer = await self._create_service_importer(command.service, uow)
+        orchestrator = await self._create_play_import_orchestrator()
 
         try:
-            # Execute unified import (limit is ignored by unified infrastructure)
-            result = await lastfm_service.import_plays(
-                limit=limit,  # Legacy parameter - ignored by unified approach
+            # Execute two-phase import: ingestion then resolution
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
                 uow=uow,
+                limit=limit,  # Passed to ingestion phase
             )
 
             logger.info(
-                f"LastFM recent import completed: {result.imported_count} plays imported"
+                f"Recent play two-phase import completed: {result.imported_count} track plays created"
             )
             return result
 
         except Exception as e:
-            logger.error(f"LastFM recent import failed: {e}")
+            logger.error(f"Recent play import failed: {e}")
             raise
 
     async def _run_lastfm_incremental(
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Downloads new plays from LastFM API since last sync.
+        """Downloads new plays since last sync using two-phase workflow.
+
+        Phase 1: Ingests raw play data as connector_plays
+        Phase 2: Resolves connector_plays to canonical track_plays
 
         Uses stored checkpoint to only fetch plays added since previous import.
         More efficient than full history import for regular syncing.
-        All tracks are automatically resolved and linked to canonical tracks.
+
+        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
 
         Args:
-            command: Contains user_id.
+            command: Contains user_id, from_date, to_date.
             uow: Database transaction manager for atomic operations.
 
         Returns:
-            Import statistics with number of new plays downloaded.
+            Import statistics with number of new plays resolved to canonical tracks.
         """
-        user_id = command.user_id
-
-        # Create import service using provided UnitOfWork
-        lastfm_service = await self._create_lastfm_service(uow)
+        # Create generic service importer and orchestrator
+        importer = await self._create_service_importer(command.service, uow)
+        orchestrator = await self._create_play_import_orchestrator()
 
         try:
-            # Execute unified import with date range parameters
-            result = await lastfm_service.import_plays(
-                username=user_id,
+            # Execute two-phase import: ingestion then resolution
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
+                uow=uow,
+                username=command.user_id,
                 from_date=command.from_date,
                 to_date=command.to_date,
-                uow=uow,
             )
 
             logger.info(
-                f"LastFM incremental import completed: {result.imported_count} plays imported"
+                f"Incremental two-phase import completed: {result.imported_count} track plays created"
             )
             return result
 
         except Exception as e:
-            logger.error(f"LastFM incremental import failed: {e}")
+            logger.error(f"Incremental import failed: {e}")
             raise
 
     async def _run_lastfm_full_history(
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Downloads complete LastFM listening history.
+        """Downloads complete LastFM listening history using two-phase workflow.
+
+        Phase 1: Ingests entire play history as connector_plays
+        Phase 2: Resolves connector_plays to canonical track_plays
 
         Imports entire play history from account creation to present. Resets sync
         checkpoint and prompts for confirmation due to large API usage.
-        All tracks are automatically resolved and linked to canonical tracks.
 
         Args:
             command: Contains user_id and confirm flags.
             uow: Database transaction manager for atomic operations.
 
         Returns:
-            Import statistics with total plays downloaded or cancellation result.
+            Import statistics with total plays resolved to canonical tracks or cancellation result.
         """
-        user_id = command.user_id
         confirm = command.confirm
 
         # Confirmation logic - return early if not confirmed
@@ -393,45 +395,44 @@ class ImportTracksUseCase:
                     error_count=0,
                 )
 
-        # Create import service using provided UnitOfWork
-        lastfm_service = await self._create_lastfm_service(uow)
+        # Create generic service importer and orchestrator
+        importer = await self._create_service_importer(command.service, uow)
+        orchestrator = await self._create_play_import_orchestrator()
 
         try:
-            # Reset checkpoint before full import
-            username = user_id or lastfm_service.lastfm_connector.lastfm_username
-            if username:
-                await self._reset_lastfm_checkpoint_uow(username, uow)
-
-            # Execute unified import for full history (limit ignored by unified approach)
-            # Full history logic: checkpoint was reset above, so incremental will start from beginning
-            result = await lastfm_service.import_plays(
-                limit=50000,  # Legacy parameter - ignored by unified approach
+            # Execute two-phase import: ingestion then resolution
+            # NOTE: Checkpoint reset logic moved to service-specific importers for clean architecture
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
                 uow=uow,
+                limit=50000,  # Passed to ingestion phase
             )
 
             logger.info(
-                f"LastFM full history import completed: {result.imported_count} plays imported"
+                f"Full history two-phase import completed: {result.imported_count} track plays created"
             )
             return result
 
         except Exception as e:
-            logger.error(f"LastFM full history import failed: {e}")
+            logger.error(f"Full history import failed: {e}")
             raise
 
     async def _run_spotify_file(
         self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
     ) -> OperationResult:
-        """Processes Spotify data export JSON file using clean architecture pattern.
+        """Processes Spotify data export JSON file using two-phase workflow.
 
-        Delegates to SpotifyImportService in infrastructure layer following the same
-        pattern as LastFM imports for consistent architecture and maintainability.
+        Phase 1: Ingests raw Spotify export data as connector_plays
+        Phase 2: Resolves connector_plays to canonical track_plays
+
+        CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
 
         Args:
             command: Contains file_path to Spotify JSON export file.
             uow: Database transaction manager for atomic operations.
 
         Returns:
-            Import statistics with number of plays processed from file.
+            Import statistics with number of plays resolved to canonical tracks.
 
         Raises:
             ValueError: If file_path is missing.
@@ -439,35 +440,26 @@ class ImportTracksUseCase:
         if not command.file_path:
             raise ValueError("file_path is required for Spotify file imports")
 
-        # Create Spotify service using provided UnitOfWork - same pattern as LastFM
-        spotify_service = await self._create_spotify_service(uow)
+        # Create generic service importer and orchestrator
+        importer = await self._create_service_importer(command.service, uow)
+        orchestrator = await self._create_play_import_orchestrator()
 
-        # Delegate to infrastructure service - clean architecture compliance
-        return await spotify_service.import_from_file(
-            file_path=command.file_path, uow=uow
-        )
+        try:
+            # Execute two-phase import: ingestion then resolution
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
+                uow=uow,
+                file_path=command.file_path,
+            )
 
-    async def _reset_lastfm_checkpoint_uow(
-        self, username: str, uow: UnitOfWorkProtocol
-    ) -> None:
-        """Clears LastFM sync checkpoint to force full history import.
+            logger.info(
+                f"File two-phase import completed: {result.imported_count} track plays created"
+            )
+            return result
 
-        Args:
-            username: LastFM username to reset checkpoint for.
-            uow: Database transaction manager.
-        """
-        from src.domain.entities import SyncCheckpoint
-
-        # Create a new checkpoint with no timestamp (forces full import)
-        checkpoint = SyncCheckpoint(
-            user_id=username, service="lastfm", entity_type="plays", last_timestamp=None
-        )
-
-        # Use transaction manager's checkpoint repository
-        checkpoint_repo = uow.get_checkpoint_repository()
-        await checkpoint_repo.save_sync_checkpoint(checkpoint)
-
-        logger.info(f"Reset Last.fm checkpoint for user {username} via UoW")
+        except Exception as e:
+            logger.error(f"File import failed: {e}")
+            raise
 
 
 async def run_import(

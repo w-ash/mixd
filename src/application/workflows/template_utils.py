@@ -28,7 +28,10 @@ def render_playlist_config_templates(config: dict, track_count: int) -> dict:
         New config dict with template strings rendered to actual values
 
     Example:
-        >>> config = {"name": "Obsessions {date}", "description": "{track_count} tracks"}
+        >>> config = {
+        ...     "name": "Obsessions {date}",
+        ...     "description": "{track_count} tracks",
+        ... }
         >>> render_playlist_config_templates(config, 42)
         {"name": "Obsessions 2025-07-29", "description": "42 tracks"}
     """

@@ -31,11 +31,13 @@ Usage:
 ```python
 # Modern usage (recommended for new code)
 from src.config import settings
+
 batch_size = settings.api.lastfm_batch_size
 
 
 # Logging
 from src.config import get_logger
+
 logger = get_logger(__name__)
 logger.info("Starting operation")
 ```

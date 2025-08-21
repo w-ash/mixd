@@ -12,6 +12,7 @@ import pytest
 from src.application.workflows.context import ConnectorRegistryImpl
 
 
+@pytest.mark.integration
 class TestConnectorContracts:
     """Test that connectors have expected interfaces."""
 
@@ -49,9 +50,7 @@ class TestConnectorContracts:
         assert hasattr(connector, "get_track_info"), (
             "Last.fm connector must have get_track_info method for enrichment"
         )
-        assert callable(connector.get_track_info), (
-            "get_track_info must be callable"
-        )
+        assert callable(connector.get_track_info), "get_track_info must be callable"
 
     def test_connector_registry_get_connector_returns_direct_instance(self):
         """Test that get_connector returns connector directly, not wrapped.
@@ -197,4 +196,6 @@ class TestLastFmConnectorContract:
 
         # Check metrics are accessible (they're field mappings, not callables)
         for name, field_mapping in metrics.items():
-            assert isinstance(field_mapping, str), f"Metric {name} must be a string field mapping"
+            assert isinstance(field_mapping, str), (
+                f"Metric {name} must be a string field mapping"
+            )

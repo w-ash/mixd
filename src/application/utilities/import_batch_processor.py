@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 
 from attrs import define, field
 
-from src.config import get_logger
+from src.config import get_logger, settings
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="import_batch_processor")
@@ -54,7 +54,7 @@ class ImportBatchProcessor[T, R]:
 
     def __attrs_post_init__(self):
         """Validate configuration for import operations."""
-        if self.batch_size > 10000:
+        if self.batch_size > settings.import_settings.memory_warning_threshold:
             self.logger_instance.warning(
                 f"Large batch size {self.batch_size} may cause memory issues. "
                 "Consider using smaller batch sizes (100-1000) for import operations."
@@ -250,5 +250,3 @@ class ImportBatchProcessor[T, R]:
             )
 
         return results
-
-

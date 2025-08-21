@@ -165,7 +165,7 @@ class ImportSpotifyLikesUseCase:
                     connector_repo = uow.get_connector_repository()
                     existing_track = await connector_repo.find_track_by_connector(
                         connector="spotify",
-                        connector_id=connector_track.connector_track_id,
+                        connector_id=connector_track.connector_track_identifier,
                     )
 
                     if existing_track and existing_track.id is not None:

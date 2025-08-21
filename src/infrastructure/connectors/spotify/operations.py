@@ -55,7 +55,9 @@ class SpotifyOperations:
     Example:
         >>> client = SpotifyAPIClient()
         >>> operations = SpotifyOperations(client)
-        >>> playlist_id = await operations.create_playlist_with_tracks("My Playlist", tracks)
+        >>> playlist_id = await operations.create_playlist_with_tracks(
+        ...     "My Playlist", tracks
+        ... )
     """
 
     client: SpotifyAPIClient = field()
@@ -146,9 +148,9 @@ class SpotifyOperations:
         """Fetch track metadata for multiple tracks using bulk Spotify API."""
         # Extract Spotify IDs from tracks that have mappings
         spotify_mapped = [
-            (t, t.connector_track_ids.get("spotify"))
+            (t, t.connector_track_identifiers.get("spotify"))
             for t in tracks
-            if t.id and "spotify" in t.connector_track_ids
+            if t.id and "spotify" in t.connector_track_identifiers
         ]
 
         if not spotify_mapped:
@@ -201,7 +203,7 @@ class SpotifyOperations:
 
                 # Create ConnectorPlaylistItem with track ID and metadata
                 playlist_item = ConnectorPlaylistItem(
-                    connector_track_id=track["id"],
+                    connector_track_identifier=track["id"],
                     position=idx,
                     added_at=added_at,
                     added_by_id=item.get("added_by", {}).get("id"),
@@ -228,6 +230,9 @@ class SpotifyOperations:
         description: str | None = None,
     ) -> str:
         """Create a new Spotify playlist with tracks using batch processing."""
+        def _raise_playlist_creation_error() -> None:
+            raise ValueError("Failed to create playlist, received None")
+
         try:
             # Extract Spotify track URIs
             spotify_track_uris = extract_spotify_track_uris(tracks)
@@ -241,7 +246,7 @@ class SpotifyOperations:
             )
 
             if not playlist:
-                raise ValueError("Failed to create playlist, received None")
+                _raise_playlist_creation_error()
 
             playlist_id = playlist["id"]
 
@@ -584,13 +589,16 @@ class SpotifyOperations:
         Raises:
             ValueError: If playlist not found
         """
+        def _raise_playlist_not_found_error(playlist_id: str) -> None:
+            raise ValueError(f"Playlist {playlist_id} not found")
+
         logger.debug(f"Fetching Spotify playlist details for {playlist_id}")
 
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
 
             if not playlist_info:
-                raise ValueError(f"Playlist {playlist_id} not found")
+                _raise_playlist_not_found_error(playlist_id)
 
             # Extract owner information
             owner = playlist_info.get("owner", {})

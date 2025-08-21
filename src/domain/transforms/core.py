@@ -14,7 +14,7 @@ Transformations follow functional programming principles:
 import random  # noqa: I001
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, TypeVar, cast
+from typing import Any, TypeIs, TypeVar, cast
 
 from toolz import compose_left, curry, get_in
 
@@ -30,6 +30,14 @@ T = TypeVar("T", bound=TrackList)
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
+
+
+# === Python 3.13 Type Guards ===
+
+
+def is_datetime_string(value: Any) -> TypeIs[str]:
+    """Python 3.13 TypeIs guard for datetime string validation."""
+    return isinstance(value, str) and bool(value.strip())
 
 
 # === Core Pipeline Functions ===
@@ -621,31 +629,31 @@ def calculate_track_list_diff(
     target_tracks: list[Track],
 ) -> tuple[list[Track], list[Track], list[Track]]:
     """Calculate pure diff between track lists without database operations.
-    
+
     Pure functional transform that identifies added, removed, and common tracks
     based on track identity. Repository layer handles database-aware matching.
-    
+
     Args:
         current_tracks: Current ordered list of tracks
         target_tracks: Target ordered list of tracks
-        
+
     Returns:
         Tuple of (tracks_to_remove, tracks_to_add, tracks_in_common)
     """
     # Create sets for efficient lookup by track ID
     current_ids = {track.id for track in current_tracks if track.id is not None}
     target_ids = {track.id for track in target_tracks if track.id is not None}
-    
+
     # Calculate set differences
     ids_to_remove = current_ids - target_ids
     ids_to_add = target_ids - current_ids
     ids_in_common = current_ids & target_ids
-    
+
     # Convert back to track lists maintaining order
     tracks_to_remove = [t for t in current_tracks if t.id in ids_to_remove]
-    tracks_to_add = [t for t in target_tracks if t.id in ids_to_add] 
+    tracks_to_add = [t for t in target_tracks if t.id in ids_to_add]
     tracks_in_common = [t for t in current_tracks if t.id in ids_in_common]
-    
+
     return tracks_to_remove, tracks_to_add, tracks_in_common
 
 
@@ -654,15 +662,15 @@ def reorder_to_match_target(
     target_tracks: list[Track],
 ) -> list[Track]:
     """Reorder current tracks to match target track order.
-    
+
     Pure functional transform that reconstructs track list in target order,
     preserving existing track instances where possible and adding new tracks.
     Handles duplicates correctly by using greedy matching to preserve instances.
-    
+
     Args:
         current_tracks: Current ordered list of tracks
         target_tracks: Target ordered list of tracks (desired final order)
-        
+
     Returns:
         List of tracks reordered to match target, preserving track instances
     """
@@ -673,21 +681,22 @@ def reorder_to_match_target(
             if track.id not in current_track_instances:
                 current_track_instances[track.id] = []
             current_track_instances[track.id].append(track)
-    
+
     # Reconstruct list following target order with greedy instance matching
     reordered_tracks = []
     for target_track in target_tracks:
-        if (target_track.id is not None and 
-            target_track.id in current_track_instances and 
-            current_track_instances[target_track.id]):
-            
+        if (
+            target_track.id is not None
+            and target_track.id in current_track_instances
+            and current_track_instances[target_track.id]
+        ):
             # Use the first available existing track instance to preserve metadata/relationships
             existing_track = current_track_instances[target_track.id].pop(0)
             reordered_tracks.append(existing_track)
         else:
             # New track to add - use target track instance
             reordered_tracks.append(target_track)
-    
+
     return reordered_tracks
 
 
@@ -713,7 +722,7 @@ def rename(
             tracks=p.tracks,
             description=p.description,
             id=p.id,
-            connector_playlist_ids=p.connector_playlist_ids.copy(),
+            connector_playlist_identifiers=p.connector_playlist_identifiers.copy(),
         )
 
     return transform(playlist) if playlist is not None else transform
@@ -741,7 +750,7 @@ def set_description(
             tracks=p.tracks,
             description=description,
             id=p.id,
-            connector_playlist_ids=p.connector_playlist_ids.copy(),
+            connector_playlist_identifiers=p.connector_playlist_identifiers.copy(),
         )
 
     return transform(playlist) if playlist is not None else transform
@@ -825,7 +834,7 @@ def filter_by_time_criteria(
             return include_missing
 
         # Handle string to datetime conversion with robust parsing
-        if isinstance(time_data, str):
+        if is_datetime_string(time_data):
             try:
                 # Try ISO format first (most common)
                 time_data = datetime.fromisoformat(time_data)
@@ -1007,7 +1016,7 @@ def filter_by_play_history(
                     return include_missing
 
                 # Convert string to datetime if needed
-                if isinstance(last_played, str):
+                if is_datetime_string(last_played):
                     try:
                         last_played = datetime.fromisoformat(last_played)
                         if last_played.tzinfo is None:
@@ -1160,7 +1169,7 @@ def sort_by_play_history(
                 return 0
 
             # Convert string to datetime if needed
-            if isinstance(last_played, str):
+            if is_datetime_string(last_played):
                 try:
                     last_played = datetime.fromisoformat(last_played)
                     if last_played.tzinfo is None:

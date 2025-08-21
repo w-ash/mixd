@@ -51,7 +51,7 @@ class ReadCanonicalPlaylistResult:
         errors: List of error messages if operation failed
     """
 
-    playlist: Playlist
+    playlist: Playlist | None
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
@@ -59,9 +59,9 @@ class ReadCanonicalPlaylistResult:
     def operation_summary(self) -> dict[str, Any]:
         """Returns operation metrics for logging and monitoring."""
         return {
-            "playlist_id": self.playlist.id,
-            "playlist_name": self.playlist.name,
-            "track_count": len(self.playlist.tracks),
+            "playlist_id": self.playlist.id if self.playlist else None,
+            "playlist_name": self.playlist.name if self.playlist else None,
+            "track_count": len(self.playlist.tracks) if self.playlist else 0,
             "execution_time_ms": self.execution_time_ms,
             "success": len(self.errors) == 0,
         }
@@ -118,13 +118,20 @@ class ReadCanonicalPlaylistUseCase:
                     execution_time_ms=execution_time,
                 )
 
-                logger.info(
-                    "Canonical playlist read completed",
-                    playlist_id=playlist.id,
-                    name=playlist.name,
-                    track_count=len(playlist.tracks),
-                    execution_time_ms=execution_time,
-                )
+                if playlist:
+                    logger.info(
+                        "Canonical playlist read completed",
+                        playlist_id=playlist.id,
+                        name=playlist.name,
+                        track_count=len(playlist.tracks),
+                        execution_time_ms=execution_time,
+                    )
+                else:
+                    logger.info(
+                        "Canonical playlist not found",
+                        playlist_id=command.playlist_id,
+                        execution_time_ms=execution_time,
+                    )
 
                 return result
 
@@ -138,7 +145,7 @@ class ReadCanonicalPlaylistUseCase:
 
     async def _get_playlist(
         self, command: ReadCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
-    ) -> Playlist:
+    ) -> Playlist | None:
         """Queries database for playlist by ID, trying internal ID then external ID.
 
         First attempts to parse playlist_id as integer for internal database lookup.
@@ -149,10 +156,7 @@ class ReadCanonicalPlaylistUseCase:
             uow: Database transaction handler for repository access
 
         Returns:
-            Playlist: The requested playlist with tracks and metadata
-
-        Raises:
-            ValueError: If playlist not found in database
+            Playlist | None: The requested playlist with tracks and metadata, or None if not found
         """
         playlist_repo = uow.get_playlist_repository()
 
@@ -166,21 +170,7 @@ class ReadCanonicalPlaylistUseCase:
                 command.connector or "spotify"
             )  # Default for backward compatibility
 
-            try:
-                playlist = await playlist_repo.get_playlist_by_connector(
-                    connector_name, command.playlist_id, raise_if_not_found=True
-                )
-                # Type assertion: raise_if_not_found=True guarantees non-None result
-                if playlist is None:
-                    raise ValueError(
-                        "Repository should have raised error for not found"
-                    )
-                return playlist
-            except ValueError:
-                # Repository raised "not found" - convert to our standard exception
-                connector_info = (
-                    f" (connector: {command.connector})" if command.connector else ""
-                )
-                raise ValueError(
-                    f"Playlist with ID {command.playlist_id}{connector_info} not found"
-                ) from None
+            playlist = await playlist_repo.get_playlist_by_connector(
+                connector_name, command.playlist_id, raise_if_not_found=False
+            )
+            return playlist

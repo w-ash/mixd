@@ -35,7 +35,7 @@ class SpotifyPlayRecord:
     def from_json(cls, data: dict[str, Any]) -> "SpotifyPlayRecord":
         """Parse Spotify personal data JSON record."""
         return cls(
-            timestamp=datetime.fromisoformat(data["ts"].replace("Z", "+00:00")),
+            timestamp=datetime.fromisoformat(data["ts"]),
             track_uri=data["spotify_track_uri"],
             track_name=data["master_metadata_track_name"],
             artist_name=data["master_metadata_album_artist_name"],
@@ -56,7 +56,7 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
     """Parse Spotify personal data JSON file into play records."""
     logger.info(f"Parsing Spotify personal data file: {file_path}")
 
-    with file_path.open() as f:
+    with file_path.open(encoding="utf-8") as f:
         data = json.load(f)
 
     # Filter out non-music content and parse records

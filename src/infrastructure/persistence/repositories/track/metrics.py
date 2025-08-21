@@ -141,16 +141,24 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
         # Prepare values for insertion
-        values = [
-            {
-                "track_id": track_id,
-                "connector_name": connector_name,
-                "metric_type": metric_type,
-                "value": value,
-                "collected_at": now,
-            }
-            for track_id, connector_name, metric_type, value in metrics
-        ]
+        values = []
+        for i, metric_tuple in enumerate(metrics):
+            try:
+                track_id, connector_name, metric_type, value = metric_tuple
+                values.append({
+                    "track_id": track_id,
+                    "connector_name": connector_name,
+                    "metric_type": metric_type,
+                    "value": value,
+                    "collected_at": now,
+                })
+            except ValueError as e:
+                logger.error(
+                    f"Error unpacking metric tuple at index {i}: {metric_tuple} "
+                    f"(length: {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}). "
+                    f"Expected 4 values, got {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}: {e}"
+                )
+                continue
 
         # Build the insert statement with ON CONFLICT clause
         # This uses the unique constraint defined in the DBTrackMetric model
@@ -169,4 +177,3 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         await self.session.flush()
 
         return len(metrics)
-

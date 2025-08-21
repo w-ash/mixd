@@ -80,7 +80,7 @@ class TestLastfmImportE2E:
             mock_connector.get_recent_tracks = mock_get_recent_tracks
 
             with patch(
-                "src.infrastructure.services.lastfm_track_resolution_service.LastfmTrackResolutionService"
+                "src.infrastructure.connectors.lastfm.track_resolution_service.LastfmTrackResolutionService"
             ) as mock_resolution_class:
                 # Mock track resolution
                 mock_resolution_service = AsyncMock()
@@ -230,7 +230,7 @@ class TestLastfmImportE2E:
             mock_connector_class.return_value = mock_connector
 
             with patch(
-                "src.infrastructure.services.lastfm_track_resolution_service.LastfmTrackResolutionService"
+                "src.infrastructure.connectors.lastfm.track_resolution_service.LastfmTrackResolutionService"
             ) as mock_resolution_class:
                 mock_resolution_service = AsyncMock()
                 mock_resolution_service.resolve_plays_to_canonical_tracks.return_value = (

@@ -169,14 +169,14 @@ class CreateCanonicalPlaylistUseCase:
                         persisted_tracks.append(track)
 
                 # Step 2: Create playlist entity with optional connector mapping
-                connector_playlist_ids = {}
+                connector_playlist_identifiers = {}
                 if (
                     command.metadata
                     and "connector" in command.metadata
                     and "connector_id" in command.metadata
                 ):
                     # Create connector mapping from metadata
-                    connector_playlist_ids[command.metadata["connector"]] = (
+                    connector_playlist_identifiers[command.metadata["connector"]] = (
                         command.metadata["connector_id"]
                     )
                     logger.info(
@@ -189,7 +189,7 @@ class CreateCanonicalPlaylistUseCase:
                     name=command.name,
                     tracks=persisted_tracks,
                     description=command.description,
-                    connector_playlist_ids=connector_playlist_ids,
+                    connector_playlist_identifiers=connector_playlist_identifiers,
                     metadata=command.metadata.copy() if command.metadata else {},
                 )
 

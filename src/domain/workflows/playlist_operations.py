@@ -58,7 +58,7 @@ def create_spotify_playlist_operation(
         name=name,
         description=description,
         tracks=persisted_tracks,
-        connector_playlist_ids={"spotify": spotify_id},
+        connector_playlist_identifiers={"spotify": spotify_id},
     )
 
 

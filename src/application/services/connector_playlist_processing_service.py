@@ -5,7 +5,7 @@ with actual Track entities, handling bulk operations, duplicate preservation, an
 performance optimization across create and update use cases.
 """
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -63,28 +63,30 @@ class ConnectorPlaylistProcessingService:
 
         logger.info(
             f"Processing ConnectorPlaylist with {len(playlist_items)} items from {connector_name}",
-            unique_tracks=len({item.connector_track_id for item in playlist_items}),
+            unique_tracks=len({
+                item.connector_track_identifier for item in playlist_items
+            }),
             duplicates=len(playlist_items)
-            - len({item.connector_track_id for item in playlist_items}),
+            - len({item.connector_track_identifier for item in playlist_items}),
         )
 
         # Step 1: Use track data directly from playlist items (preserves Spotify order)
         # Instead of making additional API calls that scramble ordering,
         # extract unique track data from playlist items that already contain full track info
-        
+
         # Get connector instance for track conversion
         connector_provider = uow.get_service_connector_provider()
         connector_instance = connector_provider.get_connector(connector_name)
-        
+
         # Collect unique tracks while preserving the data we already have
         seen_track_ids = set()
         unique_connector_tracks = []
-        
-        # First pass: collect unique track data from playlist items  
+
+        # First pass: collect unique track data from playlist items
         for item in playlist_items:
-            if item.connector_track_id not in seen_track_ids:
-                seen_track_ids.add(item.connector_track_id)
-                
+            if item.connector_track_identifier not in seen_track_ids:
+                seen_track_ids.add(item.connector_track_identifier)
+
                 # Use track data from extras which contains the full Spotify track data
                 if "full_track_data" in item.extras:
                     # Use the complete track data that we stored during playlist fetch
@@ -92,13 +94,18 @@ class ConnectorPlaylistProcessingService:
                 else:
                     # Fallback: reconstruct from minimal metadata in extras
                     track_data = {
-                        "id": item.connector_track_id,
+                        "id": item.connector_track_identifier,
                         "name": item.extras.get("track_name"),
-                        "artists": [{"name": name} for name in item.extras.get("artist_names", [])],
+                        "artists": [
+                            {"name": name}
+                            for name in item.extras.get("artist_names", [])
+                        ],
                     }
-                
+
                 # Convert to ConnectorTrack using existing track data
-                connector_track = connector_instance.convert_track_to_connector(track_data)
+                connector_track = connector_instance.convert_track_to_connector(
+                    track_data
+                )
                 unique_connector_tracks.append(connector_track)
 
         logger.debug(
@@ -110,7 +117,7 @@ class ConnectorPlaylistProcessingService:
 
         # Bulk lookup existing tracks
         connector_tuples = [
-            (connector_name, track.connector_track_id)
+            (connector_name, track.connector_track_identifier)
             for track in unique_connector_tracks
         ]
         existing_tracks_map = await connector_repo.find_tracks_by_connectors(
@@ -122,10 +129,10 @@ class ConnectorPlaylistProcessingService:
         new_connector_tracks = []
 
         for connector_track in unique_connector_tracks:
-            lookup_key = (connector_name, connector_track.connector_track_id)
+            lookup_key = (connector_name, connector_track.connector_track_identifier)
             if lookup_key in existing_tracks_map:
                 domain_track = existing_tracks_map[lookup_key]
-                track_id_to_domain_track[connector_track.connector_track_id] = (
+                track_id_to_domain_track[connector_track.connector_track_identifier] = (
                     domain_track
                 )
             else:
@@ -141,7 +148,9 @@ class ConnectorPlaylistProcessingService:
 
                 # Add to mapping
                 for track in newly_created_tracks:
-                    connector_track_id = track.connector_track_ids.get(connector_name)
+                    connector_track_id = track.connector_track_identifiers.get(
+                        connector_name
+                    )
                     if connector_track_id:
                         track_id_to_domain_track[connector_track_id] = track
             except Exception as e:
@@ -150,40 +159,45 @@ class ConnectorPlaylistProcessingService:
                     error=str(e),
                     connector=connector_name,
                 )
-                
+
                 # Retry individual tracks to handle partial conflicts
                 for connector_track in new_connector_tracks:
                     try:
-                        single_track_result = await connector_repo.ingest_external_tracks_bulk(
-                            connector_name, [connector_track]
+                        single_track_result = (
+                            await connector_repo.ingest_external_tracks_bulk(
+                                connector_name, [connector_track]
+                            )
                         )
                         if single_track_result:
                             track = single_track_result[0]
-                            connector_track_id = track.connector_track_ids.get(connector_name)
+                            connector_track_id = track.connector_track_identifiers.get(
+                                connector_name
+                            )
                             if connector_track_id:
                                 track_id_to_domain_track[connector_track_id] = track
                     except Exception as individual_error:
                         logger.warning(
-                            f"Failed to ingest individual track {connector_track.connector_track_id}",
+                            f"Failed to ingest individual track {connector_track.connector_track_identifier}",
                             error=str(individual_error),
-                            track_id=connector_track.connector_track_id,
+                            track_id=connector_track.connector_track_identifier,
                         )
                         # Continue processing other tracks
 
         # Debug: Check if we have all expected tracks
         expected_track_count = len(unique_connector_tracks)
         actual_track_count = len(track_id_to_domain_track)
-        
+
         if expected_track_count != actual_track_count:
             missing_track_ids = [
-                connector_track.connector_track_id
+                connector_track.connector_track_identifier
                 for connector_track in unique_connector_tracks
-                if connector_track.connector_track_id not in track_id_to_domain_track
+                if connector_track.connector_track_identifier
+                not in track_id_to_domain_track
             ]
-            
+
             logger.warning(
                 f"Track mapping incomplete: expected {expected_track_count}, got {actual_track_count}. "
-                f"Missing from domain mapping: {missing_track_ids[:5]}{'...' if len(missing_track_ids) > 5 else ''}"
+                f"Missing from domain mapping: {missing_track_ids[:settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
             )
 
         logger.info(
@@ -197,17 +211,20 @@ class ConnectorPlaylistProcessingService:
         missing_tracks = []
 
         for position, playlist_item in enumerate(playlist_items):
-            if playlist_item.connector_track_id in track_id_to_domain_track:
+            if playlist_item.connector_track_identifier in track_id_to_domain_track:
                 domain_track = track_id_to_domain_track[
-                    playlist_item.connector_track_id
+                    playlist_item.connector_track_identifier
                 ]
                 playlist_tracks.append(domain_track)
             else:
-                missing_tracks.append((position, playlist_item.connector_track_id))
+                missing_tracks.append((
+                    position,
+                    playlist_item.connector_track_identifier,
+                ))
                 # Better error message - track was missing from our domain mapping, not API
                 logger.warning(
-                    f"Position {position}: Track {playlist_item.connector_track_id} missing from domain track mapping "
-                    f"(was in API response: {playlist_item.connector_track_id in [t.connector_track_id for t in unique_connector_tracks]})"
+                    f"Position {position}: Track {playlist_item.connector_track_identifier} missing from domain track mapping "
+                    f"(was in API response: {playlist_item.connector_track_identifier in [t.connector_track_identifier for t in unique_connector_tracks]})"
                 )
 
         if missing_tracks:

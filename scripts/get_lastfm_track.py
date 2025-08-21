@@ -53,7 +53,9 @@ async def get_track_details_by_mbid(mbid: str, lastfm_username: str) -> dict[str
         track_info = await connector.get_track_info_by_mbid(mbid)
 
         # Also get raw pylast Track object for comparison
-        raw_track = await asyncio.to_thread(connector._client.client.get_track_by_mbid, mbid)
+        raw_track = await asyncio.to_thread(
+            connector._client.client.get_track_by_mbid, mbid
+        )
         raw_details = await _extract_track_details(raw_track, lastfm_username)
 
         return {
@@ -85,23 +87,25 @@ async def get_track_details_by_artist_title(
         sys.exit(1)
 
     try:
-        print(f"\n=== TESTING NARADA CONNECTOR FLOW ===")
+        print("\n=== TESTING NARADA CONNECTOR FLOW ===")
         print(f"Calling connector.get_track_info('{artist}', '{title}')")
-        
+
         # Test our connector's normal flow first
         track_info = await connector.get_track_info(artist, title)
         print(f"Connector result: {track_info}")
-        
-        print(f"\n=== TESTING RAW PYLAST FLOW ===")
+
+        print("\n=== TESTING RAW PYLAST FLOW ===")
         print(f"Calling raw pylast get_track(artist='{artist}', title='{title}')")
-        
+
         # Get raw pylast Track object to see what actually comes back
-        raw_track = await asyncio.to_thread(connector._client.client.get_track, artist, title)
+        raw_track = await asyncio.to_thread(
+            connector._client.client.get_track, artist, title
+        )
         print(f"Raw track object: {raw_track}")
         print(f"Track type: {type(raw_track)}")
-        
+
         # Try to extract details (this will trigger our improved error handling)
-        print(f"\n=== TESTING METADATA EXTRACTION ===")
+        print("\n=== TESTING METADATA EXTRACTION ===")
         raw_details = await _extract_track_details(raw_track, lastfm_username)
 
         return {
@@ -114,16 +118,16 @@ async def get_track_details_by_artist_title(
         }
 
     except pylast.WSError as e:
-        print(f"\n=== LAST.FM API ERROR ===")
+        print("\n=== LAST.FM API ERROR ===")
         print(f"Error type: {type(e)}")
         print(f"Error message: {e}")
         print(f"Error args: {e.args}")
-        if hasattr(e, 'get_id'):
+        if hasattr(e, "get_id"):
             print(f"Error ID: {e.get_id()}")
-        if hasattr(e, 'details'):
+        if hasattr(e, "details"):
             print(f"Error details: {e.details}")
-        print(f"Raw error: {repr(e)}")
-        
+        print(f"Raw error: {e!r}")
+
         return {
             "error": {
                 "type": str(type(e)),
@@ -133,10 +137,10 @@ async def get_track_details_by_artist_title(
             }
         }
     except Exception as e:
-        print(f"\n=== UNEXPECTED ERROR ===")
+        print("\n=== UNEXPECTED ERROR ===")
         print(f"Error type: {type(e)}")
         print(f"Error message: {e}")
-        print(f"Raw error: {repr(e)}")
+        print(f"Raw error: {e!r}")
         return {
             "unexpected_error": {
                 "type": str(type(e)),

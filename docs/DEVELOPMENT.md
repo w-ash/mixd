@@ -2,617 +2,303 @@
 
 ## Getting Started
 
-### Prerequisites
-- Python 3.13+
-- Poetry (dependency management)
-- Git
+### Setup
+```bash
+git clone <repository-url> && cd narada
+poetry install && source $(poetry env info --path)/bin/activate
+cp .env.example .env  # Edit with your service credentials
+poetry run alembic upgrade head
+poetry run pytest && poetry run narada --help  # Verify installation
+```
 
-### Initial Setup
-
-1. **Clone and Install**
-   ```bash
-   git clone <repository-url>
-   cd narada
-   poetry install
-   source $(poetry env info --path)/bin/activate
-   ```
-
-2. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your service credentials
-   ```
-
-3. **Initialize Database**
-   ```bash
-   poetry run alembic upgrade head
-   ```
-
-4. **Verify Installation**
-   ```bash
-   poetry run pytest
-   poetry run narada --help
-   ```
-
-## Development Workflow
-
-### Core Commands
-See `CLAUDE.md` for the complete reference. Key commands:
+## Essential Commands
+See `CLAUDE.md` for complete reference:
 
 ```bash
-# Development
-poetry run pytest                               # Run all tests
-poetry run pytest tests/unit/                  # Run unit tests (fast, heavy mocking)
-poetry run pytest tests/integration/           # Run integration tests (slower, real implementations)
-poetry run pytest tests/unit/domain/           # Run domain tests only (fastest, >95% coverage)
-poetry run pytest tests/unit/application/      # Run application tests (mock UnitOfWork)
-poetry run pytest --cov=narada --cov-report=html # Coverage report
+# Testing
+poetry run pytest                               # All tests
+poetry run pytest tests/domain/                 # Fast domain tests
+poetry run pytest tests/integration/           # Database integration tests
+poetry run pytest --cov=narada --cov-report=html # Coverage
 
-# Code Quality
-ruff check . --fix                             # Lint and auto-fix
-ruff format .                                  # Format code
-poetry run pyright src/                        # Type check
+# Quality
+ruff check . --fix --unsafe-fixes              # Modern Python 3.13+ linting
+ruff format .                                   # Format
+poetry run basedpyright src/                   # Type check
 
 # Database
 poetry run alembic revision --autogenerate     # Generate migration
 poetry run alembic upgrade head                # Apply migrations
 ```
 
-### Pre-commit Workflow
-Always run before committing:
-```bash
-ruff format .
-ruff check . --fix
-poetry run pyright src/
-poetry run pytest
-```
+## Architecture
 
-## Project Structure
-
-### Clean Architecture Layers
+### DDD + Hexagonal Layers
+**Dependency Flow**: Interface → Application → Domain ← Infrastructure
 
 ```
 src/
-├── domain/                   # Pure business logic (no external dependencies)
-│   ├── entities/             # Core business objects
-│   ├── matching/             # Track matching algorithms
-│   └── transforms/           # Functional transformation pipelines
+├── domain/                   # Pure business logic (zero dependencies)
+│   ├── entities/            # DDD aggregates (Track, Playlist)
+│   └── repositories/        # Abstract repository protocols
 │
-├── application/              # Use cases and orchestration
-│   ├── services/             # Use case orchestrators
-│   ├── utilities/            # Shared application utilities
-│   └── workflows/            # Business workflow definitions
+├── application/             # Use cases and orchestration
+│   ├── services/           # Application services  
+│   └── use_cases/          # DDD use cases
 │
-└── infrastructure/           # External implementations
-    ├── cli/                  # Command line interface
-    ├── connectors/           # External service integrations
-    ├── persistence/          # Data access layer
-    └── services/             # Infrastructure-level services
+├── infrastructure/         # External adapters
+│   ├── connectors/        # External service adapters
+│   └── persistence/       # Database adapters
+│
+└── interface/             # Primary adapters
+    └── cli/              # CLI entry points
 ```
 
-### Key Files to Understand
+### Key Files
+- `src/domain/entities/track.py` - Core Track/Artist entities
+- `src/domain/entities/playlist.py` - Playlist domain objects  
+- `src/infrastructure/persistence/database/db_models.py` - SQLAlchemy models
+- `src/infrastructure/persistence/repositories/` - Repository implementations
 
-#### Domain Layer (Start Here)
-- `src/domain/entities/track.py` - Core Track and Artist entities
-- `src/domain/entities/playlist.py` - Playlist and TrackList entities
-- `src/domain/matching/algorithms.py` - Track matching logic
-- `src/domain/transforms/core.py` - Functional transformation primitives
+## Core Patterns
 
-#### Application Layer
-- `src/application/use_cases/` - Business logic orchestration
-- `src/application/workflows/node_catalog.py` - Workflow node registry
-- `src/application/workflows/prefect.py` - Workflow execution engine
-
-#### Infrastructure Layer
-- `src/infrastructure/cli/app.py` - CLI entry point
-- `src/infrastructure/connectors/` - External service integrations
-- `src/infrastructure/persistence/repositories/` - Data access implementations
-
-## Architecture Patterns
-
-### 1. Clean Architecture
-Dependencies flow inward: Infrastructure → Application → Domain
-
+### Repository Pattern
+Domain defines ports, infrastructure provides adapters:
 ```python
-# Domain (no external dependencies)
-@dataclass
-class Track:
-    title: str
-    artists: list[str]
-    
-# Application (depends on domain)
-class ImportPlayHistoryUseCase:
-    def __init__(self, repository: TrackRepository):
-        self.repository = repository
-    
-    async def execute(self, tracks: list[Track]) -> ImportResult:
-        # Business logic here
-        
-# Infrastructure (depends on application)
-class SpotifyConnector:
-    async def get_tracks(self) -> list[Track]:
-        # External API calls
-```
-
-### 2. Repository Pattern
-Centralized data access with consistent interfaces:
-
-```python
-# Domain interface
+# Domain protocol (port)
 class TrackRepository(Protocol):
-    async def get_by_id(self, track_id: int) -> Track | None:
-        ...
-    
-    async def save_batch(self, tracks: list[Track]) -> list[Track]:
-        ...
+    async def save_batch(self, tracks: list[Track]) -> list[Track]: ...
 
-# Infrastructure implementation
+# Infrastructure adapter  
 class SQLAlchemyTrackRepository:
-    async def get_by_id(self, track_id: int) -> Track | None:
-        # Database implementation
+    async def save_batch(self, tracks: list[Track]) -> list[Track]:
+        # SQLAlchemy implementation
 ```
 
-### 3. Command Pattern
-Rich operation contexts with validation:
-
+### UnitOfWork Pattern
+Transaction boundary control:
 ```python
-@dataclass
-class UpdatePlaylistCommand:
-    playlist_id: str
-    tracks: list[Track]
-    operation_type: OperationType
-    conflict_resolution: ConflictStrategy
-    
-    def validate(self) -> None:
-        # Validation logic
-```
-
-### 4. Strategy Pattern
-Pluggable algorithms:
-
-```python
-class TrackMatchingStrategy(Protocol):
-    async def match_tracks(self, tracks: list[Track]) -> list[MatchResult]:
-        ...
-
-class SpotifyTrackMatcher:
-    async def match_tracks(self, tracks: list[Track]) -> list[MatchResult]:
-        # Spotify-specific matching
+async with get_unit_of_work() as uow:
+    track_repo = uow.get_track_repository()
+    await track_repo.save_batch(tracks)
+    await uow.commit()
 ```
 
 ## Testing Strategy
 
-### Test Structure
+### Test Pyramid (Speed & Coverage) - 2025 Best Practice
+- **Unit Tests** (`tests/unit/`) - Fast, isolated, 60%+ of test suite, <100ms each
+- **Integration Tests** (`tests/integration/`) - Real database/APIs, 35% of test suite  
+- **E2E Tests** - Critical user workflows, 5% of test suite
+
+### Test Structure (Modern pytest Organization)
 ```
 tests/
-├── unit/                     # Fast, isolated tests (<1s per file)
-│   ├── domain/              # Pure business logic (zero dependencies)
-│   │   ├── entities/        # Entity validation and methods
-│   │   ├── services/        # Domain services (heavy mocking)
-│   │   └── matching/        # Pure matching algorithms
-│   ├── application/         # Use case orchestration (mock UnitOfWork)
-│   │   └── use_cases/       # Application layer coordination
-│   ├── infrastructure/      # Service logic (mock external deps)
-│   │   ├── connectors/      # Connector logic (mocked APIs)
-│   │   └── services/        # Infrastructure services
-│   └── interface/           # CLI command logic (mock use cases)
-│       └── cli/             # CLI commands
-├── integration/             # Integration tests (1-10s per file)
-│   ├── database/           # Repository + real aiosqlite in-memory
-│   ├── workflows/          # End-to-end business flows
-│   ├── connectors/         # Real/sophisticated API mocks
-│   └── end_to_end/         # Full CLI-to-database flows
-└── fixtures/                # Shared test data and utilities
-    └── models.py
+├── conftest.py                    # Root fixtures: db_session, test_data_tracker
+├── unit/                          # Fast, isolated tests (<100ms)
+│   ├── domain/                   # Pure business logic, zero dependencies
+│   ├── application/              # Use cases with mocked repositories
+│   └── infrastructure/           # Connector logic with mocks
+├── integration/                  # Real database, external services  
+│   ├── repositories/            # Database integration tests
+│   └── workflows/               # Multi-component integration
+└── fixtures/                     # Shared test data and utilities
+```
+
+### Fixture Organization
+- **Root** (`tests/conftest.py`) - `db_session`, `test_data_tracker` with automatic cleanup
+- **Unit** (`tests/unit/*/conftest.py`) - Mocked repositories and services by layer
+- **Integration** (`tests/integration/conftest.py`) - Real database fixtures with cleanup
+- **Shared** (`tests/fixtures/`) - Cross-layer reusable test utilities
+
+### Performance Tests
+Performance tests are **excluded from regular runs** to keep test execution fast:
+```bash
+# Run all tests (includes performance tests - may be slow)
+poetry run pytest
+
+# Run only performance tests when needed
+poetry run pytest -m "performance"
+
+# Run integration tests excluding performance tests (faster)
+poetry run pytest -m "integration and not performance"
+
+# Run specific performance test file
+poetry run pytest tests/integration/test_large_playlist_performance.py
 ```
 
 ### Testing Patterns
 
-#### Database Testing (CRITICAL)
-**Always use `db_session` fixture for database tests - never `get_session()` directly:**
-
+#### Domain Tests (Pure Logic)
 ```python
+# Pure business logic with no external dependencies
+def test_track_matching_algorithm():
+    matcher = TrackMatcher()
+    result = matcher.calculate_confidence("Song Title", "Song Title")
+    assert result >= 0.95
+```
+
+#### Integration Tests (Real Database)
+```python
+# Repository with database and automatic cleanup
 @pytest.mark.asyncio
-async def test_database_operation(db_session):
-    """Example of correct database test pattern."""
-    # Get repositories through UnitOfWork pattern
+async def test_track_persistence(db_session, test_data_tracker):
     uow = get_unit_of_work(db_session)
-    track_repo = uow.get_track_repository()
+    track = Track(title="TEST_Song", artists=[Artist(name="TEST_Artist")])
+    saved = await uow.get_track_repository().save_track(track)
+    test_data_tracker.add_track(saved.id)  # Auto-cleanup
     
-    # Create test data with proper relationships
-    track = Track(title="Test", artists=[Artist(name="Artist")])
-    saved_track = await track_repo.save_track(track)
-    
-    # Test operations - changes auto-rollback after test
-    assert saved_track.id is not None
+    found = await uow.get_track_repository().get_by_id(saved.id)
+    assert found.title == "TEST_Song"
 ```
 
-**Database Isolation Features:**
-- Each test gets unique SQLite file with UUID naming
-- Automatic rollback ensures zero test contamination
-- Engine cache reset prevents connection leakage
-- Foreign key constraints enforced - create proper relationships
+#### E2E Tests (Complete Workflows)
+```python  
+# Full CLI command integration
+def test_import_command(cli_runner):
+    result = cli_runner.run(["likes", "import-spotify", "--limit", "5"])
+    assert result.exit_code == 0
+    assert "✓ Spotify likes import completed" in result.output
+```
 
-#### Unit Tests: Domain Layer (Fastest, >95% Coverage)
+### DRY Test Builders
+Use `tests/shared/builders.py` for consistent test data:
 ```python
-def test_track_matching_confidence():
-    # Pure business logic, zero dependencies
-    service = TrackMatchingService()
-    raw_matches = {1: RawProviderMatch(...)}
-    result = service.evaluate_raw_provider_matches(tracks, raw_matches, "spotify")
-    assert result[1].confidence >= 0.8
+class TrackBuilder:
+    def with_title(self, title: str) -> "TrackBuilder": ...
+    def with_spotify_id(self, spotify_id: str) -> "TrackBuilder": ...
+    def build(self) -> Track: ...
+
+# Usage
+track = TrackBuilder().with_title("Test").with_spotify_id("123").build()
 ```
 
-#### Unit Tests: Application Layer (Mock UnitOfWork, >90% Coverage)
-```python
-@pytest.fixture
-def mock_uow():
-    uow = MagicMock()
-    identity_service = AsyncMock()
-    identity_service._get_existing_identity_mappings.return_value = {}
-    identity_service.get_raw_external_matches.return_value = {...}
-    uow.get_track_identity_service.return_value = identity_service
-    return uow
-
-async def test_match_tracks_use_case(mock_uow):
-    use_case = MatchTracksUseCase()
-    result = await use_case.execute(command, mock_uow)
-    assert result.resolved_count > 0
-```
-
-#### Unit Tests: Infrastructure Layer (Mock External Dependencies)
-```python
-async def test_spotify_provider_raw_matches():
-    # Mock Spotify API, test raw data extraction
-    with patch('spotify_connector.search_tracks') as mock_api:
-        mock_api.return_value = [{"id": "123", "name": "Test"}]
-        provider = SpotifyProvider(mock_connector)
-        result = await provider.find_potential_matches(tracks)
-        assert result[1].connector_id == "123"
-        assert result[1].service_data["name"] == "Test"
-```
-
-#### Integration Tests: Repository Layer (Real Database)
-```python
-@pytest.mark.asyncio
-async def test_track_repository_integration(db_session):
-    """Integration test with real database operations."""
-    uow = get_unit_of_work(db_session)
-    track_repo = uow.get_track_repository()
-    
-    # Test with real database - automatic cleanup
-    tracks = await track_repo.save_batch([track1, track2])
-    found = await track_repo.find_tracks_by_ids([t.id for t in tracks])
-    assert len(found) == 2
-```
-
-#### Integration Tests: End-to-End Workflows (Real DB, Mock APIs)
-```python
-@pytest.mark.asyncio
-async def test_track_matching_workflow_integration(db_session):
-    """End-to-end workflow with real database, mocked external APIs."""
-    with patch('spotify_api.search') as mock_spotify:
-        mock_spotify.return_value = {"tracks": [{"id": "123"}]}
-        
-        # Use real workflow context with test database
-        context = real_workflow_context(db_session)
-        result = await complete_track_matching_workflow(tracks, context)
-        
-        assert result.success
-        # Verify persistence in real database
-        uow = get_unit_of_work(db_session)
-        mappings = await uow.get_connector_repository().get_mappings([1], "spotify")
-        assert len(mappings) > 0
-```
-
-#### Test Data Management
-```python
-# Always create proper entity relationships
-async def create_test_track_with_plays(db_session) -> Track:
-    """Helper to create track with proper foreign key relationships."""
-    uow = get_unit_of_work(db_session)
-    
-    # Create track first (parent entity)
-    track = Track(title="Test", artists=[Artist(name="Artist")])
-    saved_track = await uow.get_track_repository().save_track(track)
-    
-    # Create plays referencing the track (child entities)
-    play = TrackPlay(
-        track_id=saved_track.id,  # Use real ID, not hardcoded
-        service="spotify",
-        played_at=datetime.now(UTC),
-        # ... other fields
-    )
-    await uow.get_plays_repository().save_play(play)
-    
-    return saved_track
-```
-
-### Test Organization & Utilities
-- **`tests/conftest.py`**: Core `db_session` fixture and global setup
-- **`tests/integration/conftest.py`**: Integration-specific fixtures (`real_workflow_context`)
-- **`tests/infrastructure/conftest.py`**: Repository fixtures via UnitOfWork
-- **`tests/fixtures/`**: Shared test data builders
-- **`scripts/check_test_db_patterns.py`**: Validates database testing patterns
-
-### Test Commands & Coverage
+### Test Commands
 ```bash
-# Run tests by layer for targeted feedback
-poetry run pytest tests/unit/domain/           # Fastest: Pure business logic
-poetry run pytest tests/unit/application/      # Application orchestration  
-poetry run pytest tests/unit/infrastructure/   # Infrastructure with mocks
-poetry run pytest tests/integration/           # End-to-end with real DB
-
-# Database-specific test validation
-python scripts/check_test_db_patterns.py       # Check for anti-patterns
-poetry run pytest -k "database" -v             # Run all database tests
+# Fast development feedback  
+poetry run pytest tests/domain/ -x              # Pure business logic (fastest)
+poetry run pytest tests/integration/ --maxfail=3  # Database integration
+poetry run pytest --lf                          # Run last failed tests only
 
 # Coverage and quality
-poetry run pytest --cov=narada --cov-report=html
-poetry run pytest tests/unit/ --maxfail=1      # Fast feedback on failures
+poetry run pytest --cov=src --cov-report=html   # Coverage report  
+poetry run pytest --durations=10                # Find slow tests
+poetry run pytest -k "test_track_"              # Focus on specific functionality
 ```
 
-## Adding New Features
+## Adding Features
 
-### 1. Domain-First Development
-Start with domain entities and business logic:
+### Domain-First Development
+1. **Domain Entity** - Pure business logic with no dependencies
+2. **Repository Protocol** - Abstract interface in domain layer  
+3. **Use Case** - Application orchestration with dependency injection
+4. **Infrastructure** - Repository implementation and CLI command
+5. **Tests** - Domain → Application → Integration
 
 ```python
-# 1. Domain entity
-@dataclass
+# 1. Domain entity (src/domain/entities/)
+@define(frozen=True, slots=True)
 class NewEntity:
     name: str
     value: int
 
-# 2. Domain repository interface
+# 2. Repository protocol (src/domain/repositories/)  
 class NewEntityRepository(Protocol):
-    async def save(self, entity: NewEntity) -> NewEntity:
-        ...
+    async def save(self, entity: NewEntity) -> NewEntity: ...
 
-# 3. Domain tests
-def test_new_entity_creation():
-    entity = NewEntity(name="test", value=42)
-    assert entity.name == "test"
-```
-
-### 2. Application Layer
-Add use cases and orchestration:
-
-```python
-# 1. Use case
+# 3. Use case (src/application/use_cases/)
 class NewFeatureUseCase:
     def __init__(self, repository: NewEntityRepository):
         self.repository = repository
+```
+
+## Common Tasks
+
+### CLI Command
+1. Create use case in `src/application/use_cases/`
+2. Create CLI command in `src/interface/cli/`
+3. Wire with dependency injection
+
+### Workflow Node
+```python
+# src/application/workflows/transforms.py
+async def new_transform(tracklist: TrackList) -> TrackList:
+    # Transform logic
+
+# src/application/workflows/node_catalog.py
+@node("transformer.new_transform")
+async def handle_new_transform(tracklist: TrackList, config: dict) -> TrackList:
+    return await new_transform(tracklist, **config)
+```
+
+### External Service Connector
+```python
+# src/infrastructure/connectors/new_service/connector.py
+class NewServiceConnector(BaseAPIConnector):
+    @property
+    def connector_name(self) -> str:
+        return "new_service"
     
-    async def execute(self, command: NewFeatureCommand) -> NewFeatureResult:
-        # Business logic
-        
-# 2. Application tests
-async def test_new_feature_use_case(mock_repository):
-    use_case = NewFeatureUseCase(mock_repository)
-    result = await use_case.execute(command)
-    assert result.success
+    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+        from .conversions import convert_new_service_track
+        return convert_new_service_track(track_data)
+    
+    # Implement TrackMetadataConnector and/or PlaylistConnectorProtocol
+
+# src/infrastructure/connectors/new_service/conversions.py
+def convert_new_service_track(track_data: dict) -> ConnectorTrack:
+    # Convert service API data to ConnectorTrack
+
+# src/infrastructure/connectors/new_service/matching_provider.py  
+class NewServiceMatchingProvider(BaseMatchingProvider):
+    # Implement matching logic for this service
 ```
 
-### 3. Infrastructure Layer
-Implement external concerns:
+### Database Changes
+1. Update `src/infrastructure/persistence/database/db_models.py`
+2. Generate: `poetry run alembic revision --autogenerate`
+3. Apply: `poetry run alembic upgrade head`
 
-```python
-# 1. Repository implementation
-class SQLAlchemyNewEntityRepository:
-    async def save(self, entity: NewEntity) -> NewEntity:
-        # Database implementation
-        
-# 2. CLI command
-@app.command()
-def new_feature():
-    # CLI implementation
+## Code Standards
+
+### Principles
+- **Ruthlessly DRY** - No code duplication in single-maintainer codebase
+- **Batch-First** - Design for collections, single items are degenerate cases
+- **Immutable Domain** - Pure transformations with no side effects
+- **Python 3.13+** - Modern syntax, type safety, strict typing
+
+### Conventions
+- 88-character lines, double quotes, Google docstrings
+- Type everything: `list[str]`, `dict[str, Any]`, generics `[T, R]`
+- UTC timestamps: `datetime.now(UTC)`
+- Dependency injection in use cases
+
+## Troubleshooting
+
+### Quick Fixes
+```bash
+# Type errors
+poetry run basedpyright src/
+
+# Test failures  
+poetry run pytest -v --tb=short --lf
+
+# Database reset
+rm data/narada.db && poetry run alembic upgrade head
+
+# Migration status
+poetry run alembic current
 ```
-
-### 4. Integration
-Wire everything together and add tests:
-
-```python
-# Integration test
-@pytest.mark.integration
-async def test_new_feature_end_to_end():
-    # Test the complete flow
-```
-
-## Common Development Tasks
-
-### Adding a New CLI Command
-
-1. **Create Use Case**
-   ```python
-   # src/application/use_cases/new_feature.py
-   class NewFeatureUseCase:
-       async def execute(self, command: NewFeatureCommand) -> NewFeatureResult:
-           # Implementation
-   ```
-
-2. **Create CLI Command**
-   ```python
-   # src/infrastructure/cli/new_commands.py
-   @app.command()
-   def new_feature():
-       # CLI implementation
-   ```
-
-3. **Add to Main App**
-   ```python
-   # src/infrastructure/cli/app.py
-   app.add_typer(new_commands.app, name="new")
-   ```
-
-### Adding a New Workflow Node
-
-1. **Create Transform Function**
-   ```python
-   # src/application/workflows/transforms.py
-   async def new_transform(tracklist: TrackList) -> TrackList:
-       # Transform logic
-   ```
-
-2. **Register in Catalog**
-   ```python
-   # src/application/workflows/node_catalog.py
-   @node("transformer.new_transform")
-   async def handle_new_transform(tracklist: TrackList, config: dict) -> TrackList:
-       return await new_transform(tracklist, **config)
-   ```
-
-### Adding External Service Integration
-
-1. **Create Connector**
-   ```python
-   # src/infrastructure/connectors/new_service.py
-   class NewServiceConnector:
-       async def get_tracks(self) -> list[Track]:
-           # API integration
-   ```
-
-2. **Add to Matching System**
-   ```python
-   # src/domain/matching/providers.py
-   class NewServiceMatchingProvider:
-       async def match_tracks(self, tracks: list[Track]) -> list[MatchResult]:
-           # Matching logic
-   ```
-
-### Database Schema Changes
-
-1. **Update Model**
-   ```python
-   # src/infrastructure/persistence/database/db_models.py
-   class NewTable(NaradaDBBase):
-       __tablename__ = "new_table"
-       name: Mapped[str] = mapped_column(String)
-   ```
-
-2. **Generate Migration**
-   ```bash
-   poetry run alembic revision --autogenerate -m "Add new table"
-   ```
-
-3. **Review and Apply**
-   ```bash
-   # Review generated migration file
-   poetry run alembic upgrade head
-   ```
-
-## Code Style Guidelines
-
-### General Principles
-- **Ruthlessly DRY**: No code duplication
-- **Clean Breaks**: No backward compatibility layers
-- **Batch-First**: Design for N items, single operations are degenerate cases
-- **Immutable Domain**: Pure transformations, no side effects
-
-### Python Conventions
-- Python 3.13+ features (match statements, modern type syntax)
-- Type everything: domain models, return types, generics
-- Double quotes for strings
-- Google-style docstrings
-- Line length: 88 characters
-
-### Architecture Conventions
-- One class per file in domain models
-- Never put business logic in CLI
-- Use dependency injection for testability
-- Functional composition with toolz where appropriate
-
-### Error Handling
-- Use `@resilient_operation("name")` for external APIs
-- Let exceptions bubble to service layer
-- Log failures with context
-- Chain exceptions: `raise Exception() from err`
-
-## Debugging and Troubleshooting
-
-### Common Issues
-
-1. **Type Errors**
-   ```bash
-   poetry run pyright src/
-   # Fix type issues before proceeding
-   ```
-
-2. **Test Failures**
-   ```bash
-   poetry run pytest -v --tb=short
-   # Use -v for verbose output, --tb=short for concise tracebacks
-   ```
-
-3. **Database Issues**
-   ```bash
-   # Check migration status
-   poetry run alembic current
-   
-   # Reset database
-   rm data/narada.db
-   poetry run alembic upgrade head
-   ```
-
-### Debugging Workflow Execution
-```python
-# Add debug logging to workflow nodes
-logger = get_logger(__name__)
-logger.info("Processing tracks", track_count=len(tracks))
-```
-
-### Performance Profiling
-```python
-# Use with long-running operations
-import time
-start = time.time()
-# ... operation ...
-logger.info("Operation completed", duration=time.time() - start)
-```
-
-## Contributing Guidelines
-
-### Before Starting
-1. Read this guide and `ARCHITECTURE.md`
-2. Set up development environment
-3. Run tests to ensure everything works
-4. Check `BACKLOG.md` for current priorities
-
-### Pull Request Process
-1. Create feature branch from `main`
-2. Implement changes following architecture patterns
-3. Add tests for new functionality
-4. Update documentation if needed
-5. Run full test suite and linting
-6. Create PR with clear description
-
-### Code Review Checklist
-- [ ] Follows Clean Architecture principles
-- [ ] Has appropriate test coverage
-- [ ] Passes all tests and linting
-- [ ] Documentation updated if needed
-- [ ] No breaking changes to existing APIs
-- [ ] Error handling implemented properly
 
 ## Resources
 
-### Documentation
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design decisions
-- **[DATABASE.md](DATABASE.md)** - Database schema and design reference
-- **[API.md](API.md)** - Complete CLI command reference
-- **[workflow_guide.md](workflow_guide.md)** - Workflow system documentation
-- **[likes_sync_guide.md](likes_sync_guide.md)** - Likes synchronization between Spotify and Last.fm
-- **[CLAUDE.md](../CLAUDE.md)** - Development commands and style guide
-- **[BACKLOG.md](../BACKLOG.md)** - Project roadmap and priorities
+### Core Documentation
+- **[CLAUDE.md](../CLAUDE.md)** - Essential commands and coding standards
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and patterns
+- **[DATABASE.md](DATABASE.md)** - Schema reference
+- **[BACKLOG.md](../BACKLOG.md)** - Project roadmap
 
-### External Resources
-- [SQLAlchemy 2.0 Documentation](https://docs.sqlalchemy.org/en/20/)
-- [Typer Documentation](https://typer.tiangolo.com/)
-- [Rich Documentation](https://rich.readthedocs.io/)
-- [Prefect Documentation](https://docs.prefect.io/)
-
-### Getting Help
-- Check existing tests for usage patterns
-- Review similar implementations in the codebase
-- Consult [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions
-- Ask questions in pull request reviews
+### External References  
+- [SQLAlchemy 2.0](https://docs.sqlalchemy.org/en/20/) - Database ORM
+- [Typer](https://typer.tiangolo.com/) - CLI framework
+- [BasedPyright](https://github.com/DetachHead/basedpyright) - Type checker

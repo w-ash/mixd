@@ -10,6 +10,7 @@ from src.application.workflows.context import ConnectorRegistryImpl
 from src.domain.entities.track import ConnectorTrack
 
 
+@pytest.mark.integration
 class TestWorkflowConnectorIntegration:
     """Integration tests for workflow nodes with real connector instances."""
 
@@ -109,5 +110,5 @@ class TestWorkflowConnectorIntegration:
         # Verify it returns the expected type
         assert isinstance(connector_track, ConnectorTrack)
         assert connector_track.connector_name == "spotify"
-        assert connector_track.connector_track_id == "test_track_123"
+        assert connector_track.connector_track_identifier == "test_track_123"
         assert connector_track.title == "Test Track"

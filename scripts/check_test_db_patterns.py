@@ -26,7 +26,6 @@ def check_test_files():
         content = test_file.read_text()
 
         for line_number, line in enumerate(content.split("\n"), 1):
-
             # Check for direct get_session() usage (excluding session provider patterns)
             if re.search(r"async with get_session\(\)", line):
                 print(

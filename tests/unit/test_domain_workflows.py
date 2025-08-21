@@ -24,6 +24,7 @@ def sample_config():
     return {"name": "Test Playlist", "description": "Test Description"}
 
 
+@pytest.mark.unit
 class TestCreatePlaylistOperation:
     """Test pure business logic for playlist creation."""
 
@@ -59,7 +60,7 @@ class TestCreateSpotifyPlaylistOperation:
         assert playlist.name == "Test Playlist"
         assert playlist.description == "Test Description"
         assert playlist.tracks == tracks
-        assert playlist.connector_playlist_ids == {"spotify": spotify_id}
+        assert playlist.connector_playlist_identifiers == {"spotify": spotify_id}
 
 
 class TestCalculateTrackPersistenceStats:
@@ -210,7 +211,7 @@ class TestSpotifyFormatting:
             id=1,
             name="Spotify Playlist",
             tracks=tracks,
-            connector_playlist_ids={"spotify": "spotify_123"},
+            connector_playlist_identifiers={"spotify": "spotify_123"},
         )
         stats = {"new_tracks": 2, "updated_tracks": 0}
 

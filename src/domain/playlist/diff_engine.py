@@ -12,7 +12,7 @@ from typing import Any, cast
 from attrs import define, field
 from toolz import curry
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
@@ -102,7 +102,7 @@ def match_tracks_with_db_lookup(
     """Find matching tracks between playlists using canonical track identity.
 
     Matches tracks by their canonical track.id first, then falls back to content-based
-    matching for tracks without canonical IDs. This keeps the domain layer 
+    matching for tracks without canonical IDs. This keeps the domain layer
     infrastructure-agnostic.
 
     Args:
@@ -123,34 +123,39 @@ def match_tracks_with_db_lookup(
         # Primary: Canonical ID matching
         if track1.id and track2.id:
             return track1.id == track2.id
-        
+
         # Fallback: Content-based matching
-        if not track1.title or not track2.title or not track1.artists or not track2.artists:
+        if (
+            not track1.title
+            or not track2.title
+            or not track1.artists
+            or not track2.artists
+        ):
             return False
-            
+
         title_match = track1.title.lower().strip() == track2.title.lower().strip()
-        
+
         # Artist matching - at least one artist must match
         track1_artists = {artist.name.lower().strip() for artist in track1.artists}
         track2_artists = {artist.name.lower().strip() for artist in track2.artists}
         artist_match = bool(track1_artists & track2_artists)
-        
+
         # Album matching (optional - tracks can be same without same album)
         album_match = True  # Default to True if either has no album
         if track1.album and track2.album:
             album_match = track1.album.lower().strip() == track2.album.lower().strip()
-        
+
         return title_match and artist_match and album_match
 
     # Greedy one-to-one matching using canonical identity
     for current_track in current_tracks:
         match_found = False
-        
+
         # Find first unmatched target track that matches this current track
         for target_idx, target_track in enumerate(target_tracks):
             if target_idx in consumed_target_indices:
                 continue  # Target already matched
-                
+
             if tracks_are_equivalent(current_track, target_track):
                 # Match found - consume this target track
                 matched.append(current_track)
@@ -163,14 +168,15 @@ def match_tracks_with_db_lookup(
 
     # Remaining target tracks are unmatched
     unmatched_target = [
-        target_track for target_idx, target_track in enumerate(target_tracks)
+        target_track
+        for target_idx, target_track in enumerate(target_tracks)
         if target_idx not in consumed_target_indices
     ]
 
     # Count tracks with canonical IDs vs content-based matching
     canonical_matches = sum(1 for track in matched if track.id is not None)
     content_matches = len(matched) - canonical_matches
-    
+
     logger.debug(
         f"Track matching results: {len(matched)} matched, "
         f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target. "
@@ -258,19 +264,19 @@ def calculate_add_operations(
 
 def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
     """Calculate the Longest Increasing Subsequence (LIS) of a sequence.
-    
+
     Uses dynamic programming to find the LIS in O(n log n) time complexity.
     Returns the indices of elements that form the LIS.
-    
+
     Args:
         sequence: List of integers representing positions
-        
+
     Returns:
         List of indices forming the longest increasing subsequence
     """
     if not sequence:
         return []
-    
+
     n = len(sequence)
     # dp[i] stores the smallest ending element of increasing subsequence of length i+1
     dp = []
@@ -278,7 +284,7 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
     parent = [-1] * n
     # lis_indices[i] stores the actual index in dp array for position i
     lis_indices = [-1] * n
-    
+
     for i in range(n):
         # Binary search for the position to insert/replace
         left, right = 0, len(dp)
@@ -288,13 +294,13 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
                 left = mid + 1
             else:
                 right = mid
-        
+
         # If we're extending the sequence
         if left == len(dp):
             dp.append(sequence[i])
         else:
             dp[left] = sequence[i]
-        
+
         lis_indices[i] = left
         if left > 0 and dp:
             # Find the parent by looking for the element that was at position left-1
@@ -302,26 +308,26 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
                 if lis_indices[j] == left - 1:
                     parent[i] = j
                     break
-    
+
     # Reconstruct the LIS indices
     lis_length = len(dp)
     if lis_length == 0:
         return []
-    
+
     # Find the last element of LIS
     last_index = -1
     for i in range(n - 1, -1, -1):
         if lis_indices[i] == lis_length - 1:
             last_index = i
             break
-    
+
     # Reconstruct the path
     result = []
     current = last_index
     while current != -1:
         result.append(current)
         current = parent[current]
-    
+
     result.reverse()
     return result
 
@@ -330,22 +336,22 @@ def calculate_lis_reorder_operations(
     current_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate minimal MOVE operations using Longest Increasing Subsequence.
-    
+
     Uses LIS algorithm to identify tracks that are already in correct relative order,
     then generates minimal move operations for the remaining tracks to achieve
     the target ordering with maximum efficiency. Handles duplicates correctly by
     preserving all position mappings.
-    
+
     Args:
         current_tracks: Current ordered list of tracks
         target_tracks: Target ordered list of tracks (desired final order)
-        
+
     Returns:
         List of minimal move operations to transform current to target order
     """
     if not current_tracks or not target_tracks:
         return []
-    
+
     def get_track_uri(track: Track) -> str | None:
         """Get track URI for move operations (infrastructure-agnostic)."""
         if track.id:
@@ -354,24 +360,24 @@ def calculate_lis_reorder_operations(
             artist_names = ", ".join(artist.name for artist in track.artists)
             return f"content:{track.title}:{artist_names}"
         return None
-    
+
     # Position-aware comparison: treat each playlist position as unique entity
     # Each position represents a unique playlist track instance, even for duplicate tracks
     target_positions_in_current = []
     target_track_refs = []
-    
+
     # Step 1: Direct position-to-position matching for identical tracks
     direct_matches = 0
     first_mismatch = None
-    
+
     for target_pos, target_track in enumerate(target_tracks):
         if target_track.id is None:
             continue
-            
+
         # Check if current playlist has a track at this same position
         if target_pos < len(current_tracks):
             current_track = current_tracks[target_pos]
-            
+
             # If same track at same position, this is already correct (no move needed)
             if current_track.id == target_track.id:
                 target_positions_in_current.append(target_pos)
@@ -380,7 +386,7 @@ def calculate_lis_reorder_operations(
             elif first_mismatch is None:
                 # Record first mismatch for debugging
                 first_mismatch = (target_pos, current_track.id, target_track.id)
-    
+
     logger.debug(
         f"Position-by-position matching: {direct_matches} direct matches out of {len(target_tracks)} positions"
     )
@@ -388,74 +394,80 @@ def calculate_lis_reorder_operations(
         logger.debug(
             f"First mismatch at position {first_mismatch[0]}: current track {first_mismatch[1]} vs target track {first_mismatch[2]}"
         )
-    
+
     # Step 2: For remaining target positions, find where those tracks currently are
-    matched_positions = {ref[0] for ref in target_track_refs}  # target positions already matched
-    matched_current_positions = {ref[2] for ref in target_track_refs}  # current positions already used
-    
+    matched_positions = {
+        ref[0] for ref in target_track_refs
+    }  # target positions already matched
+    matched_current_positions = {
+        ref[2] for ref in target_track_refs
+    }  # current positions already used
+
     for target_pos, target_track in enumerate(target_tracks):
         if target_track.id is None or target_pos in matched_positions:
             continue
-            
+
         # Find this track in remaining current positions
         for current_pos, current_track in enumerate(current_tracks):
-            if (current_track.id == target_track.id and 
-                current_pos not in matched_current_positions):
+            if (
+                current_track.id == target_track.id
+                and current_pos not in matched_current_positions
+            ):
                 # Found the track - it needs to move from current_pos to target_pos
                 target_positions_in_current.append(current_pos)
                 target_track_refs.append((target_pos, target_track, current_pos))
                 matched_current_positions.add(current_pos)
                 break
-    
+
     if not target_positions_in_current:
         return []  # No tracks to move
-    
+
     # Find LIS of current positions - these tracks are already in correct relative order
     lis_indices = calculate_longest_increasing_subsequence(target_positions_in_current)
-    
+
     # Convert LIS indices back to (target_pos, current_pos) pairs that don't need to move
     positions_in_correct_order = set()
     for lis_idx in lis_indices:
         target_pos, target_track, current_pos = target_track_refs[lis_idx]
         positions_in_correct_order.add((target_pos, current_pos))
-    
+
     # Debug: log some examples of what's being identified as needing to move
     tracks_to_move = [
-        (target_pos, current_pos, target_track.id) 
+        (target_pos, current_pos, target_track.id)
         for target_pos, target_track, current_pos in target_track_refs
         if (target_pos, current_pos) not in positions_in_correct_order
     ]
-    
+
     logger.debug(
         f"LIS optimization: {len(positions_in_correct_order)} track instances already in correct order, "
         f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
     )
-    
-    if tracks_to_move and len(tracks_to_move) <= 10:  # Only log if small number
-        logger.debug(f"Tracks identified as needing moves: {tracks_to_move[:10]}")
-    
+
+    if tracks_to_move and len(tracks_to_move) <= settings.batch.move_log_threshold:  # Only log if small number
+        logger.debug(f"Tracks identified as needing moves: {tracks_to_move[:settings.batch.move_log_threshold]}")
+
     # Generate move operations only for track instances not in LIS
     operations = []
-    
+
     for target_pos, target_track, current_pos in target_track_refs:
         if (target_pos, current_pos) not in positions_in_correct_order:
             current_track = current_tracks[current_pos]
-            
+
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.MOVE,
                     track=current_track,
                     position=target_pos,  # Target position
-                    old_position=current_pos,  # Current position  
+                    old_position=current_pos,  # Current position
                     spotify_uri=get_track_uri(target_track),
                 )
             )
-    
+
     logger.debug(
         f"Generated {len(operations)} LIS-optimized move operations "
         f"(saved {len(positions_in_correct_order)} unnecessary moves)"
     )
-    
+
     return operations
 
 
@@ -476,10 +488,10 @@ def calculate_move_operations(
 
     current_tracks = current_playlist.tracks
     target_tracks = target_tracklist.tracks
-    
+
     # Use LIS-based minimal move calculation
     operations = calculate_lis_reorder_operations(current_tracks, target_tracks)
-    
+
     logger.debug(
         f"Calculated {len(operations)} LIS-optimized move operations for {len(matched_tracks)} matched tracks"
     )
@@ -550,9 +562,7 @@ def calculate_playlist_diff(
         matched_tracks,
         unmatched_current,
         unmatched_target,
-    ) = match_tracks_with_db_lookup(
-        current_playlist.tracks, target_tracklist.tracks
-    )
+    ) = match_tracks_with_db_lookup(current_playlist.tracks, target_tracklist.tracks)
 
     # Step 2: Calculate operations using functional composition
     remove_operations: list[PlaylistOperation] = cast(

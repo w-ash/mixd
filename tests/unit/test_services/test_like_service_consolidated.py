@@ -13,6 +13,7 @@ from src.application.use_cases.sync_likes import (
 from src.domain.entities.operations import OperationResult
 
 
+@pytest.mark.unit
 class TestLikeUseCases:
     """Test the like use cases that follow Clean Architecture patterns."""
 

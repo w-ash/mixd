@@ -1,22 +1,21 @@
-"""Integration tests for LastFM import service with real repository interactions.
+"""Integration tests for LastfmPlayImporter with real repository interactions.
 
-Tests critical service + repository integration paths:
-- Checkpoint persistence and retrieval
-- Track resolution with database
-- Import workflow with real UnitOfWork
+Tests critical service + repository integration paths following DEVELOPMENT.md patterns:
+- Real database operations with automatic cleanup
+- End-to-end workflow validation
+- UnitOfWork transaction integrity
 """
 
-from datetime import UTC, date, datetime
-from unittest.mock import AsyncMock, Mock, patch
+from datetime import UTC, datetime
+from unittest.mock import Mock, patch
 
 import pytest
 
-from src.domain.entities import PlayRecord, TrackPlay
-from src.infrastructure.services.lastfm_play_importer import LastfmPlayImporter
+from src.domain.entities import ConnectorTrackPlay, PlayRecord
 
 
-class TestLastfmImportIntegration:
-    """Integration tests for LastFM import with repository layer."""
+class TestLastfmPlayImporterIntegration:
+    """Integration tests for LastfmPlayImporter with real repositories."""
 
     @pytest.fixture
     async def db_session(self):
@@ -36,84 +35,31 @@ class TestLastfmImportIntegration:
         return get_unit_of_work(db_session)
 
     @pytest.fixture
-    def lastfm_importer_with_real_repos(self, unit_of_work):
-        """LastfmPlayImporter with real repositories but mocked connectors."""
+    def lastfm_importer_with_mocked_api(self):
+        """LastfmPlayImporter with mocked API but real repositories."""
+        from src.infrastructure.connectors.lastfm.play_importer import (
+            LastfmPlayImporter,
+        )
+
         with patch(
-            "src.infrastructure.services.lastfm_play_importer.LastFMConnector"
+            "src.infrastructure.connectors.lastfm.play_importer.LastFMConnector"
         ) as mock_connector_class:
             mock_connector = Mock()
-            mock_connector.lastfm_username = "test_user"
+            mock_connector.lastfm_username = "integration_test_user"
             mock_connector_class.return_value = mock_connector
 
-            with patch(
-                "src.infrastructure.services.lastfm_play_importer.LastfmTrackResolutionService"
-            ) as mock_resolution_service_class:
-                mock_resolution_service = AsyncMock()
-                mock_resolution_service_class.return_value = mock_resolution_service
+            importer = LastfmPlayImporter(lastfm_connector=mock_connector)
+            yield importer, mock_connector
 
-                importer = LastfmPlayImporter(
-                    plays_repository=unit_of_work.get_plays_repository(),
-                    checkpoint_repository=unit_of_work.get_checkpoint_repository(),
-                    connector_repository=unit_of_work.get_connector_repository(),
-                    track_repository=unit_of_work.get_track_repository(),
-                    lastfm_connector=mock_connector,
-                    track_resolution_service=mock_resolution_service,
-                )
-
-                yield importer, mock_connector, mock_resolution_service
-
-    # INTEGRATION TEST 1: Checkpoint Persistence Cycle
+    # INTEGRATION TEST 1: End-to-End Connector Play Creation
     @pytest.mark.asyncio
-    async def test_checkpoint_persistence_cycle(
-        self, lastfm_importer_with_real_repos, unit_of_work
+    async def test_connector_play_creation_with_real_database(
+        self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
     ):
-        """Test full checkpoint save/load cycle with real repository."""
-        importer, _, _ = lastfm_importer_with_real_repos
+        """Test complete connector play creation workflow with real database."""
+        importer, _ = lastfm_importer_with_mocked_api
 
-        # Cleanup: Remove any existing checkpoint from previous test runs
-        existing_checkpoint = await importer._resolve_checkpoint(
-            username="integration_test_user", uow=unit_of_work
-        )
-        if existing_checkpoint and existing_checkpoint.id:
-            checkpoint_repo = unit_of_work.get_checkpoint_repository()
-            await checkpoint_repo.hard_delete(existing_checkpoint.id)
-            await unit_of_work.commit()
-
-        # Test 1: No existing checkpoint
-        checkpoint = await importer._resolve_checkpoint(
-            username="integration_test_user", uow=unit_of_work
-        )
-        assert checkpoint is None
-
-        # Test 2: Save checkpoint
-        await importer._save_day_checkpoint(
-            username="integration_test_user",
-            completed_date=date(2024, 3, 15),
-            day_end=datetime(2024, 3, 15, 23, 59, 59, tzinfo=UTC),
-            uow=unit_of_work,
-        )
-
-        # Test 3: Retrieve saved checkpoint
-        checkpoint = await importer._resolve_checkpoint(
-            username="integration_test_user", uow=unit_of_work
-        )
-        assert checkpoint is not None
-        assert checkpoint.user_id == "integration_test_user"
-        assert checkpoint.service == "lastfm"
-        assert checkpoint.entity_type == "plays"
-        assert checkpoint.cursor == "2024-03-15"
-
-    # INTEGRATION TEST 2: Import Workflow with Track Resolution
-    @pytest.mark.asyncio
-    async def test_import_workflow_with_track_resolution(
-        self, lastfm_importer_with_real_repos, unit_of_work
-    ):
-        """Test complete import workflow with track resolution service."""
-        importer, _mock_connector, mock_resolution_service = (
-            lastfm_importer_with_real_repos
-        )
-
-        # Arrange - Mock external API responses
+        # Create test play records (simulating Last.fm API response)
         play_records = [
             PlayRecord(
                 track_name="Bohemian Rhapsody",
@@ -121,98 +67,215 @@ class TestLastfmImportIntegration:
                 album_name="A Night at the Opera",
                 played_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC),
                 service="lastfm",
-                service_metadata={"mbid": "test-mbid-123"},
-            )
+                service_metadata={
+                    "mbid": "test-mbid-123",
+                    "lastfm_track_url": "https://last.fm/music/Queen/_/Bohemian+Rhapsody",
+                },
+            ),
+            PlayRecord(
+                track_name="We Will Rock You",
+                artist_name="Queen",
+                album_name="News of the World",
+                played_at=datetime(2024, 3, 15, 12, 5, tzinfo=UTC),
+                service="lastfm",
+                service_metadata={
+                    "mbid": "test-mbid-456",
+                    "loved": True,
+                },
+            ),
         ]
 
-        # Mock track resolution service to return resolved tracks
-        from src.domain.entities.track import Artist, Track
-
-        resolved_track = Track(
-            id="track-123",
-            title="Bohemian Rhapsody",
-            artists=[Artist(name="Queen")],
-            duration_ms=355000,
-        )
-        mock_resolution_service.resolve_plays_to_canonical_tracks.return_value = (
-            [resolved_track],
-            {"new_tracks_count": 1, "updated_tracks_count": 0},
-        )
-
-        # Act - Process the data
-        track_plays = await importer._process_data(
+        # Act - Process data into connector plays
+        connector_plays = await importer._process_data(
             raw_data=play_records,
             batch_id="integration-test-batch",
             import_timestamp=datetime.now(UTC),
             uow=unit_of_work,
         )
 
-        # Assert - Verify track resolution was called and TrackPlay objects created
-        assert len(track_plays) == 1
-        track_play = track_plays[0]
-        assert isinstance(track_play, TrackPlay)
-        assert track_play.track_id == "track-123"
-        assert track_play.service == "lastfm"
-        assert track_play.context["track_name"] == "Bohemian Rhapsody"
-        assert (
-            track_play.context["resolution_method"] == "lastfm_track_resolution_service"
-        )
+        # Assert - Verify transformation
+        assert len(connector_plays) == 2
+        assert all(isinstance(play, ConnectorTrackPlay) for play in connector_plays)
 
-        mock_resolution_service.resolve_plays_to_canonical_tracks.assert_called_once_with(
-            play_records=play_records, uow=unit_of_work
-        )
+        # Verify first track
+        bohemian_play = connector_plays[0]
+        assert bohemian_play.service == "lastfm"
+        assert bohemian_play.track_name == "Bohemian Rhapsody"
+        assert bohemian_play.artist_name == "Queen"
+        assert bohemian_play.album_name == "A Night at the Opera"
+        assert bohemian_play.service_metadata["mbid"] == "test-mbid-123"
+        assert "lastfm_track_url" in bohemian_play.service_metadata
+        assert bohemian_play.import_batch_id == "integration-test-batch"
 
-    # INTEGRATION TEST 3: Error Handling with Real Repositories
+        # Verify second track
+        we_will_rock_play = connector_plays[1]
+        assert we_will_rock_play.service_metadata["loved"] is True
+        assert we_will_rock_play.ms_played is None  # Last.fm doesn't provide this
+
+    # INTEGRATION TEST 2: Base Class Integration (UnitOfWork Pattern)
     @pytest.mark.asyncio
-    async def test_checkpoint_error_handling(
-        self, lastfm_importer_with_real_repos, unit_of_work
+    async def test_base_class_integration_with_uow(
+        self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
     ):
-        """Test checkpoint operations handle repository errors gracefully."""
-        importer, _, _ = lastfm_importer_with_real_repos
+        """Test that base class methods work correctly with UnitOfWork pattern."""
+        importer, _ = lastfm_importer_with_mocked_api
 
-        # Test checkpoint resolution handles missing user gracefully
-        checkpoint = await importer._resolve_checkpoint(username="", uow=unit_of_work)
-        assert checkpoint is None
-
-        # Test checkpoint saving doesn't crash on repository errors
-        with patch.object(
-            importer.checkpoint_repository,
-            "save_sync_checkpoint",
-            side_effect=Exception("DB Error"),
-        ):
-            # Should not raise exception, just log warning
-            await importer._save_day_checkpoint(
-                username="error_test_user",
-                completed_date=date(2024, 3, 15),
-                day_end=datetime(2024, 3, 15, 23, 59, 59, tzinfo=UTC),
-                uow=unit_of_work,
+        # Create connector plays
+        connector_plays = [
+            ConnectorTrackPlay(
+                service="lastfm",
+                track_name="Integration Test Track",
+                artist_name="Test Artist",
+                played_at=datetime(2024, 3, 15, 15, 30, tzinfo=UTC),
+                service_metadata={"test": "data"},
+                import_timestamp=datetime.now(UTC),
+                import_source="integration_test",
+                import_batch_id="test-batch-123",
             )
+        ]
 
-    # INTEGRATION TEST 4: Boundary Condition - Large Date Range
+        # Test base class connector play storage
+        importer._store_connector_plays(connector_plays)
+        retrieved_plays = importer._get_stored_connector_plays()
+
+        assert len(retrieved_plays) == 1
+        assert retrieved_plays[0].track_name == "Integration Test Track"
+        assert retrieved_plays[0].import_batch_id == "test-batch-123"
+
+        # Test UnitOfWork-based save method
+        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
+            connector_plays, unit_of_work
+        )
+
+        assert saved_count == 1
+        assert duplicate_count == 0
+
+        # Verify data was actually saved to database
+        unit_of_work.get_connector_play_repository()
+        # Note: We can't easily query by import_batch_id without adding that method
+        # This validates the save operation completed without errors
+
+    # INTEGRATION TEST 3: Error Handling with Real Dependencies
     @pytest.mark.asyncio
-    async def test_date_range_boundaries_with_real_checkpoint(
-        self, lastfm_importer_with_real_repos, unit_of_work
+    async def test_error_handling_with_real_dependencies(
+        self, lastfm_importer_with_mocked_api, unit_of_work
     ):
-        """Test date range logic with real checkpoint data."""
-        importer, _, _ = lastfm_importer_with_real_repos
+        """Test error handling with real database dependencies."""
+        importer, _ = lastfm_importer_with_mocked_api
 
-        # Save a checkpoint first
-        await importer._save_day_checkpoint(
-            username="boundary_test_user",
-            completed_date=date(2024, 1, 15),
-            day_end=datetime(2024, 1, 15, 23, 59, 59, tzinfo=UTC),
+        # Test empty data handling
+        result = await importer._process_data(
+            raw_data=[],
+            batch_id="empty-test-batch",
+            import_timestamp=datetime.now(UTC),
+            uow=unit_of_work,
+        )
+        assert result == []
+
+        # Test base class save with empty data
+        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
+            [], unit_of_work
+        )
+        assert saved_count == 0
+        assert duplicate_count == 0
+
+        # Test UnitOfWork requirement for save method with data
+        connector_plays = [
+            ConnectorTrackPlay(
+                service="lastfm",
+                track_name="Error Test Track",
+                artist_name="Error Test Artist",
+                played_at=datetime(2024, 3, 15, 15, 30, tzinfo=UTC),
+                service_metadata={},
+                import_timestamp=datetime.now(UTC),
+                import_source="error_test",
+                import_batch_id="error-test-batch",
+            )
+        ]
+
+        with pytest.raises(RuntimeError, match="UnitOfWork required"):
+            await importer._save_data(connector_plays, None)
+
+    # INTEGRATION TEST 4: Date Range Business Logic (Real Scenarios)
+    def test_date_range_calculation_realistic_scenarios(
+        self, lastfm_importer_with_mocked_api
+    ):
+        """Test date range calculation with realistic user scenarios."""
+        importer, _ = lastfm_importer_with_mocked_api
+
+        # Scenario 1: New user with no history
+        start, end = importer._determine_date_range(None, None, None)
+        assert (end - start).days == 30  # 30-day default
+
+        # Scenario 2: User with specific date range for historical import
+        explicit_start = datetime(2024, 1, 1, tzinfo=UTC)
+        explicit_end = datetime(2024, 1, 31, tzinfo=UTC)
+        start, end = importer._determine_date_range(explicit_start, explicit_end, None)
+        assert start == explicit_start
+        assert end == explicit_end
+
+        # Scenario 3: User requesting only recent data
+        recent_start = datetime.now(UTC).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        start, end = importer._determine_date_range(recent_start, None, None)
+        assert start == recent_start
+        assert end.date() == datetime.now(UTC).date()
+
+    # INTEGRATION TEST 5: Metadata Preservation (Business Value)
+    @pytest.mark.asyncio
+    async def test_metadata_preservation_lastfm_specific(
+        self, lastfm_importer_with_mocked_api, unit_of_work
+    ):
+        """Test that Last.fm-specific metadata is preserved correctly."""
+        importer, _ = lastfm_importer_with_mocked_api
+
+        # Last.fm provides rich metadata that other services don't
+        lastfm_play_record = PlayRecord(
+            track_name="Test Track",
+            artist_name="Test Artist",
+            played_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC),
+            service="lastfm",
+            service_metadata={
+                "mbid": "track-mbid-123",
+                "artist_mbid": "artist-mbid-456",
+                "album_mbid": "album-mbid-789",
+                "lastfm_track_url": "https://www.last.fm/music/Test+Artist/_/Test+Track",
+                "loved": True,
+                "streamable": True,
+                "nowplaying": False,
+                "image": [
+                    {
+                        "#text": "https://lastfm.freetls.fastly.net/i/u/34s/image.png",
+                        "size": "small",
+                    },
+                    {
+                        "#text": "https://lastfm.freetls.fastly.net/i/u/64s/image.png",
+                        "size": "medium",
+                    },
+                ],
+            },
+        )
+
+        connector_plays = await importer._process_data(
+            raw_data=[lastfm_play_record],
+            batch_id="metadata-test-batch",
+            import_timestamp=datetime.now(UTC),
             uow=unit_of_work,
         )
 
-        # Retrieve and test date range logic
-        checkpoint = await importer._resolve_checkpoint(
-            username="boundary_test_user", uow=unit_of_work
+        # Assert all Last.fm metadata is preserved
+        connector_play = connector_plays[0]
+        metadata = connector_play.service_metadata
+
+        assert metadata["mbid"] == "track-mbid-123"
+        assert metadata["artist_mbid"] == "artist-mbid-456"
+        assert metadata["album_mbid"] == "album-mbid-789"
+        assert (
+            metadata["lastfm_track_url"]
+            == "https://www.last.fm/music/Test+Artist/_/Test+Track"
         )
-
-        # Test incremental import respects checkpoint boundary
-        start, end = importer._determine_date_range(None, None, checkpoint)
-
-        # Should start from beginning of checkpoint day, end at now
-        expected_start = datetime(2024, 1, 15, 0, 0, 0, tzinfo=UTC)
-        assert start == expected_start
-        assert end.date() == datetime.now(UTC).date()
+        assert metadata["loved"] is True
+        assert metadata["streamable"] is True
+        assert "image" in metadata
+        assert len(metadata["image"]) == 2

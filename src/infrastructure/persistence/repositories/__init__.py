@@ -5,7 +5,6 @@ from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
     BaseRepository,
     ModelMapper,
-    filter_active,
 )
 
 # PlaylistRepositories removed - use individual repository injection
@@ -37,5 +36,4 @@ __all__ = [
     # "TrackRepositories",  # Removed - use individual repositories
     "TrackRepository",
     "db_operation",
-    "filter_active",
 ]

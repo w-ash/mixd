@@ -57,13 +57,9 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         # Get playlist tracks using safe fetch relationship (always returns a list)
         playlist_tracks = await safe_fetch_relationship(db_model, "tracks")
 
-        # Filter and sort active tracks
+        # Filter and sort active tracks (no soft delete filtering needed after hard delete migration)
         active_tracks = sorted(
-            [
-                pt
-                for pt in playlist_tracks
-                if hasattr(pt, "is_deleted") and not pt.is_deleted
-            ],
+            playlist_tracks,
             key=lambda pt: pt.sort_key if hasattr(pt, "sort_key") else 0,
         )
 
@@ -79,21 +75,18 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             # Get the first track from the list (to-one relationship)
             track = tracks[0]
 
-            # Skip deleted or missing tracks
-            if not track or (hasattr(track, "is_deleted") and track.is_deleted):
+            # Skip missing tracks (no soft delete filtering needed after hard delete migration)
+            if not track:
                 continue
 
             # Get track mappings - always returns a list
             track_mappings = await safe_fetch_relationship(track, "mappings")
 
-            # Build connector_track_ids from mappings
-            connector_track_ids = {}
+            # Build connector_track_identifiers from mappings
+            connector_track_identifiers = {}
 
-            # Process non-deleted track mappings efficiently
+            # Process track mappings (no soft delete filtering needed after hard delete migration)
             for m in track_mappings:
-                if hasattr(m, "is_deleted") and m.is_deleted:
-                    continue
-
                 # Get connector tracks - always returns a list
                 try:
                     connector_tracks = await safe_fetch_relationship(
@@ -105,21 +98,17 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                     # Get the first connector track (to-one relationship)
                     connector_track = connector_tracks[0]
 
-                    # Skip if it's deleted or missing required attributes
+                    # Skip if missing required attributes (no soft delete filtering needed after hard delete migration)
                     if (
                         not connector_track
-                        or (
-                            hasattr(connector_track, "is_deleted")
-                            and connector_track.is_deleted
-                        )
                         or not hasattr(connector_track, "connector_name")
-                        or not hasattr(connector_track, "connector_track_id")
+                        or not hasattr(connector_track, "connector_track_identifier")
                     ):
                         continue
 
-                    # Store connector track ID
-                    connector_track_ids[connector_track.connector_name] = (
-                        connector_track.connector_track_id
+                    # Store connector track identifier
+                    connector_track_identifiers[connector_track.connector_name] = (
+                        connector_track.connector_track_identifier
                     )
                 except Exception as e:
                     logger.debug(f"Error getting connector track: {e}")
@@ -145,7 +134,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                 duration_ms=getattr(track, "duration_ms", None),
                 release_date=ensure_utc(getattr(track, "release_date", None)),
                 isrc=getattr(track, "isrc", None),
-                connector_track_ids=connector_track_ids,
+                connector_track_identifiers=connector_track_identifiers,
             )
             domain_tracks.append(domain_track)
 
@@ -153,21 +142,30 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         playlist_mappings = await safe_fetch_relationship(db_model, "mappings")
 
         # Process active playlist mappings
-        connector_playlist_ids = {}
+        connector_playlist_identifiers = {}
         for m in playlist_mappings:
-            if (
-                not (hasattr(m, "is_deleted") and m.is_deleted)
-                and hasattr(m, "connector_name")
-                and hasattr(m, "connector_playlist_id")
-            ):
-                connector_playlist_ids[m.connector_name] = m.connector_playlist_id
+            if hasattr(m, "connector_name") and hasattr(m, "connector_playlist_id"):
+                # Get the connector playlist to extract the external identifier
+                try:
+                    connector_playlists = await safe_fetch_relationship(
+                        m, "connector_playlist"
+                    )
+                    if connector_playlists:
+                        connector_playlist = connector_playlists[0]
+                        if hasattr(connector_playlist, "connector_playlist_identifier"):
+                            connector_playlist_identifiers[m.connector_name] = (
+                                connector_playlist.connector_playlist_identifier
+                            )
+                except Exception as e:
+                    logger.debug(f"Error getting connector playlist: {e}")
+                    continue
 
         return Playlist(
             id=db_model.id,
             name=db_model.name,
             description=db_model.description,
             tracks=domain_tracks,
-            connector_playlist_ids=connector_playlist_ids,
+            connector_playlist_identifiers=connector_playlist_identifiers,
         )
 
     @staticmethod
@@ -193,7 +191,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
         # Convert stored JSON items to ConnectorPlaylistItem objects
         items = [
             ConnectorPlaylistItem(
-                connector_track_id=item_dict["connector_track_id"],
+                connector_track_identifier=item_dict["connector_track_identifier"],
                 position=item_dict["position"],
                 added_at=item_dict.get("added_at"),
                 added_by_id=item_dict.get("added_by_id"),
@@ -205,7 +203,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
         return ConnectorPlaylist(
             id=db_model.id,
             connector_name=db_model.connector_name,
-            connector_playlist_id=db_model.connector_playlist_id,
+            connector_playlist_identifier=db_model.connector_playlist_identifier,
             name=db_model.name,
             description=db_model.description,
             owner=db_model.owner,
@@ -224,7 +222,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
         # Convert ConnectorPlaylistItem objects to serializable dictionaries
         items_dicts = [
             {
-                "connector_track_id": item.connector_track_id,
+                "connector_track_identifier": item.connector_track_identifier,
                 "position": item.position,
                 "added_at": item.added_at,
                 "added_by_id": item.added_by_id,
@@ -236,7 +234,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
         return DBConnectorPlaylist(
             id=domain_model.id,
             connector_name=domain_model.connector_name,
-            connector_playlist_id=domain_model.connector_playlist_id,
+            connector_playlist_identifier=domain_model.connector_playlist_identifier,
             name=domain_model.name,
             description=domain_model.description,
             owner=domain_model.owner,

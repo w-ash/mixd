@@ -2,7 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
 
+
+@pytest.mark.unit
 class TestWorkflowContext:
     """Test WorkflowContext implementation with TDD."""
 

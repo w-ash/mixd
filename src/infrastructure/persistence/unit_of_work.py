@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.repositories.interfaces import (
     CheckpointRepositoryProtocol,
     ConnectorPlaylistRepositoryProtocol,
+    ConnectorPlayRepositoryProtocol,
     ConnectorRepositoryProtocol,
     LikeRepositoryProtocol,
     MetricsRepositoryProtocol,
@@ -19,6 +20,9 @@ from src.domain.repositories.interfaces import (
     TrackIdentityServiceProtocol,
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
+)
+from src.infrastructure.persistence.repositories.play.connector import (
+    ConnectorTrackPlayRepository,
 )
 from src.infrastructure.persistence.repositories.playlist.connector import (
     ConnectorPlaylistRepository,
@@ -112,6 +116,10 @@ class DatabaseUnitOfWork:
         """Get connector playlist repository using this unit of work's transaction."""
         return ConnectorPlaylistRepository(self._session)
 
+    def get_connector_play_repository(self) -> ConnectorPlayRepositoryProtocol:
+        """Get connector play repository using this unit of work's transaction."""
+        return ConnectorTrackPlayRepository(self._session)
+
     def get_metrics_repository(self) -> MetricsRepositoryProtocol:
         """Get metrics repository using this unit of work's transaction."""
         return TrackMetricsRepository(self._session)
@@ -129,22 +137,23 @@ class DatabaseUnitOfWork:
 
     def get_service_connector_provider(self) -> Any:
         """Get service connector provider for accessing individual music service connectors."""
-        from src.infrastructure.connectors import CONNECTORS
+        from src.infrastructure.connectors import discover_connectors
 
         class SimpleServiceConnectorProvider:
             """Simple service connector provider that accesses the CONNECTORS registry."""
 
             def get_connector(self, service_name: str):
-                if CONNECTORS is None or service_name not in CONNECTORS:
+                connectors = discover_connectors()
+                if service_name not in connectors:
                     raise ValueError(f"Unknown connector: {service_name}")
-                return CONNECTORS[service_name]["factory"]({})
+                return connectors[service_name]["factory"]({})
 
         return SimpleServiceConnectorProvider()
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""
         from src.application.services.track_merge_service import TrackMergeService
-        
+
         return TrackMergeService()
 
     def get_session(self) -> AsyncSession:

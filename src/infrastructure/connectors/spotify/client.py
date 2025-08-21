@@ -25,6 +25,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 from src.config import get_logger, resilient_operation, settings
+from src.config.constants import SpotifyConstants
 
 # Load environment variables for Spotify credentials
 load_dotenv()
@@ -102,7 +103,7 @@ class SpotifyAPIClient:
     @backoff.on_exception(backoff.expo, spotipy.SpotifyException, max_tries=3)
     async def get_tracks_bulk(self, track_ids: list[str]) -> dict[str, Any] | None:
         """Fetch multiple tracks from Spotify (up to 50 per request)."""
-        if not track_ids or len(track_ids) > 50:
+        if not track_ids or len(track_ids) > SpotifyConstants.TRACKS_BULK_LIMIT:
             logger.warning(
                 f"Invalid track_ids list: {len(track_ids) if track_ids else 0} items"
             )

@@ -2,6 +2,7 @@
 
 import pylast
 
+from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classification import (
     BaseErrorClassifier,
 )

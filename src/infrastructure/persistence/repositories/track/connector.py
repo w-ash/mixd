@@ -12,6 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -49,7 +50,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
         return {
             "id": db_model.id,
             "connector_name": db_model.connector_name,
-            "connector_track_id": db_model.connector_track_id,
+            "connector_track_identifier": db_model.connector_track_identifier,
             "title": db_model.title,
             "artists": db_model.artists,
             "album": db_model.album,
@@ -72,7 +73,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
         """
         return DBConnectorTrack(
             connector_name=domain_model.get("connector_name"),
-            connector_track_id=domain_model.get("connector_track_id"),
+            connector_track_identifier=domain_model.get("connector_track_identifier"),
             title=domain_model.get("title"),
             artists=domain_model.get("artists"),
             album=domain_model.get("album"),
@@ -209,7 +210,9 @@ class TrackConnectorRepository:
             # Find connector tracks
             connector_tracks = await self.connector_repo.find_by([
                 self.connector_repo.model_class.connector_name == connector,
-                self.connector_repo.model_class.connector_track_id.in_(connector_ids),
+                self.connector_repo.model_class.connector_track_identifier.in_(
+                    connector_ids
+                ),
             ])
 
             if not connector_tracks:
@@ -217,7 +220,7 @@ class TrackConnectorRepository:
 
             # Create useful lookups
             ct_id_to_external_id = {
-                ct["id"]: ct["connector_track_id"] for ct in connector_tracks
+                ct["id"]: ct["connector_track_identifier"] for ct in connector_tracks
             }
             ct_ids = [ct["id"] for ct in connector_tracks]
 
@@ -295,7 +298,7 @@ class TrackConnectorRepository:
             if connector_track_key not in connector_track_keys:
                 connector_tracks_data.append({
                     "connector_name": connector,
-                    "connector_track_id": connector_id,
+                    "connector_track_identifier": connector_id,
                     "title": track.title,
                     "artists": {"names": [a.name for a in track.artists]}
                     if track.artists
@@ -322,7 +325,7 @@ class TrackConnectorRepository:
         # Bulk upsert connector tracks
         connector_tracks_result = await self.connector_repo.bulk_upsert(
             connector_tracks_data,
-            lookup_keys=["connector_name", "connector_track_id"],
+            lookup_keys=["connector_name", "connector_track_identifier"],
             return_models=True,  # Add this parameter to ensure we get models back
         )
 
@@ -330,7 +333,7 @@ class TrackConnectorRepository:
         if isinstance(connector_tracks_result, int):
             # If we got an integer result, we need to fetch the tracks explicitly
             connector_name_ids = [
-                (data["connector_name"], data["connector_track_id"])
+                (data["connector_name"], data["connector_track_identifier"])
                 for data in connector_tracks_data
             ]
 
@@ -339,7 +342,7 @@ class TrackConnectorRepository:
                 self.connector_repo.model_class.connector_name.in_([
                     c[0] for c in connector_name_ids
                 ]),
-                self.connector_repo.model_class.connector_track_id.in_([
+                self.connector_repo.model_class.connector_track_identifier.in_([
                     c[1] for c in connector_name_ids
                 ]),
             )
@@ -357,12 +360,12 @@ class TrackConnectorRepository:
 
         # Create connector ID to DB ID mapping
         connector_id_map = {
-            (ct["connector_name"], ct["connector_track_id"]): ct["id"]
+            (ct["connector_name"], ct["connector_track_identifier"]): ct["id"]
             for ct in connector_tracks
         }
 
         # Prepare mapping data
-        for _i, (
+        for (
             track,
             connector,
             connector_id,
@@ -370,7 +373,7 @@ class TrackConnectorRepository:
             confidence,
             _,
             confidence_evidence,
-        ) in enumerate(mappings):
+        ) in mappings:
             if track.id is None or (connector, connector_id) not in connector_id_map:
                 continue
 
@@ -466,7 +469,7 @@ class TrackConnectorRepository:
         connector_track_data = [
             {
                 "connector_name": connector,
-                "connector_track_id": track.connector_track_id,
+                "connector_track_identifier": track.connector_track_identifier,
                 "title": track.title,
                 "artists": {"names": [a.name for a in track.artists]}
                 if track.artists
@@ -483,27 +486,41 @@ class TrackConnectorRepository:
 
         connector_tracks = await self.connector_repo.bulk_upsert(
             connector_track_data,
-            lookup_keys=["connector_name", "connector_track_id"],
+            lookup_keys=["connector_name", "connector_track_identifier"],
         )
 
         # 2. Create a lookup dict for connector tracks
         connector_track_lookup: dict[str, dict[str, Any]] = {}
         if isinstance(connector_tracks, list):
             for ct in connector_tracks:
-                connector_track_lookup[ct["connector_track_id"]] = ct
+                connector_track_lookup[ct["connector_track_identifier"]] = ct
 
         # 3. Create or find domain tracks
         domain_tracks = []
         track_mappings_data = []
         metrics_data = []
 
+        # Group tracks by connector_track_identifier to handle duplicates
+        tracks_by_identifier = {}
         for track in tracks:
-            # Try to find existing mapping first
-            connector_track_id = connector_track_lookup[track.connector_track_id]["id"]
+            identifier = track.connector_track_identifier
+            if identifier not in tracks_by_identifier:
+                tracks_by_identifier[identifier] = []
+            tracks_by_identifier[identifier].append(track)
 
+        # Process each unique connector track identifier
+        for connector_track_identifier, track_group in tracks_by_identifier.items():
+            # Use the first track from the group for processing (they're identical except position)
+            representative_track = track_group[0]
+
+            # Get the connector track ID from the lookup
+            connector_track_id = connector_track_lookup[connector_track_identifier][
+                "id"
+            ]
+
+            # Try to find existing mapping first
             mapping = await self.mapping_repo.find_one_by({
                 "connector_track_id": connector_track_id,
-                "is_deleted": False,
             })
 
             if mapping:
@@ -511,42 +528,46 @@ class TrackConnectorRepository:
                 domain_track = await self.track_repo.get_by_id(mapping["track_id"])
                 logger.debug(
                     f"Found existing track {mapping['track_id']} for "
-                    f"{connector}:{track.connector_track_id}"
+                    f"{connector}:{connector_track_identifier}"
                 )
-                domain_tracks.append(domain_track)
+
+                # Add the domain track for each occurrence in the playlist
+                domain_tracks.extend(domain_track for _ in track_group)
 
                 # Update mapping confidence if needed
-                if mapping["confidence"] < 100:
-                    await self.mapping_repo.update(mapping["id"], {"confidence": 100})
+                if mapping["confidence"] < BusinessLimits.FULL_CONFIDENCE_SCORE:
+                    await self.mapping_repo.update(mapping["id"], {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE})
             else:
-                # Create new track
+                # Create new track using the representative track
                 artists = (
-                    [Artist(name=a.name) for a in track.artists]
-                    if track.artists
+                    [Artist(name=a.name) for a in representative_track.artists]
+                    if representative_track.artists
                     else []
                 )
                 track_obj = Track(
-                    title=track.title,
+                    title=representative_track.title,
                     artists=artists,
-                    album=track.album,
-                    duration_ms=track.duration_ms,
-                    release_date=track.release_date,
-                    isrc=track.isrc,
+                    album=representative_track.album,
+                    duration_ms=representative_track.duration_ms,
+                    release_date=representative_track.release_date,
+                    isrc=representative_track.isrc,
                 )
 
                 # Add connector ID and metadata
                 track_obj = track_obj.with_connector_track_id(
-                    connector, track.connector_track_id
+                    connector, representative_track.connector_track_identifier
                 )
                 track_obj = track_obj.with_connector_metadata(
-                    connector, track.raw_metadata or {}
+                    connector, representative_track.raw_metadata or {}
                 )
 
                 # Save track and get ID
                 domain_track = await self.track_repo.save_track(track_obj)
-                domain_tracks.append(domain_track)
 
-                # Prepare mapping data for bulk insert
+                # Add the domain track for each occurrence in the playlist
+                domain_tracks.extend(domain_track for _ in track_group)
+
+                # Prepare mapping data for bulk insert (only once per unique connector track)
                 if domain_track.id is not None:
                     track_mappings_data.append({
                         "track_id": domain_track.id,
@@ -554,12 +575,15 @@ class TrackConnectorRepository:
                         "connector_name": connector,
                         "match_method": "direct",
                         "confidence": 100,
-                        "is_primary": True,  # Direct ingestion mappings are primary (no conflicts expected)
+                        "is_primary": False,  # Will be set properly via ensure_primary_mapping post-processing
                     })
 
-                    # Prepare metrics data
-                    if track.raw_metadata:
-                        metrics_data.append((domain_track.id, track.raw_metadata))
+                    # Prepare metrics data (only once per unique connector track)
+                    if representative_track.raw_metadata:
+                        metrics_data.append((
+                            domain_track.id,
+                            representative_track.raw_metadata,
+                        ))
 
         # 5. Bulk create mappings if any
         if track_mappings_data:
@@ -568,6 +592,23 @@ class TrackConnectorRepository:
                 lookup_keys=["connector_track_id", "connector_name"],
                 return_models=False,
             )
+
+            # 6. Set primary mappings properly (one per track-connector pair)
+            # Group by track_id to ensure only one primary per track-connector
+            tracks_by_id = {}
+            for track in domain_tracks:
+                if track.id is not None:
+                    if track.id not in tracks_by_id:
+                        tracks_by_id[track.id] = []
+                    tracks_by_id[track.id].append(track)
+
+            # For each canonical track, set one primary mapping for this connector
+            for track_id, track_instances in tracks_by_id.items():
+                # Use the first track instance to determine the connector ID
+                first_track = track_instances[0]
+                connector_id = first_track.connector_track_identifiers.get(connector)
+                if connector_id:
+                    await self.ensure_primary_mapping(track_id, connector, connector_id)
 
         # Note: Metrics processing moved to MetricsApplicationService
         # This repository focuses on track ingestion only
@@ -598,7 +639,7 @@ class TrackConnectorRepository:
             select(
                 self.mapping_repo.model_class.track_id,
                 self.connector_repo.model_class.connector_name,
-                self.connector_repo.model_class.connector_track_id,
+                self.connector_repo.model_class.connector_track_identifier,
             )
             .join(
                 self.connector_repo.model_class,
@@ -607,8 +648,6 @@ class TrackConnectorRepository:
             )
             .where(
                 self.mapping_repo.model_class.track_id.in_(track_ids),
-                self.mapping_repo.model_class.is_deleted == False,  # noqa: E712
-                self.connector_repo.model_class.is_deleted == False,  # noqa: E712
             )
         )
 
@@ -660,8 +699,6 @@ class TrackConnectorRepository:
             .where(
                 self.mapping_repo.model_class.track_id.in_(track_ids),
                 self.connector_repo.model_class.connector_name == connector,
-                self.mapping_repo.model_class.is_deleted == False,  # noqa: E712
-                self.connector_repo.model_class.is_deleted == False,  # noqa: E712
             )
         )
 
@@ -708,7 +745,6 @@ class TrackConnectorRepository:
                 .where(
                     DBTrackMetric.track_id.in_(track_ids),
                     DBTrackMetric.connector_name == connector,
-                    DBTrackMetric.is_deleted == False,  # noqa: E712
                 )
                 .group_by(DBTrackMetric.track_id)
             )
@@ -754,7 +790,7 @@ class TrackConnectorRepository:
         # First find the connector track
         connector_track = await self.connector_repo.find_one_by({
             "connector_name": connector,
-            "connector_track_id": connector_id,
+            "connector_track_identifier": connector_id,
         })
 
         if not connector_track or "id" not in connector_track:
@@ -789,7 +825,6 @@ class TrackConnectorRepository:
                 .where(
                     DBTrackMapping.track_id == track_id,
                     DBTrackMapping.connector_name == connector_name,
-                    DBTrackMapping.is_deleted == False,  # noqa: E712
                 )
                 .values(is_primary=False)
             )
@@ -800,7 +835,6 @@ class TrackConnectorRepository:
                 .where(
                     DBTrackMapping.track_id == track_id,
                     DBTrackMapping.connector_track_id == connector_track_id,
-                    DBTrackMapping.is_deleted == False,  # noqa: E712
                 )
                 .values(is_primary=True)
             )

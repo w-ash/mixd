@@ -15,14 +15,16 @@ This test verifies:
    - Verifies they were created correctly
    - Logs success/failure
 
-3. Soft Delete:
-   - Soft deletes test records
-   - Verifies deleted records are not returned in active queries
-   - Logs success/failure of soft deletion
+3. Hard Delete:
+   - Hard deletes test records (isolated test data only)
+   - Verifies deleted records are completely removed from database
+   - Tests cascading delete behavior
 """
 
 import asyncio
+import sys
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,74 +37,19 @@ from src.infrastructure.persistence.database.db_connection import (
     DBTrackMapping,
     DBTrackPlay,
     session_factory,
-    soft_delete_record,
 )
 from src.infrastructure.persistence.database.db_models import init_db
 
 logger = get_logger(__name__)
 
 
+@pytest.mark.integration
 async def verify_model_count(session: AsyncSession, model, expected: int) -> None:
-    """Verify number of active records for a model."""
-    result = await session.execute(model.active_records())  # Use class method directly
+    """Verify number of records for a model."""
+    result = await session.execute(select(model))
     count = len(result.scalars().all())
     assert count == expected, f"Expected {expected} {model.__name__}s, got {count}"
-    logger.debug(f"✓ {model.__name__}: {count} active records verified")
-
-
-async def create_test_data(session: AsyncSession) -> tuple[DBTrack, DBPlaylist]:
-    """Create test records in all database tables."""
-    # Create track
-    track = DBTrack(
-        title="Test Track",
-        artists={"name": "Test Artist"},
-        album="Test Album",
-    )
-    session.add(track)
-    await session.commit()
-
-    # Create track-related records
-    session.add_all(
-        [
-            DBTrackPlay(
-                track_id=track.id,
-                user_id="testuser",
-                play_count=10,
-            ),
-            DBTrackMapping(
-                track_id=track.id,
-                connector_name="spotify",
-                connector_id="123",
-                match_method="direct",
-                confidence=100,
-                connector_metadata={"uri": "spotify:123"},
-            ),
-        ],
-    )
-    await session.commit()
-
-    # Create playlist and related records
-    playlist = DBPlaylist(name="Test Playlist")
-    session.add(playlist)
-    await session.commit()
-
-    session.add_all(
-        [
-            DBPlaylistMapping(
-                playlist_id=playlist.id,
-                connector_name="spotify",
-                connector_id="playlist_123",
-            ),
-            DBPlaylistTrack(
-                playlist_id=playlist.id,
-                track_id=track.id,
-                sort_key="001",
-            ),
-        ],
-    )
-    await session.commit()
-
-    return track, playlist
+    logger.debug(f"✓ {model.__name__}: {count} records verified")
 
 
 async def test_database() -> bool:
@@ -113,13 +60,13 @@ async def test_database() -> bool:
         logger.debug("Database schema initialized")
 
         async with session_factory() as session:
-            # Create parent records first
+            # Create parent records first (isolated test data with TEST_ prefix)
             track = DBTrack(
-                title="Test Track",
-                artists={"name": "Test Artist"},
-                album="Test Album",
+                title="TEST_Track_Integration",
+                artists={"name": "TEST_Artist_Integration"},
+                album="TEST_Album_Integration",
             )
-            playlist = DBPlaylist(name="Test Playlist")
+            playlist = DBPlaylist(name="TEST_Playlist_Integration")
 
             session.add_all([track, playlist])
             await session.commit()
@@ -127,26 +74,26 @@ async def test_database() -> bool:
             # Create child records
             play_count = DBTrackPlay(
                 track_id=track.id,
-                user_id="testuser",
+                user_id="test_integration_user",
                 play_count=10,
             )
             track_mapping = DBTrackMapping(
                 track_id=track.id,
                 connector_name="spotify",
-                connector_id="123",
+                connector_id="test_integration_track_123",
                 match_method="direct",
                 confidence=100,
-                connector_metadata={"uri": "spotify:123"},
+                connector_metadata={"uri": "spotify:test_integration_123"},
             )
             playlist_mapping = DBPlaylistMapping(
                 playlist_id=playlist.id,
                 connector_name="spotify",
-                connector_id="playlist_123",
+                connector_id="test_integration_playlist_123",
             )
             playlist_track = DBPlaylistTrack(
                 playlist_id=playlist.id,
                 track_id=track.id,
-                sort_key="001",
+                sort_key="test_001",
             )
 
             session.add_all(
@@ -154,100 +101,128 @@ async def test_database() -> bool:
             )
             await session.commit()
 
+            # Store test record IDs for cleanup verification
+            test_track_id = track.id
+            test_playlist_id = playlist.id
+
             # Verify initial record creation
             logger.info("Verifying initial record creation...")
 
-            # Check parent records
-            track_result = await session.execute(DBTrack.active_records())
+            # Check parent records exist
+            track_result = await session.execute(
+                select(DBTrack).where(DBTrack.id == test_track_id)
+            )
             tracks = track_result.scalars().all()
-            assert len(tracks) == 1, f"Expected 1 track, got {len(tracks)}"
-            assert tracks[0].title == "Test Track"
+            assert len(tracks) == 1, f"Expected 1 test track, got {len(tracks)}"
+            assert tracks[0].title == "TEST_Track_Integration"
 
-            playlist_result = await session.execute(DBPlaylist.active_records())
+            playlist_result = await session.execute(
+                select(DBPlaylist).where(DBPlaylist.id == test_playlist_id)
+            )
             playlists = playlist_result.scalars().all()
-            assert len(playlists) == 1, f"Expected 1 playlist, got {len(playlists)}"
-            assert playlists[0].name == "Test Playlist"
+            assert len(playlists) == 1, (
+                f"Expected 1 test playlist, got {len(playlists)}"
+            )
+            assert playlists[0].name == "TEST_Playlist_Integration"
 
-            # Check child records
-            play_count_result = await session.execute(DBTrackPlay.active_records())
+            # Check child records exist
+            play_count_result = await session.execute(
+                select(DBTrackPlay).where(DBTrackPlay.track_id == test_track_id)
+            )
             play_counts = play_count_result.scalars().all()
             assert len(play_counts) == 1, (
-                f"Expected 1 play count, got {len(play_counts)}"
+                f"Expected 1 test play count, got {len(play_counts)}"
             )
-            assert play_counts[0].track_id == track.id
 
             track_mapping_result = await session.execute(
-                DBTrackMapping.active_records(),
+                select(DBTrackMapping).where(DBTrackMapping.track_id == test_track_id)
             )
             track_mappings = track_mapping_result.scalars().all()
             assert len(track_mappings) == 1, (
-                f"Expected 1 track mapping, got {len(track_mappings)}"
+                f"Expected 1 test track mapping, got {len(track_mappings)}"
             )
-            assert track_mappings[0].connector_id == "123"
+            assert track_mappings[0].connector_id == "test_integration_track_123"
 
             playlist_mapping_result = await session.execute(
-                DBPlaylistMapping.active_records(),
+                select(DBPlaylistMapping).where(
+                    DBPlaylistMapping.playlist_id == test_playlist_id
+                )
             )
             playlist_mappings = playlist_mapping_result.scalars().all()
             assert len(playlist_mappings) == 1, (
-                f"Expected 1 playlist mapping, got {len(playlist_mappings)}"
+                f"Expected 1 test playlist mapping, got {len(playlist_mappings)}"
             )
-            assert playlist_mappings[0].connector_id == "playlist_123"
+            assert playlist_mappings[0].connector_id == "test_integration_playlist_123"
 
             playlist_track_result = await session.execute(
-                DBPlaylistTrack.active_records(),
+                select(DBPlaylistTrack).where(
+                    DBPlaylistTrack.playlist_id == test_playlist_id
+                )
             )
             playlist_tracks = playlist_track_result.scalars().all()
             assert len(playlist_tracks) == 1, (
-                f"Expected 1 playlist track, got {len(playlist_tracks)}"
+                f"Expected 1 test playlist track, got {len(playlist_tracks)}"
             )
-            assert playlist_tracks[0].sort_key == "001"
+            assert playlist_tracks[0].sort_key == "test_001"
 
-            logger.success("✓ All records created successfully")
+            logger.success("✓ All test records created successfully")
 
-            # Test soft deletes
-            logger.info("Testing soft delete cascades...")
+            # Test hard deletes (only test records)
+            logger.info("Testing hard delete cascades on test records...")
 
-            # Soft delete parent records
-            await soft_delete_record(session, track)
-            await soft_delete_record(session, playlist)
+            # Hard delete parent records - this should cascade to child records
+            await session.delete(track)
+            await session.delete(playlist)
             await session.commit()
 
-            # Verify no active records remain
-            models = [
-                DBTrack,
-                DBTrackPlay,
-                DBTrackMapping,
-                DBPlaylist,
-                DBPlaylistMapping,
-                DBPlaylistTrack,
+            # Verify all test records are completely removed
+            test_models = [
+                (DBTrack, DBTrack.id == test_track_id),
+                (DBTrackPlay, DBTrackPlay.track_id == test_track_id),
+                (DBTrackMapping, DBTrackMapping.track_id == test_track_id),
+                (DBPlaylist, DBPlaylist.id == test_playlist_id),
+                (DBPlaylistMapping, DBPlaylistMapping.playlist_id == test_playlist_id),
+                (DBPlaylistTrack, DBPlaylistTrack.playlist_id == test_playlist_id),
             ]
 
-            for model in models:
-                result = await session.execute(model.active_records())
-                active_records = result.scalars().all()
-                assert len(active_records) == 0, (
-                    f"Found active {model.__name__} records after soft delete"
+            for model, condition in test_models:
+                result = await session.execute(select(model).where(condition))
+                remaining_records = result.scalars().all()
+                assert len(remaining_records) == 0, (
+                    f"Found remaining {model.__name__} test records after hard delete"
                 )
 
-            logger.success("✓ No active records remain")
+            logger.success("✓ All test records completely removed")
 
-            # Verify soft delete timestamps were set correctly
-            logger.info("Verifying soft delete timestamps...")
+            # Verify cascading delete behavior worked correctly
+            logger.info("Verifying cascading delete behavior...")
 
-            # Check all records (including soft-deleted ones)
-            for model in models:
-                result = await session.execute(select(model))
-                records = result.scalars().all()
-                for record in records:
-                    assert record.is_deleted, (
-                        f"{model.__name__} record not marked as deleted"
-                    )
-                    assert record.deleted_at is not None, (
-                        f"{model.__name__} missing deleted_at timestamp"
-                    )
+            # Check that foreign key constraints properly cascaded the deletes
+            orphaned_plays = await session.execute(
+                select(DBTrackPlay).where(DBTrackPlay.track_id == test_track_id)
+            )
+            assert len(orphaned_plays.scalars().all()) == 0, (
+                "Orphaned track plays found"
+            )
 
-            logger.success("✓ Soft delete timestamps verified")
+            orphaned_mappings = await session.execute(
+                select(DBTrackMapping).where(DBTrackMapping.track_id == test_track_id)
+            )
+            assert len(orphaned_mappings.scalars().all()) == 0, (
+                "Orphaned track mappings found"
+            )
+
+            orphaned_playlist_tracks = await session.execute(
+                select(DBPlaylistTrack).where(
+                    (DBPlaylistTrack.playlist_id == test_playlist_id)
+                    | (DBPlaylistTrack.track_id == test_track_id)
+                )
+            )
+            assert len(orphaned_playlist_tracks.scalars().all()) == 0, (
+                "Orphaned playlist tracks found"
+            )
+
+            logger.success("✓ Cascading deletes verified - no orphaned records")
 
         return True
 
@@ -263,4 +238,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

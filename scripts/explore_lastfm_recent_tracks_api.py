@@ -348,7 +348,7 @@ async def explore_recent_tracks_extended():
 
         # Write to file
         output_file = Path(__file__).parent / "lastfm_raw_response_analysis.json"
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(sample_data, f, indent=2, default=str)
 
         print(f"✅ Raw response data exported to: {output_file}")

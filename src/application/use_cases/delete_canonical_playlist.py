@@ -108,6 +108,16 @@ class DeleteCanonicalPlaylistUseCase:
 
         start_time = datetime.now(UTC)
 
+        def _raise_no_id_error() -> None:
+            raise ValueError(
+                "Playlist has no ID - cannot delete unsaved playlist"
+            )
+
+        def _raise_deletion_failed_error(playlist_id: int) -> None:
+            raise ValueError(
+                f"Failed to delete playlist {playlist_id} - it may not exist"
+            )
+
         logger.info(
             "Starting canonical playlist deletion",
             playlist_id=command.playlist_id,
@@ -121,8 +131,10 @@ class DeleteCanonicalPlaylistUseCase:
 
                 # Step 2: Check for external connections and warn if needed
                 warnings = []
-                if playlist.connector_playlist_ids and not command.force_delete:
-                    connected_services = list(playlist.connector_playlist_ids.keys())
+                if playlist.connector_playlist_identifiers and not command.force_delete:
+                    connected_services = list(
+                        playlist.connector_playlist_identifiers.keys()
+                    )
                     warnings.append(
                         f"Playlist is connected to external services: {connected_services}. "
                         "Use force_delete=True to delete anyway."
@@ -139,9 +151,7 @@ class DeleteCanonicalPlaylistUseCase:
                 # Step 3: Collect metadata before deletion
                 playlist_id = playlist.id
                 if playlist_id is None:
-                    raise ValueError(
-                        "Playlist has no ID - cannot delete unsaved playlist"
-                    )
+                    _raise_no_id_error()
 
                 playlist_name = playlist.name
                 tracks_count = len(playlist.tracks)
@@ -152,9 +162,7 @@ class DeleteCanonicalPlaylistUseCase:
                 deletion_successful = await playlist_repo.delete_playlist(playlist_id)
 
                 if not deletion_successful:
-                    raise ValueError(
-                        f"Failed to delete playlist {playlist_id} - it may not exist"
-                    )
+                    _raise_deletion_failed_error(playlist_id)
 
                 # Step 5: Commit transaction
                 await uow.commit()

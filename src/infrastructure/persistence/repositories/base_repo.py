@@ -17,11 +17,11 @@ from sqlalchemy.sql import ColumnElement
 from src.config import get_logger
 
 # Import needed for relationship chains in eager loading
-from src.infrastructure.persistence.database.db_models import NaradaDBBase
+from src.infrastructure.persistence.database.db_models import DatabaseModel
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 # Type variables with proper constraints
-TDBModel = TypeVar("TDBModel", bound=NaradaDBBase)
+TDBModel = TypeVar("TDBModel", bound=DatabaseModel)
 TDomainModel = TypeVar("TDomainModel")
 
 logger = get_logger(__name__)
@@ -65,12 +65,7 @@ async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
         return []
 
 
-def filter_active(model_class: type[NaradaDBBase]) -> ColumnElement:
-    """Return a filter expression for active (non-deleted) entities."""
-    return model_class.is_deleted == False  # noqa: E712
-
-
-class ModelMapper[TDBModel: NaradaDBBase, TDomainModel](Protocol):
+class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
     """Protocol for bidirectional mapping between models."""
 
     @staticmethod
@@ -96,8 +91,17 @@ class ModelMapper[TDBModel: NaradaDBBase, TDomainModel](Protocol):
         ...
 
 
+def has_session_support(mapper: Any) -> bool:
+    """Modern Python 3.13 type guard for session-aware mappers.
+
+    Uses hasattr() for runtime detection but provides type safety.
+    This is the recommended approach for optional protocol methods in 2025.
+    """
+    return hasattr(mapper, "to_domain_with_session")
+
+
 @define(frozen=True, slots=True)
-class BaseModelMapper[TDBModel: NaradaDBBase, TDomainModel]:
+class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
     """Base implementation of ModelMapper with common functionality.
 
     This provides a foundation for building domain-specific mappers
@@ -163,7 +167,7 @@ class BaseModelMapper[TDBModel: NaradaDBBase, TDomainModel]:
         return domain_models
 
 
-class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
+class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     """Base repository for database operations with SQLAlchemy 2.0 best practices."""
 
     def __init__(
@@ -182,26 +186,19 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
     # -------------------------------------------------------------------------
 
     def select(self, *columns: Any) -> Select[tuple[Any, ...]]:
-        """Create select statement for active records."""
-        stmt = select(*columns) if columns else select(self.model_class)
-        return stmt.where(self.model_class.is_deleted == False)  # noqa: E712
+        """Create select statement for records."""
+        return select(*columns) if columns else select(self.model_class)
 
     def select_by_id(self, id_: int) -> Select[tuple[TDBModel]]:
         """Create select statement for a record by ID."""
-        return select(self.model_class).where(
-            self.model_class.id == id_,
-            self.model_class.is_deleted == False,  # noqa: E712
-        )
+        return select(self.model_class).where(self.model_class.id == id_)
 
     def select_by_ids(self, ids: list[int]) -> Select[tuple[TDBModel]]:
         """Create select statement for multiple records by ID."""
         if not ids:
             # Return empty result statement
             return select(self.model_class).where(func.false())
-        return select(self.model_class).where(
-            self.model_class.id.in_(ids),
-            self.model_class.is_deleted == False,  # noqa: E712
-        )
+        return select(self.model_class).where(self.model_class.id.in_(ids))
 
     def order_by(
         self, stmt: Select[tuple[TDBModel]], field: str, ascending: bool = True
@@ -237,9 +234,7 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         self, conditions: dict[str, Any] | list[ColumnElement] | None = None
     ) -> Select:
         """Create a count statement for records matching conditions."""
-        stmt = select(func.count(self.model_class.id)).where(
-            self.model_class.is_deleted == False  # noqa: E712
-        )
+        stmt = select(func.count(self.model_class.id))
 
         # Apply additional conditions
         if conditions:
@@ -308,10 +303,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         """Get entity by ID - degenerate case of batch operation."""
         # Single operations are just batch([single_item]) - batch-first principle
         results = await self.get_by_ids([id_], load_relationships)
-        
+
         if not results:
             raise ValueError(f"Entity with ID {id_} not found")
-            
+
         return results[0]
 
     @db_operation("get_by_ids")
@@ -336,17 +331,19 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         # Use session-aware mapping for each entity (single code path)
         domain_models = []
         for db_entity in db_entities:
-            if not db_entity or db_entity.is_deleted:
+            if not db_entity:
                 continue
-                
-            if hasattr(self.mapper, 'to_domain_with_session'):
-                domain_model = await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]
+
+            if has_session_support(self.mapper):
+                domain_model = await cast("Any", self.mapper).to_domain_with_session(
+                    db_entity, self.session
+                )
             else:
                 domain_model = await self.mapper.to_domain(db_entity)
-                
+
             if domain_model:
                 domain_models.append(domain_model)
-                
+
         return domain_models
 
     @db_operation("find_by")
@@ -359,9 +356,7 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
     ) -> list[TDomainModel]:
         """Find entities matching conditions."""
         # Build the query directly with SQLAlchemy 2.0 syntax
-        stmt = select(self.model_class).where(
-            self.model_class.is_deleted == False  # noqa: E712
-        )
+        stmt = select(self.model_class)
 
         # Apply conditions
         match conditions:
@@ -425,18 +420,18 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
                 ],
             )
 
-            if not db_entity or db_entity.is_deleted:
+            if not db_entity:
                 return None
 
-            if hasattr(self.mapper, 'to_domain_with_session'):
-                return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            if has_session_support(self.mapper):
+                return await cast("Any", self.mapper).to_domain_with_session(
+                    db_entity, self.session
+                )
             else:
                 return await self.mapper.to_domain(db_entity)
 
         # For other conditions, use a query
-        stmt = select(self.model_class).where(
-            self.model_class.is_deleted == False  # noqa: E712
-        )
+        stmt = select(self.model_class)
 
         # Apply conditions
         match conditions:
@@ -467,8 +462,10 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         if not db_entity:
             return None
 
-        if hasattr(self.mapper, 'to_domain_with_session'):
-            return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]
+        if has_session_support(self.mapper):
+            return await cast("Any", self.mapper).to_domain_with_session(
+                db_entity, self.session
+            )
         else:
             return await self.mapper.to_domain(db_entity)
 
@@ -504,10 +501,7 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         # Execute update with RETURNING
         stmt = (
             update(self.model_class)
-            .where(
-                self.model_class.id == id_,
-                self.model_class.is_deleted == False,  # noqa: E712
-            )
+            .where(self.model_class.id == id_)
             .values(**values)
             .returning(self.model_class)
         )
@@ -522,36 +516,16 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         await self.session.refresh(
             updated_entity, attribute_names=self.mapper.get_default_relationships()
         )
-        if hasattr(self.mapper, 'to_domain_with_session'):
-            return await self.mapper.to_domain_with_session(updated_entity, self.session)  # type: ignore[attr-defined]
+        if has_session_support(self.mapper):
+            return await cast("Any", self.mapper).to_domain_with_session(
+                updated_entity, self.session
+            )
         else:
             return await self.mapper.to_domain(updated_entity)
 
-    @db_operation("soft_delete")
-    async def soft_delete(self, id_: int) -> int:
-        """Soft delete with execution options."""
-        stmt = (
-            update(self.model_class)
-            .where(
-                self.model_class.id == id_,
-                filter_active(self.model_class),
-            )
-            .values(
-                is_deleted=True,
-                deleted_at=datetime.now(UTC),
-            )
-            .execution_options(synchronize_session=False)
-        )
-        result = await self.session.execute(stmt)
-
-        if result.rowcount == 0:
-            raise ValueError(f"Entity with ID {id_} not found or already deleted")
-
-        return result.rowcount
-
-    @db_operation("hard_delete")
-    async def hard_delete(self, id_: int) -> int:
-        """Hard delete with ORM-enabled DELETE."""
+    @db_operation("delete")
+    async def delete(self, id_: int) -> int:
+        """Delete entity with ORM-enabled DELETE."""
         stmt = (
             delete(self.model_class)
             .where(self.model_class.id == id_)
@@ -616,6 +590,12 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         if create_attrs:
             insert_values.update(create_attrs)
 
+        def _raise_update_retrieval_error() -> None:
+            raise ValueError("Failed to retrieve entity after update")
+
+        def _raise_create_retrieval_error() -> None:
+            raise ValueError("Failed to retrieve entity after create")
+
         # Add timestamps
         now = datetime.now(UTC)
         if "created_at" not in insert_values:
@@ -626,9 +606,7 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
         try:
             # Phase 1: Try to find existing entity with lookup attributes
             # This avoids the complex lazy loading chains that cause greenlet issues
-            lookup_query = select(self.model_class.id).where(
-                self.model_class.is_deleted == False  # noqa: E712
-            )
+            lookup_query = select(self.model_class.id)
 
             # Add lookup conditions
             for field, value in lookup_attrs.items():
@@ -682,9 +660,11 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
 
                 # Convert to domain model
                 if db_entity is None:
-                    raise ValueError("Failed to retrieve entity after update")
-                if hasattr(self.mapper, 'to_domain_with_session'):
-                    return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                    _raise_update_retrieval_error()
+                if has_session_support(self.mapper):
+                    return await cast("Any", self.mapper).to_domain_with_session(
+                        db_entity, self.session
+                    )
                 else:
                     return await self.mapper.to_domain(db_entity)
             else:
@@ -723,9 +703,11 @@ class BaseRepository[TDBModel: NaradaDBBase, TDomainModel]:
 
                 # Convert to domain model
                 if db_entity is None:
-                    raise ValueError("Failed to retrieve entity after create")
-                if hasattr(self.mapper, 'to_domain_with_session'):
-                    return await self.mapper.to_domain_with_session(db_entity, self.session)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                    _raise_create_retrieval_error()
+                if has_session_support(self.mapper):
+                    return await cast("Any", self.mapper).to_domain_with_session(
+                        db_entity, self.session
+                    )
                 else:
                     return await self.mapper.to_domain(db_entity)
 

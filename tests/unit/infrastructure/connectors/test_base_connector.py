@@ -9,6 +9,7 @@ from src.domain.entities.track import Artist, ConnectorTrack
 from src.infrastructure.connectors.base import BaseAPIConnector
 
 
+@pytest.mark.unit
 class MockConnector(BaseAPIConnector):
     """Mock connector for testing BaseAPIConnector delegation."""
 

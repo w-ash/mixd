@@ -202,4 +202,3 @@ class SimpleBatchProcessor[T, R]:
             )
 
         return results
-

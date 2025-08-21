@@ -168,6 +168,9 @@ class EnrichTracksUseCase:
                     f"Filtered out {filtered_count} tracks without database IDs"
                 )
 
+            def _raise_unknown_enrichment_type_error(enrichment_type: str) -> None:
+                raise ValueError(f"Unknown enrichment type: {enrichment_type}")
+
             # Create filtered tracklist for processing
             filtered_tracklist = TrackList(
                 tracks=valid_tracks, metadata=command.tracklist.metadata
@@ -184,9 +187,7 @@ class EnrichTracksUseCase:
                         filtered_tracklist, command.enrichment_config, uow
                     )
                 else:
-                    raise ValueError(
-                        f"Unknown enrichment type: {command.enrichment_config.enrichment_type}"
-                    )
+                    _raise_unknown_enrichment_type_error(command.enrichment_config.enrichment_type)
 
                 execution_time_ms = int((time.time() - start_time) * 1000)
                 enriched_count = sum(len(metrics) for metrics in result[1].values())
@@ -265,7 +266,7 @@ class EnrichTracksUseCase:
             tracklist=tracklist,
             connector=config.connector,
             connector_instance=config.connector_instance,
-            uow=uow
+            uow=uow,
         )
 
         # Step 2: Use MetricsApplicationService for cache-first metric resolution
