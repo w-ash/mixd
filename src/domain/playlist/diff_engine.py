@@ -443,8 +443,12 @@ def calculate_lis_reorder_operations(
         f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
     )
 
-    if tracks_to_move and len(tracks_to_move) <= settings.batch.move_log_threshold:  # Only log if small number
-        logger.debug(f"Tracks identified as needing moves: {tracks_to_move[:settings.batch.move_log_threshold]}")
+    if (
+        tracks_to_move and len(tracks_to_move) <= settings.batch.move_log_threshold
+    ):  # Only log if small number
+        logger.debug(
+            f"Tracks identified as needing moves: {tracks_to_move[: settings.batch.move_log_threshold]}"
+        )
 
     # Generate move operations only for track instances not in LIS
     operations = []

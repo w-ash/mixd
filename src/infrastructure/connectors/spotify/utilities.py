@@ -122,7 +122,11 @@ def extract_spotify_id_from_uri(spotify_uri: str) -> str | None:
     try:
         # Expected format: "spotify:track:3tI6o5tSlbB2trBl5UKJ1z"
         parts = spotify_uri.split(":")
-        if len(parts) != SpotifyConstants.URI_PARTS_COUNT or parts[0] != "spotify" or parts[1] != "track":
+        if (
+            len(parts) != SpotifyConstants.URI_PARTS_COUNT
+            or parts[0] != "spotify"
+            or parts[1] != "track"
+        ):
             logger.debug(f"Invalid Spotify URI format: {spotify_uri}")
             return None
 

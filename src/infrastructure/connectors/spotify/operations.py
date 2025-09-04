@@ -18,7 +18,7 @@ providing reusable business logic while maintaining clean separation of concerns
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from attrs import define, field
 
@@ -62,39 +62,26 @@ class SpotifyOperations:
 
     client: SpotifyAPIClient = field()
 
-    @property
-    def batch_processor(self):
-        """Get pre-configured batch processor for Spotify operations."""
-        from src.infrastructure.connectors._shared.api_batch_processor import (
-            APIBatchProcessor,
-        )
-
-        return APIBatchProcessor(
-            batch_size=settings.api.spotify_batch_size,
-            concurrency_limit=settings.api.spotify_concurrency,
-            retry_count=settings.api.spotify_retry_count,
-            retry_base_delay=settings.api.spotify_retry_base_delay,
-            retry_max_delay=settings.api.spotify_retry_max_delay,
-            request_delay=settings.api.spotify_request_delay,
-            rate_limiter=None,  # Rate limiting handled in client
-            logger_instance=logger,
-        )
-
     # Bulk Track Operations
 
     async def get_tracks_by_ids(
         self, track_ids: list[str]
     ) -> dict[str, dict[str, Any]]:
-        """Fetch multiple tracks from Spotify with intelligent batching."""
+        """Fetch multiple tracks from Spotify with simple bulk batching."""
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
 
         results = {}
-
-        async def process_batch(batch_ids: list[str]) -> dict[str, dict[str, Any]]:
-            """Process a single batch of track IDs."""
-            batch_results = {}
-
+        
+        # Process in batches using Spotify's bulk API (50 tracks per call)
+        batch_size = settings.api.spotify_batch_size
+        total_batches = (len(track_ids) + batch_size - 1) // batch_size
+        
+        logger.info(f"Fetching {len(track_ids)} tracks in {total_batches} batches")
+        
+        for i in range(0, len(track_ids), batch_size):
+            batch_ids = track_ids[i : i + batch_size]
+            
             try:
                 # Use bulk tracks API - single call for up to 50 tracks
                 tracks_response = await self.client.get_tracks_bulk(batch_ids)
@@ -103,14 +90,14 @@ class SpotifyOperations:
                     for track in tracks_response["tracks"]:
                         if track and "id" in track:
                             current_id = track["id"]
-                            batch_results[current_id] = track
+                            results[current_id] = track
 
                             # Handle Spotify relinking: if track has linked_from,
                             # also map the original track ID to this data
                             linked_from = track.get("linked_from")
                             if linked_from and "id" in linked_from:
                                 original_id = linked_from["id"]
-                                batch_results[original_id] = track
+                                results[original_id] = track
                                 logger.debug(
                                     f"Relinked track found: {original_id} -> {current_id}"
                                 )
@@ -118,28 +105,14 @@ class SpotifyOperations:
                             logger.warning("Received null track in batch response")
 
             except Exception as e:
-                logger.error(f"Failed to fetch track batch: {e}")
+                logger.error(f"Failed to fetch batch {i // batch_size + 1}/{total_batches}: {e}")
+                continue
 
-            return batch_results
+            # Brief delay between requests if configured
+            if settings.api.spotify_request_delay > 0:
+                await asyncio.sleep(settings.api.spotify_request_delay)
 
-        # Process using batch processor
-        batch_results = await self.batch_processor.process(
-            items=[
-                track_ids[i : i + settings.api.spotify_batch_size]
-                for i in range(0, len(track_ids), settings.api.spotify_batch_size)
-            ],
-            process_func=process_batch,
-            progress_description="Fetching Spotify track metadata",
-        )
-
-        # Merge all batch results
-        for batch_result in batch_results:
-            if isinstance(batch_result, dict):
-                results.update(batch_result)
-
-        logger.info(
-            f"Retrieved {len(results)}/{len(track_ids)} tracks using batch processor"
-        )
+        logger.info(f"Retrieved {len(results)}/{len(track_ids)} tracks")
         return results
 
     async def batch_get_track_info(
@@ -176,7 +149,7 @@ class SpotifyOperations:
         # Get initial playlist data
         raw_playlist = await self.client.get_playlist(playlist_id)
         if not isinstance(raw_playlist, dict):
-            raise ValueError(f"Invalid playlist response for ID {playlist_id}")
+            raise TypeError(f"Invalid playlist response for ID {playlist_id}")
 
         # Handle pagination to get all tracks
         tracks = raw_playlist["tracks"]
@@ -230,7 +203,8 @@ class SpotifyOperations:
         description: str | None = None,
     ) -> str:
         """Create a new Spotify playlist with tracks using batch processing."""
-        def _raise_playlist_creation_error() -> None:
+
+        def _raise_playlist_creation_error() -> NoReturn:
             raise ValueError("Failed to create playlist, received None")
 
         try:
@@ -313,27 +287,31 @@ class SpotifyOperations:
     async def _add_tracks_to_playlist_batched(
         self, playlist_id: str, track_uris: list[str]
     ) -> None:
-        """Add tracks to playlist using batch processing."""
+        """Add tracks to playlist using simple bulk batching."""
         if not track_uris:
             return
 
         large_batch_size = settings.api.spotify_large_batch_size
-
-        async def add_batch(batch_uris: list[str]) -> None:
-            """Add a batch of track URIs to the playlist."""
-            await self.client.playlist_add_items(
-                playlist_id=playlist_id, items=batch_uris
-            )
-
-        # Process using batch processor
-        await self.batch_processor.process(
-            items=[
-                track_uris[i : i + large_batch_size]
-                for i in range(0, len(track_uris), large_batch_size)
-            ],
-            process_func=add_batch,
-            progress_description="Adding tracks to playlist",
-        )
+        total_batches = (len(track_uris) + large_batch_size - 1) // large_batch_size
+        
+        logger.info(f"Adding {len(track_uris)} tracks to playlist in {total_batches} batches")
+        
+        for i in range(0, len(track_uris), large_batch_size):
+            batch_uris = track_uris[i : i + large_batch_size]
+            
+            try:
+                await self.client.playlist_add_items(
+                    playlist_id=playlist_id, items=batch_uris
+                )
+                logger.debug(f"Added batch {i // large_batch_size + 1}/{total_batches}")
+                
+            except Exception as e:
+                logger.error(f"Failed to add batch {i // large_batch_size + 1}/{total_batches}: {e}")
+                continue
+            
+            # Brief delay between requests if configured
+            if settings.api.spotify_request_delay > 0:
+                await asyncio.sleep(settings.api.spotify_request_delay)
 
     # Differential Playlist Operations
 
@@ -589,7 +567,8 @@ class SpotifyOperations:
         Raises:
             ValueError: If playlist not found
         """
-        def _raise_playlist_not_found_error(playlist_id: str) -> None:
+
+        def _raise_playlist_not_found_error(playlist_id: str) -> NoReturn:
             raise ValueError(f"Playlist {playlist_id} not found")
 
         logger.debug(f"Fetching Spotify playlist details for {playlist_id}")

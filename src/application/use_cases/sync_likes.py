@@ -197,10 +197,8 @@ class ImportSpotifyLikesUseCase:
                             f"Could not ingest track: {connector_track.title}"
                         )
 
-                except Exception as e:
-                    logger.exception(
-                        f"Error importing track {connector_track.title}: {e}"
-                    )
+                except Exception:
+                    logger.exception(f"Error importing track {connector_track.title}")
 
             # Save likes for all successful tracks
             for track_id in successful_tracks:
@@ -212,8 +210,8 @@ class ImportSpotifyLikesUseCase:
                         uow=uow,
                     )
                     imported_count += 1
-                except Exception as e:
-                    logger.exception(f"Error saving likes for track {track_id}: {e}")
+                except Exception:
+                    logger.exception(f"Error saving likes for track {track_id}")
 
             batches_processed += 1
 
@@ -552,10 +550,8 @@ class ExportLastFmLikesUseCase:
                     )
                     tracks_to_match.append(track)
 
-                except Exception as e:
-                    logger.exception(
-                        f"Error preparing track {track_like.track_id}: {e}"
-                    )
+                except Exception:
+                    logger.exception(f"Error preparing track {track_like.track_id}")
                     error_count += 1
 
             logger.info(
@@ -763,7 +759,7 @@ class ExportLastFmLikesUseCase:
                 result = await processor_func(track, connector, uow)
                 results.append(result)
             except Exception as e:
-                logger.exception(f"Error processing track {track.id}: {e}")
+                logger.exception(f"Error processing track {track.id}")
                 results.append({
                     "track_id": track.id,
                     "status": "error",

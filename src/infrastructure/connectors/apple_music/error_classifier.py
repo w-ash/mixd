@@ -68,7 +68,9 @@ class AppleMusicErrorClassifier(BaseErrorClassifier):
                     str(http_status),
                     "Too Many Requests - rate limit exceeded",
                 )
-            elif HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX:
+            elif (
+                HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX
+            ):
                 return (
                     "permanent",
                     str(http_status),
@@ -84,7 +86,11 @@ class AppleMusicErrorClassifier(BaseErrorClassifier):
                 return ("temporary", str(http_status), "Service Unavailable")
             elif http_status == HTTPStatus.GATEWAY_TIMEOUT:
                 return ("temporary", str(http_status), "Gateway Timeout")
-            elif HTTPStatus.INTERNAL_SERVER_ERROR <= http_status < HTTPStatus.SERVER_ERROR_MAX:
+            elif (
+                HTTPStatus.INTERNAL_SERVER_ERROR
+                <= http_status
+                < HTTPStatus.SERVER_ERROR_MAX
+            ):
                 return (
                     "temporary",
                     str(http_status),
@@ -160,12 +166,22 @@ class AppleMusicErrorClassifier(BaseErrorClassifier):
         for attr in ["status_code", "http_status", "code", "response"]:
             if hasattr(exception, attr):
                 value = getattr(exception, attr)
-                if isinstance(value, int) and HTTPStatus.HTTP_STATUS_MIN <= value < HTTPStatus.SERVER_ERROR_MAX:
+                if (
+                    isinstance(value, int)
+                    and HTTPStatus.HTTP_STATUS_MIN
+                    <= value
+                    < HTTPStatus.SERVER_ERROR_MAX
+                ):
                     return value
                 # Handle response objects that might contain status
                 elif hasattr(value, "status_code") and not isinstance(value, int):
                     status = value.status_code
-                    if isinstance(status, int) and HTTPStatus.HTTP_STATUS_MIN <= status < HTTPStatus.SERVER_ERROR_MAX:
+                    if (
+                        isinstance(status, int)
+                        and HTTPStatus.HTTP_STATUS_MIN
+                        <= status
+                        < HTTPStatus.SERVER_ERROR_MAX
+                    ):
                         return status
 
         return None

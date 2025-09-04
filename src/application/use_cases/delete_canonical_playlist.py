@@ -6,7 +6,7 @@ and atomic transaction management to ensure data consistency.
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from attrs import define, field
 
@@ -108,12 +108,10 @@ class DeleteCanonicalPlaylistUseCase:
 
         start_time = datetime.now(UTC)
 
-        def _raise_no_id_error() -> None:
-            raise ValueError(
-                "Playlist has no ID - cannot delete unsaved playlist"
-            )
+        def _raise_no_id_error() -> NoReturn:
+            raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
 
-        def _raise_deletion_failed_error(playlist_id: int) -> None:
+        def _raise_deletion_failed_error(playlist_id: int) -> NoReturn:
             raise ValueError(
                 f"Failed to delete playlist {playlist_id} - it may not exist"
             )

@@ -89,7 +89,7 @@ narada likes export-lastfm --batch-size 100
 
 #### Features
 
-- **Organized Commands**: Logical grouping of related functionality (playlist, history, likes)
+- **Organized Commands**: 6 command groups for logical functionality (playlist, history, likes, track, setup, status)
 - **Interactive Menus**: Run commands without arguments for guided workflows
 - **Rich Progress Display**: Real-time progress tracking with visual feedback
 - **Professional Output**: Beautiful tables and panels with color coding
@@ -168,12 +168,13 @@ narada playlist run discovery_mix
 
 ## Architecture
 
-Narada is built for reliability and performance:
+Narada uses **Domain-Driven Design (DDD) + Hexagonal Architecture** for reliability and performance:
 
 - **Fast**: Optimized batch processing and async operations
 - **Reliable**: Comprehensive error handling and data validation
-- **Extensible**: Plugin-based workflow system for custom transformations
-- **Type-Safe**: Full typing support for better development experience
+- **Extensible**: Plugin-based workflow system and self-contained service connectors
+- **Type-Safe**: Full typing support with Python 3.13+ features
+- **Maintainable**: Clean architecture with strict dependency boundaries
 
 ## Development
 
@@ -183,8 +184,16 @@ Narada is built for reliability and performance:
 narada/
 ├── src/                 # Core application code
 │   ├── domain/         # Business logic and entities
-│   ├── application/    # Use cases and workflows
+│   │   ├── entities/   # Track, Playlist, Play objects
+│   │   ├── matching/   # Track matching algorithms
+│   │   └── workflows/  # Domain logic for operations
+│   ├── application/    # Use cases and orchestration
+│   │   ├── use_cases/  # Single business operations  
+│   │   ├── services/   # Multi-repository coordination
+│   │   └── workflows/  # Prefect 3.0 orchestration
 │   ├── infrastructure/ # External services and persistence
+│   │   ├── connectors/ # Self-contained service modules (spotify/, lastfm/)
+│   │   └── persistence/ # Database and repositories
 │   └── interface/      # CLI and future web interfaces
 ├── docs/               # Documentation and guides
 ├── tests/              # Test suite
@@ -204,8 +213,8 @@ poetry run pytest --cov=narada --cov-report=html
 poetry run ruff check --fix .
 poetry run ruff format .
 
-# Type checking
-poetry run pyright narada/
+# Type checking  
+poetry run basedpyright src/
 
 # Run integration tests only
 poetry run pytest -m integration

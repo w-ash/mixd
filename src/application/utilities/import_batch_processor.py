@@ -36,7 +36,7 @@ class ImportBatchProcessor[T, R]:
     rate limiting or complex concurrency control.
 
     DO NOT USE for external API calls, database operations, or simple chunking.
-    Use APIBatchProcessor, DatabaseBatchProcessor, or SimpleBatchProcessor instead.
+    Use DatabaseBatchProcessor or SimpleBatchProcessor instead.
 
     Args:
         batch_size: Items per batch (controls memory usage)

@@ -36,7 +36,6 @@ class SimpleBatchProcessor[T, R]:
     specialized features like retry logic, rate limiting, or error classification.
 
     Use this for simple utility operations. For specialized needs, use:
-    - APIBatchProcessor: External API calls with rate limiting
     - DatabaseBatchProcessor: Database operations with transaction safety
     - ImportBatchProcessor: File processing with memory management
 

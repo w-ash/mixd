@@ -536,7 +536,10 @@ class TrackConnectorRepository:
 
                 # Update mapping confidence if needed
                 if mapping["confidence"] < BusinessLimits.FULL_CONFIDENCE_SCORE:
-                    await self.mapping_repo.update(mapping["id"], {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE})
+                    await self.mapping_repo.update(
+                        mapping["id"],
+                        {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE},
+                    )
             else:
                 # Create new track using the representative track
                 artists = (

@@ -23,12 +23,24 @@ Narada implements Clean Architecture principles with strict dependency boundarie
 ### Dependency Flow
 
 ```
-External Services → Infrastructure → Application → Domain
+Interface → Application → Domain ← Infrastructure ← External Services
 ```
 
 Dependencies only flow inward, creating a stable core surrounded by adaptable interfaces.
 
 ### Layer Responsibilities
+
+#### Interface Layer (`src/interface/`)
+- **Purpose**: Primary adapters that provide entry points to the application
+- **Contents**: CLI commands, future web controllers, API endpoints
+- **Examples**: Typer CLI commands for playlist management, track operations, sync commands
+- **Responsibilities**: 
+  - **User interaction handling**: Parse user input, format output, manage user sessions
+  - **Command orchestration**: Translate user commands into application use cases
+  - **Progress reporting**: Provide real-time feedback and error messages
+  - **Input validation**: Basic validation before delegating to use cases
+- **Benefits**: Multiple interfaces can reuse same application logic, clean separation of UI concerns
+- **Key Principle**: Only calls application use cases, never accesses domain or infrastructure directly
 
 #### Domain Layer (`src/domain/`)
 - **Purpose**: Pure business logic with zero external dependencies
@@ -40,24 +52,46 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 #### Application Layer (`src/application/`)
 - **Purpose**: Orchestration and transaction boundary management
-- **Contents**: Use case implementations, workflow definitions, business services
-- **Examples**: ImportTracksUseCase, SyncPlaylistUseCase, EnrichTracksUseCase, MatchAndIdentifyTracksUseCase
+- **Contents**: Use case implementations, workflow definitions, application services
+- **Structure**:
+  - `use_cases/` - High-level business operations (13 use cases)
+    - Core playlist operations: create, read, update, delete canonical playlists
+    - Connector operations: create/update connector playlists  
+    - Data operations: import play history, enrich tracks, sync likes
+    - Query operations: get liked/played tracks, match and identify tracks
+  - `services/` - Application-level coordination services (6 services)
+    - `connector_playlist_processing_service.py` - Playlist processing coordination
+    - `connector_playlist_sync_service.py` - Cross-service playlist synchronization
+    - `metrics_application_service.py` - Metrics collection and caching coordination
+    - `play_import_orchestrator.py` - Play history import orchestration
+    - `playlist_backup_service.py` - Playlist backup and restoration
+    - `track_merge_service.py` - Canonical track merging operations
+  - `workflows/` - Prefect workflow definitions and node implementations
 - **Responsibilities**: 
   - **Orchestrates business processes**: Coordinates the steps involved in complex operations (fetching, comparing, filtering, saving)
   - **Controls transaction boundaries**: Decides when transactions begin, commit, or rollback based on business logic
   - **Uses repositories as tools**: Asks repositories to fetch, save, or update domain models without knowing implementation details
-- **Benefits**: Testable business logic, clear boundaries, reusable components
+  - **Coordinates complex operations**: Application services handle multi-step processes that span multiple repositories
+- **Benefits**: Testable business logic, clear boundaries, reusable components, separation of simple operations from complex coordination
 - **Key Principle**: Uses repositories like contract-based tools, owns transaction control logic
 
 #### Infrastructure Layer (`src/infrastructure/`)
 - **Purpose**: External integrations and technical implementation
-- **Contents**: Database repositories, API connectors, CLI commands, UnitOfWork implementations
-- **Examples**: SpotifyConnector, SQLAlchemyRepository, TyperCLI, DatabaseUnitOfWork
+- **Contents**: Database repositories, API connectors, UnitOfWork implementations, persistence layer
+- **Examples**: SpotifyConnector, SQLAlchemyRepository implementations, DatabaseUnitOfWork
+- **Structure**:
+  - `connectors/` - External service API clients (Spotify, Last.fm, Apple Music)
+  - `persistence/repositories/` - Concrete repository implementations organized by domain
+    - `track/` - Core track operations, connector mappings, likes, metrics, plays
+    - `playlist/` - Core playlist operations, connector mappings
+    - `play/` - Play history and connector play operations
+  - `persistence/database/` - SQLAlchemy models and database configuration
+  - `services/` - Infrastructure-level services (playlist operations, etc.)
 - **Responsibilities**: 
   - **Implements repository contracts**: Provides concrete implementations that handle database queries and external service calls
   - **Handles technical transaction details**: Manages actual database connections, commits, rollbacks
   - **External service integration**: Communicates with Spotify, Last.fm, MusicBrainz APIs
-- **Benefits**: Swappable implementations, isolated side effects
+- **Benefits**: Swappable implementations, isolated side effects, organized by domain
 - **Key Principle**: Entirely behind interfaces, decoupled from application layer
 
 ### Why Clean Architecture?
@@ -245,10 +279,10 @@ Declarative transformation pipelines.
 **Usage**: Local database with async ORM patterns and specialized session management
 **Benefits**: No server setup, data integrity, complex queries, concurrent operation support
 
-#### Prefect (Workflow Engine)
-**Why**: Robust execution, minimal overhead, progress tracking
-**Usage**: Workflow orchestration with embedded mode
-**Benefits**: Retry logic, error handling, real-time feedback
+#### Prefect 3.0 (Workflow Engine)
+**Why**: Modern async workflow orchestration with improved dependency management
+**Usage**: Workflow orchestration with embedded mode and built-in dependency injection
+**Benefits**: Native async support, retry logic, error handling, real-time feedback, transactional semantics
 
 #### Typer + Rich (CLI)
 **Why**: Type-safe CLI with beautiful output
@@ -388,14 +422,15 @@ tracks (canonical) ↔ track_mappings ↔ connector_tracks (service-specific)
 - Efficient incremental operations
 - Historical analysis capability
 
-### Soft Delete Pattern
+### Hard Delete Pattern
 
-All entities support soft deletion with `is_deleted` flag and `deleted_at` timestamp.
+All entities use hard deletion for simplicity and performance. Data recovery relies on external API re-import and database backups.
 
 **Benefits**:
-- Maintains referential integrity
-- Enables data recovery
-- Supports audit requirements
+- Simplified queries (no is_deleted filters)
+- Better performance (smaller indexes)
+- Cleaner data model
+- External APIs serve as source of truth for recovery
 
 ## Database-First Workflow Architecture
 
@@ -761,9 +796,8 @@ class UpdateCanonicalPlaylistUseCase:
 Dependencies flow inward following clean architecture principles:
 
 ```
-CLI → Use Cases → Domain Logic
- ↓      ↓           ↓
-Infrastructure ← Application ← Domain
+Interface → Application → Domain ← Infrastructure
+(CLI)      (Use Cases)   (Logic)   (Repositories)
 ```
 
 **Benefits Achieved**:
@@ -903,7 +937,10 @@ Start with simple implementations, add sophistication incrementally. Avoid over-
 ## Migration and Evolution
 
 ### Backward Compatibility
-- **Database Migrations**: Alembic for schema evolution
+- **Database Migrations**: Alembic for schema evolution with SQLAlchemy 2.0 integration
+  - Migration files in `alembic/versions/`
+  - Auto-generation from SQLAlchemy model changes
+  - Forward and rollback migration support
 - **API Versioning**: Maintain compatibility during changes
 - **Configuration**: Graceful handling of configuration changes
 

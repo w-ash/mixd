@@ -273,6 +273,44 @@ class NewServiceMatchingProvider(BaseMatchingProvider):
 - UTC timestamps: `datetime.now(UTC)`
 - Dependency injection in use cases
 
+## Logging
+
+### Basic Usage
+```python
+from src.config.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("Operation complete", batch_size=100, status="success")
+```
+
+### Error Handling
+```python
+from src.config.logging import resilient_operation
+
+@resilient_operation("spotify_sync")
+async def sync_playlist(playlist_id: str):
+    # Auto-logs timing, errors with HTTP classification
+    return await spotify.get_playlist(playlist_id)
+
+@resilient_operation("batch_import", include_timing=False)
+async def import_batch(items: list):
+    # Skip timing for bulk operations
+    return await process_items(items)
+```
+
+### Production Configuration
+Set environment variables for production safety:
+```bash
+# Disable sensitive data logging in production
+export LOGGING__DIAGNOSE_IN_PRODUCTION=false
+export LOGGING__BACKTRACE_IN_PRODUCTION=false
+
+# Configure log management
+export LOGGING__ROTATION="50 MB"
+export LOGGING__RETENTION="2 weeks"
+export LOGGING__FILE_LEVEL="INFO"
+```
+
 ## Troubleshooting
 
 ### Quick Fixes

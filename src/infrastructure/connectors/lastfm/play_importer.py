@@ -78,7 +78,9 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         # Handle checkpoint reset for full history imports (moved from application layer)
         limit = typed_params.get("limit")
-        if limit and limit >= settings.import_settings.full_history_import_threshold:  # Full history import detection
+        if (
+            limit and limit >= settings.import_settings.full_history_import_threshold
+        ):  # Full history import detection
             await self._reset_checkpoint_for_full_history(
                 typed_params.get("username"), uow
             )
@@ -191,6 +193,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         MIGRATED: Eliminates duplicate checkpoint loading logic across methods.
         """
+
         def _raise_username_required_error() -> None:
             raise ValueError("Username is required for checkpoint operations")
 
@@ -529,7 +532,10 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             all_day_records.extend(chunk_records)
 
             # If we got exactly 200 again, we might need smaller chunks
-            if len(chunk_records) == LastFMConstants.RECENT_TRACKS_MAX_LIMIT and chunk_hours > 1:
+            if (
+                len(chunk_records) == LastFMConstants.RECENT_TRACKS_MAX_LIMIT
+                and chunk_hours > 1
+            ):
                 new_chunk_hours = max(1, chunk_hours // 2)
                 logger.info(
                     f"Day {current_date}: {chunk_hours}h chunk full, reducing to {new_chunk_hours}h chunks"

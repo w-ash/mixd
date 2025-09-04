@@ -7,7 +7,7 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from attrs import define, field
 
@@ -168,7 +168,7 @@ class EnrichTracksUseCase:
                     f"Filtered out {filtered_count} tracks without database IDs"
                 )
 
-            def _raise_unknown_enrichment_type_error(enrichment_type: str) -> None:
+            def _raise_unknown_enrichment_type_error(enrichment_type: str) -> NoReturn:
                 raise ValueError(f"Unknown enrichment type: {enrichment_type}")
 
             # Create filtered tracklist for processing
@@ -187,7 +187,9 @@ class EnrichTracksUseCase:
                         filtered_tracklist, command.enrichment_config, uow
                     )
                 else:
-                    _raise_unknown_enrichment_type_error(command.enrichment_config.enrichment_type)
+                    _raise_unknown_enrichment_type_error(
+                        command.enrichment_config.enrichment_type
+                    )
 
                 execution_time_ms = int((time.time() - start_time) * 1000)
                 enriched_count = sum(len(metrics) for metrics in result[1].values())

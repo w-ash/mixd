@@ -67,31 +67,29 @@ class MusicBrainzConnector(BaseAPIConnector):
     async def batch_isrc_lookup(
         self, isrcs: list[str], progress_desc: str = "MusicBrainz ISRC lookup"
     ) -> dict[str, str | None]:
-        """Batch lookup of ISRCs to MBIDs with progress tracking."""
+        """Sequential lookup of ISRCs to MBIDs with rate limiting."""
         if not isrcs:
             return {}
 
-        logger.info(f"Starting batch ISRC lookup for {len(isrcs)} ISRCs")
+        logger.info(f"Starting {progress_desc} for {len(isrcs)} ISRCs")
 
-        async def process_isrc(isrc: str) -> tuple[str, str | None]:
-            """Process a single ISRC and return its MBID."""
-            mbid = await self.get_recording_by_isrc(isrc)
-            return isrc, mbid
-
-        # Get batch processor for rate-limited processing
-        batch_processor = self._get_batch_processor()
-
-        # Process using batch processor
-        batch_results = await batch_processor.process(
-            items=isrcs, process_func=process_isrc, progress_description=progress_desc
-        )
-
-        # Convert results to expected format
-        results = dict(batch_results)
+        results = {}
+        
+        for i, isrc in enumerate(isrcs, 1):
+            try:
+                mbid = await self.get_recording_by_isrc(isrc)
+                results[isrc] = mbid
+                
+                if i % 10 == 0 or i == len(isrcs):
+                    logger.info(f"Processed {i}/{len(isrcs)} ISRCs")
+                    
+            except Exception as e:
+                logger.error(f"Failed to lookup ISRC {isrc}: {e}")
+                results[isrc] = None
 
         success_count = sum(1 for mbid in results.values() if mbid is not None)
         logger.info(
-            f"Batch ISRC lookup completed: {success_count}/{len(isrcs)} successful"
+            f"Sequential ISRC lookup completed: {success_count}/{len(isrcs)} successful"
         )
 
         return results
@@ -101,23 +99,6 @@ class MusicBrainzConnector(BaseAPIConnector):
         from .conversions import convert_musicbrainz_track_to_connector
 
         return convert_musicbrainz_track_to_connector(track_data)
-
-    def _get_batch_processor(self):
-        """Get pre-configured batch processor for MusicBrainz operations."""
-        from src.infrastructure.connectors._shared.api_batch_processor import (
-            APIBatchProcessor,
-        )
-
-        return APIBatchProcessor(
-            batch_size=1,  # MusicBrainz requires sequential requests
-            concurrency_limit=1,  # No concurrency due to rate limiting
-            retry_count=3,
-            retry_base_delay=1.0,
-            retry_max_delay=5.0,
-            request_delay=1.0,  # 1 second between requests
-            rate_limiter=None,  # Rate limiting handled in client
-            logger_instance=logger,
-        )
 
 
 def get_connector_config() -> ConnectorConfig:

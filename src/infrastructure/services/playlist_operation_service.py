@@ -193,7 +193,8 @@ class PlaylistOperationService:
             expected_position = sorted_adds[0].position + len(current_batch_ops)
 
             if (
-                op.position == expected_position and len(current_batch_ops) < settings.api.spotify_large_batch_size
+                op.position == expected_position
+                and len(current_batch_ops) < settings.api.spotify_large_batch_size
             ):  # API limit
                 # Extend current batch
                 current_batch_ops.append(op)

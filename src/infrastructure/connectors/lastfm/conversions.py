@@ -11,7 +11,7 @@ Key components:
 """
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Any
 
 from attrs import define, field
 import pylast
@@ -82,8 +82,46 @@ class LastFMTrackInfo:
         return cls()
 
     @classmethod
+    def from_comprehensive_data(cls, track_data: dict[str, Any]) -> "LastFMTrackInfo":
+        """Create LastFMTrackInfo from comprehensive track data (single API call).
+        
+        This method uses data from a single track.getInfo API call, avoiding the 
+        14 individual API calls that from_pylast_track_sync() makes.
+        
+        Args:
+            track_data: Dict containing all track metadata from single API response
+            
+        Returns:
+            LastFMTrackInfo with all available fields populated
+        """
+        if not track_data:
+            return cls.empty()
+            
+        # Directly map the comprehensive data to LastFMTrackInfo fields
+        return cls(
+            lastfm_title=track_data.get('lastfm_title'),
+            lastfm_mbid=track_data.get('lastfm_mbid'),
+            lastfm_url=track_data.get('lastfm_url'),
+            lastfm_duration=track_data.get('lastfm_duration'),
+            lastfm_artist_name=track_data.get('lastfm_artist_name'),
+            lastfm_artist_mbid=track_data.get('lastfm_artist_mbid'),
+            lastfm_artist_url=track_data.get('lastfm_artist_url'),
+            lastfm_album_name=track_data.get('lastfm_album_name'),
+            lastfm_album_mbid=track_data.get('lastfm_album_mbid'),
+            lastfm_album_url=track_data.get('lastfm_album_url'),
+            lastfm_user_playcount=track_data.get('lastfm_user_playcount'),
+            lastfm_global_playcount=track_data.get('lastfm_global_playcount'),
+            lastfm_listeners=track_data.get('lastfm_listeners'),
+            lastfm_user_loved=track_data.get('lastfm_user_loved', False),
+        )
+
+    @classmethod
     def from_pylast_track_sync(cls, track: pylast.Track) -> "LastFMTrackInfo":
-        """Create LastFMTrackInfo from a pylast Track object (all fields)."""
+        """Create LastFMTrackInfo from a pylast Track object (all fields).
+        
+        WARNING: This method makes 14 individual API calls and is SLOW (~1,400ms).
+        Use from_comprehensive_data() instead for better performance (~100ms).
+        """
         info = {}
         extraction_errors = []
         track_not_found = False

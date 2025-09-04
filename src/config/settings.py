@@ -26,10 +26,26 @@ class DatabaseConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """Logging configuration for console and file output."""
 
+    # Existing fields (backward compatible)
     console_level: str = "INFO"
     file_level: str = "DEBUG"
     log_file: Path = Path("narada.log")
     real_time_debug: bool = True
+
+    # New optional fields with backward-compatible defaults
+    diagnose_in_production: bool = (
+        False  # Security: disable variable inspection in prod
+    )
+    backtrace_in_production: bool = (
+        False  # Security: disable detailed tracebacks in prod
+    )
+    console_format: str | None = None  # Use current default if None
+    file_format: str | None = None  # Use current default if None
+    rotation: str = "10 MB"  # File rotation size
+    retention: str = "1 week"  # Log retention period
+    compression: str = "zip"  # Compression format for rotated logs
+    serialize: bool = True  # Enable JSON structured logging
+    catch_internal_errors: bool = True  # Catch errors within logger itself
 
 
 class CredentialsConfig(BaseModel):
@@ -65,7 +81,9 @@ class APIConfig(BaseModel):
     lastfm_retry_count: int = 8  # Max retries for network/rate limit errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
     lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
-    lastfm_request_delay: float = 0.2  # Delay between requests (seconds)
+    lastfm_request_delay: float = 0.2  # Delay between requests (seconds) - DEPRECATED
+    lastfm_request_timeout: float = 10.0  # HTTP request timeout in seconds
+    lastfm_connection_timeout: float = 5.0  # Connection establishment timeout
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
     lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
 
@@ -111,11 +129,13 @@ class ImportConfig(BaseModel):
     retry_base_delay: float = 1.0  # Base retry delay in seconds
     memory_limit_mb: int = 100  # Advisory memory limit per batch
     progress_frequency: int = 100
-    
+
     # Warning thresholds
     memory_warning_threshold: int = 10000  # Warn if batch size exceeds this
     file_size_warning_mb: int = 100  # Warn if file size exceeds this (MB)
-    full_history_import_threshold: int = 10000  # Threshold to detect full history imports
+    full_history_import_threshold: int = (
+        10000  # Threshold to detect full history imports
+    )
 
 
 class MatchingConfig(BaseModel):
@@ -127,8 +147,8 @@ class MatchingConfig(BaseModel):
     base_confidence_artist_title: int = 90
 
     # Confidence thresholds for match acceptance
-    threshold_isrc: int = 85
-    threshold_mbid: int = 85
+    threshold_isrc: int = 60
+    threshold_mbid: int = 60
     threshold_artist_title: int = 50  # Reduced from 70 to handle version differences
     threshold_default: int = 50
 
@@ -159,7 +179,7 @@ class MatchingConfig(BaseModel):
 class FreshnessConfig(BaseModel):
     """Data freshness configuration in hours."""
 
-    lastfm_hours: float = 1.0  # 1 hour
+    lastfm_hours: float = 0.01  # 1 hour
     spotify_hours: float = 24.0  # 24 hours
     musicbrainz_hours: float = 168.0  # 1 week
 

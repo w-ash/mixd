@@ -197,7 +197,7 @@ class ConnectorPlaylistProcessingService:
 
             logger.warning(
                 f"Track mapping incomplete: expected {expected_track_count}, got {actual_track_count}. "
-                f"Missing from domain mapping: {missing_track_ids[:settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
+                f"Missing from domain mapping: {missing_track_ids[: settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
             )
 
         logger.info(

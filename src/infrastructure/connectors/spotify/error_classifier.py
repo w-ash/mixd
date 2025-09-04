@@ -78,7 +78,9 @@ class SpotifyErrorClassifier(BaseErrorClassifier):
                     str(http_status),
                     "Too Many Requests - rate limit exceeded",
                 )
-            elif HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX:
+            elif (
+                HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX
+            ):
                 return (
                     "permanent",
                     str(http_status),
@@ -98,7 +100,11 @@ class SpotifyErrorClassifier(BaseErrorClassifier):
                 return ("temporary", str(http_status), "Service Unavailable")
             elif http_status == HTTPStatus.GATEWAY_TIMEOUT:
                 return ("temporary", str(http_status), "Gateway Timeout")
-            elif HTTPStatus.INTERNAL_SERVER_ERROR <= http_status < HTTPStatus.SERVER_ERROR_MAX:
+            elif (
+                HTTPStatus.INTERNAL_SERVER_ERROR
+                <= http_status
+                < HTTPStatus.SERVER_ERROR_MAX
+            ):
                 return (
                     "temporary",
                     str(http_status),

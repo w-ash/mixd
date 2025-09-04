@@ -235,20 +235,119 @@ class MetricsApplicationService:
             logger.warning("No valid field mappings found for any requested metrics")
             return {}
 
-        # Resolve each metric using the existing cache-first logic
+        # PRE-FETCH STRATEGY: SQLite-safe concurrent processing
+        import asyncio
+        
         result = {}
-        for metric_name in field_map:
-            metric_values = await self.resolve_metrics(
-                track_ids=track_ids,
-                metric_name=metric_name,
-                connector=connector,
-                field_map={
-                    metric_name: field_map[metric_name]
-                },  # Single metric field map
-                uow=uow,
-                connector_instance=connector_instance,
-            )
+        
+        # Phase 1: Single database transaction to identify missing data
+        missing_tracks_per_metric = {}
+        cached_values_per_metric = {}
+        
+        async with uow:
+            for metric_name in field_map:
+                # Check cache for fresh metrics  
+                max_age_hours = get_metric_freshness(metric_name)
+                metrics_repo = uow.get_metrics_repository()
+                
+                cached_values = await metrics_repo.get_track_metrics(
+                    track_ids,
+                    metric_type=metric_name,
+                    connector=connector,
+                    max_age_hours=max_age_hours,
+                )
+                
+                # Find tracks needing fresh data
+                missing_ids = [tid for tid in track_ids if tid not in cached_values]
+                
+                if missing_ids:
+                    missing_tracks_per_metric[metric_name] = missing_ids
+                    logger.info(f"Found {len(missing_ids)} tracks missing {metric_name} data")
+                
+                cached_values_per_metric[metric_name] = cached_values
+        
+        # Phase 2: Concurrent API operations (with fresh database sessions)
+        if missing_tracks_per_metric:
+            async def resolve_single_metric_no_db(metric_name: str, field_value: str) -> tuple[str, dict[int, Any]]:
+                missing_ids = missing_tracks_per_metric.get(metric_name, [])
+                if not missing_ids:
+                    return metric_name, {}
+                    
+                # Create fresh UOW for concurrent database operations using proper session context
+                from src.infrastructure.persistence.database.db_connection import get_session
+                from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+                
+                async with get_session() as fresh_session:
+                    fresh_uow = get_unit_of_work(fresh_session)
+                    
+                    # Fetch fresh metadata with dedicated database session
+                    fresh_values = await self._resolve_metrics_no_db(
+                        track_ids=missing_ids,
+                        metric_name=metric_name,
+                        connector=connector,
+                        field_name=field_value,
+                        uow=fresh_uow,
+                        connector_instance=connector_instance,
+                    )
+                    return metric_name, fresh_values
 
+            # Execute all API calls concurrently
+            tasks = [
+                asyncio.create_task(resolve_single_metric_no_db(metric_name, field_value))
+                for metric_name, field_value in field_map.items()
+                if metric_name in missing_tracks_per_metric
+            ]
+            
+            if tasks:
+                metric_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Collect fresh data for bulk save
+                all_metrics_to_save = []
+                for metric_result in metric_results:
+                    if isinstance(metric_result, Exception):
+                        logger.error(f"Error resolving metric: {metric_result}")
+                        continue
+                    
+                    # Type narrowing: we know it's not an Exception at this point
+                    if not isinstance(metric_result, tuple):
+                        logger.error(f"Invalid metric result format: {metric_result}")
+                        continue
+                    
+                    try:
+                        metric_name, fresh_values = metric_result
+                    except ValueError as e:
+                        logger.error(f"Cannot unpack metric result {metric_result}: {e}")
+                        continue
+                    for track_id, value in fresh_values.items():
+                        if value is not None:
+                            try:
+                                # Preserve original data types
+                                if isinstance(value, (bool, int, float)):
+                                    converted_value = value
+                                else:
+                                    converted_value = float(value)
+                                    
+                                all_metrics_to_save.append((track_id, connector, metric_name, converted_value))
+                                
+                                # Update cached values
+                                if metric_name not in cached_values_per_metric:
+                                    cached_values_per_metric[metric_name] = {}
+                                cached_values_per_metric[metric_name][track_id] = value
+                                
+                            except (ValueError, TypeError):
+                                logger.warning(f"Cannot convert {value} for {metric_name}")
+                
+                # Phase 3: Single database transaction to bulk save
+                if all_metrics_to_save:
+                    async with uow:
+                        metrics_repo = uow.get_metrics_repository()
+                        saved_count = await metrics_repo.save_track_metrics(all_metrics_to_save)
+                        await uow.commit()
+                        logger.info(f"Bulk saved {saved_count} new metrics")
+        
+        # Combine cached and fresh values
+        for metric_name in field_map:
+            metric_values = cached_values_per_metric.get(metric_name, {})
             if metric_values:
                 result[metric_name] = metric_values
                 logger.debug(f"Retrieved {len(metric_values)} values for {metric_name}")
@@ -452,4 +551,78 @@ class MetricsApplicationService:
             requested_count=len(track_ids),
         )
 
+        return field_values
+
+    async def _resolve_metrics_no_db(
+        self,
+        track_ids: list[int],
+        metric_name: str,
+        connector: str,
+        field_name: str,
+        uow: UnitOfWorkProtocol,
+        connector_instance: TrackMetadataConnector | None = None,
+    ) -> dict[int, Any]:
+        """Resolve metrics from external API without database transactions.
+        
+        This method handles the API portion of metric resolution, designed for
+        concurrent execution without SQLite lock contention. Database operations
+        are handled separately by the caller.
+        
+        Args:
+            track_ids: Internal track IDs needing fresh metadata.
+            metric_name: Name of the metric to resolve.
+            connector: External connector name.
+            field_name: Field name in connector metadata.
+            uow: Unit of work for read-only database access.
+            connector_instance: Connector instance for API calls.
+            
+        Returns:
+            Dictionary mapping track IDs to metric values.
+        """
+        if not track_ids or not connector_instance:
+            return {}
+            
+        logger.debug(
+            f"Fetching {metric_name} for {len(track_ids)} tracks from {connector} API",
+            metric_name=metric_name,
+            connector=connector,
+            track_count=len(track_ids),
+        )
+        
+        # Read-only database operations (safe for concurrency)
+        async with uow:
+            # Get tracks for API call
+            track_repo = uow.get_track_repository()
+            tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
+            tracks = list(tracks_dict.values())
+        
+        if not tracks:
+            logger.warning(f"No Track objects found for IDs: {track_ids}")
+            return {}
+            
+        # API call (no database involvement - safe for concurrency)
+        try:
+            fresh_metadata = await connector_instance.get_external_track_data(tracks)
+        except Exception as e:
+            logger.error(f"Failed to fetch {metric_name} from {connector} API: {e}")
+            return {}
+            
+        if not fresh_metadata:
+            logger.warning(f"No {metric_name} metadata returned from {connector} API")
+            return {}
+            
+        # Extract field values from metadata
+        field_values = {}
+        for track_id, metadata in fresh_metadata.items():
+            if metadata:
+                field_value = metadata.get(field_name)
+                if field_value is not None:
+                    field_values[track_id] = field_value
+                    
+        logger.debug(
+            f"Extracted {len(field_values)} {metric_name} values from {connector} API",
+            extracted_count=len(field_values),
+            requested_count=len(track_ids),
+        )
+        
         return field_values

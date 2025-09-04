@@ -138,8 +138,8 @@ async def execute_node(node_type: str, context: dict, config: dict) -> dict:
         task_logger.info(f"Node completed successfully: {node_type}")
         return result
 
-    except Exception as e:
-        task_logger.exception(f"Node failed: {e} (type: {node_type})")
+    except Exception:
+        task_logger.exception(f"Node failed (type: {node_type})")
         raise
 
 
@@ -473,6 +473,6 @@ async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, Workflow
             )
 
             return context, result
-    except Exception as e:
-        logger.exception(f"Workflow execution failed: {e!s}")
+    except Exception:
+        logger.exception("Workflow execution failed")
         raise

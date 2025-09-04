@@ -6,14 +6,13 @@ Spotify track data into our domain MatchResult objects.
 
 from typing import Any
 
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailureReason,
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.connectors._shared.api_batch_processor import APIBatchProcessor
 from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
 from src.infrastructure.connectors._shared.failure_utils import (
     create_and_log_failure,
@@ -35,17 +34,6 @@ class SpotifyProvider:
             connector_instance: Spotify service connector for API calls.
         """
         self.connector_instance = connector_instance
-
-        # Create APIBatchProcessor with Spotify settings
-        self._batch_processor = APIBatchProcessor[Track, dict[int, RawProviderMatch]](
-            batch_size=settings.api.spotify_batch_size,
-            concurrency_limit=settings.api.spotify_concurrency,
-            retry_count=settings.api.spotify_retry_count,
-            retry_base_delay=settings.api.spotify_retry_base_delay,
-            retry_max_delay=settings.api.spotify_retry_max_delay,
-            request_delay=settings.api.spotify_request_delay,
-            logger_instance=logger,
-        )
 
     @property
     def service_name(self) -> str:

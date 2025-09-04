@@ -37,7 +37,7 @@ class DatabaseBatchProcessor[T, R]:
     error handling without API-specific features like rate limiting.
 
     DO NOT USE for external API calls, file processing, or other non-database operations.
-    Use APIBatchProcessor, ImportBatchProcessor, or SimpleBatchProcessor instead.
+    Use ImportBatchProcessor or SimpleBatchProcessor instead.
 
     Args:
         batch_size: Items per batch (prevents SQLite lock issues)

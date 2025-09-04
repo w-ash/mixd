@@ -8,20 +8,23 @@ services for optimization.
 Key components:
 - LastFMOperations: High-level business workflows
 - Track information retrieval with intelligent matching
-- Batch processing for multiple track metadata requests
-- Integration with APIBatchProcessor for optimization
+- Concurrent processing for multiple track metadata requests
 - User library operations (love track, get play history)
 
 The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from attrs import define, field
 
-from src.config import get_logger, settings
+if TYPE_CHECKING:
+    from src.domain.entities.track import ConnectorTrack
+
+from src.config import get_logger
 from src.domain.entities import PlayRecord, Track, create_lastfm_play_record
+from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
@@ -33,33 +36,20 @@ logger = get_logger(__name__).bind(service="lastfm_operations")
 
 
 @define(slots=True)
-class LastFMOperations:
+class LastFMOperations(BaseAPIConnector):
     """Business logic service for complex Last.fm operations."""
 
     client: LastFMAPIClient = field()
-
+    
     @property
-    def batch_processor(self):
-        """Get pre-configured batch processor for Last.fm operations.
-
-        Uses centralized AsyncLimiter for optimal Last.fm performance: starts 4.5 requests/sec
-        while allowing up to 200 concurrent in-flight requests. This maximizes throughput
-        while respecting Last.fm's rate limits.
-        """
-        from src.infrastructure.connectors._shared.api_batch_processor import (
-            APIBatchProcessor,
-        )
-
-        return APIBatchProcessor(
-            batch_size=settings.api.lastfm_batch_size,
-            concurrency_limit=settings.api.lastfm_concurrency,
-            retry_count=settings.api.lastfm_retry_count,
-            retry_base_delay=settings.api.lastfm_retry_base_delay,
-            retry_max_delay=settings.api.lastfm_retry_max_delay,
-            request_delay=settings.api.lastfm_request_delay,
-            rate_limiter=None,  # Use simple delay-based rate limiting
-            logger_instance=logger,
-        )
+    def connector_name(self) -> str:
+        """Service identifier for Last.fm connector."""
+        return "lastfm"
+    
+    def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
+        """Convert Last.fm track data to ConnectorTrack domain model."""
+        from .conversions import convert_lastfm_track_to_connector
+        return convert_lastfm_track_to_connector(track_data)
 
     # Track Information Retrieval
 
@@ -77,36 +67,53 @@ class LastFMOperations:
             logger.error(f"Failed to get track info by MBID {mbid}: {e}")
             return LastFMTrackInfo.empty()
 
+
     async def get_track_info(self, artist: str, title: str) -> LastFMTrackInfo:
-        """Get comprehensive track information by artist and title."""
+        """Get comprehensive track information using single optimal API call.
+        
+        Uses the comprehensive API call that gets all metadata in one request,
+        avoiding multiple API calls that cause performance bottlenecks.
+        """
         if not artist or not title:
             return LastFMTrackInfo.empty()
 
         try:
-            track = await self.client.get_track(artist, title)
-            if track:
-                return LastFMTrackInfo.from_pylast_track_sync(track)
+            track_data = await self.client.get_track_info_comprehensive(artist, title)
+            
+            if track_data:
+                return LastFMTrackInfo.from_comprehensive_data(track_data)
+                
             return LastFMTrackInfo.empty()
+            
         except Exception as e:
-            logger.error(f"Failed to get track info for '{artist} - {title}': {e}")
+            logger.error(
+                f"get_track_info failed for '{artist} - {title}': {e}",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return LastFMTrackInfo.empty()
 
     async def get_track_info_intelligent(self, track: Track) -> LastFMTrackInfo:
-        """Get track info using intelligent matching (MBID first, then artist/title)."""
+        """Get track info using intelligent matching (MBID first, then artist/title).
+        
+        Uses FAST single API call implementation for optimal performance.
+        """
         # Try MBID first if available (check lastfm or musicbrainz metadata)
         mbid = track.get_connector_attribute(
             "lastfm", "lastfm_mbid"
         ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
+        
         if mbid:
             lastfm_info = await self.get_track_info_by_mbid(mbid)
             if lastfm_info and lastfm_info.lastfm_title:
                 return lastfm_info
 
-        # Fallback to artist/title matching
+        # Fallback to artist/title matching using optimal method
         if track.artists and track.title:
             artist_name = track.artists[0].name
-            return await self.get_track_info(artist_name, track.title)
-
+            result = await self.get_track_info(artist_name, track.title)
+            return result
+        
         return LastFMTrackInfo.empty()
 
     # Batch Operations
@@ -114,17 +121,30 @@ class LastFMOperations:
     async def batch_get_track_info(
         self, tracks: list[Track], **_options: Any
     ) -> dict[int, dict[str, Any]]:
-        """Fetch track information for multiple tracks using batch processing."""
+        """Fetch track information for multiple tracks using queue-based rate limiting."""
+        from src.infrastructure.connectors._shared.rate_limited_batch_processor import RateLimitedBatchProcessor
+        from src.config import settings
+        
         if not tracks:
             return {}
+            
+        logger.info(
+            f"Starting LastFM batch processing for {len(tracks)} tracks",
+            track_count=len(tracks)
+        )
 
         async def process_track(track: Track) -> tuple[int, dict[str, Any]]:
-            """Process a single track and return its ID with metadata."""
+            """Process a single track and return its ID with metadata.
+            
+            Note: This function will be called with @resilient_operation decorator
+            applied by the API client, so retries are handled automatically.
+            """
             if track.id is None:
                 raise ValueError(
                     f"Track must have an ID for batch processing: {track.title}"
                 )
 
+            # Use FAST intelligent track info retrieval (single API call instead of 14)
             lastfm_info = await self.get_track_info_intelligent(track)
 
             # Convert to metadata dictionary using attrs introspection
@@ -139,21 +159,28 @@ class LastFMOperations:
 
             return track.id, metadata
 
-        # Process using batch processor
-        batch_results = await self.batch_processor.process(
-            items=tracks,
-            process_func=process_track,
-            progress_description="Fetching Last.fm track metadata",
+        # Create rate-limited batch processor with LastFM-specific settings
+        processor = RateLimitedBatchProcessor(
+            rate_per_second=settings.api.lastfm_rate_limit,
+            connector_name=self.connector_name,
+            max_concurrent_tasks=settings.api.lastfm_concurrency,
         )
 
-        # Convert results to expected format (filter only tracks with metadata)
-        results = {
-            track_id: metadata for track_id, metadata in batch_results if metadata
-        }
-
+        # Process batch with queue-based rate limiting
+        results = {}
+        async for item_id, result in processor.process_batch(tracks, process_track):
+            if result and isinstance(result, tuple) and len(result) == 2:
+                track_id, metadata = result
+                if metadata:
+                    results[track_id] = metadata
+        
         logger.info(
-            f"Retrieved Last.fm metadata for {len(results)}/{len(tracks)} tracks"
+            f"LastFM batch processing completed",
+            successful_results=len(results),
+            total_tracks=len(tracks),
+            success_rate=f"{len(results)}/{len(tracks)}"
         )
+        
         return results
 
     # User Library Operations
@@ -163,7 +190,7 @@ class LastFMOperations:
         return await self.client.love_track(artist, title)
 
     async def enrich_track_with_lastfm_metadata(self, track: Track) -> Track:
-        """Enrich a track with Last.fm metadata."""
+        """Enrich a track with Last.fm metadata using FAST single API call."""
         lastfm_info = await self.get_track_info_intelligent(track)
         return convert_lastfm_to_domain_track(track, lastfm_info)
 

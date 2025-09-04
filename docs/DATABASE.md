@@ -9,37 +9,36 @@ The database uses SQLite with SQLAlchemy 2.0 async patterns for optimal performa
 ## Core Design Principles
 
 ### 1. Base Model Pattern
-All tables inherit from `NaradaDBBase` which provides:
+All tables inherit from `BaseEntity(DatabaseModel, TimestampMixin)` which provides:
 - `id` (Primary Key)
-- `is_deleted` (Soft delete flag)
-- `deleted_at` (Soft delete timestamp)
 - `created_at` (Record creation timestamp)
 - `updated_at` (Last update timestamp)
 
-This ensures consistent behavior across all entities and enables soft deletion patterns.
+This ensures consistent behavior across all entities with audit trails using hard deletes.
 
-### 2. Connector Architecture
+### 2. Hard Delete Strategy
+All entities use hard deletion for simplicity and performance:
+- Simplified queries without soft delete filtering
+- Better performance with smaller indexes
+- Data recovery relies on external API re-import and database backups
+- External APIs serve as source of truth for data restoration
+
+### 3. Connector Architecture
 Separation between internal records and connector-specific entities allows:
 - Complete metadata storage for each service
 - Advanced cross-service entity resolution
 - Independent service updates without affecting core data
 
-### 3. JSON for Complex Data
+### 4. JSON for Complex Data
 Artists and raw metadata stored as JSON to:
 - Avoid complex joins while supporting nested data structures
 - Preserve complete information from external services
 - Enable flexible querying without rigid schema constraints
 
-### 4. Temporal Design
+### 5. Temporal Design
 - Time-series metrics with explicit collection timestamps
 - Event-based play records with chronological indexing
 - Sync checkpoints for incremental processing
-
-### 5. Soft Delete Strategy
-`is_deleted` flag with timestamp across all tables:
-- Preserves relational integrity while allowing "deletion"
-- Enables data recovery and history preservation
-- Supports audit trails for data changes
 
 ## Database Schema
 
@@ -65,23 +64,22 @@ Central storage for music metadata with essential identification information.
 ```sql
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY,
-    title VARCHAR NOT NULL,
+    title VARCHAR(255) NOT NULL,
     artists JSON NOT NULL,          -- List of artist names/IDs
-    album VARCHAR,
+    album VARCHAR(255),
     duration_ms INTEGER,
     release_date DATETIME,
-    spotify_id VARCHAR,             -- Indexed for fast lookup
-    isrc VARCHAR,                   -- Indexed for entity resolution
-    mbid VARCHAR,                   -- Indexed for MusicBrainz lookup
+    spotify_id VARCHAR(64),         -- Indexed for fast lookup
+    isrc VARCHAR(32),               -- Indexed for entity resolution  
+    mbid VARCHAR(36),               -- Indexed for MusicBrainz lookup
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME
+    updated_at DATETIME NOT NULL
 );
 
 CREATE INDEX ix_tracks_spotify_id ON tracks(spotify_id);
-CREATE INDEX ix_tracks_isrc ON tracks(isrc);
+CREATE INDEX ix_tracks_isrc ON tracks(isrc);  
 CREATE INDEX ix_tracks_mbid ON tracks(mbid);
+CREATE INDEX ix_tracks_title ON tracks(title);
 ```
 
 **Key Points:**
@@ -96,25 +94,23 @@ External service-specific track representations with rich metadata.
 ```sql
 CREATE TABLE connector_tracks (
     id INTEGER PRIMARY KEY,
-    connector_name VARCHAR NOT NULL,     -- Service name (spotify, lastfm, etc)
-    connector_track_id VARCHAR NOT NULL, -- External service track ID
-    title VARCHAR NOT NULL,
-    artists JSON NOT NULL,               -- Artists as represented in service
-    album VARCHAR,
+    connector_name VARCHAR(32) NOT NULL,           -- Service name (spotify, lastfm, etc)
+    connector_track_identifier VARCHAR(64) NOT NULL, -- External service track ID
+    title VARCHAR(255) NOT NULL,
+    artists JSON NOT NULL,                         -- Artists as represented in service
+    album VARCHAR(255),
     duration_ms INTEGER,
-    isrc VARCHAR,                        -- ISRC code if available
+    isrc VARCHAR(32),                              -- ISRC code if available
     release_date DATETIME,
-    raw_metadata JSON,                   -- Complete service-specific metadata
-    last_updated DATETIME NOT NULL,      -- Timestamp of last metadata refresh
+    raw_metadata JSON NOT NULL,                    -- Complete service-specific metadata
+    last_updated DATETIME NOT NULL,                -- Timestamp of last metadata refresh
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME
+    updated_at DATETIME NOT NULL
 );
 
 CREATE INDEX ix_connector_tracks_connector_name ON connector_tracks(connector_name);
 CREATE INDEX ix_connector_tracks_lookup ON connector_tracks(connector_name, isrc);
-CREATE UNIQUE INDEX ix_connector_tracks_unique ON connector_tracks(connector_name, connector_track_id);
+CREATE UNIQUE INDEX ix_connector_tracks_unique ON connector_tracks(connector_name, connector_track_identifier);
 ```
 
 **Key Points:**
@@ -130,18 +126,22 @@ Connects internal tracks to external service tracks with match quality metadata.
 CREATE TABLE track_mappings (
     id INTEGER PRIMARY KEY,
     track_id INTEGER NOT NULL,           -- FK to tracks table
-    connector_track_id INTEGER NOT NULL, -- FK to connector_tracks table
-    match_method VARCHAR NOT NULL,       -- Resolution method used
+    connector_track_id INTEGER NOT NULL, -- FK to connector_tracks table  
+    connector_name VARCHAR(32) NOT NULL, -- Service name for indexing
+    match_method VARCHAR(32) NOT NULL,   -- Resolution method used
     confidence INTEGER NOT NULL,         -- Match confidence (0-100)
+    confidence_evidence JSON,            -- Evidence supporting confidence score
+    is_primary BOOLEAN DEFAULT FALSE,    -- Primary mapping per track-connector pair
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (track_id) REFERENCES tracks(id),
-    FOREIGN KEY (connector_track_id) REFERENCES connector_tracks(id)
+    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+    FOREIGN KEY (connector_track_id) REFERENCES connector_tracks(id) ON DELETE CASCADE
 );
 
-CREATE INDEX ix_track_mappings_lookup ON track_mappings(track_id, connector_track_id);
+CREATE UNIQUE INDEX uq_connector_track_canonical_mapping ON track_mappings(connector_track_id, connector_name);
+CREATE UNIQUE INDEX uq_primary_mapping ON track_mappings(track_id, connector_name) WHERE is_primary = TRUE;
+CREATE INDEX ix_track_mappings_track_lookup ON track_mappings(track_id);
+CREATE INDEX ix_track_mappings_connector_lookup ON track_mappings(connector_track_id);
 ```
 
 **Key Points:**
@@ -157,15 +157,14 @@ Time-series metrics for tracks from various services.
 CREATE TABLE track_metrics (
     id INTEGER PRIMARY KEY,
     track_id INTEGER NOT NULL,           -- FK to tracks table
-    connector_name VARCHAR NOT NULL,     -- Source service name
-    metric_type VARCHAR NOT NULL,        -- Metric type (play_count, popularity, etc)
+    connector_name VARCHAR(32) NOT NULL, -- Source service name
+    metric_type VARCHAR(32) NOT NULL,    -- Metric type (play_count, popularity, etc)
     value FLOAT NOT NULL,               -- Numeric metric value
     collected_at DATETIME NOT NULL,      -- When the metric was collected
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (track_id) REFERENCES tracks(id)
+    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+    UNIQUE(track_id, connector_name, metric_type)
 );
 
 CREATE INDEX ix_track_metrics_lookup ON track_metrics(track_id, connector_name, metric_type);
@@ -184,18 +183,16 @@ Track preference state across music services with synchronization support.
 CREATE TABLE track_likes (
     id INTEGER PRIMARY KEY,
     track_id INTEGER NOT NULL,           -- FK to tracks table
-    service VARCHAR NOT NULL,            -- Service name (spotify, lastfm, etc)
-    is_liked BOOLEAN NOT NULL,          -- Current like status
+    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
+    is_liked BOOLEAN DEFAULT TRUE,       -- Current like status
     liked_at DATETIME,                  -- When the track was liked
     last_synced DATETIME,               -- When sync was last performed
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (track_id) REFERENCES tracks(id)
+    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+    UNIQUE(track_id, service)
 );
 
-CREATE UNIQUE INDEX ix_track_likes_unique ON track_likes(track_id, service);
 CREATE INDEX ix_track_likes_lookup ON track_likes(service, is_liked);
 ```
 
@@ -212,22 +209,25 @@ Immutable record of track play events from service imports.
 CREATE TABLE track_plays (
     id INTEGER PRIMARY KEY,
     track_id INTEGER NOT NULL,           -- FK to tracks table
-    service VARCHAR NOT NULL,            -- Service name (spotify, lastfm, etc)
+    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
     played_at DATETIME NOT NULL,         -- When the track was played
     ms_played INTEGER,                  -- Milliseconds played (optional)
     context JSON,                       -- Additional play context
-    import_timestamp DATETIME NOT NULL,  -- When this record was imported
-    import_source VARCHAR NOT NULL,      -- Source of import (e.g., "spotify_personal_data")
-    import_batch_id VARCHAR NOT NULL,    -- Batch identifier for import group
+    import_timestamp DATETIME,          -- When this record was imported
+    import_source VARCHAR(32),          -- Source of import (e.g., "spotify_export", "lastfm_api")
+    import_batch_id VARCHAR(64),        -- Batch identifier for import group
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (track_id) REFERENCES tracks(id)
+    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+    UNIQUE(track_id, service, played_at, ms_played)  -- Prevent duplicate plays
 );
 
 CREATE INDEX ix_track_plays_service ON track_plays(service);
-CREATE INDEX ix_track_plays_timeline ON track_plays(played_at);
+CREATE INDEX ix_track_plays_played_at ON track_plays(played_at);
+CREATE INDEX ix_track_plays_track_id ON track_plays(track_id);
+CREATE INDEX ix_track_plays_track_played ON track_plays(track_id, played_at);
+CREATE INDEX ix_track_plays_import_source ON track_plays(import_source);
+CREATE INDEX ix_track_plays_import_batch ON track_plays(import_batch_id);
 ```
 
 **Key Points:**
@@ -243,13 +243,11 @@ Source of truth for playlists with essential metadata.
 ```sql
 CREATE TABLE playlists (
     id INTEGER PRIMARY KEY,
-    name VARCHAR NOT NULL,
-    description TEXT,
+    name VARCHAR(255) NOT NULL,
+    description VARCHAR(1000),
     track_count INTEGER DEFAULT 0,       -- Cached count for efficiency
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME
+    updated_at DATETIME NOT NULL
 );
 ```
 
@@ -265,17 +263,16 @@ Maps internal playlists to external connector playlists.
 CREATE TABLE playlist_mappings (
     id INTEGER PRIMARY KEY,
     playlist_id INTEGER NOT NULL,        -- FK to playlists table
-    connector_name VARCHAR NOT NULL,     -- Connector name (spotify, apple, etc)
-    connector_playlist_id VARCHAR NOT NULL, -- Connector's playlist identifier
+    connector_name VARCHAR(32) NOT NULL, -- Connector name (spotify, apple, etc)
+    connector_playlist_id INTEGER NOT NULL, -- FK to connector_playlists table
     last_synced DATETIME,               -- Last successful sync
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (playlist_id) REFERENCES playlists(id)
+    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+    FOREIGN KEY (connector_playlist_id) REFERENCES connector_playlists(id) ON DELETE CASCADE,
+    UNIQUE(playlist_id, connector_name),
+    UNIQUE(connector_playlist_id)
 );
-
-CREATE UNIQUE INDEX ix_playlist_mappings_unique ON playlist_mappings(playlist_id, connector_name);
 ```
 
 **Key Points:**
@@ -291,13 +288,12 @@ CREATE TABLE playlist_tracks (
     id INTEGER PRIMARY KEY,
     playlist_id INTEGER NOT NULL,        -- FK to playlists table
     track_id INTEGER NOT NULL,           -- FK to tracks table
-    sort_key VARCHAR NOT NULL,           -- Lexicographical ordering key
+    sort_key VARCHAR(32) NOT NULL,       -- Lexicographical ordering key
+    added_at DATETIME,                  -- When track was added to playlist
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME,
-    FOREIGN KEY (playlist_id) REFERENCES playlists(id),
-    FOREIGN KEY (track_id) REFERENCES tracks(id)
+    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
 );
 
 CREATE INDEX ix_playlist_tracks_order ON playlist_tracks(playlist_id, sort_key);
@@ -314,18 +310,15 @@ Tracks synchronization state for incremental operations.
 ```sql
 CREATE TABLE sync_checkpoints (
     id INTEGER PRIMARY KEY,
-    user_id VARCHAR NOT NULL,            -- User identifier
-    service VARCHAR NOT NULL,            -- Service name (spotify, lastfm, etc)
-    entity_type VARCHAR NOT NULL,        -- Entity type (likes, plays, etc)
+    user_id VARCHAR(64) NOT NULL,        -- User identifier
+    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
+    entity_type VARCHAR(32) NOT NULL,    -- Entity type (likes, plays, etc)
     last_timestamp DATETIME,             -- Last successful sync timestamp
-    cursor VARCHAR,                      -- Continuation token if applicable
+    cursor VARCHAR(1024),                -- Continuation token if applicable
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at DATETIME
+    UNIQUE(user_id, service, entity_type)
 );
-
-CREATE UNIQUE INDEX ix_sync_checkpoints_unique ON sync_checkpoints(user_id, service, entity_type);
 ```
 
 **Key Points:**
@@ -350,9 +343,10 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 - `Playlist` → `PlaylistMappings` (one-to-many)
 
 ### Cascade Behavior
-- Appropriate cascade delete settings
-- Passive delete flags for query optimization
-- Proper orphan handling for clean relationship management
+- **Hard cascade deletes**: `ON DELETE CASCADE` for foreign key relationships
+- **Orphan removal**: SQLAlchemy `cascade="all, delete-orphan"` for owned relationships
+- **Passive deletes**: `passive_deletes=True` for performance optimization
+- **Clean relationship management**: Proper cleanup without soft delete complexity
 
 ## Indexing Strategy
 
@@ -376,24 +370,29 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 
 ## Database Session Management
 
-The database implementation provides several key utilities:
+The database implementation uses SQLite-specific optimizations:
 
-### Connection Pooling
-- Configured with timeouts and recycling for optimal performance
-- Handles connection cleanup automatically
+### SQLite Connection Configuration
+- **NullPool**: Creates connections on-demand and closes immediately for SQLite
+- **WAL Mode**: Write-ahead logging for concurrent read access
+- **Busy Timeout**: 30-second timeout for handling database locks
+- **Pragmas Applied**: `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`
 
-### Async Session Factory
-- Type-safe async sessions with SQLAlchemy 2.0 patterns
-- Proper async context management
+### Session Management
+- **`get_session()`**: Standard session with automatic transaction handling
+- **`get_isolated_session()`**: Optimized session for operations needing better isolation
+- **`transaction()`**: Nested transaction context using savepoints
+- **Auto-configuration**: `expire_on_commit=False`, `autoflush=False` for SQLite compatibility
 
-### Context Manager
-- `get_session()` for clean transaction handling
-- Automatic commit/rollback on success/failure
+### Connection URL Format
+```
+sqlite+aiosqlite:///data/db/narada.db?journal_mode=WAL&synchronous=NORMAL&foreign_keys=ON&busy_timeout=30000
+```
 
-### Base Class Utilities
-- `active_records()` method for non-deleted records
-- `mark_soft_deleted()` for consistent soft deletion
-- Timestamp management handled automatically
+### Session Factory Configuration
+- Async sessions with SQLAlchemy 2.0 patterns
+- Proper async context management with automatic cleanup
+- Engine event listeners ensure SQLite pragmas are applied consistently
 
 ## Migration Strategy
 
@@ -409,17 +408,25 @@ Database migrations are handled through Alembic with the following approach:
 
 ### Query Optimization
 - Composite indexes for common query patterns
-- Selective loading for large result sets
+- Selective loading with `selectinload()` for relationships
 - Proper join strategies for related data
+- No soft delete filtering overhead
+
+### SQLite-Specific Optimizations
+- WAL mode for concurrent read access
+- NullPool for proper connection lifecycle
+- Busy timeout handling for lock conflicts
+- Pragma optimization via engine event listeners
 
 ### Bulk Operations
 - Bulk insert patterns for large datasets
-- Batch processing for API imports
-- Efficient update strategies for sync operations
+- Batch processing for API imports with `import_batch_id` tracking
+- Efficient upsert strategies for sync operations
+- SQLAlchemy 2.0 async patterns throughout
 
 ### Caching Strategy
 - Application-level caching for frequently accessed data
-- Connection pooling for database efficiency
+- `expire_on_commit=False` for session efficiency
 - Query result caching where appropriate
 
 ## Development Workflow
@@ -441,7 +448,6 @@ Database migrations are handled through Alembic with the following approach:
 ### Data Integrity
 - Use database transactions for multi-table operations
 - Implement proper foreign key constraints
-- Use soft deletes to maintain referential integrity
 - Regular data validation and cleanup procedures
 
 ## Related Documentation

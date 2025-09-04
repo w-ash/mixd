@@ -1,13 +1,11 @@
 """Shared connector utilities.
 
 This module provides common functionality used across all connectors:
-- API batch processing utilities
 - Error handling and retry logic
 - Consolidated metrics system
 - Matching provider base protocols and utilities
 """
 
-from src.infrastructure.connectors._shared.api_batch_processor import APIBatchProcessor
 from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,
@@ -41,15 +39,12 @@ from src.infrastructure.connectors._shared.metrics import (
 )
 
 # Provider registry imports removed to prevent circular dependencies
-from src.infrastructure.connectors._shared.retry_wrapper import RetryWrapper
 
 __all__ = [
-    "APIBatchProcessor",
     "DefaultErrorClassifier",
     "ErrorClassifierProtocol",
     "MatchProvider",
     "MetricResolverProtocol",
-    "RetryWrapper",
     "create_and_log_failure",
     "create_backoff_handler",
     "create_giveup_handler",

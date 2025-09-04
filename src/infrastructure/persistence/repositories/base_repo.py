@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 import functools
 import operator
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, NoReturn, Protocol, TypeVar, cast
 
 from attrs import define
 from sqlalchemy import Select, delete, func, insert, inspect, select, update
@@ -590,10 +590,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if create_attrs:
             insert_values.update(create_attrs)
 
-        def _raise_update_retrieval_error() -> None:
+        def _raise_update_retrieval_error() -> NoReturn:
             raise ValueError("Failed to retrieve entity after update")
 
-        def _raise_create_retrieval_error() -> None:
+        def _raise_create_retrieval_error() -> NoReturn:
             raise ValueError("Failed to retrieve entity after create")
 
         # Add timestamps

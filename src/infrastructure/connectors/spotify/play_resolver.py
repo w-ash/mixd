@@ -268,7 +268,11 @@ class SpotifyConnectorPlayResolver:
 
         try:
             parts = spotify_uri.split(":")
-            if len(parts) != SpotifyConstants.URI_PARTS_COUNT or parts[0] != "spotify" or parts[1] != "track":
+            if (
+                len(parts) != SpotifyConstants.URI_PARTS_COUNT
+                or parts[0] != "spotify"
+                or parts[1] != "track"
+            ):
                 return None
 
             track_id = parts[2]
