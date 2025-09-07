@@ -15,7 +15,7 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from attrs import define, field
 
@@ -35,42 +35,65 @@ from src.infrastructure.connectors.lastfm.conversions import (
 logger = get_logger(__name__).bind(service="lastfm_operations")
 
 
+class TrackProcessingResult(NamedTuple):
+    """Result from processing a track with Last.fm metadata.
+
+    Contains the track ID and extracted metadata dictionary from Last.fm API calls.
+    Used to maintain type safety in batch processing operations.
+    """
+
+    track_id: int
+    metadata: dict[str, Any]
+
+
 @define(slots=True)
 class LastFMOperations(BaseAPIConnector):
     """Business logic service for complex Last.fm operations."""
 
     client: LastFMAPIClient = field()
-    
+
     @property
     def connector_name(self) -> str:
         """Service identifier for Last.fm connector."""
         return "lastfm"
-    
+
     def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
+
         return convert_lastfm_track_to_connector(track_data)
 
     # Track Information Retrieval
 
     async def get_track_info_by_mbid(self, mbid: str) -> LastFMTrackInfo:
-        """Get comprehensive track information by MusicBrainz ID."""
+        """Get comprehensive track information by MusicBrainz ID.
+
+        Uses the same comprehensive parsing approach as artist/title lookups
+        to maintain architectural consistency.
+        """
         if not mbid:
             return LastFMTrackInfo.empty()
 
         try:
-            track = await self.client.get_track_by_mbid(mbid)
-            if track:
-                return LastFMTrackInfo.from_pylast_track_sync(track)
-            return LastFMTrackInfo.empty()
-        except Exception as e:
-            logger.error(f"Failed to get track info by MBID {mbid}: {e}")
+            # Use comprehensive MBID lookup that follows same pattern as artist/title
+            track_data = await self.client.get_track_info_comprehensive_by_mbid(mbid)
+
+            if track_data:
+                return LastFMTrackInfo.from_comprehensive_data(track_data)
+
             return LastFMTrackInfo.empty()
 
+        except Exception as e:
+            logger.error(
+                f"get_track_info_by_mbid failed for MBID '{mbid}': {e}",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return LastFMTrackInfo.empty()
 
     async def get_track_info(self, artist: str, title: str) -> LastFMTrackInfo:
         """Get comprehensive track information using single optimal API call.
-        
+
         Uses the comprehensive API call that gets all metadata in one request,
         avoiding multiple API calls that cause performance bottlenecks.
         """
@@ -79,12 +102,12 @@ class LastFMOperations(BaseAPIConnector):
 
         try:
             track_data = await self.client.get_track_info_comprehensive(artist, title)
-            
+
             if track_data:
                 return LastFMTrackInfo.from_comprehensive_data(track_data)
-                
+
             return LastFMTrackInfo.empty()
-            
+
         except Exception as e:
             logger.error(
                 f"get_track_info failed for '{artist} - {title}': {e}",
@@ -95,14 +118,14 @@ class LastFMOperations(BaseAPIConnector):
 
     async def get_track_info_intelligent(self, track: Track) -> LastFMTrackInfo:
         """Get track info using intelligent matching (MBID first, then artist/title).
-        
+
         Uses FAST single API call implementation for optimal performance.
         """
         # Try MBID first if available (check lastfm or musicbrainz metadata)
         mbid = track.get_connector_attribute(
             "lastfm", "lastfm_mbid"
         ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
-        
+
         if mbid:
             lastfm_info = await self.get_track_info_by_mbid(mbid)
             if lastfm_info and lastfm_info.lastfm_title:
@@ -113,7 +136,7 @@ class LastFMOperations(BaseAPIConnector):
             artist_name = track.artists[0].name
             result = await self.get_track_info(artist_name, track.title)
             return result
-        
+
         return LastFMTrackInfo.empty()
 
     # Batch Operations
@@ -122,22 +145,27 @@ class LastFMOperations(BaseAPIConnector):
         self, tracks: list[Track], **_options: Any
     ) -> dict[int, dict[str, Any]]:
         """Fetch track information for multiple tracks using queue-based rate limiting."""
-        from src.infrastructure.connectors._shared.rate_limited_batch_processor import RateLimitedBatchProcessor
         from src.config import settings
-        
-        if not tracks:
-            return {}
-            
-        logger.info(
-            f"Starting LastFM batch processing for {len(tracks)} tracks",
-            track_count=len(tracks)
+        from src.infrastructure.connectors._shared.rate_limited_batch_processor import (
+            RateLimitedBatchProcessor,
         )
 
-        async def process_track(track: Track) -> tuple[int, dict[str, Any]]:
-            """Process a single track and return its ID with metadata.
-            
+        if not tracks:
+            return {}
+
+        logger.info(
+            f"Starting LastFM batch processing for {len(tracks)} tracks",
+            track_count=len(tracks),
+        )
+
+        async def process_track(track: Track) -> TrackProcessingResult:
+            """Process a single track and return typed result with metadata.
+
             Note: This function will be called with @resilient_operation decorator
             applied by the API client, so retries are handled automatically.
+
+            Returns:
+                TrackProcessingResult with track_id and metadata fields
             """
             if track.id is None:
                 raise ValueError(
@@ -157,7 +185,7 @@ class LastFMOperations(BaseAPIConnector):
                     if value is not None:
                         metadata[attrs_field.name] = value
 
-            return track.id, metadata
+            return TrackProcessingResult(track.id, metadata)
 
         # Create rate-limited batch processor with LastFM-specific settings
         processor = RateLimitedBatchProcessor(
@@ -168,19 +196,17 @@ class LastFMOperations(BaseAPIConnector):
 
         # Process batch with queue-based rate limiting
         results = {}
-        async for item_id, result in processor.process_batch(tracks, process_track):
-            if result and isinstance(result, tuple) and len(result) == 2:
-                track_id, metadata = result
-                if metadata:
-                    results[track_id] = metadata
-        
+        async for _item_id, result in processor.process_batch(tracks, process_track):
+            if isinstance(result, TrackProcessingResult) and result.metadata:
+                results[result.track_id] = result.metadata
+
         logger.info(
-            f"LastFM batch processing completed",
+            "LastFM batch processing completed",
             successful_results=len(results),
             total_tracks=len(tracks),
-            success_rate=f"{len(results)}/{len(tracks)}"
+            success_rate=f"{len(results)}/{len(tracks)}",
         )
-        
+
         return results
 
     # User Library Operations

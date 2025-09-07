@@ -15,7 +15,6 @@ workflows and business logic are handled in separate operation modules.
 """
 
 import asyncio
-import contextvars
 from datetime import datetime
 import time
 from typing import Any
@@ -25,15 +24,15 @@ import backoff
 import pylast
 
 from src.config import get_logger, resilient_operation, settings
-from src.infrastructure.connectors._shared.request_start_gate import RequestStartGate
+from src.infrastructure.connectors._shared.error_classification import (
+    create_backoff_handler,
+    create_giveup_handler,
+    should_giveup_on_error,
+)
+from src.infrastructure.connectors.lastfm.error_classifier import LastFMErrorClassifier
 
 # Get contextual logger for API client operations
 logger = get_logger(__name__).bind(service="lastfm_client")
-
-# Context variable to get call ID from API batch processor
-call_id_context: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "call_id", default=""
-)
 
 
 @define(slots=True)
@@ -43,7 +42,7 @@ class LastFMAPIClient:
     Provides thin wrapper around pylast with authentication and individual API
     method calls. No business logic, rate limiting, or complex orchestration.
     Rate limiting is handled at the batch processor level for optimal performance.
-    
+
     Uses standard asyncio.to_thread() for concurrent I/O operations with the
     application's configured default executor.
     """
@@ -51,10 +50,8 @@ class LastFMAPIClient:
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
-    request_gate: RequestStartGate | None = field(default=None)
     client: pylast.LastFMNetwork | None = field(default=None, init=False, repr=False)
     lastfm_password_hash: str | None = field(default=None, init=False, repr=False)
-    _request_gate: RequestStartGate | None = field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Initialize Last.fm client with authentication."""
@@ -101,19 +98,11 @@ class LastFMAPIClient:
 
         self.client = pylast.LastFMNetwork(**client_args)
 
-        # Set up request gate for rate limiting
-        calculated_delay = 1.0 / settings.api.lastfm_rate_limit
+        # Rate limiting is now handled at the batch processor level for optimal concurrency
         logger.debug(
-            "RequestStartGate configuration",
+            "LastFM client configured for concurrent operations",
             rate_limit_setting=settings.api.lastfm_rate_limit,
-            calculated_delay_seconds=calculated_delay,
-            calculated_delay_ms=round(calculated_delay * 1000, 3),
-            expected_requests_per_second=settings.api.lastfm_rate_limit
-        )
-        
-        self._request_gate = (
-            self.request_gate
-            or RequestStartGate(delay=calculated_delay)
+            batch_processing="RateLimitedBatchProcessor handles rate limiting",
         )
 
     @property
@@ -124,15 +113,19 @@ class LastFMAPIClient:
     # Individual Track API Methods
 
     @resilient_operation("lastfm_get_track_by_mbid")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
     async def get_track_by_mbid(self, mbid: str) -> pylast.Track | None:
         """Get track by MusicBrainz ID."""
         if not self.is_configured or self.client is None:
             return None
-
-        # Get call_id from context for detailed tracing
-        call_id = call_id_context.get("") or f"lastfm_{int(time.time()*1000)%1000000}"
-        call_id_context.set(call_id)
 
         # Rate limiting now handled by RateLimitedBatchProcessor at higher level
 
@@ -170,31 +163,31 @@ class LastFMAPIClient:
             duration_ms = int((time.time() - start_time) * 1000)
             call_logger.warning(f"Last.fm API timeout after {duration_ms}ms")
             return None
-        except pylast.WSError as e:
-            if "not found" in str(e).lower():
-                return None
-            call_logger.error(f"Last.fm API error: {e}")
-            raise
+        # NOTE: pylast.WSError exceptions are intentionally NOT caught here
+        # They must propagate to the backoff decorator for proper retry logic
         except Exception as e:
             call_logger.error(f"Failed to get track by MBID: {e}")
             return None
 
     @resilient_operation("lastfm_get_track")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
     async def get_track(self, artist: str, title: str) -> pylast.Track | None:
         """Get track by artist and title."""
         if not self.is_configured or self.client is None:
             return None
 
-        # Get call_id from context for detailed tracing
-        call_id = call_id_context.get("") or f"lastfm_{int(time.time()*1000)%1000000}"
-        call_id_context.set(call_id)
-
         # Rate limiting now handled by RateLimitedBatchProcessor at higher level
 
-        # Create contextual logger for this API call with call_id
+        # Create contextual logger for this API call
         call_logger = logger.bind(
-            call_id=call_id,
             operation="get_track",
             artist=artist,
             title=title,
@@ -209,35 +202,40 @@ class LastFMAPIClient:
             def get_track_blocking():
                 """Get track using fresh pylast client to avoid concurrent access issues."""
                 import threading
+
                 thread_start = time.time()
                 thread_id = threading.get_ident()
                 thread_name = threading.current_thread().name
-                
+
                 call_logger.debug(
                     "LastFM API call starting in thread",
                     thread_id=thread_id,
                     thread_name=thread_name,
                     thread_start_time=thread_start,
                 )
-                
+
                 client_args = {
                     "api_key": settings.credentials.lastfm_key,
                     "api_secret": settings.credentials.lastfm_secret.get_secret_value(),
                 }
                 fresh_client = pylast.LastFMNetwork(**client_args)
-                
+
                 api_call_start = time.time()
                 result = fresh_client.get_track(artist, title)
                 api_call_end = time.time()
-                
+
                 call_logger.debug(
                     "LastFM API call completed in thread",
                     thread_id=thread_id,
                     thread_name=thread_name,
-                    api_call_duration_ms=round((api_call_end - api_call_start) * 1000, 1),
-                    total_thread_duration_ms=round((api_call_end - thread_start) * 1000, 1),
+                    api_call_duration_ms=round(
+                        (api_call_end - api_call_start) * 1000, 1
+                    ),
+                    total_thread_duration_ms=round(
+                        (api_call_end - thread_start) * 1000, 1
+                    ),
                 )
-                
+
                 return result
 
             # Use standard asyncio.to_thread() with configured default executor
@@ -246,16 +244,18 @@ class LastFMAPIClient:
                 "Submitting to thread pool",
                 to_thread_start_time=to_thread_start,
             )
-            
+
             result = await asyncio.wait_for(
                 asyncio.to_thread(get_track_blocking),
                 timeout=settings.api.lastfm_request_timeout,
             )
-            
+
             to_thread_end = time.time()
             call_logger.debug(
                 "Thread pool execution completed",
-                to_thread_duration_ms=round((to_thread_end - to_thread_start) * 1000, 1),
+                to_thread_duration_ms=round(
+                    (to_thread_end - to_thread_start) * 1000, 1
+                ),
             )
 
             duration_ms = int((time.time() - start_time) * 1000)
@@ -274,39 +274,57 @@ class LastFMAPIClient:
                 timeout_limit_ms=settings.api.lastfm_request_timeout * 1000,
             )
             return None
-        except pylast.WSError as e:
-            if "not found" in str(e).lower():
-                call_logger.debug("LastFM: Track not found", error=str(e))
-                return None
-            call_logger.error("LastFM: WSError", error=str(e), error_type="WSError")
-            raise
+        # NOTE: pylast.WSError exceptions are intentionally NOT caught here
+        # They must propagate to the backoff decorator for proper retry logic
         except Exception as e:
             call_logger.error(
                 "LastFM: Unexpected error", error=str(e), error_type=type(e).__name__
             )
             return None
 
-    @resilient_operation("lastfm_get_track_info_comprehensive")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
-    async def get_track_info_comprehensive(self, artist: str, title: str) -> dict[str, Any] | None:
+    async def get_track_info_comprehensive(
+        self, artist: str, title: str
+    ) -> dict[str, Any] | None:
         """Get comprehensive track info in a single API call using raw track.getInfo response.
         
-        This method makes ONE API call to track.getInfo and extracts all metadata from the 
+        This method makes ONE API call to track.getInfo and extracts all metadata from the
         raw response, avoiding the 14 individual API calls that pylast's lazy methods make.
         
+        Returns:
+            Dict with all track metadata fields, or None if track not found
+        """
+        try:
+            return await self._get_track_info_comprehensive_with_retries(artist, title)
+        except pylast.WSError:
+            # Backoff decorator exhausted retries - return None gracefully
+            return None
+
+    @resilient_operation("lastfm_get_track_info_comprehensive")
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
+    async def _get_track_info_comprehensive_with_retries(
+        self, artist: str, title: str
+    ) -> dict[str, Any] | None:
+        """Get comprehensive track info in a single API call using raw track.getInfo response.
+
+        This method makes ONE API call to track.getInfo and extracts all metadata from the
+        raw response, avoiding the 14 individual API calls that pylast's lazy methods make.
+
         Returns:
             Dict with all track metadata fields, or None if track not found
         """
         if not self.is_configured or self.client is None:
             return None
 
-        # Get call_id from context for detailed tracing
-        call_id = call_id_context.get("") or f"lastfm_{int(time.time()*1000)%1000000}"
-        call_id_context.set(call_id)
-
-        # Create contextual logger for this API call with call_id
+        # Create contextual logger for this API call
         call_logger = logger.bind(
-            call_id=call_id,
             operation="get_track_info_comprehensive",
             artist=artist,
             title=title,
@@ -317,20 +335,22 @@ class LastFMAPIClient:
         call_logger.debug("Starting comprehensive Last.fm track info lookup")
 
         try:
+
             def get_track_info_raw():
                 """Make direct track.getInfo API call and parse raw response."""
                 import threading
+
                 thread_start = time.time()
                 thread_id = threading.get_ident()
                 thread_name = threading.current_thread().name
-                
+
                 call_logger.debug(
                     "Comprehensive track info API call starting in thread",
                     thread_id=thread_id,
                     thread_name=thread_name,
                     thread_start_time=thread_start,
                 )
-                
+
                 # Create fresh pylast client for thread safety
                 client_args = {
                     "api_key": settings.credentials.lastfm_key,
@@ -340,98 +360,40 @@ class LastFMAPIClient:
                     client_args["username"] = self.lastfm_username
                     if self.lastfm_password_hash:
                         client_args["password_hash"] = self.lastfm_password_hash
-                
+
                 fresh_client = pylast.LastFMNetwork(**client_args)
-                
-                # Make single comprehensive API call to track.getInfo
+
+                # Get track object using artist/title
                 api_call_start = time.time()
                 track = fresh_client.get_track(artist, title)
-                
-                # Access raw response data instead of making additional API calls
-                # This uses pylast's internal _request method to get comprehensive data
-                raw_data = track._request(track.ws_prefix + ".getInfo", cacheable=True)
                 api_call_end = time.time()
-                
+
                 call_logger.debug(
-                    "Comprehensive track info API call completed",
+                    "Track lookup API call completed",
                     thread_id=thread_id,
-                    api_call_duration_ms=round((api_call_end - api_call_start) * 1000, 1),
-                    total_thread_duration_ms=round((api_call_end - thread_start) * 1000, 1),
-                    raw_data_available=raw_data is not None,
-                    raw_data_type=type(raw_data).__name__,
-                    raw_data_content=str(raw_data)[:200] + "..." if raw_data else "None",
+                    api_call_duration_ms=round(
+                        (api_call_end - api_call_start) * 1000, 1
+                    ),
+                    total_thread_duration_ms=round(
+                        (api_call_end - thread_start) * 1000, 1
+                    ),
+                    track_found=track is not None,
                 )
-                
-                if not raw_data:
-                    return None
-                
-                # Parse all metadata from single response
-                metadata_parsing_start = time.time()
-                
-                # Extract track info from XML response (minidom.Document)
-                track_info = {}
-                
-                # Handle minidom.Document response
-                try:
-                    if hasattr(raw_data, 'getElementsByTagName'):  # minidom.Document response
-                        track_elements = raw_data.getElementsByTagName('track')
-                        if track_elements:
-                            track_element = track_elements[0]
-                            
-                            # Basic track fields using minidom methods
-                            track_info['lastfm_title'] = self._extract_minidom_text(track_element, 'name')
-                            track_info['lastfm_mbid'] = self._extract_minidom_text(track_element, 'mbid')
-                            track_info['lastfm_url'] = self._extract_minidom_text(track_element, 'url')
-                            track_info['lastfm_duration'] = self._extract_minidom_int(track_element, 'duration')
-                            track_info['lastfm_global_playcount'] = self._extract_minidom_int(track_element, 'playcount')
-                            track_info['lastfm_listeners'] = self._extract_minidom_int(track_element, 'listeners')
-                            
-                            # Artist info
-                            artist_elements = track_element.getElementsByTagName('artist')
-                            if artist_elements:
-                                artist_element = artist_elements[0]
-                                track_info['lastfm_artist_name'] = self._extract_minidom_text(artist_element, 'name')
-                                track_info['lastfm_artist_mbid'] = self._extract_minidom_text(artist_element, 'mbid')
-                                track_info['lastfm_artist_url'] = self._extract_minidom_text(artist_element, 'url')
-                            
-                            # Album info
-                            album_elements = track_element.getElementsByTagName('album')
-                            if album_elements:
-                                album_element = album_elements[0]
-                                track_info['lastfm_album_name'] = self._extract_minidom_text(album_element, 'title')
-                                track_info['lastfm_album_mbid'] = self._extract_minidom_text(album_element, 'mbid')
-                                track_info['lastfm_album_url'] = self._extract_minidom_text(album_element, 'url')
-                            
-                            # User-specific data (if username provided)
-                            if self.lastfm_username:
-                                track_info['lastfm_user_playcount'] = self._extract_minidom_int(track_element, 'userplaycount')
-                                userloved_elements = track_element.getElementsByTagName('userloved')
-                                if userloved_elements:
-                                    userloved_text = self._extract_minidom_text(track_element, 'userloved')
-                                    track_info['lastfm_user_loved'] = userloved_text == '1'
-                    
-                    metadata_parsing_end = time.time()
-                    call_logger.debug(
-                        "Metadata parsing completed",
-                        parsing_duration_ms=round((metadata_parsing_end - metadata_parsing_start) * 1000, 1),
-                        fields_extracted=len([k for k, v in track_info.items() if v is not None]),
-                    )
-                    
-                    return track_info
-                    
-                except Exception as parse_error:
-                    call_logger.error(
-                        "Error parsing track info response",
-                        error=str(parse_error),
-                        error_type=type(parse_error).__name__,
-                    )
-                    return None
+
+                return track
 
             # Use standard asyncio.to_thread() with configured default executor
-            result = await asyncio.wait_for(
+            track = await asyncio.wait_for(
                 asyncio.to_thread(get_track_info_raw),
                 timeout=settings.api.lastfm_request_timeout,
             )
+
+            if not track:
+                call_logger.debug("Track not found by artist/title")
+                return None
+
+            # Use shared comprehensive data extraction logic
+            result = await self._get_comprehensive_track_data(track)
 
             duration_ms = int((time.time() - start_time) * 1000)
             call_logger.info(
@@ -442,7 +404,7 @@ class LastFMAPIClient:
             )
 
             return result
-            
+
         except TimeoutError:
             duration_ms = int((time.time() - start_time) * 1000)
             call_logger.warning(
@@ -451,16 +413,272 @@ class LastFMAPIClient:
                 timeout_seconds=settings.api.lastfm_request_timeout,
             )
             return None
-            
-        except pylast.WSError as e:
-            if "not found" in str(e).lower():
-                call_logger.debug("Track not found on Last.fm")
+
+        # NOTE: pylast.WSError exceptions are intentionally NOT caught here
+        # They must propagate to the backoff decorator for proper retry logic
+
+        except (ValueError, TypeError, AttributeError) as e:
+            # Only catch non-retryable programming/parsing errors, not API errors
+            call_logger.error(f"Failed to get comprehensive track info: {e}")
+            return None
+
+    @resilient_operation("lastfm_get_track_info_comprehensive_by_mbid")
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
+    async def get_track_info_comprehensive_by_mbid(
+        self, mbid: str
+    ) -> dict[str, Any] | None:
+        """Get comprehensive track info by MBID using unified architecture.
+
+        This method uses the same comprehensive data extraction logic as get_track_info_comprehensive
+        but for MBID-based lookups, ensuring architectural consistency and DRY principles.
+
+        Returns:
+            Dict with all track metadata fields, or None if track not found
+        """
+        if not self.is_configured or self.client is None or not mbid:
+            return None
+
+        # Create contextual logger for this API call
+        call_logger = logger.bind(
+            operation="get_track_info_comprehensive_by_mbid",
+            mbid=mbid,
+            api="lastfm",
+        )
+
+        start_time = time.time()
+        call_logger.debug("Starting comprehensive Last.fm track info lookup by MBID")
+
+        try:
+
+            def get_track_by_mbid_raw():
+                """Get track by MBID using fresh pylast client."""
+                import threading
+
+                thread_start = time.time()
+                thread_id = threading.get_ident()
+                thread_name = threading.current_thread().name
+
+                call_logger.debug(
+                    "MBID track lookup API call starting in thread",
+                    thread_id=thread_id,
+                    thread_name=thread_name,
+                    thread_start_time=thread_start,
+                )
+
+                # Create fresh pylast client for thread safety
+                client_args = {
+                    "api_key": settings.credentials.lastfm_key,
+                    "api_secret": settings.credentials.lastfm_secret.get_secret_value(),
+                }
+                if self.lastfm_username:
+                    client_args["username"] = self.lastfm_username
+                    if self.lastfm_password_hash:
+                        client_args["password_hash"] = self.lastfm_password_hash
+
+                fresh_client = pylast.LastFMNetwork(**client_args)
+
+                # Get track object using MBID
+                api_call_start = time.time()
+                track = fresh_client.get_track_by_mbid(mbid)
+                api_call_end = time.time()
+
+                call_logger.debug(
+                    "MBID track lookup API call completed",
+                    thread_id=thread_id,
+                    api_call_duration_ms=round(
+                        (api_call_end - api_call_start) * 1000, 1
+                    ),
+                    total_thread_duration_ms=round(
+                        (api_call_end - thread_start) * 1000, 1
+                    ),
+                    track_found=track is not None,
+                )
+
+                return track
+
+            # Use standard asyncio.to_thread() with configured default executor
+            track = await asyncio.wait_for(
+                asyncio.to_thread(get_track_by_mbid_raw),
+                timeout=settings.api.lastfm_request_timeout,
+            )
+
+            if not track:
+                call_logger.debug("Track not found by MBID")
                 return None
-            call_logger.error(f"Last.fm API error: {e}")
+
+            # Use shared comprehensive data extraction logic
+            result = await self._get_comprehensive_track_data(track)
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            call_logger.info(
+                "Comprehensive MBID track info lookup completed",
+                duration_ms=duration_ms,
+                found=result is not None,
+                fields_count=len(result) if result else 0,
+            )
+
+            return result
+
+        except TimeoutError:
+            duration_ms = int((time.time() - start_time) * 1000)
+            call_logger.warning(
+                "Comprehensive MBID track info timeout",
+                duration_ms=duration_ms,
+                timeout_seconds=settings.api.lastfm_request_timeout,
+            )
+            return None
+
+        # NOTE: pylast.WSError exceptions are intentionally NOT caught here
+        # They must propagate to the backoff decorator for proper retry logic
+
+        except Exception as e:
+            call_logger.error(f"Failed to get comprehensive track info by MBID: {e}")
+            return None
+
+    async def _get_comprehensive_track_data(
+        self, track: pylast.Track
+    ) -> dict[str, Any] | None:
+        """Get comprehensive track data from a pylast Track object.
+
+        Shared logic for extracting all metadata from a track using single comprehensive API call.
+        Used by both artist/title and MBID lookup methods to maintain DRY principles.
+
+        Args:
+            track: pylast Track object to get comprehensive data for
+
+        Returns:
+            Dict with all track metadata fields, or None if extraction fails
+        """
+        if not track:
+            return None
+
+        try:
+
+            def get_comprehensive_data():
+                """Extract comprehensive data from track using single API call."""
+                # Access raw response data instead of making additional API calls
+                # This uses pylast's internal _request method to get comprehensive data
+                raw_data = track._request(track.ws_prefix + ".getInfo", cacheable=True)
+
+                if not raw_data:
+                    return None
+
+                # Parse all metadata from single response
+                track_info = {}
+
+                # Handle minidom.Document response
+                try:
+                    if hasattr(
+                        raw_data, "getElementsByTagName"
+                    ):  # minidom.Document response
+                        track_elements = raw_data.getElementsByTagName("track")
+                        if track_elements:
+                            track_element = track_elements[0]
+
+                            # Basic track fields using minidom methods
+                            track_info["lastfm_title"] = self._extract_minidom_text(
+                                track_element, "name"
+                            )
+                            track_info["lastfm_mbid"] = self._extract_minidom_text(
+                                track_element, "mbid"
+                            )
+                            track_info["lastfm_url"] = self._extract_minidom_text(
+                                track_element, "url"
+                            )
+                            track_info["lastfm_duration"] = self._extract_minidom_int(
+                                track_element, "duration"
+                            )
+                            track_info["lastfm_global_playcount"] = (
+                                self._extract_minidom_int(track_element, "playcount")
+                            )
+                            track_info["lastfm_listeners"] = self._extract_minidom_int(
+                                track_element, "listeners"
+                            )
+
+                            # Artist info
+                            artist_elements = track_element.getElementsByTagName(
+                                "artist"
+                            )
+                            if artist_elements:
+                                artist_element = artist_elements[0]
+                                track_info["lastfm_artist_name"] = (
+                                    self._extract_minidom_text(artist_element, "name")
+                                )
+                                track_info["lastfm_artist_mbid"] = (
+                                    self._extract_minidom_text(artist_element, "mbid")
+                                )
+                                track_info["lastfm_artist_url"] = (
+                                    self._extract_minidom_text(artist_element, "url")
+                                )
+
+                            # Album info
+                            album_elements = track_element.getElementsByTagName("album")
+                            if album_elements:
+                                album_element = album_elements[0]
+                                track_info["lastfm_album_name"] = (
+                                    self._extract_minidom_text(album_element, "title")
+                                )
+                                track_info["lastfm_album_mbid"] = (
+                                    self._extract_minidom_text(album_element, "mbid")
+                                )
+                                track_info["lastfm_album_url"] = (
+                                    self._extract_minidom_text(album_element, "url")
+                                )
+
+                            # User-specific data (if username provided)
+                            if self.lastfm_username:
+                                track_info["lastfm_user_playcount"] = (
+                                    self._extract_minidom_int(
+                                        track_element, "userplaycount"
+                                    )
+                                )
+                                userloved_elements = track_element.getElementsByTagName(
+                                    "userloved"
+                                )
+                                if userloved_elements:
+                                    userloved_text = self._extract_minidom_text(
+                                        track_element, "userloved"
+                                    )
+                                    track_info["lastfm_user_loved"] = (
+                                        userloved_text == "1"
+                                    )
+
+                    return track_info
+
+                except Exception as parse_error:
+                    logger.error(
+                        "Error parsing comprehensive track data",
+                        error=str(parse_error),
+                        error_type=type(parse_error).__name__,
+                    )
+                    return None
+
+            # Use standard asyncio.to_thread() with configured default executor
+            result = await asyncio.wait_for(
+                asyncio.to_thread(get_comprehensive_data),
+                timeout=settings.api.lastfm_request_timeout,
+            )
+
+            return result
+
+        except TimeoutError:
+            logger.warning("Timeout getting comprehensive track data")
+            return None
+
+        except pylast.WSError:
+            # Let WSError propagate to backoff decorator on calling method
             raise
             
         except Exception as e:
-            call_logger.error(f"Failed to get comprehensive track info: {e}")
+            logger.error(f"Failed to get comprehensive track data: {e}")
             return None
 
     def _extract_xml_text(self, element, tag_name: str) -> str | None:
@@ -469,7 +687,7 @@ class LastFMAPIClient:
         if child is not None and child.text and child.text.strip():
             return child.text.strip()
         return None
-    
+
     def _extract_xml_int(self, element, tag_name: str) -> int | None:
         """Extract integer content from XML element, return None if not found or invalid."""
         text = self._extract_xml_text(element, tag_name)
@@ -484,9 +702,9 @@ class LastFMAPIClient:
             child = child_elements[0]
             if child.firstChild and child.firstChild.nodeValue:
                 text = child.firstChild.nodeValue.strip()
-                return text if text else None
+                return text or None
         return None
-    
+
     def _extract_minidom_int(self, element, tag_name: str) -> int | None:
         """Extract integer content from minidom element, return None if not found or invalid."""
         text = self._extract_minidom_text(element, tag_name)
@@ -496,14 +714,33 @@ class LastFMAPIClient:
 
     # User Library API Methods
 
-    @resilient_operation("lastfm_love_track")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track for the authenticated user."""
         if not self.is_configured or not self.lastfm_username or self.client is None:
             logger.warning("Cannot love track - no username configured")
             return False
 
+        try:
+            return await self._love_track_with_retries(artist, title)
+        except pylast.WSError:
+            # Backoff decorator exhausted retries - return False gracefully
+            return False
+
+    @resilient_operation("lastfm_love_track")
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
+    async def _love_track_with_retries(self, artist: str, title: str) -> bool:
+        """Love a track with retry logic handled by backoff decorator."""
+        if self.client is None:
+            raise RuntimeError("LastFM client not initialized")
+            
         try:
             # Use asyncio.to_thread with timeout to prevent hangs
             track = await asyncio.wait_for(
@@ -518,15 +755,23 @@ class LastFMAPIClient:
         except TimeoutError:
             logger.warning(f"Timeout loving track '{artist} - {title}'")
             return False
-        except pylast.WSError as e:
-            logger.error(f"Failed to love track '{artist} - {title}': {e}")
-            return False
+        except pylast.WSError:
+            # Let pylast.WSError propagate to the backoff decorator for proper retry logic
+            raise
         except Exception as e:
             logger.error(f"Error loving track '{artist} - {title}': {e}")
             return False
 
     @resilient_operation("lastfm_get_recent_tracks")
-    @backoff.on_exception(backoff.expo, pylast.WSError, max_tries=3)
+    @backoff.on_exception(
+        backoff.expo,
+        pylast.WSError,
+        max_tries=settings.api.lastfm_retry_count_rate_limit,  # Use max possible retries
+        giveup=should_giveup_on_error(LastFMErrorClassifier(), "lastfm"),
+        on_backoff=create_backoff_handler(LastFMErrorClassifier(), "lastfm"),
+        on_giveup=create_giveup_handler(LastFMErrorClassifier(), "lastfm"),
+        max_time=settings.api.lastfm_retry_max_delay,
+    )
     async def get_recent_tracks(
         self,
         username: str | None = None,
@@ -677,12 +922,8 @@ class LastFMAPIClient:
         except TimeoutError:
             logger.warning(f"Timeout fetching recent tracks for user {user}")
             return []
-        except pylast.WSError as e:
-            if "not found" in str(e).lower():
-                logger.warning(f"User not found: {user}")
-                return []
-            logger.error(f"Last.fm API error: {e}")
-            raise
+        # NOTE: pylast.WSError exceptions are intentionally NOT caught here
+        # They must propagate to the backoff decorator for proper retry logic
         except Exception as e:
             logger.error(f"Error fetching recent tracks: {e}")
             raise

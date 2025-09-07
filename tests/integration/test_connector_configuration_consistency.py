@@ -45,7 +45,8 @@ class TestConnectorConfigurationConsistency:
         # Test key configuration mappings exist in settings
         assert hasattr(settings.api, "lastfm_batch_size")
         assert hasattr(settings.api, "lastfm_concurrency")
-        assert hasattr(settings.api, "lastfm_retry_count")
+        assert hasattr(settings.api, "lastfm_retry_count_rate_limit")
+        assert hasattr(settings.api, "lastfm_retry_count_network")
         assert hasattr(settings.api, "lastfm_rate_limit")
         assert hasattr(settings.api, "lastfm_retry_base_delay")
         assert hasattr(settings.api, "lastfm_retry_max_delay")

@@ -1,0 +1,1 @@
+"""Spotify connector integration tests."""

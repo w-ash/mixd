@@ -130,9 +130,9 @@ class TestLastFMErrorClassification:
         temp_error = pylast.WSError("LastFm", "11", "Service Offline")
         assert should_giveup(temp_error) is False
 
-        # Should NOT give up on not found (context dependent)
+        # Should give up on not found (no retries needed)
         not_found_error = pylast.WSError("LastFm", "999", "track not found")
-        assert should_giveup(not_found_error) is False
+        assert should_giveup(not_found_error) is True
 
         # Should NOT give up on unknown (be safe)
         unknown_error = pylast.WSError("LastFm", "999", "Unknown issue")
@@ -215,7 +215,7 @@ class TestLastFMErrorRetryIntegration:
         field_not_found = pylast.WSError("LastFm", "999", "track not found")
         error_type, _, _ = classifier.classify_error(field_not_found)
         assert error_type == "not_found"
-        assert should_giveup(field_not_found) is False  # Continue with other fields
+        assert should_giveup(field_not_found) is True  # Give up on not_found errors
 
         # Rate limit during field extraction (should retry)
         field_rate_limit = pylast.WSError("LastFm", "29", "Rate Limit Exceeded")

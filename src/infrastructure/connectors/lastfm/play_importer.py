@@ -89,7 +89,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         result = await self._import_plays_unified(
             import_batch_id=typed_params.get("import_batch_id"),
             progress_callback=typed_params.get("progress_callback"),
-            uow=typed_params.get("uow"),
+            uow=uow,
             from_date=typed_params.get("from_date"),
             to_date=typed_params.get("to_date"),
             username=typed_params.get("username"),
@@ -244,7 +244,10 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             from_date = requested_from
         elif checkpoint and checkpoint.last_timestamp:
             # Incremental: start from last checkpoint
+            # Ensure timezone consistency - convert naive to UTC if needed
             from_date = checkpoint.last_timestamp
+            if from_date.tzinfo is None:
+                from_date = from_date.replace(tzinfo=UTC)
         else:
             # No checkpoint and no explicit date: start from 30 days ago (reasonable default)
             from_date = now - timedelta(days=30)

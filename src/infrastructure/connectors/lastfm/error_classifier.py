@@ -59,27 +59,27 @@ class LastFMErrorClassifier(BaseErrorClassifier):
             "20": "Not Enough Content - There is not enough content to play this station",
         }
 
-        # Rate limiting (retry with constant delay)
-        if error_code == "29" or "rate limit" in error_str:
-            return (
-                "rate_limit",
-                "29",
-                "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines",
-            )
-
-        # Check for specific error codes
+        # Check for specific error codes FIRST (higher precedence than text patterns)
         if error_code in permanent_patterns:
             return ("permanent", error_code, permanent_patterns[error_code])
 
         if error_code in temporary_patterns:
             return ("temporary", error_code, temporary_patterns[error_code])
 
+        # Rate limiting - specific error code check first, then text pattern fallback
+        if error_code == "29":
+            return (
+                "rate_limit",
+                "29",
+                "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines",
+            )
+
         # Check for textual patterns when error codes aren't present
         if any(
             pattern in error_str
             for pattern in ["rate limit", "too many", "quota", "throttle"]
         ):
-            return ("rate_limit", "text", "Rate limit detected from response text")
+            return ("rate_limit", "29", "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines")
 
         # Track/resource not found (context dependent - not necessarily permanent)
         if (
@@ -109,6 +109,7 @@ class LastFMErrorClassifier(BaseErrorClassifier):
                 "unauthorized",
                 "forbidden",
                 "invalid key",
+                "invalid api key",
                 "authentication",
             ]
         ):

@@ -72,16 +72,16 @@ class SpotifyOperations:
             return early_return
 
         results = {}
-        
+
         # Process in batches using Spotify's bulk API (50 tracks per call)
         batch_size = settings.api.spotify_batch_size
         total_batches = (len(track_ids) + batch_size - 1) // batch_size
-        
+
         logger.info(f"Fetching {len(track_ids)} tracks in {total_batches} batches")
-        
+
         for i in range(0, len(track_ids), batch_size):
             batch_ids = track_ids[i : i + batch_size]
-            
+
             try:
                 # Use bulk tracks API - single call for up to 50 tracks
                 tracks_response = await self.client.get_tracks_bulk(batch_ids)
@@ -105,7 +105,9 @@ class SpotifyOperations:
                             logger.warning("Received null track in batch response")
 
             except Exception as e:
-                logger.error(f"Failed to fetch batch {i // batch_size + 1}/{total_batches}: {e}")
+                logger.error(
+                    f"Failed to fetch batch {i // batch_size + 1}/{total_batches}: {e}"
+                )
                 continue
 
             # Brief delay between requests if configured
@@ -293,22 +295,26 @@ class SpotifyOperations:
 
         large_batch_size = settings.api.spotify_large_batch_size
         total_batches = (len(track_uris) + large_batch_size - 1) // large_batch_size
-        
-        logger.info(f"Adding {len(track_uris)} tracks to playlist in {total_batches} batches")
-        
+
+        logger.info(
+            f"Adding {len(track_uris)} tracks to playlist in {total_batches} batches"
+        )
+
         for i in range(0, len(track_uris), large_batch_size):
             batch_uris = track_uris[i : i + large_batch_size]
-            
+
             try:
                 await self.client.playlist_add_items(
                     playlist_id=playlist_id, items=batch_uris
                 )
                 logger.debug(f"Added batch {i // large_batch_size + 1}/{total_batches}")
-                
+
             except Exception as e:
-                logger.error(f"Failed to add batch {i // large_batch_size + 1}/{total_batches}: {e}")
+                logger.error(
+                    f"Failed to add batch {i // large_batch_size + 1}/{total_batches}: {e}"
+                )
                 continue
-            
+
             # Brief delay between requests if configured
             if settings.api.spotify_request_delay > 0:
                 await asyncio.sleep(settings.api.spotify_request_delay)

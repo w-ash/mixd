@@ -281,53 +281,53 @@ class TestPylastBlockingBehavior:
             
             client = LastFMAPIClient()
             
-            # Mock the pylast client to simulate slow response
-            slow_mock = MagicMock()
-
+            # Mock pylast.LastFMNetwork to simulate slow response
             def slow_get_track(*args, **kwargs):
                 time.sleep(2.0)  # 2 second delay
                 mock_track = MagicMock()
                 mock_track.get_title.return_value = "Slow Track"
                 return mock_track
             
-            slow_mock.get_track.side_effect = slow_get_track
-            client.client = slow_mock
-            
-            # Test with timeout wrapper
-            start_time = time.time()
-            
-            try:
-                # This should timeout
-                result = await asyncio.wait_for(
-                    client.get_track("Artist", "Track"),
-                    timeout=1.0  # 1 second timeout
-                )
-                pytest.fail("Should have timed out")
+            with patch('pylast.LastFMNetwork') as mock_network_class:
+                slow_mock = MagicMock()
+                slow_mock.get_track.side_effect = slow_get_track
+                mock_network_class.return_value = slow_mock
                 
-            except TimeoutError:
-                timeout_duration = time.time() - start_time
-                print(f"✓ Client call timed out after {timeout_duration:.3f}s")
-                assert 0.9 < timeout_duration < 1.2, "Timeout not working correctly"
+                # Test with timeout wrapper
+                start_time = time.time()
+                
+                try:
+                    # This should timeout
+                    result = await asyncio.wait_for(
+                        client.get_track("Artist", "Track"),
+                        timeout=1.0  # 1 second timeout
+                    )
+                    pytest.fail("Should have timed out")
+                
+                except TimeoutError:
+                    timeout_duration = time.time() - start_time
+                    print(f"✓ Client call timed out after {timeout_duration:.3f}s")
+                    assert 0.9 < timeout_duration < 1.2, "Timeout not working correctly"
             
             # Test successful fast call
-            fast_mock = MagicMock()
-
             def fast_get_track(*args, **kwargs):
                 time.sleep(0.1)  # 100ms delay
                 mock_track = MagicMock()
                 mock_track.get_title.return_value = "Fast Track"
                 return mock_track
             
-            fast_mock.get_track.side_effect = fast_get_track
-            client.client = fast_mock
-            
-            start_time = time.time()
-            result = await asyncio.wait_for(
-                client.get_track("Artist", "Track"),
-                timeout=2.0
-            )
-            fast_duration = time.time() - start_time
-            
-            print(f"✓ Fast call completed in {fast_duration:.3f}s")
-            assert result is not None
-            assert 0.08 < fast_duration < 0.3, "Fast call timing unexpected"
+            with patch('pylast.LastFMNetwork') as mock_fast_network_class:
+                fast_mock = MagicMock()
+                fast_mock.get_track.side_effect = fast_get_track
+                mock_fast_network_class.return_value = fast_mock
+                
+                start_time = time.time()
+                result = await asyncio.wait_for(
+                    client.get_track("Artist", "Track"),
+                    timeout=2.0
+                )
+                fast_duration = time.time() - start_time
+                
+                print(f"✓ Fast call completed in {fast_duration:.3f}s")
+                assert result is not None
+                assert 0.08 < fast_duration < 0.3, "Fast call timing unexpected"

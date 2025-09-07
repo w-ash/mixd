@@ -30,26 +30,25 @@ logger = get_logger(__name__)
 
 class _NaradaEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
     """Custom event loop policy that configures optimal I/O executors for connector operations."""
-    
+
     def new_event_loop(self):
         """Create a new event loop with properly configured default executor."""
         loop = super().new_event_loop()
-        
+
         # Configure default executor for I/O-heavy operations
         required_max_workers = settings.api.lastfm_concurrency
         executor = ThreadPoolExecutor(
-            max_workers=required_max_workers,
-            thread_name_prefix="narada_io"
+            max_workers=required_max_workers, thread_name_prefix="narada_io"
         )
         loop.set_default_executor(executor)
-        
+
         logger.info(
             "Configured new event loop with I/O executor",
             max_workers=required_max_workers,
             thread_name_prefix="narada_io",
-            executor_id=id(executor)
+            executor_id=id(executor),
         )
-        
+
         return loop
 
 

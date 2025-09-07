@@ -78,9 +78,12 @@ class APIConfig(BaseModel):
     lastfm_rate_limit: float = (
         4.5  # Request starts per second (10% buffer from 5.0 limit)
     )
-    lastfm_retry_count: int = 8  # Max retries for network/rate limit errors
-    lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
-    lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
+    
+    # Retry configuration by error type
+    lastfm_retry_count_rate_limit: int = 8  # Rate limit errors need more retries
+    lastfm_retry_count_network: int = 5     # Network/temporary errors
+    lastfm_retry_base_delay: float = 1.0    # Exponential backoff base delay (seconds)
+    lastfm_retry_max_delay: float = 60.0    # Exponential backoff max delay (seconds)
     lastfm_request_delay: float = 0.2  # Delay between requests (seconds) - DEPRECATED
     lastfm_request_timeout: float = 10.0  # HTTP request timeout in seconds
     lastfm_connection_timeout: float = 5.0  # Connection establishment timeout

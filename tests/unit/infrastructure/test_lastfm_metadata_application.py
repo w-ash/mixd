@@ -1,12 +1,14 @@
 """Test that LastFM metadata is properly applied to tracks."""
 
-import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.domain.entities.track import Artist, Track
-from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo, convert_lastfm_to_domain_track
+from src.infrastructure.connectors.lastfm.conversions import (
+    LastFMTrackInfo,
+    convert_lastfm_to_domain_track,
+)
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
 
 
@@ -36,7 +38,7 @@ class TestLastFMMetadataApplication:
         # Convert to domain track
         enriched_track = convert_lastfm_to_domain_track(track, lastfm_info)
         
-        print(f"\n🧪 Testing metadata conversion:")
+        print("\n🧪 Testing metadata conversion:")
         print(f"   Original track ID: {track.id}")
         print(f"   Enriched track has connector metadata: {bool(enriched_track.connector_metadata)}")
         print(f"   LastFM metadata keys: {list(enriched_track.connector_metadata.get('lastfm', {}).keys())}")
@@ -53,7 +55,7 @@ class TestLastFMMetadataApplication:
         assert lastfm_metadata["lastfm_global_playcount"] == 1000
         assert lastfm_metadata["lastfm_listeners"] == 500
         
-        print(f"✅ Metadata properly applied to track")
+        print("✅ Metadata properly applied to track")
 
     def test_track_get_connector_attribute(self):
         """Test that tracks can retrieve LastFM attributes correctly."""
@@ -72,7 +74,7 @@ class TestLastFMMetadataApplication:
             }
         )
         
-        print(f"\n🔍 Testing attribute retrieval:")
+        print("\n🔍 Testing attribute retrieval:")
         print(f"   Track ID: {track.id}")
         
         # Test retrieving specific attributes
@@ -86,13 +88,13 @@ class TestLastFMMetadataApplication:
         
         assert user_playcount == 42
         assert global_playcount == 1000
-        assert user_loved == True
+        assert user_loved
         
         # Test fallback for missing attribute
         missing = track.get_connector_attribute("lastfm", "nonexistent", "default")
         assert missing == "default"
         
-        print(f"✅ Track attribute retrieval working correctly")
+        print("✅ Track attribute retrieval working correctly")
 
     @pytest.mark.asyncio
     async def test_fast_enrichment_end_to_end(self):
@@ -115,23 +117,19 @@ class TestLastFMMetadataApplication:
             'lastfm_user_loved': True,
         }
         
-        print(f"\n🚀 Testing complete fast enrichment flow:")
+        print("\n🚀 Testing complete fast enrichment flow:")
         
-        with patch('src.infrastructure.connectors.lastfm.operations.LastFMOperations.__attrs_post_init__'):
-            # Create operations instance
-            operations = LastFMOperations()
-            
-            # Mock the fast track info method
-            async def mock_get_track_info_fast(artist, title):
-                from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
-                return LastFMTrackInfo.from_comprehensive_data(mock_comprehensive_data)
-            
-            # Mock the intelligent method to use our fast method
-            async def mock_get_track_info_intelligent(track_obj):
-                return await mock_get_track_info_fast(track_obj.artists[0].name, track_obj.title)
-            
-            operations.get_track_info_intelligent = mock_get_track_info_intelligent
-            
+        # Mock the intelligent method to return our test data  
+        async def mock_get_track_info_intelligent(self, track_obj):
+            from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
+            return LastFMTrackInfo.from_comprehensive_data(mock_comprehensive_data)
+        
+        # Patch at the class level before creating the instance
+        with (patch.object(LastFMOperations, 'get_track_info_intelligent', mock_get_track_info_intelligent), 
+              patch('src.infrastructure.connectors.lastfm.client.LastFMAPIClient')):
+            # Create operations instance with a mock client
+            mock_client = MagicMock()
+            operations = LastFMOperations(client=mock_client)
             # Test enrichment
             enriched_track = await operations.enrich_track_with_lastfm_metadata(track)
             
@@ -146,16 +144,16 @@ class TestLastFMMetadataApplication:
                 # Verify enrichment worked
                 assert lastfm_data.get("lastfm_user_playcount") == 42
                 assert lastfm_data.get("lastfm_global_playcount") == 1000
-                assert lastfm_data.get("lastfm_user_loved") == True
+                assert lastfm_data.get("lastfm_user_loved")
                 
-                print(f"✅ Fast enrichment working correctly")
+                print("✅ Fast enrichment working correctly")
             else:
                 pytest.fail("No LastFM metadata found in enriched track")
 
     def test_batch_metadata_format(self):
         """Test that batch metadata is in the format expected by sorting functions."""
         
-        print(f"\n📊 Testing batch metadata format:")
+        print("\n📊 Testing batch metadata format:")
         
         # Simulate what batch_get_track_info returns
         batch_results = {
@@ -189,7 +187,7 @@ class TestLastFMMetadataApplication:
         
         # Verify the format matches expectations
         assert isinstance(batch_results, dict)
-        assert all(isinstance(track_id, int) for track_id in batch_results.keys())
+        assert all(isinstance(track_id, int) for track_id in batch_results)
         assert all('lastfm_user_playcount' in metadata for metadata in batch_results.values())
         
-        print(f"✅ Batch metadata format is correct")
+        print("✅ Batch metadata format is correct")

@@ -7,10 +7,10 @@ bottleneck in metadata conversion.
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 import pylast
+import pytest
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
@@ -46,7 +46,7 @@ class TestLastFMAPICallAnalysis:
                     
                     assert result is not None
                     assert duration < 0.2  # Should be much less than 200ms
-                    print(f"✅ get_track() completed in {duration*1000:.1f}ms")
+                    print(f"✅ get_track() completed in {duration * 1000:.1f}ms")
 
     @pytest.mark.asyncio
     async def test_metadata_extraction_api_call_count(self):
@@ -68,7 +68,7 @@ class TestLastFMAPICallAnalysis:
                 duration = time.time() - start
                 
                 method_call_times[method_name] = duration
-                print(f"🔄 API Call #{api_call_count}: {method_name} took {duration*1000:.1f}ms")
+                print(f"🔄 API Call #{api_call_count}: {method_name} took {duration * 1000:.1f}ms")
                 
                 # Return mock data based on method
                 if "mbid" in method_name:
@@ -115,7 +115,7 @@ class TestLastFMAPICallAnalysis:
         mock_album.get_url = create_api_call_mock("album.get_url")
         mock_track.get_album = MagicMock(return_value=mock_album)
         
-        print(f"\n🧪 Testing metadata extraction from mock track...")
+        print("\n🧪 Testing metadata extraction from mock track...")
         print(f"📊 Expected API calls based on EXTRACTORS: {len(LastFMTrackInfo.EXTRACTORS)}")
         
         # Time the metadata extraction
@@ -123,10 +123,10 @@ class TestLastFMAPICallAnalysis:
         result = LastFMTrackInfo.from_pylast_track_sync(mock_track)
         total_duration = time.time() - start_time
         
-        print(f"\n📈 RESULTS:")
+        print("\n📈 RESULTS:")
         print(f"🔢 Total API calls made: {api_call_count}")
-        print(f"⏱️  Total time taken: {total_duration*1000:.1f}ms")
-        print(f"📊 Average per API call: {(total_duration/api_call_count)*1000:.1f}ms" if api_call_count > 0 else "No calls")
+        print(f"⏱️  Total time taken: {total_duration * 1000:.1f}ms")
+        print(f"📊 Average per API call: {(total_duration / api_call_count) * 1000:.1f}ms" if api_call_count > 0 else "No calls")
         print(f"🎯 Expected with real API delays (~100ms each): {api_call_count * 100:.0f}ms")
         
         # Verify our theory
@@ -134,11 +134,11 @@ class TestLastFMAPICallAnalysis:
         assert result is not None
         assert result.lastfm_title == "Test Value"
         
-        print(f"\n✅ THEORY CONFIRMED:")
+        print("\n✅ THEORY CONFIRMED:")
         print(f"   - Metadata extraction makes {api_call_count} individual API calls")
-        print(f"   - Each pylast method (get_title, get_mbid, etc.) is a separate API call")
+        print("   - Each pylast method (get_title, get_mbid, etc.) is a separate API call")
         print(f"   - With real API latency (~100ms), this would take ~{api_call_count * 100}ms")
-        print(f"   - This explains the 1,400-1,700ms bottleneck we observed!")
+        print("   - This explains the 1,400-1,700ms bottleneck we observed!")
 
     @pytest.mark.asyncio
     async def test_proposed_single_api_call_approach(self):
@@ -168,7 +168,7 @@ class TestLastFMAPICallAnalysis:
             }
         }
         
-        print(f"\n🚀 Testing proposed single API call approach...")
+        print("\n🚀 Testing proposed single API call approach...")
         
         # Simulate single API call timing
         start_time = time.time()
@@ -197,9 +197,9 @@ class TestLastFMAPICallAnalysis:
         result = LastFMTrackInfo(**result_data)
         total_duration = time.time() - start_time
         
-        print(f"\n📈 PROPOSED APPROACH RESULTS:")
-        print(f"🔢 API calls made: 1 (comprehensive track.getInfo)")
-        print(f"⏱️  Total time taken: {total_duration*1000:.1f}ms")
+        print("\n📈 PROPOSED APPROACH RESULTS:")
+        print("🔢 API calls made: 1 (comprehensive track.getInfo)")
+        print(f"⏱️  Total time taken: {total_duration * 1000:.1f}ms")
         print(f"📊 All metadata fields extracted: {len([k for k, v in result_data.items() if v is not None])}")
         
         assert result is not None
@@ -208,27 +208,27 @@ class TestLastFMAPICallAnalysis:
         assert result.lastfm_album_name == "Test Album"
         assert result.lastfm_global_playcount == 1000
         
-        print(f"\n🎯 PERFORMANCE COMPARISON:")
-        print(f"   Current approach: ~14 API calls × 100ms = ~1,400ms")
-        print(f"   Proposed approach: 1 API call × 100ms = ~{total_duration*1000:.0f}ms")
-        print(f"   Improvement: ~14x faster metadata extraction!")
+        print("\n🎯 PERFORMANCE COMPARISON:")
+        print("   Current approach: ~14 API calls × 100ms = ~1,400ms")
+        print(f"   Proposed approach: 1 API call × 100ms = ~{total_duration * 1000:.0f}ms")
+        print("   Improvement: ~14x faster metadata extraction!")
 
     def test_lastfm_extractors_count(self):
         """Verify how many individual API calls the current EXTRACTORS make."""
         
         extractor_count = len(LastFMTrackInfo.EXTRACTORS)
-        print(f"\n📊 Current LastFMTrackInfo.EXTRACTORS analysis:")
+        print("\n📊 Current LastFMTrackInfo.EXTRACTORS analysis:")
         print(f"   Total extractors: {extractor_count}")
-        print(f"   Each extractor calls a pylast method that makes an API call")
+        print("   Each extractor calls a pylast method that makes an API call")
         print(f"   Expected API calls per track: {extractor_count}")
         
         # List all the API-calling methods
         api_methods = list(LastFMTrackInfo.EXTRACTORS.keys())
-        print(f"\n🔍 Individual API calls being made:")
+        print("\n🔍 Individual API calls being made:")
         for i, method in enumerate(api_methods, 1):
             print(f"   {i:2d}. {method}")
         
         assert extractor_count >= 10, f"Expected at least 10 extractors, found {extractor_count}"
         
-        print(f"\n💡 This confirms why metadata conversion takes 1,400-1,700ms:")
+        print("\n💡 This confirms why metadata conversion takes 1,400-1,700ms:")
         print(f"   {extractor_count} API calls × ~100-120ms per call = ~{extractor_count * 110}ms")

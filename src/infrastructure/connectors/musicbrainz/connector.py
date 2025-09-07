@@ -74,15 +74,15 @@ class MusicBrainzConnector(BaseAPIConnector):
         logger.info(f"Starting {progress_desc} for {len(isrcs)} ISRCs")
 
         results = {}
-        
+
         for i, isrc in enumerate(isrcs, 1):
             try:
                 mbid = await self.get_recording_by_isrc(isrc)
                 results[isrc] = mbid
-                
+
                 if i % 10 == 0 or i == len(isrcs):
                     logger.info(f"Processed {i}/{len(isrcs)} ISRCs")
-                    
+
             except Exception as e:
                 logger.error(f"Failed to lookup ISRC {isrc}: {e}")
                 results[isrc] = None

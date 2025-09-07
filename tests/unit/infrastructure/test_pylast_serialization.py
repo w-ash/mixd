@@ -169,7 +169,7 @@ class TestPylastSerialization:
                         "type": type(value).__name__,
                         "id": id(value)
                     }
-                except:
+                except Exception:  # noqa: S112 # Intentionally broad for debugging pylast attributes
                     continue
             
             return {
