@@ -42,7 +42,7 @@ class ConfigProviderImpl:
         """Direct access to settings for modern usage."""
         return self._settings
 
-    def get(self, key: str, default: Any = None) -> Any:  # noqa: ARG002
+    def get(self, key: str, default: Any = None) -> Any:
         """Retrieve a configuration value by key.
 
         This method is primarily for workflow-specific configuration,
@@ -57,6 +57,8 @@ class ConfigProviderImpl:
             Configuration value or default if not found
         """
         # This is for workflow-specific config, not app settings
+        # Currently returns default since no workflow config storage is implemented
+        _ = key  # Mark as intentionally unused for now
         return default
 
 

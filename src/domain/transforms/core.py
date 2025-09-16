@@ -11,15 +11,14 @@ Transformations follow functional programming principles:
 - Purity: No side effects or external dependencies
 """
 
-import random  # noqa: I001
 from collections.abc import Callable
 from datetime import UTC, datetime
+import random
 from typing import Any, TypeIs, TypeVar, cast
 
 from toolz import compose_left, curry, get_in
 
 from src.config import get_logger
-
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
@@ -308,118 +307,91 @@ def filter_by_metric_range(
 
 
 @curry
-def sort_by_attribute(
-    key_fn: Callable[[Track], Any] | str,
-    metric_name: str,
+def sort_by_key_function(
+    key_fn: Callable[[Track], Any],
     reverse: bool = False,
+    metric_name: str | None = None,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
-    """Sort tracks by any attribute or derived value.
+    """Pure sorting function - sorts tracks by the provided key function.
+
+    Simple domain function that does one thing: sort tracks using the key function.
+    Optionally tracks the sort values in tracklist metadata for downstream use.
 
     Args:
-        key_fn: Function to extract sort key or metric name string
-        metric_name: Name for tracking metrics in tracklist metadata
+        key_fn: Function to extract sort key from each track
         reverse: Whether to sort in descending order
+        metric_name: Optional name to store sort values in metadata
         tracklist: Optional tracklist to transform immediately
 
     Returns:
         Transformation function or transformed tracklist if provided
     """
 
-    # Allow passing metric name directly for common use cases
-    if isinstance(key_fn, str):
-        stored_metric_name = key_fn
-
-        def metric_key_fn(track: Track) -> Any:
-            return _extract_track_metric(track, stored_metric_name, 0)
-
-        key_fn = metric_key_fn
-
-    def _extract_track_metric(track: Track, metric_key: str, default: Any = 0) -> Any:
-        """Extract metric from track or its metadata.
-
-        This function is used during the initial key_fn setup phase,
-        but the actual metric extraction is handled by enhanced_key_fn
-        which has access to the tracklist metadata.
-        """
-        if not track.id:
-            return default
-
-        # First try track's own properties
-        if hasattr(track, metric_key) and getattr(track, metric_key) is not None:
-            return getattr(track, metric_key)
-
-        # Note: Tracklist metadata metrics are handled by enhanced_key_fn
-        # This function is only used as a fallback for track attributes
-        return default
-
     def transform(t: TrackList) -> TrackList:
-        """Apply the sorting transformation with metrics-driven approach."""
-        # Simply use metrics that were resolved at the node boundary
-        metrics_dict = t.metadata.get("metrics", {}).get(metric_name, {})
-
-        # Validate that metrics keys are integers (our expected format)
-        if metrics_dict:
-            # Check if metrics dictionary has string keys (which is an error)
-            string_keys = [k for k in metrics_dict if isinstance(k, str)]
-            if string_keys:
-                # Instead of silently working around this, throw an error so we can fix it
-                # at the source - track IDs should be integers
-                sample_keys = string_keys[:5]
-                raise TypeError(
-                    f"Metrics dictionary contains string keys instead of integer track IDs: {sample_keys}. "
-                    f"This indicates an upstream issue in metric resolution or storage."
-                )
-
-        # Check if we have any non-null values
-
-        # Create enhanced key function that prioritizes metrics
-        def enhanced_key_fn(track: Track) -> Any:
-            if not track.id:
-                return key_fn(track)
-
-            # Check if track ID exists in metrics - track IDs should be integers
-            logger.debug(
-                f"Sorting track {track.id} (type: {type(track.id)}), metric_dict keys: {list(metrics_dict.keys())[:5]}..."
-            )
-            if track.id in metrics_dict:
-                # Use resolved metric if it exists and isn't None
-                metric_value = metrics_dict[track.id]
-                if metric_value is not None:
-                    logger.debug(
-                        f"Using metric value {metric_value} for track {track.id}"
-                    )
-                    return metric_value
-
-            # For missing or None values, use a default that will sort appropriately
-            logger.debug(f"Track {track.id} missing from metrics, using fallback value")
-            if reverse:
-                # When sorting in descending order (reverse=True), put None values at the end
-                return float("-inf")  # Lowest possible value
-            else:
-                # When sorting in ascending order, put None values at the end
-                return float("inf")  # Highest possible value
-
-        # Sort tracks using the enhanced key function
-        sorted_tracks = sorted(t.tracks, key=enhanced_key_fn, reverse=reverse)
+        """Apply the sorting transformation."""
+        sorted_tracks = sorted(t.tracks, key=key_fn, reverse=reverse)
         result = t.with_tracks(sorted_tracks)
 
-        # Store metrics in tracklist metadata (preserving existing metrics)
-        # Use integer track IDs for consistency
-        track_metrics = {
-            track.id: enhanced_key_fn(track)
-            for track in t.tracks
-            if track.id is not None
-        }
+        # Optionally track sort values in metadata
+        if metric_name:
+            track_metrics = {
+                track.id: key_fn(track) for track in t.tracks if track.id is not None
+            }
+            result = result.with_metadata(
+                "metrics",
+                {
+                    **result.metadata.get("metrics", {}),
+                    metric_name: track_metrics,
+                },
+            )
 
-        result = result.with_metadata(
-            "metrics",
-            {
-                **result.metadata.get("metrics", {}),
-                metric_name: track_metrics,
-            },
-        )
+        return result
 
+    return transform(tracklist) if tracklist is not None else transform
+
+
+@curry
+def sort_by_external_metrics(
+    metric_name: str,
+    reverse: bool = True,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """Sort tracks by external metrics from tracklist metadata.
+
+    Pure function that sorts tracks using metrics already resolved in tracklist metadata.
+    Expects the application layer to have populated metadata["metrics"][metric_name]
+    with the appropriate values.
+
+    Args:
+        metric_name: Name of metric in tracklist metadata
+        reverse: Whether to sort in descending order (default True for metrics)
+        tracklist: Optional tracklist to transform immediately
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        """Apply external metrics sorting."""
+        # Get metrics from tracklist metadata
+        metrics_dict = t.metadata.get("metrics", {}).get(metric_name, {})
+
+        def external_metrics_key(track: Track) -> Any:
+            """Extract metric value for sorting."""
+            if not track.id or track.id not in metrics_dict:
+                # Tracks without metrics sort to end (preserve original data types)
+                if reverse:
+                    return float("-inf")  # Lowest for descending sort
+                else:
+                    return float("inf")  # Highest for ascending sort
+
+            return metrics_dict[track.id]
+
+        sorted_tracks = sorted(t.tracks, key=external_metrics_key, reverse=reverse)
+        result = t.with_tracks(sorted_tracks)
+
+        # The metrics are already in metadata, no need to duplicate them
         return result
 
     return transform(tracklist) if tracklist is not None else transform
@@ -1225,5 +1197,108 @@ def sort_by_play_history(
         )
 
         return result.with_metadata("play_sort_applied", sort_metadata)
+
+    return transform(tracklist) if tracklist is not None else transform
+
+
+@curry
+def weighted_shuffle(
+    shuffle_strength: float,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """
+    Shuffle tracks with configurable strength between original order and random.
+
+    Blends original track order with randomized order based on shuffle strength.
+    At 0.0, preserves original order completely. At 1.0, produces fully random order.
+    Values in between create a weighted blend of the two orderings.
+
+    Args:
+        shuffle_strength: Float between 0.0-1.0 controlling shuffle intensity
+                         0.0 = original order, 1.0 = fully random
+        tracklist: Optional tracklist to transform immediately
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+
+    Examples:
+        # Keep original order
+        weighted_shuffle(0.0)
+
+        # Light shuffle - mostly original with some randomness
+        weighted_shuffle(0.2)
+
+        # Half shuffle - balanced mix of original and random
+        weighted_shuffle(0.5)
+
+        # Heavy shuffle - mostly random with some original structure
+        weighted_shuffle(0.8)
+
+        # Fully random
+        weighted_shuffle(1.0)
+    """
+    # Validate shuffle strength
+    if not 0.0 <= shuffle_strength <= 1.0:
+        raise ValueError(
+            f"shuffle_strength must be between 0.0 and 1.0, got {shuffle_strength}"
+        )
+
+    def transform(t: TrackList) -> TrackList:
+        """Apply weighted shuffle transformation."""
+        if not t.tracks:
+            return t
+
+        # Edge cases for performance
+        if shuffle_strength == 0.0:
+            # No shuffle - return as-is with metadata
+            return t.with_metadata(
+                "weighted_shuffle_applied",
+                {
+                    "shuffle_strength": shuffle_strength,
+                    "original_count": len(t.tracks),
+                    "shuffle_type": "no_shuffle",
+                },
+            )
+        elif shuffle_strength == 1.0:
+            # Full shuffle - use random.shuffle for efficiency
+            shuffled_tracks = t.tracks.copy()
+            random.shuffle(shuffled_tracks)
+            return t.with_tracks(shuffled_tracks).with_metadata(
+                "weighted_shuffle_applied",
+                {
+                    "shuffle_strength": shuffle_strength,
+                    "original_count": len(t.tracks),
+                    "shuffle_type": "full_random",
+                },
+            )
+
+        # Weighted blend: create position-based weights favoring original positions
+        track_count = len(t.tracks)
+        original_tracks = t.tracks.copy()
+
+        # Generate random order as target
+        random_tracks = t.tracks.copy()
+        random.shuffle(random_tracks)
+
+        # Create weighted blend by selecting from original vs random based on strength
+        # Use per-position random choice weighted by shuffle_strength
+        blended_tracks = []
+        for i in range(track_count):
+            # At each position, choose between original order track and random order track
+            if random.random() < shuffle_strength:  # noqa: S311 # playlist shuffling, not crypto
+                # Choose from random ordering
+                blended_tracks.append(random_tracks[i])
+            else:
+                # Choose from original ordering
+                blended_tracks.append(original_tracks[i])
+
+        return t.with_tracks(blended_tracks).with_metadata(
+            "weighted_shuffle_applied",
+            {
+                "shuffle_strength": shuffle_strength,
+                "original_count": len(t.tracks),
+                "shuffle_type": "weighted_blend",
+            },
+        )
 
     return transform(tracklist) if tracklist is not None else transform

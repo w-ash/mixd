@@ -16,7 +16,9 @@ from .core import (
     sample_random,
     select_by_method,
     set_description,
-    sort_by_attribute,
+    sort_by_external_metrics,
+    sort_by_key_function,
+    sort_by_play_history,
     take_last,
 )
 
@@ -42,6 +44,8 @@ __all__ = [
     "select_by_method",
     "set_description",
     # Track sorting
-    "sort_by_attribute",
+    "sort_by_external_metrics",
+    "sort_by_key_function",
+    "sort_by_play_history",
     "take_last",
 ]

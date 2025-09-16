@@ -404,8 +404,10 @@ class UpdateConnectorPlaylistUseCase:
             )
 
             # Trust connector's sophisticated implementation (it handles all API details correctly)
+            # Pass track repository for canonical URI resolution
+            track_repo = uow.get_track_repository()
             final_snapshot_id = await connector.execute_playlist_operations(
-                command.playlist_id, sequenced_operations
+                command.playlist_id, sequenced_operations, track_repo=track_repo
             )
 
             # Build simple response metadata (let repository handle detailed metadata)

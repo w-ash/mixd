@@ -2,14 +2,14 @@
 
 import asyncio
 
-from rich.console import Console
 from rich.table import Table
 import typer
 
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.interface.cli.console import get_console
 
-console = Console()
+console = get_console()
 
 # Create track commands app
 track_app = typer.Typer(

@@ -1,14 +1,14 @@
 {
   "id": "test_playlist_update",
   "name": "End-to-End Playlist Update Test",
-  "description": "Comprehensive test: Remove 10 tracks, add 10 tracks, sort by title, update Spotify with differential operations. Starts with 98 tracks, ends with 98 tracks.",
+  "description": "Comprehensive test: Remove 10 tracks, lightly shuffle additional tracks, add 10 tracks, sort by title, update Spotify with differential operations. Starts with 98 tracks, ends with 98 tracks.",
   "version": "2.0",
   "tasks": [
     {
       "id": "source_original_playlist",
       "type": "source.playlist",
       "config": {
-        "playlist_id": "14GT9ahKyAR9SObC7GdwtO",
+        "playlist_id": "5eoUfJYe0UAGbNjeG8HOLx",
         "connector": "spotify"
       }
     },
@@ -32,6 +32,16 @@
       ]
     },
     {
+      "id": "shuffle_additional_tracks",
+      "type": "sorter.weighted_shuffle",
+      "config": {
+        "shuffle_strength": 0.2
+      },
+      "upstream": [
+        "source_additional_tracks"
+      ]
+    },
+    {
       "id": "select_tracks_to_add",
       "type": "selector.limit_tracks",
       "config": {
@@ -39,7 +49,7 @@
         "method": "first"
       },
       "upstream": [
-        "source_additional_tracks"
+        "shuffle_additional_tracks"
       ]
     },
     {
@@ -82,7 +92,7 @@
       "id": "update_spotify_playlist",
       "type": "destination.update_playlist",
       "config": {
-        "playlist_id": "14GT9ahKyAR9SObC7GdwtO",
+        "playlist_id": "5eoUfJYe0UAGbNjeG8HOLx",
         "connector": "spotify",
         "append": false,
         "dry_run": false

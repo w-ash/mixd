@@ -39,14 +39,3 @@ class SpotifyServiceFactory:
         from .play_resolver import SpotifyConnectorPlayResolver
 
         return SpotifyConnectorPlayResolver(spotify_connector=SpotifyConnector())
-
-    # Future service creation methods can be added here:
-    # @staticmethod
-    # async def create_playlist_syncer(uow: UnitOfWorkProtocol) -> PlaylistSyncerProtocol:
-    #     """Create Spotify playlist sync service."""
-    #     pass
-
-    # @staticmethod
-    # async def create_likes_syncer(uow: UnitOfWorkProtocol) -> LikesSyncerProtocol:
-    #     """Create Spotify likes sync service."""
-    #     pass

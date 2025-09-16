@@ -4,7 +4,6 @@ import asyncio
 from datetime import datetime
 from typing import Annotated
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
@@ -14,9 +13,10 @@ from src.application.use_cases.sync_likes import (
     run_lastfm_likes_export,
     run_spotify_likes_import,
 )
+from src.interface.cli.console import get_console
 from src.interface.shared.ui import display_operation_result
 
-console = Console()
+console = get_console()
 
 
 def _get_lastfm_checkpoint_info() -> str | None:

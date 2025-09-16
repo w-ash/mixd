@@ -15,7 +15,10 @@ swapped without requiring changes to dependent code.
 """
 
 from collections.abc import Callable
-from typing import Any, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
+
+if TYPE_CHECKING:
+    from src.domain.entities import ConnectorPlaylist, Playlist, Track
 
 
 class ConnectorConfig(TypedDict):
@@ -120,4 +123,3 @@ class PlaylistConnectorProtocol(Protocol):
 
 
 # Forward references for type annotations
-from src.domain.entities import ConnectorPlaylist, Playlist, Track  # noqa: E402, TC001

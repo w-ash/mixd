@@ -81,11 +81,10 @@ class TestCurrentLoggingBehavior:
                 test_logger.debug("Debug message in verbose mode")
                 test_logger.info("Info message in verbose mode")
     
-    @pytest.mark.asyncio
-    async def test_log_startup_info(self):
+    def test_log_startup_info(self):
         """Test log_startup_info function."""
         # Should not raise
-        await log_startup_info()
+        log_startup_info()
     
     def test_resilient_operation_decorator_success(self):
         """Test resilient_operation decorator with successful operation."""

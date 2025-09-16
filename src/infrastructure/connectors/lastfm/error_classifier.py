@@ -79,7 +79,11 @@ class LastFMErrorClassifier(BaseErrorClassifier):
             pattern in error_str
             for pattern in ["rate limit", "too many", "quota", "throttle"]
         ):
-            return ("rate_limit", "29", "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines")
+            return (
+                "rate_limit",
+                "29",
+                "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines",
+            )
 
         # Track/resource not found (context dependent - not necessarily permanent)
         if (

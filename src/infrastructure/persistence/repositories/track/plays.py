@@ -366,13 +366,13 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             }
 
         # Ensure all requested track_ids are present in results
-        for metric_name in result:  # noqa: PLC0206 (only need keys, not values)
+        for metric_name, metric_data in result.items():
             for track_id in track_ids:
-                if track_id not in result[metric_name]:
+                if track_id not in metric_data:
                     if metric_name in {"total_plays", "period_plays"}:
-                        result[metric_name][track_id] = 0
+                        metric_data[track_id] = 0
                     else:  # last_played_dates
-                        result[metric_name][track_id] = None
+                        metric_data[track_id] = None
 
         return result
 

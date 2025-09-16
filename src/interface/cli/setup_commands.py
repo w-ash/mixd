@@ -1,9 +1,10 @@
 """CLI commands for service authentication and configuration setup."""
 
-from rich.console import Console
 import typer
 
-console = Console()
+from src.interface.cli.console import get_console
+
+console = get_console()
 
 
 def register_setup_commands(app: typer.Typer) -> None:

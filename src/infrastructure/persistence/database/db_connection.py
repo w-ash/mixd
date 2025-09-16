@@ -323,7 +323,7 @@ class SafeQuery[T: Any]:
 
 
 # Import database models after base class is defined to avoid circular imports
-from src.infrastructure.persistence.database.db_models import (  # noqa
+from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBPlaylist,
     DBPlaylistMapping,

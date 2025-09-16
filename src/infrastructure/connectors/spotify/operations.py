@@ -326,8 +326,9 @@ class SpotifyOperations:
         playlist_id: str,
         operations: list,
         snapshot_id: str | None = None,
+        track_repo=None,
     ) -> str | None:
-        """Execute a list of differential playlist operations."""
+        """Execute a list of differential playlist operations with URI translation."""
         if not operations:
             return snapshot_id
 
@@ -335,6 +336,12 @@ class SpotifyOperations:
             f"Executing {len(operations)} playlist operations on {playlist_id}",
             snapshot_id=snapshot_id,
         )
+
+        # Resolve canonical URIs to Spotify URIs if track_repo is available
+        if track_repo:
+            operations = await self._resolve_canonical_uris_to_spotify(
+                operations, track_repo
+            )
 
         current_snapshot = snapshot_id
 
@@ -374,6 +381,86 @@ class SpotifyOperations:
         except Exception as e:
             logger.error(f"Error during playlist operations: {e}")
             raise
+
+    async def _resolve_canonical_uris_to_spotify(
+        self, operations: list, track_repo
+    ) -> list:
+        """Convert canonical URIs in operations to Spotify URIs.
+
+        Args:
+            operations: List of playlist operations with canonical URIs
+            track_repo: Track repository for looking up canonical tracks
+
+        Returns:
+            List of operations with Spotify URIs, filtered to valid ones only
+        """
+        resolved_operations = []
+        canonical_track_ids = set()
+
+        # Collect all canonical track IDs from operations
+        for op in operations:
+            if op.spotify_uri and op.spotify_uri.startswith("canonical:"):
+                try:
+                    track_id = int(op.spotify_uri.split(":", 1)[1])
+                    canonical_track_ids.add(track_id)
+                except (ValueError, IndexError):
+                    logger.warning(f"Invalid canonical URI format: {op.spotify_uri}")
+                    continue
+
+        # Bulk load tracks by IDs
+        track_map = {}
+        if canonical_track_ids:
+            tracks = await track_repo.get_tracks_by_ids(list(canonical_track_ids))
+            track_map = {track.id: track for track in tracks}
+
+        # Resolve operations
+        for op in operations:
+            if not op.spotify_uri:
+                # Operation without URI - skip
+                logger.warning("Operation missing spotify_uri, skipping")
+                continue
+
+            if op.spotify_uri.startswith("canonical:"):
+                # Resolve canonical URI to Spotify URI
+                try:
+                    track_id = int(op.spotify_uri.split(":", 1)[1])
+                    track = track_map.get(track_id)
+
+                    if not track:
+                        logger.warning(f"Track not found for canonical ID: {track_id}")
+                        continue
+
+                    spotify_id = track.connector_track_identifiers.get("spotify")
+                    if not spotify_id:
+                        logger.warning(
+                            f"Track {track_id} has no Spotify ID, skipping operation"
+                        )
+                        continue
+
+                    # Update operation with Spotify URI
+                    from attrs import evolve
+
+                    resolved_op = evolve(op, spotify_uri=f"spotify:track:{spotify_id}")
+                    resolved_operations.append(resolved_op)
+
+                except (ValueError, IndexError):
+                    logger.warning(f"Invalid canonical URI format: {op.spotify_uri}")
+                    continue
+
+            elif op.spotify_uri.startswith("spotify:track:"):
+                # Already a Spotify URI - keep as is
+                resolved_operations.append(op)
+
+            else:
+                logger.warning(
+                    f"Unknown URI format: {op.spotify_uri}, skipping operation"
+                )
+                continue
+
+        logger.info(
+            f"Resolved {len(operations)} operations to {len(resolved_operations)} valid Spotify operations"
+        )
+        return resolved_operations
 
     async def _execute_remove_operations(
         self,

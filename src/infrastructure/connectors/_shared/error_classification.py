@@ -42,21 +42,20 @@ class DefaultErrorClassifier(BaseErrorClassifier):
         return ("unknown", "N/A", str(exception))
 
 
-def should_giveup_on_error(classifier: ErrorClassifierProtocol, service_name: str = "lastfm"):
+def should_giveup_on_error(
+    classifier: ErrorClassifierProtocol, service_name: str = "lastfm"
+):
     """Create giveup function that uses error type-specific retry counts."""
+    _ = service_name  # Keep for future service-specific retry logic
 
     def _should_giveup(exception) -> bool:
         """Determine if we should give up retrying based on error classification."""
         error_type, _, _ = classifier.classify_error(exception)
 
         # Always give up immediately on permanent and not_found errors
-        # For these error types, we don't need to track retry counts
-        if error_type in ["permanent", "not_found"]:
-            return True
-
-        # For retryable errors (rate_limit, temporary, unknown), 
+        # For retryable errors (rate_limit, temporary, unknown),
         # let the backoff decorator handle the retry count via max_tries
-        return False
+        return error_type in ["permanent", "not_found"]
 
     return _should_giveup
 

@@ -1,7 +1,6 @@
 """Base class for importing music listening data from external sources."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 from uuid import uuid4
@@ -9,6 +8,14 @@ from uuid import uuid4
 from src.application.utilities.results import ImportResultData, ResultFactory
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
+from src.domain.entities.progress import (
+    NullProgressEmitter,
+    OperationStatus,
+    ProgressEmitter,
+    ProgressOperation,
+    ProgressStatus,
+    create_progress_event,
+)
 from src.domain.repositories.interfaces import (
     PlaysRepositoryProtocol,
     UnitOfWorkProtocol,
@@ -21,7 +28,7 @@ class CommonImportParams(TypedDict, total=False):
     """Common import parameters shared across all importers."""
 
     import_batch_id: str | None
-    progress_callback: Callable[[int, int, str], None] | None
+    progress_emitter: ProgressEmitter
     uow: UnitOfWorkProtocol | None
 
 
@@ -76,7 +83,7 @@ class BasePlayImporter(ABC):
     async def import_data(
         self,
         import_batch_id: str | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> OperationResult:
@@ -89,8 +96,7 @@ class BasePlayImporter(ABC):
         Args:
             import_batch_id: Optional batch ID for grouping related imports. Generated
                 if not provided.
-            progress_callback: Optional function called with (current, total, message)
-                for UI progress updates.
+            progress_emitter: Optional progress emitter (defaults to null implementation)
             uow: UnitOfWork instance for database operations (required).
             **kwargs: Source-specific parameters passed to fetch/process methods.
 
@@ -98,12 +104,19 @@ class BasePlayImporter(ABC):
             OperationResult containing import statistics and any TrackPlay objects
             that were processed.
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         # Step 1: Setup import context
         batch_id = import_batch_id or str(uuid4())
         import_timestamp = datetime.now(UTC)
 
-        if progress_callback:
-            progress_callback(0, 100, "Starting import...")
+        # Start progress tracking
+        operation = ProgressOperation(
+            description=f"{self.operation_name} - Import play data using {self.__class__.__name__}",
+            total_items=None,  # Unknown until we fetch data
+        )
+        operation_id = await progress_emitter.start_operation(operation)
 
         logger.info(
             f"Starting {self.operation_name}",
@@ -113,51 +126,82 @@ class BasePlayImporter(ABC):
 
         try:
             # Step 2: Fetch raw data (Strategy pattern - implemented by subclasses)
-            if progress_callback:
-                progress_callback(20, 100, "Fetching data...")
+            await progress_emitter.emit_progress(
+                create_progress_event(
+                    operation_id=operation_id,
+                    current=20,
+                    total=100,
+                    message="Fetching data...",
+                    status=ProgressStatus.IN_PROGRESS,
+                )
+            )
 
             raw_data = await self._fetch_data(
-                progress_callback=progress_callback, uow=uow, **kwargs
+                progress_emitter=progress_emitter, uow=uow, **kwargs
             )
 
             if not raw_data:
                 # Handle empty data case - still call checkpoints for consistency
-                if progress_callback:
-                    progress_callback(
-                        90, 100, "No data to import - updating checkpoints..."
+                await progress_emitter.emit_progress(
+                    create_progress_event(
+                        operation_id=operation_id,
+                        current=90,
+                        total=100,
+                        message="No data to import - updating checkpoints...",
+                        status=ProgressStatus.IN_PROGRESS,
                     )
+                )
 
                 await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
 
-                if progress_callback:
-                    progress_callback(100, 100, "No data to import")
-
+                await progress_emitter.complete_operation(
+                    operation_id, OperationStatus.COMPLETED
+                )
                 return self._create_empty_result(batch_id)
 
             # Step 3: Process raw data into TrackPlay objects (Strategy pattern)
-            if progress_callback:
-                progress_callback(60, 100, f"Processing {len(raw_data)} records...")
+            await progress_emitter.emit_progress(
+                create_progress_event(
+                    operation_id=operation_id,
+                    current=60,
+                    total=100,
+                    message=f"Processing {len(raw_data)} records...",
+                    status=ProgressStatus.IN_PROGRESS,
+                )
+            )
 
             track_plays = await self._process_data(
                 raw_data=raw_data,
                 batch_id=batch_id,
                 import_timestamp=import_timestamp,
-                progress_callback=progress_callback,
+                progress_emitter=progress_emitter,
                 uow=uow,
                 **kwargs,
             )
 
             # Step 4: Save to database (Template - always the same)
-            if progress_callback:
-                progress_callback(
-                    80, 100, f"Saving {len(track_plays)} plays to database..."
+            await progress_emitter.emit_progress(
+                create_progress_event(
+                    operation_id=operation_id,
+                    current=80,
+                    total=100,
+                    message=f"Saving {len(track_plays)} plays to database...",
+                    status=ProgressStatus.IN_PROGRESS,
                 )
+            )
 
             imported_count, duplicate_count = await self._save_data(track_plays, uow)
 
             # Step 5: Handle checkpoints (Strategy pattern - delegated to subclasses)
-            if progress_callback:
-                progress_callback(90, 100, "Updating checkpoints...")
+            await progress_emitter.emit_progress(
+                create_progress_event(
+                    operation_id=operation_id,
+                    current=90,
+                    total=100,
+                    message="Updating checkpoints...",
+                    status=ProgressStatus.IN_PROGRESS,
+                )
+            )
 
             try:
                 await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
@@ -172,15 +216,9 @@ class BasePlayImporter(ABC):
                 raise
 
             # Step 6: Create success result (Template - standardized format)
-            if progress_callback:
-                if duplicate_count > 0:
-                    progress_callback(
-                        100,
-                        100,
-                        f"Saved {imported_count} new plays, filtered {duplicate_count} duplicates",
-                    )
-                else:
-                    progress_callback(100, 100, f"Saved {imported_count} new plays")
+            await progress_emitter.complete_operation(
+                operation_id, OperationStatus.COMPLETED
+            )
 
             logger.info(
                 f"{self.operation_name} completed successfully",
@@ -210,12 +248,15 @@ class BasePlayImporter(ABC):
                 exc_info=True,  # Include full traceback
             )
 
+            await progress_emitter.complete_operation(
+                operation_id, OperationStatus.FAILED
+            )
             return self._create_error_result(error_msg, batch_id)
 
     @abstractmethod
     async def _fetch_data(
         self,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> list[Any]:
@@ -226,7 +267,7 @@ class BasePlayImporter(ABC):
         that will be processed into TrackPlay objects.
 
         Args:
-            progress_callback: Optional function for progress updates.
+            progress_emitter: Progress emitter for operation status tracking.
             **kwargs: Source-specific parameters (API keys, file paths, date ranges).
 
         Returns:
@@ -239,7 +280,7 @@ class BasePlayImporter(ABC):
         raw_data: list[Any],
         batch_id: str,
         import_timestamp: datetime,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> list[Any]:
@@ -253,7 +294,7 @@ class BasePlayImporter(ABC):
             raw_data: Raw data objects returned from _fetch_data.
             batch_id: Unique identifier for this import batch.
             import_timestamp: When this import was initiated.
-            progress_callback: Optional function for progress updates.
+            progress_emitter: Progress emitter for operation status tracking.
             **kwargs: Source-specific processing parameters.
 
         Returns:
@@ -402,8 +443,8 @@ class BasePlayImporter(ABC):
     def _enrich_import_data(
         self,
         base_data: "ImportResultData",
-        raw_data: list[Any],  # noqa: ARG002 - Used by subclasses
-        processed_data: list[Any],  # noqa: ARG002 - Used by subclasses (TrackPlay or ConnectorTrackPlay)
+        raw_data: list[Any],
+        processed_data: list[Any],
     ) -> "ImportResultData":
         """Enrich import data with service-specific statistics.
 
@@ -418,8 +459,8 @@ class BasePlayImporter(ABC):
         Returns:
             Enriched ImportResultData with service-specific statistics
         """
-        # Base implementation returns data unchanged
-        # Subclasses override to add service-specific enrichment
+        # Base implementation returns data unchanged - subclasses can override
+        _ = raw_data, processed_data  # Mark as unused in base implementation
         return base_data
 
     def _create_empty_result(self, batch_id: str) -> OperationResult:
@@ -471,7 +512,7 @@ class BasePlayImporter(ABC):
         """
         common_params: CommonImportParams = {
             "import_batch_id": params.get("import_batch_id"),
-            "progress_callback": params.get("progress_callback"),
+            "progress_emitter": params.get("progress_emitter", NullProgressEmitter()),
             "uow": params.get("uow"),
         }
 
@@ -479,7 +520,7 @@ class BasePlayImporter(ABC):
         remaining_params = {
             k: v
             for k, v in params.items()
-            if k not in {"import_batch_id", "progress_callback", "uow"}
+            if k not in {"import_batch_id", "progress_emitter", "uow"}
         }
 
         return common_params, remaining_params

@@ -131,6 +131,13 @@ node(
     output_type="tracklist",
 )(make_node("sorter", "by_play_history"))
 
+node(
+    "sorter.weighted_shuffle",
+    description="Shuffles tracks with configurable strength (0.0=original order, 1.0=fully random)",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "weighted_shuffle"))
+
 # === SELECTOR NODES ===
 node(
     "selector.limit_tracks",

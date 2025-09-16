@@ -76,9 +76,10 @@ class SpotifyConnectorPlayResolver:
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
-        progress_callback: Callable[[int, int, str], None] | None = None,  # noqa: ARG002 - Reserved for future progress tracking
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[TrackPlay], dict[str, Any]]:
         """Resolve Spotify connector plays with full metadata preservation."""
+        _ = progress_callback  # Keep for future progress tracking integration
         if not connector_plays:
             return [], self._create_empty_metrics()
 

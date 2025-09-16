@@ -286,10 +286,10 @@ class LastFMAPIClient:
         self, artist: str, title: str
     ) -> dict[str, Any] | None:
         """Get comprehensive track info in a single API call using raw track.getInfo response.
-        
+
         This method makes ONE API call to track.getInfo and extracts all metadata from the
         raw response, avoiding the 14 individual API calls that pylast's lazy methods make.
-        
+
         Returns:
             Dict with all track metadata fields, or None if track not found
         """
@@ -676,7 +676,7 @@ class LastFMAPIClient:
         except pylast.WSError:
             # Let WSError propagate to backoff decorator on calling method
             raise
-            
+
         except Exception as e:
             logger.error(f"Failed to get comprehensive track data: {e}")
             return None
@@ -740,7 +740,7 @@ class LastFMAPIClient:
         """Love a track with retry logic handled by backoff decorator."""
         if self.client is None:
             raise RuntimeError("LastFM client not initialized")
-            
+
         try:
             # Use asyncio.to_thread with timeout to prevent hangs
             track = await asyncio.wait_for(

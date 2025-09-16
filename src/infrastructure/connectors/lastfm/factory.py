@@ -44,14 +44,3 @@ class LastfmServiceFactory:
         return LastfmConnectorPlayResolver(
             lastfm_resolution_service=LastfmTrackResolutionService()
         )
-
-    # Future service creation methods can be added here:
-    # @staticmethod
-    # async def create_playlist_syncer(uow: UnitOfWorkProtocol) -> PlaylistSyncerProtocol:
-    #     """Create Last.fm playlist sync service."""
-    #     pass
-
-    # @staticmethod
-    # async def create_likes_syncer(uow: UnitOfWorkProtocol) -> LikesSyncerProtocol:
-    #     """Create Last.fm likes sync service."""
-    #     pass

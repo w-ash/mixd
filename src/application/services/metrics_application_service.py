@@ -9,7 +9,9 @@ from typing import Any
 
 from attrs import define
 
-from src.application.utilities.database_batch_processor import DatabaseBatchProcessor
+from src.application.utilities.enhanced_database_batch_processor import (
+    EnhancedDatabaseBatchProcessor,
+)
 from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.metrics import (
@@ -445,8 +447,8 @@ class MetricsApplicationService:
         if all_metrics_batch:
             metrics_repo = uow.get_metrics_repository()
 
-            # Create database batch processor optimized for bulk database operations
-            batch_processor = DatabaseBatchProcessor[
+            # Create enhanced database batch processor with progress tracking
+            batch_processor = EnhancedDatabaseBatchProcessor[
                 list, int
             ](
                 batch_size=10,  # Small batch size to prevent SQLite locks
@@ -459,11 +461,13 @@ class MetricsApplicationService:
                 """Save a batch of metrics to the database."""
                 return await metrics_repo.save_track_metrics(metrics_batch)
 
-            # Process using BatchProcessor (it handles batching internally)
+            # Process using EnhancedBatchProcessor (it handles batching internally)
             batch_results = await batch_processor.process(
                 items=all_metrics_batch,
                 process_func=save_metrics_batch,
-                progress_description=f"Saving {len(all_metrics_batch)} metrics to database",
+                operation_description=f"Saving {len(all_metrics_batch)} metrics to database",
+                source="metrics_service",
+                batch_type="database_metrics_save",
             )
 
             saved_count = sum(batch_results)
@@ -561,11 +565,6 @@ class MetricsApplicationService:
                 field_value = metadata.get(field_name)
                 if field_value is not None:
                     field_values[track_id] = field_value
-                else:
-                    # DEBUG: Log what fields are actually available
-                    logger.debug(
-                        f"Field '{field_name}' not found in metadata for track {track_id}. Available fields: {list(metadata.keys())}"
-                    )
 
         logger.info(
             f"Successfully extracted {len(field_values)} {field_name} values from {connector} API",

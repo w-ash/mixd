@@ -5,15 +5,15 @@ import json
 from pathlib import Path
 from typing import Annotated
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
+from src.interface.cli.console import get_console, live_display_context
 from src.interface.shared.ui import display_operation_result
 
-console = Console()
+console = get_console()
 
 # Create playlist subcommand app
 app = typer.Typer(help="Create and manage playlists")
@@ -144,13 +144,20 @@ def _run_workflow(
             )
         )
 
-        with console.status("[bold blue]Executing workflow..."):
-            # Lazy import to avoid startup dependency issues
-            from src.application.workflows.prefect import (
-                run_workflow as execute_workflow,
-            )
+        # Execute workflow with Rich Live Display and progress bars
+        async def _run_workflow_with_progress():
+            async with live_display_context(show_live=True) as context:
+                # Get progress manager from the unified context
+                progress_manager = context.get_progress_manager()
 
-            _, result = asyncio.run(execute_workflow(workflow_def))
+                # Lazy import to avoid startup dependency issues
+                from src.application.workflows.prefect import (
+                    run_workflow as execute_workflow,
+                )
+
+                return await execute_workflow(workflow_def, progress_manager)
+
+        _, result = asyncio.run(_run_workflow_with_progress())
 
         console.print(
             Panel.fit(

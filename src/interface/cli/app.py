@@ -4,15 +4,15 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
-from rich.console import Console
 import typer
 
 from src.config import setup_loguru_logger
+from src.interface.cli.console import get_console, should_use_live_display
 
 VERSION = version("narada")
 
-# Initialize console with reasonable width
-console = Console(width=80)
+# Use shared console for consistent CLI formatting
+console = get_console()
 
 # Initialize main app with modern configuration
 app = typer.Typer(
@@ -42,10 +42,12 @@ def init_cli(
         typer.Option("--verbose", "-v", help="Enable verbose output"),
     ] = False,
 ) -> None:
-    """Initialize Narada CLI."""
-    # Store verbosity in context for subcommands
+    """Initialize Narada CLI with Rich console management."""
+    # Store configuration in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    ctx.obj["use_live_display"] = should_use_live_display(ctx)
+    ctx.obj["console"] = console
 
     # Setup logging first
     setup_loguru_logger(verbose)

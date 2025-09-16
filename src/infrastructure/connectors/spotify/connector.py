@@ -164,10 +164,11 @@ class SpotifyConnector(BaseAPIConnector):
         playlist_id: str,
         operations: list,
         snapshot_id: str | None = None,
+        track_repo=None,
     ) -> str | None:
         """Execute a list of differential playlist operations."""
         return await self._operations.execute_playlist_operations(
-            playlist_id, operations, snapshot_id
+            playlist_id, operations, snapshot_id, track_repo
         )
 
     # User Library Operations - Delegate to operations

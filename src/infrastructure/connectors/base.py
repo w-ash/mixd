@@ -26,6 +26,15 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from attrs import define
 import backoff
 
+from src.domain.entities.progress import (
+    NullProgressEmitter,
+    OperationStatus,
+    ProgressEmitter,
+    ProgressOperation,
+    ProgressStatus,
+    create_progress_event,
+)
+
 if TYPE_CHECKING:
     from src.domain.entities.playlist import ConnectorPlaylist
     from src.domain.entities.track import ConnectorTrack
@@ -126,7 +135,10 @@ class BaseAPIConnector(ABC):
         return DefaultErrorClassifier()
 
     async def process_tracks_concurrent(
-        self, tracks, process_func, progress_callback=None
+        self,
+        tracks,
+        process_func,
+        progress_emitter: ProgressEmitter | None = None,
     ):
         """Process tracks concurrently using proven asyncio pattern.
 
@@ -136,15 +148,25 @@ class BaseAPIConnector(ABC):
         Args:
             tracks: List of tracks to process
             process_func: Async function that processes a single track
-            progress_callback: Optional callback for progress updates
+            progress_emitter: Progress emitter for tracking operation status
 
         Returns:
             List of results from processing each track
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         import asyncio
 
         if not tracks:
             return []
+
+        # Start progress tracking
+        operation = ProgressOperation(
+            description=f"Process {len(tracks)} tracks with {self.connector_name}",
+            total_items=len(tracks),
+        )
+        operation_id = await progress_emitter.start_operation(operation)
 
         batch_start_time = time.time()
         logger.info(
@@ -218,15 +240,16 @@ class BaseAPIConnector(ABC):
                     connector=self.connector_name,
                 )
 
-                # Optional progress callback
-                if progress_callback and completed_count % 10 == 0:
-                    progress_callback(
-                        "items_processed",
-                        {
-                            "items_processed": completed_count,
-                            "total_items": len(tracks),
-                            "connector": self.connector_name,
-                        },
+                # Emit progress event every 10 items
+                if completed_count % 10 == 0:
+                    await progress_emitter.emit_progress(
+                        create_progress_event(
+                            operation_id=operation_id,
+                            current=completed_count,
+                            total=len(tracks),
+                            message=f"Processed {completed_count}/{len(tracks)} tracks with {self.connector_name}",
+                            status=ProgressStatus.IN_PROGRESS,
+                        )
                     )
 
             except Exception as e:
@@ -251,6 +274,14 @@ class BaseAPIConnector(ABC):
             success_count=len(successful_results),
             total_count=len(tracks),
         )
+
+        # Complete progress tracking
+        final_status = (
+            OperationStatus.COMPLETED
+            if len(successful_results) == len(tracks)
+            else OperationStatus.FAILED
+        )
+        await progress_emitter.complete_operation(operation_id, final_status)
 
         return results
 

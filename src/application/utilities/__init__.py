@@ -1,19 +1,23 @@
 """Application utilities - shared utilities for application services."""
 
+from src.application.services.progress_manager import (
+    AsyncProgressManager,
+    get_progress_manager,
+    set_progress_manager,
+)
+
+# New progress system - clean imports from new architecture
+from src.domain.entities.progress import (
+    OperationStatus,
+    ProgressEvent,
+    ProgressOperation,
+    ProgressStatus,
+    create_progress_event,
+    create_progress_operation,
+)
+
 from .batch_results import (
     BatchResult,
-)
-from .progress import (
-    NoOpProgressProvider,
-    ProgressOperation,
-    ProgressProvider,
-    create_operation,
-    get_progress_provider,
-    set_progress_provider,
-)
-from .progress_integration import (
-    DatabaseProgressContext,
-    with_progress,
 )
 from .results import (
     ImportResultData,
@@ -22,16 +26,18 @@ from .results import (
 )
 
 __all__ = [
+    # New progress system
+    "AsyncProgressManager",
     "BatchResult",
-    "DatabaseProgressContext",
     "ImportResultData",
-    "NoOpProgressProvider",
+    "OperationStatus",
+    "ProgressEvent",
     "ProgressOperation",
-    "ProgressProvider",
+    "ProgressStatus",
     "ResultFactory",
     "SyncResultData",
-    "create_operation",
-    "get_progress_provider",
-    "set_progress_provider",
-    "with_progress",
+    "create_progress_event",
+    "create_progress_operation",
+    "get_progress_manager",
+    "set_progress_manager",
 ]

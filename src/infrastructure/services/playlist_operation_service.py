@@ -88,9 +88,10 @@ class PlaylistOperationService:
         self,
         operations: list[PlaylistOperation],
         op_type: PlaylistOperationType,
-        connector: str,  # noqa: ARG002 - Reserved for future service-specific optimizations
+        connector: str,
     ) -> list[OptimizedOperationBatch]:
         """Apply type-specific optimization strategies."""
+        _ = connector  # Keep for future connector-specific optimizations
         if op_type == PlaylistOperationType.MOVE:
             return self._optimize_move_operations(operations)
         elif op_type == PlaylistOperationType.ADD:

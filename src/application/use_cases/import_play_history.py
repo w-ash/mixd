@@ -12,9 +12,13 @@ from typing import Any, Literal
 from attrs import define, field
 
 from src.application.utilities.batch_results import BatchResult
-from src.application.utilities.progress import ProgressOperation
 from src.config import get_logger
 from src.domain.entities import OperationResult
+from src.domain.entities.progress import (
+    NullProgressEmitter,
+    ProgressEmitter,
+    ProgressOperation,
+)
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -122,13 +126,17 @@ class ImportTracksUseCase:
     """
 
     async def execute(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
     ) -> ImportTracksResult:
         """Downloads listening history from specified music service.
 
         Args:
             command: Import configuration with service, mode, and parameters.
             uow: Database transaction manager for atomic operations.
+            progress_emitter: Optional progress emitter (defaults to null implementation)
 
         Returns:
             Import statistics including tracks imported, timing, and error details.
@@ -136,6 +144,9 @@ class ImportTracksUseCase:
         Raises:
             ValueError: If service/mode combination is unsupported or params missing.
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         import time
 
         start_time = time.time()
@@ -149,7 +160,9 @@ class ImportTracksUseCase:
 
             try:
                 # Delegate to appropriate import strategy
-                operation_result = await self._execute_import(command, uow)
+                operation_result = await self._execute_import(
+                    command, uow, progress_emitter
+                )
 
                 execution_time_ms = int((time.time() - start_time) * 1000)
 
@@ -189,19 +202,25 @@ class ImportTracksUseCase:
                 )
 
     async def _execute_import(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Routes to service-specific import handler based on command."""
         match command.service:
             case "lastfm":
-                return await self._run_lastfm_import(command, uow)
+                return await self._run_lastfm_import(command, uow, progress_emitter)
             case "spotify":
-                return await self._run_spotify_import(command, uow)
+                return await self._run_spotify_import(command, uow, progress_emitter)
             case _:
                 raise ValueError(f"Unknown service: {command.service}")
 
     async def _run_lastfm_import(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Routes to LastFM import mode handler (recent/incremental/full).
 
@@ -211,21 +230,28 @@ class ImportTracksUseCase:
         """
         match command.mode:
             case "recent":
-                return await self._run_lastfm_recent(command, uow)
+                return await self._run_lastfm_recent(command, uow, progress_emitter)
             case "incremental":
-                return await self._run_lastfm_incremental(command, uow)
+                return await self._run_lastfm_incremental(
+                    command, uow, progress_emitter
+                )
             case "full":
-                return await self._run_lastfm_full_history(command, uow)
+                return await self._run_lastfm_full_history(
+                    command, uow, progress_emitter
+                )
             case _:
                 raise ValueError(f"LastFM service doesn't support mode: {command.mode}")
 
     async def _run_spotify_import(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Routes to Spotify import handler (file mode only)."""
         match command.mode:
             case "file":
-                return await self._run_spotify_file(command, uow)
+                return await self._run_spotify_file(command, uow, progress_emitter)
             case _:
                 raise ValueError(
                     f"Spotify service doesn't support mode: {command.mode}"
@@ -264,7 +290,10 @@ class ImportTracksUseCase:
         return await registry.create_play_importer(service, uow)
 
     async def _run_lastfm_recent(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Downloads recent plays using two-phase workflow.
 
@@ -291,6 +320,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                progress_emitter=progress_emitter,
                 limit=limit,  # Passed to ingestion phase
             )
 
@@ -304,7 +334,10 @@ class ImportTracksUseCase:
             raise
 
     async def _run_lastfm_incremental(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Downloads new plays since last sync using two-phase workflow.
 
@@ -332,6 +365,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                progress_emitter=progress_emitter,
                 username=command.user_id,
                 from_date=command.from_date,
                 to_date=command.to_date,
@@ -347,7 +381,10 @@ class ImportTracksUseCase:
             raise
 
     async def _run_lastfm_full_history(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Downloads complete LastFM listening history using two-phase workflow.
 
@@ -405,6 +442,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                progress_emitter=progress_emitter,
                 limit=50000,  # Passed to ingestion phase
             )
 
@@ -418,7 +456,10 @@ class ImportTracksUseCase:
             raise
 
     async def _run_spotify_file(
-        self, command: ImportTracksCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Processes Spotify data export JSON file using two-phase workflow.
 
@@ -449,6 +490,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                progress_emitter=progress_emitter,
                 file_path=command.file_path,
             )
 
@@ -471,6 +513,7 @@ async def run_import(
     confirm: bool = False,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
+    progress_emitter: ProgressEmitter | None = None,
     **additional_options,
 ) -> OperationResult:
     """Downloads listening history from music services.
@@ -487,6 +530,7 @@ async def run_import(
         confirm: Whether to confirm before importing.
         from_date: Start date for date range filtering (incremental mode only).
         to_date: End date for date range filtering (incremental mode only).
+        progress_emitter: Optional progress emitter (defaults to null implementation)
         **additional_options: Additional service-specific options.
 
     Returns:
@@ -495,6 +539,9 @@ async def run_import(
     Raises:
         ValueError: If service or mode combination is not supported.
     """
+    if progress_emitter is None:
+        progress_emitter = NullProgressEmitter()
+
     from src.infrastructure.persistence.database.db_connection import get_session
     from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
@@ -513,5 +560,5 @@ async def run_import(
         )
 
         use_case = ImportTracksUseCase()
-        result = await use_case.execute(command, uow)
+        result = await use_case.execute(command, uow, progress_emitter)
         return result.operation_result

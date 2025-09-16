@@ -6,63 +6,32 @@ and creating/updating playlists across music platforms. Provides progress tracki
 recovery, and database session management for long-running playlist operations.
 """
 
-from collections.abc import Callable
 import datetime
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
-
-if TYPE_CHECKING:
-    from uuid import UUID
+from typing import Any, NotRequired, TypedDict
 
 from prefect import flow, tags, task
-from prefect.artifacts import create_progress_artifact, update_progress_artifact
 from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
 
 # Use Narada's standard logger for module-level logging; Prefect tasks use get_run_logger()
 from src.config.logging import get_logger
 from src.domain.entities.operations import WorkflowResult
+from src.domain.entities.progress import (
+    OperationStatus,
+    ProgressStatus,
+    create_progress_event,
+    create_progress_operation,
+)
 
 from .node_registry import get_node
 
 logger = get_logger(__name__)
 
 
-# --- Simple progress feedback for CLI ---
-
-_simple_callback: Callable | None = None
-
-
-def register_simple_progress_callback(callback: Callable) -> None:
-    """Registers callback function for CLI progress updates during workflow execution."""
-    global _simple_callback
-    _simple_callback = callback
-
-
-def _emit_simple_event(event_type: str, event_data: dict[str, Any]) -> None:
-    """Sends workflow progress events to registered callback function if available."""
-    if _simple_callback:
-        try:
-            _simple_callback(event_type, event_data)
-        except Exception as e:
-            logger.warning(f"Simple progress callback error: {e}")
+# --- Progress tracking integration ---
 
 
 # --- Node execution ---
-
-
-def _should_show_progress_for_node(node_type: str) -> bool:
-    """Returns True for node types that process large datasets or make many API calls.
-
-    Shows progress artifacts for:
-    - source.playlist nodes (fetch large playlists)
-    - enricher.* nodes (multiple API requests for metadata)
-    """
-    # Source nodes that fetch large playlists
-    if node_type.startswith("source.playlist"):
-        return True
-
-    # Enrichment operations that make many API calls
-    return node_type.startswith("enricher.")
 
 
 class TaskResult(TypedDict):
@@ -80,11 +49,11 @@ class TaskResult(TypedDict):
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
 async def execute_node(node_type: str, context: dict, config: dict) -> dict:
-    """Executes a single workflow node (source, filter, enricher, etc.) as a Prefect task.
+    """Executes a single workflow node with Rich CLI progress tracking.
 
-    Wraps node execution with Prefect's retry logic, logging, and progress tracking.
-    Creates progress artifacts for long-running operations like playlist fetching
-    and metadata enrichment.
+    Wraps node execution with Prefect's retry logic, logging, and automatic progress
+    event emission. Each node automatically shows progress bars without requiring
+    individual node modifications.
 
     Args:
         node_type: Node identifier (e.g., "source.playlist", "enricher.spotify")
@@ -96,44 +65,41 @@ async def execute_node(node_type: str, context: dict, config: dict) -> dict:
     """
     # Use Prefect's run logger to get task context
     task_logger = get_run_logger()
-
-    # Log node execution
     task_logger.info(f"Executing node: {node_type}")
 
     # Get node implementation
     node_func, _ = get_node(node_type)
 
-    # Create progress artifact for potentially long-running operations
-    progress_artifact_id: UUID | None = None
-    if _should_show_progress_for_node(node_type):
-        try:
-            progress_artifact_id = await create_progress_artifact(  # type: ignore[misc]
-                progress=0.0,
-                description=f"Processing {node_type.replace('_', ' ').title()}",
-            )
-            task_logger.info(f"Created progress artifact for {node_type}")
-        except Exception as e:
-            task_logger.warning(f"Failed to create progress artifact: {e}")
-
     try:
-        # Note: We only use progress artifacts for start/completion to avoid async/sync mismatch
-        # Real-time progress updates in sync callbacks cannot properly await async Prefect functions
-        # The progress system will still provide CLI feedback through other channels
+        # Add progress metadata to node context
+        enhanced_context = context.copy()
+        enhanced_context.update({
+            "node_type": node_type,
+            "task_logger": task_logger,  # Allow nodes to log to Prefect
+        })
 
-        # Execute node with direct configuration
-        # No template resolution - config passes through unchanged
-        result = await node_func(context, config)
+        # Execute node
+        result = await node_func(enhanced_context, config)
 
-        # Mark progress as complete
-        if progress_artifact_id:
-            try:
-                await update_progress_artifact(
-                    artifact_id=progress_artifact_id, progress=1.0
-                )  # type: ignore[misc]
-            except Exception as e:
-                task_logger.warning(
-                    f"Failed to update progress artifact completion: {e}"
-                )
+        # Update unified workflow progress after node completion
+        progress_manager = context.get("progress_manager")
+        workflow_operation_id = context.get("workflow_operation_id")
+        if progress_manager and workflow_operation_id:
+            current_step = context.get("current_step", 0)
+            total_tasks = context.get("total_tasks", 1)
+
+            # Create friendly display name for the node type
+            display_name = node_type.replace("_", " ").replace(".", " ").title()
+
+            # Emit progress event for completed node
+            event = create_progress_event(
+                operation_id=workflow_operation_id,
+                current=current_step,
+                total=total_tasks,
+                message=f"Completed {display_name}",
+                status=ProgressStatus.IN_PROGRESS,
+            )
+            await progress_manager.emit_progress(event)
 
         task_logger.info(f"Node completed successfully: {node_type}")
         return result
@@ -203,14 +169,16 @@ def build_flow(workflow_def: dict) -> Any:
         description=flow_description,
         flow_run_name=generate_flow_run_name(flow_name),
     )
-    async def workflow_flow(**parameters):
+    async def workflow_flow(
+        workflow_progress_manager=None, workflow_operation_id=None, **parameters
+    ):
         """Executes workflow tasks in dependency order with shared database session."""
         # Use Prefect's run logger to get flow context
         flow_logger = get_run_logger()
         flow_logger.info("Starting workflow")
 
-        # Emit simple workflow started event for CLI feedback
-        _emit_simple_event("workflow_started", {"workflow_name": flow_name})
+        # Set workflow name in context for progress tracking
+        parameters["workflow_name"] = flow_name
 
         # Create workflow context with all required providers
         from src.infrastructure.persistence.database.db_connection import get_session
@@ -235,28 +203,29 @@ def build_flow(workflow_def: dict) -> Any:
                 "session_provider": shared_session_provider,  # Use shared session
                 "shared_session": shared_session,  # Direct access for nodes that need it
                 "workflow_context": workflow_context,  # Full context for UoW execution
+                "workflow_name": flow_name,  # For progress tracking
+                "progress_manager": workflow_progress_manager,  # For CLI progress tracking (optional)
+                "workflow_operation_id": workflow_operation_id,  # Unified progress tracking
+                "total_tasks": len(sorted_tasks),  # Total number of tasks in workflow
             }
             task_results = {}
 
             # Execute tasks in dependency order
-            for task_def in sorted_tasks:
+            for task_index, task_def in enumerate(sorted_tasks):
                 task_id = task_def["id"]
                 node_type = task_def["type"]
 
                 # Log the task start
                 flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
 
-                # Emit simple task started event for CLI feedback
-                _emit_simple_event(
-                    "task_started",
-                    {"task_id": task_id, "task_name": task_id, "task_type": node_type},
-                )
-
                 # Resolve configuration with current context
                 config = task_def.get("config", {})
 
-                # Create task-specific context with upstream results
+                # Create task-specific context with upstream results and progress tracking
                 task_context = context.copy()
+                task_context["current_step"] = (
+                    task_index + 1
+                )  # 1-based indexing for progress
 
                 if task_def.get("upstream"):
                     if len(task_def["upstream"]) == 1:
@@ -291,21 +260,9 @@ def build_flow(workflow_def: dict) -> Any:
                     flow_logger.debug(f"Storing result under key: {result_key}")
                     context[result_key] = result
 
-                # Emit simple task completed event for CLI feedback
-                _emit_simple_event(
-                    "task_completed",
-                    {
-                        "task_id": task_id,
-                        "task_name": task_id,
-                        "task_type": node_type,
-                        "result": result,
-                    },
-                )
+                # Task completed - progress tracking handled in execute_node
 
             flow_logger.info("Workflow completed successfully")
-
-            # Emit simple workflow completed event for CLI feedback
-            _emit_simple_event("workflow_completed", {"workflow_name": flow_name})
 
             return context
 
@@ -321,7 +278,7 @@ def build_flow(workflow_def: dict) -> Any:
     description="Extract workflow result with metrics",
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
-async def extract_workflow_result(  # noqa: RUF029
+async def extract_workflow_result(
     workflow_def: dict,
     task_results: dict,
     flow_run_name: str,
@@ -427,7 +384,9 @@ async def extract_workflow_result(  # noqa: RUF029
 
 
 @flow(name="run_workflow")
-async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, WorkflowResult]:
+async def run_workflow(
+    workflow_def: dict, progress_manager=None, **parameters
+) -> tuple[dict, WorkflowResult]:
     """Executes complete playlist workflow from JSON definition to final result.
 
     Main entry point for workflow execution. Builds Prefect flow from definition,
@@ -436,6 +395,7 @@ async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, Workflow
 
     Args:
         workflow_def: JSON workflow definition with tasks and dependencies
+        progress_manager: Optional AsyncProgressManager for CLI progress tracking
         **parameters: Dynamic parameters passed to workflow tasks
 
     Returns:
@@ -445,16 +405,33 @@ async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, Workflow
     logger = get_run_logger()
     workflow_name = workflow_def.get("name", "unnamed")
 
+    # Initialize workflow-level progress tracking
+    workflow_operation_id = None
+    if progress_manager:
+        tasks = workflow_def.get("tasks", [])
+        total_tasks = len(tasks)
+
+        workflow_operation = create_progress_operation(
+            description=f"Executing {workflow_name}",
+            total_items=total_tasks
+        )
+        workflow_operation_id = await progress_manager.start_operation(
+            workflow_operation
+        )
+        logger.info(f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)")
+
     try:
         with tags("workflow", workflow_name):
-            logger.info(f"Running workflow: {workflow_name}")
-
             # Start timing
             start_time = datetime.datetime.now(datetime.UTC)
 
             # Build and execute the workflow
             workflow = build_flow(workflow_def)
-            context = await workflow(**parameters)
+            context = await workflow(
+                workflow_progress_manager=progress_manager,
+                workflow_operation_id=workflow_operation_id,
+                **parameters,
+            )
 
             # Calculate execution time
             end_time = datetime.datetime.now(datetime.UTC)
@@ -472,7 +449,19 @@ async def run_workflow(workflow_def: dict, **parameters) -> tuple[dict, Workflow
                 execution_time,
             )
 
+            # Complete workflow-level progress tracking
+            if progress_manager and workflow_operation_id:
+                await progress_manager.complete_operation(
+                    workflow_operation_id, OperationStatus.COMPLETED
+                )
+
             return context, result
     except Exception:
+        # Mark workflow progress as failed
+        if progress_manager and workflow_operation_id:
+            await progress_manager.complete_operation(
+                workflow_operation_id, OperationStatus.FAILED
+            )
+
         logger.exception("Workflow execution failed")
         raise

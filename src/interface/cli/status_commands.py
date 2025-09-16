@@ -2,11 +2,12 @@
 
 from typing import Annotated
 
-from rich.console import Console
 from rich.table import Table
 import typer
 
-console = Console()
+from src.interface.cli.console import get_console
+
+console = get_console()
 
 SERVICES = ["Spotify", "Last.fm", "MusicBrainz"]
 

@@ -5,7 +5,7 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
-from collections.abc import Callable
+# Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -18,6 +18,7 @@ from src.domain.entities import (
     PlayRecord,
     SyncCheckpoint,
 )
+from src.domain.entities.progress import ProgressEmitter
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.services.base_play_importer import (
@@ -51,7 +52,10 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         self.lastfm_connector = lastfm_connector or LastFMConnector()
 
     async def import_plays(
-        self, uow: UnitOfWorkProtocol, **params: Any
+        self,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
+        **params: Any,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Last.fm plays as connector_plays for later resolution.
 
@@ -88,7 +92,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         # Use migrated sophisticated import logic with typed parameters
         result = await self._import_plays_unified(
             import_batch_id=typed_params.get("import_batch_id"),
-            progress_callback=typed_params.get("progress_callback"),
+            progress_emitter=progress_emitter,
             uow=uow,
             from_date=typed_params.get("from_date"),
             to_date=typed_params.get("to_date"),
@@ -117,7 +121,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
     async def _import_plays_unified(
         self,
         import_batch_id: str | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs,
     ) -> OperationResult:
@@ -135,7 +139,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         # Unified approach - always use date range strategy with smart boundaries
         return await self.import_data(
             import_batch_id=import_batch_id,
-            progress_callback=progress_callback,
+            progress_emitter=progress_emitter,
             uow=uow,
             from_date=from_date,
             to_date=to_date,
@@ -149,7 +153,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     async def _fetch_data(
         self,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
@@ -178,7 +182,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             to_date=effective_to,
             username=username,
             checkpoint=checkpoint,  # Pass resolved checkpoint to avoid redundant lookup
-            progress_callback=progress_callback,
+            progress_emitter=progress_emitter,
             uow=uow,
             **kwargs,
         )
@@ -260,7 +264,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         to_date: datetime,
         username: str | None = None,
         checkpoint: SyncCheckpoint | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **additional_options,
     ) -> list[PlayRecord]:
@@ -270,7 +274,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         Most users listen to <200 tracks/day, so we optimize for daily chunks.
         Only sub-chunk when a day returns exactly 200 tracks (power user case).
         """
-        _ = additional_options  # Reserved for future extensibility
+        _ = additional_options, progress_emitter  # Reserved for future extensibility
         username = username or self.lastfm_connector.lastfm_username
         if not username:
             raise ValueError(
@@ -351,16 +355,8 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         while current_date <= end_date:
             days_processed += 1
 
-            if progress_callback:
-                progress = (
-                    int((days_processed / total_days) * 50) + 40
-                )  # 40-90% range for API fetching
-                date_str = current_date.strftime("%Y-%m-%d")
-                progress_callback(
-                    progress,
-                    100,
-                    f"Fetching {date_str}... ({days_processed}/{total_days} days)",
-                )
+            # Note: Progress reporting now handled by event-driven progress system
+            # The ProgressEmitter pattern replaces direct callback invocation
 
             # Define day boundaries in UTC
             day_start = datetime.combine(current_date, time.min, UTC)
@@ -610,15 +606,17 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         self,
         raw_data: list[Any],
         batch_id: str,
-        import_timestamp: datetime,  # noqa: ARG002 - Required by base class interface
-        progress_callback: Callable[[int, int, str], None] | None = None,  # noqa: ARG002 - Required by base class
-        uow: UnitOfWorkProtocol | None = None,  # noqa: ARG002 - Required by base class
-        **kwargs,  # noqa: ARG002 - Required by base class
+        import_timestamp: datetime,
+        progress_emitter: ProgressEmitter | None = None,
+        uow: UnitOfWorkProtocol | None = None,
+        **kwargs,
     ) -> list[ConnectorTrackPlay]:
         """Convert PlayRecord objects to ConnectorTrackPlay objects.
 
         Overrides base class to return connector plays instead of canonical plays.
         """
+        # Mark unused parameters for base class compatibility
+        _ = progress_emitter, uow, kwargs, import_timestamp
         # raw_data should be list[PlayRecord] in this case
         play_records = raw_data
         connector_plays = []

@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -38,6 +39,7 @@ class PlayImportOrchestrator:
         self,
         importer: PlayImporterProtocol,
         uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
         **import_params: Any,
     ) -> OperationResult:
         """Execute two-phase play import: ingestion then resolution.
@@ -45,17 +47,21 @@ class PlayImportOrchestrator:
         Args:
             importer: Pluggable importer instance from infrastructure layer
             uow: Unit of work for database operations
+            progress_emitter: Optional progress emitter (defaults to null implementation)
             **import_params: Importer-specific parameters
 
         Returns:
             Combined operation result with ingestion and resolution metrics
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         logger.info("Starting two-phase play import")
 
         # Phase 1: Raw data ingestion (connector_plays)
         logger.info("Phase 1: Ingesting raw play data")
         ingestion_result, connector_plays = await importer.import_plays(
-            uow, **import_params
+            uow, progress_emitter=progress_emitter, **import_params
         )
 
         if not connector_plays:

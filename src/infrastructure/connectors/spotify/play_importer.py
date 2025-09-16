@@ -5,15 +5,17 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
-from collections.abc import Callable
+# Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol
-from src.application.utilities.import_batch_processor import ImportBatchProcessor
-from src.config import get_logger, settings
+
+# Removed: ImportBatchProcessor - dead code, never used in implementation
+from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
+from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.personal_data import (
     parse_spotify_personal_data,
@@ -40,17 +42,14 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         super().__init__(None)  # type: ignore[arg-type]
         self.operation_name = "Spotify Connector Play Import"
 
-        # Create import batch processor optimized for file processing
-        self.batch_processor = ImportBatchProcessor[list, tuple[list, dict]](
-            batch_size=settings.import_settings.batch_size,
-            retry_count=3,  # Simple retry for transient processing errors
-            retry_base_delay=1.0,  # No need for API-style exponential backoff
-            memory_limit_mb=100,  # Conservative memory limit for import operations
-            logger_instance=logger,
-        )
+        # Note: Batch processing handled by base class methods with event-driven progress
+        # All processing uses the new progress system via ProgressEmitter protocol
 
     async def import_plays(
-        self, uow: UnitOfWorkProtocol, **params: Any
+        self,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
+        **params: Any,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Spotify plays as connector_plays for later resolution.
 
@@ -63,6 +62,9 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         Returns:
             Tuple of (operation_result, connector_plays_list)
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         # Extract common and Spotify-specific parameters using typed approach
         common_params, spotify_params = self._extract_common_params(**params)
         typed_params: SpotifyImportParams = {**common_params, **spotify_params}  # type: ignore[misc]
@@ -81,7 +83,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         result = await self._import_from_file_migrated(
             file_path=Path(file_path),  # Convert to Path object
             import_batch_id=typed_params.get("import_batch_id"),
-            progress_callback=typed_params.get("progress_callback"),
+            progress_emitter=progress_emitter,
             uow=uow,  # Use the UnitOfWork passed directly to import_plays
         )
 
@@ -102,30 +104,38 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         self,
         file_path: Path,
         import_batch_id: str | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_emitter: ProgressEmitter | None = None,
         uow: Any | None = None,
     ) -> OperationResult:
         """Import play data from Spotify JSON export file.
 
         MIGRATED from original SpotifyImportService with sophisticated processing.
         """
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         return await self.import_data(
             file_path=file_path,
             import_batch_id=import_batch_id,
-            progress_callback=progress_callback,
+            progress_emitter=progress_emitter,
             uow=uow,
         )
 
     async def _fetch_data(
         self,
-        progress_callback: Callable[[int, int, str], None] | None = None,
-        uow: Any | None = None,  # noqa: ARG002 - Required by base class interface
+        progress_emitter: ProgressEmitter | None = None,
+        uow: Any | None = None,
         **kwargs,
     ) -> list[Any]:
         """Fetch and parse Spotify JSON export file.
 
         MIGRATED sophisticated file parsing logic from original importer.
         """
+        # Mark unused parameters for base class compatibility
+        _ = uow
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         # Extract required parameters
         file_path = kwargs.get("file_path")
         if not file_path:
@@ -141,8 +151,8 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
 
-        if progress_callback:
-            progress_callback(10, 100, f"Parsing file: {file_path.name}")
+        # Note: Progress reporting now handled by event-driven progress system
+        # File parsing progress: 10%
 
         logger.info(f"📁 Parsing Spotify export file: {file_path}")
 
@@ -162,8 +172,8 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
             )
             raise
 
-        if progress_callback:
-            progress_callback(30, 100, f"Parsed {len(raw_records)} records from file")
+        # Note: Progress reporting now handled by event-driven progress system
+        # File parsing complete: parsed {len(raw_records)} records
 
         logger.info(f"Parsed {len(raw_records)} records from Spotify file: {file_path}")
         return raw_records
@@ -173,14 +183,19 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         raw_data: list[Any],
         batch_id: str,
         import_timestamp: datetime,
-        progress_callback: Callable[[int, int, str], None] | None = None,  # noqa: ARG002 - Required by base class
-        uow: Any | None = None,  # noqa: ARG002 - Required by base class
-        **kwargs,  # noqa: ARG002 - Required by base class
+        progress_emitter: ProgressEmitter | None = None,
+        uow: Any | None = None,
+        **kwargs,
     ) -> list[ConnectorTrackPlay]:
         """Process raw Spotify data into ConnectorTrackPlay objects.
 
         MIGRATED: Uses existing SpotifyPlayAdapter logic but stores as connector_plays.
         """
+        # Mark unused parameters for base class compatibility
+        _ = uow, kwargs
+        if progress_emitter is None:
+            progress_emitter = NullProgressEmitter()
+
         if not raw_data:
             return []
 
