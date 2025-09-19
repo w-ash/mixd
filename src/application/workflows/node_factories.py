@@ -212,7 +212,7 @@ def _create_transform_node_impl(
     transform_factory = TRANSFORM_REGISTRY[category][node_type]
     operation = operation_name or f"{category}.{node_type}"
 
-    async def node_impl(context: dict, config: dict) -> dict:
+    async def node_impl(context: dict, config: dict) -> dict:  # noqa: RUF029
         ctx = NodeContext(context)
 
         # Special handling for combiners which use multiple upstreams

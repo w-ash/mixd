@@ -63,7 +63,7 @@ class TestPositionShiftSimulation:
             ),
         ]
 
-        adjusted_moves = api_strategy._adjust_move_operations(move_ops)
+        adjusted_moves = api_strategy._adjust_move_operations(move_ops, [])
 
         # Should be sorted by old_position in descending order
         assert len(adjusted_moves) == 3

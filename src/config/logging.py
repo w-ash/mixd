@@ -403,12 +403,12 @@ def _classify_http_error(status_code: int) -> str:
 # =============================================================================
 
 
-def configure_progress_console_logging(progress_console) -> None:
-    """Configure unified logging through Rich Progress.console using Loguru custom sinks.
+def enable_unified_console_output(progress_console) -> None:
+    """Enable unified console output through Rich Progress.console for coordinated display.
 
-    This is the simplified approach that replaces complex Live Display coordination.
-    All logging (Loguru + Python/Prefect) routes through Progress.console for
-    perfect coordination with progress bars.
+    Routes all logging (Loguru + Python/Prefect) through Progress.console to ensure
+    proper coordination between log messages and progress bars. This ensures logs
+    appear above pinned progress bars rather than interfering with them.
 
     Args:
         progress_console: Rich Console instance from Progress (progress.console)
@@ -422,7 +422,7 @@ def configure_progress_console_logging(progress_console) -> None:
         original_loguru_handlers = list(loguru_logger._core.handlers.keys())  # type: ignore[attr-defined]
 
         # Store in module for restoration
-        configure_progress_console_logging._original_loguru_handlers = original_loguru_handlers  # type: ignore[attr-defined]
+        enable_unified_console_output._original_loguru_handlers = original_loguru_handlers  # type: ignore[attr-defined]
 
         # Remove all existing Loguru handlers
         for handler_id in original_loguru_handlers:
@@ -567,16 +567,16 @@ def configure_progress_console_logging(progress_console) -> None:
             target_logger.propagate = False
 
         # Store handlers for cleanup
-        configure_progress_console_logging._original_handlers_by_logger = original_handlers_by_logger  # type: ignore[attr-defined]
-        configure_progress_console_logging._bridge_handler = bridge_handler  # type: ignore[attr-defined]
+        enable_unified_console_output._original_handlers_by_logger = original_handlers_by_logger  # type: ignore[attr-defined]
+        enable_unified_console_output._bridge_handler = bridge_handler  # type: ignore[attr-defined]
 
     except Exception as e:
         # Fallback error reporting through progress console
         progress_console.print(f"[yellow]Warning: Failed to configure progress console logging: {e}[/yellow]")
 
 
-def restore_progress_console_logging() -> None:
-    """Restore normal logging configuration after Progress.console coordination."""
+def restore_standard_console_output() -> None:
+    """Restore standard console output after unified Progress.console coordination ends."""
     try:
         import logging
 
@@ -589,8 +589,8 @@ def restore_progress_console_logging() -> None:
         setup_loguru_logger()
 
         # Restore Python logging for all intercepted loggers
-        if hasattr(configure_progress_console_logging, '_original_handlers_by_logger'):
-            original_handlers_by_logger = configure_progress_console_logging._original_handlers_by_logger  # type: ignore[attr-defined]
+        if hasattr(enable_unified_console_output, '_original_handlers_by_logger'):
+            original_handlers_by_logger = enable_unified_console_output._original_handlers_by_logger  # type: ignore[attr-defined]
 
             for logger_name, original_handlers in original_handlers_by_logger.items():
                 target_logger = logging.getLogger(logger_name)
@@ -603,12 +603,12 @@ def restore_progress_console_logging() -> None:
                 # Restore propagation (we set it to False)
                 target_logger.propagate = True
 
-            delattr(configure_progress_console_logging, '_original_handlers_by_logger')  # type: ignore[attr-defined]
+            delattr(enable_unified_console_output, '_original_handlers_by_logger')  # type: ignore[attr-defined]
 
         # Clean up our stored state
         for attr in ['_original_loguru_handlers', '_bridge_handler']:
-            if hasattr(configure_progress_console_logging, attr):
-                delattr(configure_progress_console_logging, attr)  # type: ignore[attr-defined]
+            if hasattr(enable_unified_console_output, attr):
+                delattr(enable_unified_console_output, attr)  # type: ignore[attr-defined]
 
     except Exception as e:
         # Final fallback: complete reconfiguration

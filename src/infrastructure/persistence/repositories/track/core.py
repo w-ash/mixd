@@ -132,7 +132,25 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         # Refresh with explicit eager loading of relationships to avoid lazy loading
         default_rels = self.mapper.get_default_relationships()
         if default_rels:
-            await self.session.refresh(db_track, attribute_names=default_rels)
+            # Extract string names from relationships (handle both strings and selectinload objects)
+            rel_names = []
+            for rel_item in default_rels:
+                if isinstance(rel_item, str):
+                    rel_names.append(rel_item)
+                else:
+                    # For selectinload objects, extract the attribute name
+                    if hasattr(rel_item, 'path') and rel_item.path:
+                        # Get the first path element (the direct relationship)
+                        path_element = rel_item.path[0]
+                        if hasattr(path_element, 'key'):
+                            rel_names.append(path_element.key)
+                        elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
+                            rel_names.append(path_element.property.key)
+
+            if rel_names:
+                await self.session.refresh(db_track, attribute_names=rel_names)
+            else:
+                await self.session.refresh(db_track)
         else:
             await self.session.refresh(db_track)
 

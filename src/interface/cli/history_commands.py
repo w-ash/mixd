@@ -12,10 +12,10 @@ import typer
 from src.application.services.progress_manager import AsyncProgressManagerAdapter
 from src.application.use_cases.import_play_history import run_import
 
-# Removed: workflow_progress_context - using unified live_display_context instead
+# Removed: workflow_progress_context - using unified progress_coordination_context instead
 from src.config import settings
 from src.domain.entities.progress import NullProgressEmitter
-from src.interface.cli.console import get_console, live_display_context
+from src.interface.cli.console import get_console, progress_coordination_context
 from src.interface.shared.ui import display_operation_result
 
 console = get_console()
@@ -95,7 +95,7 @@ def import_lastfm_cmd(
 
     # Execute the import with Rich Live Display and progress bars
     async def _run_import_with_progress():
-        async with live_display_context(show_live=True) as context:
+        async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
 
@@ -167,7 +167,7 @@ def import_spotify_cmd(
 
     # Execute the import with Rich Live Display and progress bars
     async def _run_spotify_import_with_progress():
-        async with live_display_context(show_live=True) as context:
+        async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
             # Create adapter to implement ProgressEmitter protocol
@@ -260,7 +260,7 @@ def _interactive_lastfm_import() -> None:
 
     # Execute with Rich Live Display and progress bars
     async def _run_interactive_import():
-        async with live_display_context(show_live=True) as context:
+        async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
             # Create adapter to implement ProgressEmitter protocol
@@ -306,7 +306,7 @@ def _interactive_spotify_import() -> None:
 
     # Execute with Rich Live Display and progress bars
     async def _run_interactive_spotify_import():
-        async with live_display_context(show_live=True) as context:
+        async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
             # Create adapter to implement ProgressEmitter protocol

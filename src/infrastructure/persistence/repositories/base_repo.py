@@ -79,7 +79,7 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
         ...
 
     @staticmethod
-    def get_default_relationships() -> list[str]:
+    def get_default_relationships() -> list[str | Any]:
         """Get default relationships to load for this model."""
         return []
 
@@ -138,7 +138,7 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
         raise NotImplementedError("Subclasses must implement to_db")
 
     @staticmethod
-    def get_default_relationships() -> list[str]:
+    def get_default_relationships() -> list[str | Any]:
         """Define relationships to load for this model."""
         return ["mappings", "mappings.connector_track"]
 
@@ -210,14 +210,25 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     def with_relationship(
         self,
         stmt: Select[tuple[TDBModel]],
-        *relationships: str | InstrumentedAttribute,
+        *relationships: str | InstrumentedAttribute | Any,
     ) -> Select[tuple[TDBModel]]:
-        """Add relationship loading options to select statement."""
+        """Add relationship loading options to select statement.
+
+        Supports SQLAlchemy 2.1 best practices with mixed types:
+        - str: Simple relationship name (e.g., "mappings")
+        - InstrumentedAttribute: Direct SQLAlchemy attribute
+        - selectinload objects: Pre-constructed loader options
+        """
         options = []
         for rel in relationships:
             if isinstance(rel, str):
+                # Simple string relationship name
                 options.append(selectinload(getattr(self.model_class, rel)))
+            elif hasattr(rel, '__module__') and 'sqlalchemy.orm.strategy_options' in str(rel.__class__.__module__):
+                # Pre-constructed SQLAlchemy loader option (selectinload, joinedload, etc.)
+                options.append(rel)
             else:
+                # InstrumentedAttribute - wrap in selectinload
                 options.append(selectinload(rel))
         return stmt.options(*options)
 
@@ -513,9 +524,25 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             raise ValueError(f"Entity with ID {id_} not found or already deleted")
 
         # Return updated entity with relationships
-        await self.session.refresh(
-            updated_entity, attribute_names=self.mapper.get_default_relationships()
-        )
+        # Extract string names from relationships (handle both strings and selectinload objects)
+        rel_names = []
+        for rel_item in self.mapper.get_default_relationships():
+            if isinstance(rel_item, str):
+                rel_names.append(rel_item)
+            else:
+                # For selectinload objects, extract the attribute name
+                if hasattr(rel_item, 'path') and rel_item.path:
+                    # Get the first path element (the direct relationship)
+                    path_element = rel_item.path[0]
+                    if hasattr(path_element, 'key'):
+                        rel_names.append(path_element.key)
+                    elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
+                        rel_names.append(path_element.property.key)
+
+        if rel_names:
+            await self.session.refresh(updated_entity, attribute_names=rel_names)
+        else:
+            await self.session.refresh(updated_entity)
         if has_session_support(self.mapper):
             return await cast("Any", self.mapper).to_domain_with_session(
                 updated_entity, self.session
@@ -638,19 +665,25 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 options = []
 
                 # Only include direct relationships that exist on this model
-                for rel_name in self.mapper.get_default_relationships():
-                    # Skip any nested relationships containing dots
-                    if "." in rel_name:
-                        continue
+                for rel_item in self.mapper.get_default_relationships():
+                    # Handle both string names and selectinload objects
+                    if isinstance(rel_item, str):
+                        rel_name = rel_item
+                        # Skip any nested relationships containing dots
+                        if "." in rel_name:
+                            continue
 
-                    # Only add relationships that actually exist on this model class
-                    if (
-                        hasattr(self.model_class, rel_name)
-                        and rel_name in inspect(self.model_class).relationships
-                    ):
-                        options.append(
-                            selectinload(getattr(self.model_class, rel_name))
-                        )
+                        # Only add relationships that actually exist on this model class
+                        if (
+                            hasattr(self.model_class, rel_name)
+                            and rel_name in inspect(self.model_class).relationships.keys()
+                        ):
+                            options.append(
+                                selectinload(getattr(self.model_class, rel_name))
+                            )
+                    else:
+                        # It's already a selectinload object, just use it directly
+                        options.append(rel_item)
 
                 # Use session.get with eager loading - this is the recommended pattern
                 # for safely loading entities in an async context
@@ -682,19 +715,25 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 options = []
 
                 # Only include direct relationships that exist on this model
-                for rel_name in self.mapper.get_default_relationships():
-                    # Skip any nested relationships containing dots
-                    if "." in rel_name:
-                        continue
+                for rel_item in self.mapper.get_default_relationships():
+                    # Handle both string names and selectinload objects
+                    if isinstance(rel_item, str):
+                        rel_name = rel_item
+                        # Skip any nested relationships containing dots
+                        if "." in rel_name:
+                            continue
 
-                    # Only add relationships that actually exist on this model class
-                    if (
-                        hasattr(self.model_class, rel_name)
-                        and rel_name in inspect(self.model_class).relationships
-                    ):
-                        options.append(
-                            selectinload(getattr(self.model_class, rel_name))
-                        )
+                        # Only add relationships that actually exist on this model class
+                        if (
+                            hasattr(self.model_class, rel_name)
+                            and rel_name in inspect(self.model_class).relationships.keys()
+                        ):
+                            options.append(
+                                selectinload(getattr(self.model_class, rel_name))
+                            )
+                    else:
+                        # It's already a selectinload object, just use it directly
+                        options.append(rel_item)
 
                 # Use session.get with eager loading for all needed relationships
                 db_entity = await self.session.get(
@@ -780,8 +819,23 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
                 # Refresh all entities to load relationships
                 for db_entity in db_entities:
-                    for rel in self.mapper.get_default_relationships():
-                        await self.session.refresh(db_entity, [rel])
+                    for rel_item in self.mapper.get_default_relationships():
+                        # Handle both string names and selectinload objects
+                        if isinstance(rel_item, str):
+                            await self.session.refresh(db_entity, [rel_item])
+                        else:
+                            # For selectinload objects, extract the attribute name
+                            if hasattr(rel_item, 'path') and rel_item.path:
+                                # Get the first path element (the direct relationship)
+                                path_element = rel_item.path[0]
+                                rel_name = None
+                                if hasattr(path_element, 'key'):
+                                    rel_name = path_element.key
+                                elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
+                                    rel_name = path_element.property.key
+
+                                if rel_name:
+                                    await self.session.refresh(db_entity, [rel_name])
 
                 return await self.mapper.map_collection(list(db_entities))
             else:

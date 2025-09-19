@@ -278,7 +278,7 @@ def build_flow(workflow_def: dict) -> Any:
     description="Extract workflow result with metrics",
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
-async def extract_workflow_result(
+async def extract_workflow_result(  # noqa: RUF029
     workflow_def: dict,
     task_results: dict,
     flow_run_name: str,

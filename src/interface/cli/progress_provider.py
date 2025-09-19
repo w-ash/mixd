@@ -249,14 +249,6 @@ class RichProgressProvider:
                     task.fields = {}
                 task.fields.update(task_fields)
 
-            self._logger.debug(
-                "Progress task updated",
-                operation_id=event.operation_id,
-                current=event.current,
-                total=event.total,
-                status=event.status.value,
-                completion_pct=event.completion_percentage,
-            )
 
     async def on_operation_completed(
         self, operation_id: str, final_status: OperationStatus
@@ -410,8 +402,8 @@ class RichProgressProvider:
     def _configure_unified_logging(self) -> None:
         """Configure unified logging through Live Display console using centralized config."""
         try:
-            from src.config.logging import configure_progress_console_logging
-            configure_progress_console_logging(self._live.console)
+            from src.config.logging import enable_unified_console_output
+            enable_unified_console_output(self._live.console)
             self._logger.debug("Unified logging configured through Live Display console")
         except Exception as e:
             # Fallback error reporting with rich markup
@@ -422,8 +414,8 @@ class RichProgressProvider:
     def _restore_normal_logging(self) -> None:
         """Restore normal logging configuration."""
         try:
-            from src.config.logging import restore_progress_console_logging
-            restore_progress_console_logging()
+            from src.config.logging import restore_standard_console_output
+            restore_standard_console_output()
             self._logger.debug("Normal logging configuration restored")
         except Exception as e:
             # Use regular print as fallback since Progress is stopping

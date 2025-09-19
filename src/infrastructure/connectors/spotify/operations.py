@@ -333,15 +333,33 @@ class SpotifyOperations:
             return snapshot_id
 
         logger.info(
-            f"Executing {len(operations)} playlist operations on {playlist_id}",
+            "Starting playlist operations execution",
+            playlist_id=playlist_id,
+            total_operations=len(operations),
             snapshot_id=snapshot_id,
         )
 
         # Resolve canonical URIs to Spotify URIs if track_repo is available
+        original_operations_count = len(operations)
         if track_repo:
-            operations = await self._resolve_canonical_uris_to_spotify(
-                operations, track_repo
-            )
+            try:
+                operations = await self._resolve_canonical_uris_to_spotify(
+                    operations, track_repo
+                )
+                logger.info(
+                    "URI resolution completed",
+                    original_count=original_operations_count,
+                    resolved_count=len(operations),
+                    filtered_out=original_operations_count - len(operations),
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to resolve canonical URIs to Spotify URIs",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    original_operations=original_operations_count,
+                )
+                raise ValueError(f"URI resolution failed: {e}") from e
 
         current_snapshot = snapshot_id
 
@@ -356,36 +374,123 @@ class SpotifyOperations:
             op for op in operations if op.operation_type == PlaylistOperationType.ADD
         ]
 
+        logger.info(
+            "Operations breakdown",
+            removes=len(remove_ops),
+            moves=len(move_ops),
+            adds=len(add_ops),
+            total_grouped=len(remove_ops) + len(move_ops) + len(add_ops),
+        )
+
+        # Track partial success for better error handling
+        execution_results = {
+            "removes_attempted": len(remove_ops),
+            "removes_completed": 0,
+            "moves_attempted": len(move_ops),
+            "moves_completed": 0,
+            "adds_attempted": len(add_ops),
+            "adds_completed": 0,
+            "snapshot_id": current_snapshot,
+            "errors": [],
+        }
+
         try:
             # Execute in optimal order: remove → move → add
             if remove_ops:
-                current_snapshot = await self._execute_remove_operations(
-                    playlist_id, remove_ops, current_snapshot
-                )
+                logger.info(f"Executing {len(remove_ops)} remove operations")
+                try:
+                    current_snapshot = await self._execute_remove_operations(
+                        playlist_id, remove_ops, current_snapshot
+                    )
+                    execution_results["removes_completed"] = len(remove_ops)
+                    execution_results["snapshot_id"] = current_snapshot
+                    logger.info(
+                        "Remove operations completed successfully",
+                        new_snapshot=current_snapshot,
+                    )
+                except Exception as e:
+                    error_msg = f"Remove operations failed: {e}"
+                    execution_results["errors"].append(error_msg)
+                    logger.error(
+                        error_msg,
+                        error_type=type(e).__name__,
+                        remove_count=len(remove_ops),
+                        playlist_id=playlist_id,
+                    )
+                    raise
 
             if move_ops:
-                current_snapshot = await self._execute_move_operations(
-                    playlist_id, move_ops, current_snapshot
-                )
+                logger.info(f"Executing {len(move_ops)} move operations")
+                try:
+                    current_snapshot = await self._execute_move_operations(
+                        playlist_id, move_ops, current_snapshot
+                    )
+                    execution_results["moves_completed"] = len(move_ops)
+                    execution_results["snapshot_id"] = current_snapshot
+                    logger.info(
+                        "Move operations completed successfully",
+                        new_snapshot=current_snapshot,
+                    )
+                except Exception as e:
+                    error_msg = f"Move operations failed: {e}"
+                    execution_results["errors"].append(error_msg)
+                    logger.error(
+                        error_msg,
+                        error_type=type(e).__name__,
+                        move_count=len(move_ops),
+                        playlist_id=playlist_id,
+                    )
+                    raise
 
             if add_ops:
-                current_snapshot = await self._execute_add_operations(
-                    playlist_id, add_ops, current_snapshot
-                )
+                logger.info(f"Executing {len(add_ops)} add operations")
+                try:
+                    current_snapshot = await self._execute_add_operations(
+                        playlist_id, add_ops, current_snapshot
+                    )
+                    execution_results["adds_completed"] = len(add_ops)
+                    execution_results["snapshot_id"] = current_snapshot
+                    logger.info(
+                        "Add operations completed successfully",
+                        new_snapshot=current_snapshot,
+                    )
+                except Exception as e:
+                    error_msg = f"Add operations failed: {e}"
+                    execution_results["errors"].append(error_msg)
+                    logger.error(
+                        error_msg,
+                        error_type=type(e).__name__,
+                        add_count=len(add_ops),
+                        playlist_id=playlist_id,
+                    )
+                    raise
 
             logger.info(
-                f"Successfully executed all operations, new snapshot: {current_snapshot}"
+                "All playlist operations completed successfully",
+                final_snapshot=current_snapshot,
+                execution_summary=execution_results,
             )
             return current_snapshot
 
         except Exception as e:
-            logger.error(f"Error during playlist operations: {e}")
+            logger.error(
+                "Playlist operations execution failed",
+                playlist_id=playlist_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                execution_results=execution_results,
+                partial_success=any([
+                    execution_results["removes_completed"] > 0,
+                    execution_results["moves_completed"] > 0,
+                    execution_results["adds_completed"] > 0,
+                ]),
+            )
             raise
 
     async def _resolve_canonical_uris_to_spotify(
         self, operations: list, track_repo
     ) -> list:
-        """Convert canonical URIs in operations to Spotify URIs.
+        """Convert canonical URIs in operations to Spotify URIs with detailed logging.
 
         Args:
             operations: List of playlist operations with canonical URIs
@@ -394,30 +499,153 @@ class SpotifyOperations:
         Returns:
             List of operations with Spotify URIs, filtered to valid ones only
         """
+        logger.info(
+            "Starting canonical URI resolution",
+            total_operations=len(operations),
+        )
+
         resolved_operations = []
         canonical_track_ids = set()
 
-        # Collect all canonical track IDs from operations
-        for op in operations:
-            if op.spotify_uri and op.spotify_uri.startswith("canonical:"):
+        # Track resolution statistics
+        stats = {
+            "canonical_uris_found": 0,
+            "invalid_canonical_format": 0,
+            "already_spotify_uris": 0,
+            "unknown_uri_format": 0,
+            "missing_uri": 0,
+            "database_lookups_needed": 0,
+            "tracks_found_in_db": 0,
+            "tracks_missing_from_db": 0,
+            "tracks_missing_spotify_id": 0,
+            "successful_resolutions": 0,
+            "evolution_failures": 0,
+        }
+
+        # Phase 1: Collect all canonical track IDs from operations
+        logger.debug("Phase 1: Collecting canonical track IDs from operations")
+        for i, op in enumerate(operations):
+            if not op.spotify_uri:
+                stats["missing_uri"] += 1
+                logger.debug(
+                    "Operation missing spotify_uri",
+                    operation_index=i,
+                    operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                )
+                continue
+
+            if op.spotify_uri.startswith("canonical:"):
+                stats["canonical_uris_found"] += 1
                 try:
                     track_id = int(op.spotify_uri.split(":", 1)[1])
                     canonical_track_ids.add(track_id)
-                except (ValueError, IndexError):
-                    logger.warning(f"Invalid canonical URI format: {op.spotify_uri}")
+                except (ValueError, IndexError) as e:
+                    stats["invalid_canonical_format"] += 1
+                    logger.warning(
+                        "Invalid canonical URI format",
+                        operation_index=i,
+                        uri=op.spotify_uri,
+                        error=str(e),
+                    )
                     continue
+            elif op.spotify_uri.startswith("spotify:track:"):
+                stats["already_spotify_uris"] += 1
+            else:
+                stats["unknown_uri_format"] += 1
+                logger.warning(
+                    "Unknown URI format detected",
+                    operation_index=i,
+                    uri=op.spotify_uri,
+                )
 
-        # Bulk load tracks by IDs
+        stats["database_lookups_needed"] = len(canonical_track_ids)
+
+        logger.debug(
+            "Phase 1 complete - URI analysis",
+            canonical_track_ids=sorted(canonical_track_ids),
+            **{k: v for k, v in stats.items() if v > 0}
+        )
+
+        # Phase 2: Bulk load tracks by IDs
         track_map = {}
         if canonical_track_ids:
-            tracks = await track_repo.get_tracks_by_ids(list(canonical_track_ids))
-            track_map = {track.id: track for track in tracks}
+            canonical_ids_list = list(canonical_track_ids)
+            logger.info(
+                "Phase 2: Loading tracks from database",
+                track_count=len(canonical_ids_list),
+                track_ids_sample=sorted(canonical_ids_list)[:10],  # Show first 10 for debugging
+                all_track_ids=sorted(canonical_ids_list) if len(canonical_ids_list) <= 20 else None,
+                track_repo_type=type(track_repo).__name__
+            )
 
-        # Resolve operations
-        for op in operations:
+            try:
+                logger.debug(
+                    "Calling find_tracks_by_ids",
+                    method_name="find_tracks_by_ids",
+                    input_type=type(canonical_ids_list).__name__,
+                    input_length=len(canonical_ids_list)
+                )
+                track_map = await track_repo.find_tracks_by_ids(canonical_ids_list)
+                logger.debug(
+                    "Database call completed successfully",
+                    returned_type=type(track_map).__name__,
+                    returned_length=len(track_map) if track_map else 0
+                )
+
+                stats["tracks_found_in_db"] = len(track_map)
+                stats["tracks_missing_from_db"] = len(canonical_track_ids) - len(track_map)
+
+                missing_track_ids = canonical_track_ids - set(track_map.keys())
+                logger.info(
+                    "Phase 2 complete - Database loading results",
+                    requested_count=len(canonical_track_ids),
+                    found_count=stats["tracks_found_in_db"],
+                    missing_count=stats["tracks_missing_from_db"],
+                    success_rate=f"{(stats['tracks_found_in_db'] / len(canonical_track_ids) * 100):.1f}%",
+                    found_track_ids=sorted(track_map.keys())[:10] if track_map else [],
+                    missing_track_ids=sorted(missing_track_ids)[:10] if missing_track_ids else [],
+                    all_requested_ids=sorted(canonical_track_ids) if len(canonical_track_ids) <= 10 else None,
+                )
+
+                # Log connector identifier availability for found tracks
+                for track_id, track in track_map.items():
+                    available_connectors = list(track.connector_track_identifiers.keys())
+                    has_spotify = "spotify" in track.connector_track_identifiers
+                    spotify_id = track.connector_track_identifiers.get("spotify")
+
+                    logger.debug(
+                        "Track connector data",
+                        track_id=track_id,
+                        track_title=track.title,
+                        available_connectors=available_connectors,
+                        has_spotify_id=has_spotify,
+                        spotify_id=spotify_id if has_spotify else None,
+                    )
+
+                    if not has_spotify:
+                        stats["tracks_missing_spotify_id"] += 1
+
+            except Exception as e:
+                import traceback
+                logger.error(
+                    "Database track loading failed",
+                    track_count=len(canonical_track_ids),
+                    track_ids_sample=sorted(canonical_track_ids)[:10],
+                    all_track_ids=sorted(canonical_track_ids) if len(canonical_track_ids) <= 20 else None,
+                    error_message=str(e),
+                    error_type=type(e).__name__,
+                    error_module=getattr(e, '__module__', 'unknown'),
+                    track_repo_type=type(track_repo).__name__,
+                    track_repo_session_active=hasattr(track_repo, 'session') and track_repo.session is not None,
+                    full_traceback=traceback.format_exc(),
+                )
+                raise
+
+        # Phase 3: Resolve operations
+        logger.debug("Phase 3: Resolving individual operations")
+        for i, op in enumerate(operations):
             if not op.spotify_uri:
-                # Operation without URI - skip
-                logger.warning("Operation missing spotify_uri, skipping")
+                logger.debug(f"Skipping operation {i}: missing spotify_uri")
                 continue
 
             if op.spotify_uri.startswith("canonical:"):
@@ -427,39 +655,101 @@ class SpotifyOperations:
                     track = track_map.get(track_id)
 
                     if not track:
-                        logger.warning(f"Track not found for canonical ID: {track_id}")
+                        logger.warning(
+                            "Track not found in database",
+                            operation_index=i,
+                            canonical_id=track_id,
+                            canonical_uri=op.spotify_uri,
+                            operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                        )
                         continue
 
                     spotify_id = track.connector_track_identifiers.get("spotify")
                     if not spotify_id:
+                        available_connectors = list(track.connector_track_identifiers.keys())
                         logger.warning(
-                            f"Track {track_id} has no Spotify ID, skipping operation"
+                            "Track found but missing Spotify connector ID",
+                            operation_index=i,
+                            canonical_id=track_id,
+                            track_title=track.title,
+                            available_connectors=available_connectors,
+                            operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
                         )
                         continue
 
                     # Update operation with Spotify URI
-                    from attrs import evolve
+                    try:
+                        from attrs import evolve
+                        resolved_op = evolve(op, spotify_uri=f"spotify:track:{spotify_id}")
+                        resolved_operations.append(resolved_op)
+                        stats["successful_resolutions"] += 1
 
-                    resolved_op = evolve(op, spotify_uri=f"spotify:track:{spotify_id}")
-                    resolved_operations.append(resolved_op)
+                        logger.debug(
+                            "Successfully resolved canonical URI",
+                            operation_index=i,
+                            canonical_id=track_id,
+                            spotify_id=spotify_id,
+                            spotify_uri=f"spotify:track:{spotify_id}",
+                            track_title=track.title,
+                        )
+                    except Exception as e:
+                        stats["evolution_failures"] += 1
+                        logger.error(
+                            "Failed to evolve operation with Spotify URI",
+                            operation_index=i,
+                            canonical_id=track_id,
+                            spotify_id=spotify_id,
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+                        continue
 
-                except (ValueError, IndexError):
-                    logger.warning(f"Invalid canonical URI format: {op.spotify_uri}")
+                except (ValueError, IndexError) as e:
+                    logger.warning(
+                        "Invalid canonical URI format during resolution",
+                        operation_index=i,
+                        uri=op.spotify_uri,
+                        error=str(e),
+                    )
                     continue
 
             elif op.spotify_uri.startswith("spotify:track:"):
                 # Already a Spotify URI - keep as is
                 resolved_operations.append(op)
+                logger.debug(
+                    "Operation already has Spotify URI",
+                    operation_index=i,
+                    spotify_uri=op.spotify_uri,
+                )
 
             else:
                 logger.warning(
-                    f"Unknown URI format: {op.spotify_uri}, skipping operation"
+                    "Unknown URI format, skipping operation",
+                    operation_index=i,
+                    uri=op.spotify_uri,
+                    operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
                 )
                 continue
 
+        # Final summary
         logger.info(
-            f"Resolved {len(operations)} operations to {len(resolved_operations)} valid Spotify operations"
+            "Canonical URI resolution completed",
+            input_operations=len(operations),
+            output_operations=len(resolved_operations),
+            resolution_stats=stats,
+            success_rate=f"{(stats['successful_resolutions'] / max(stats['canonical_uris_found'], 1)) * 100:.1f}%" if stats['canonical_uris_found'] > 0 else "N/A",
         )
+
+        if stats["tracks_missing_spotify_id"] > 0:
+            logger.warning(
+                f"{stats['tracks_missing_spotify_id']} tracks found in database but missing Spotify connector IDs - these may need to be matched to Spotify first"
+            )
+
+        if stats["tracks_missing_from_db"] > 0:
+            logger.warning(
+                f"{stats['tracks_missing_from_db']} canonical track IDs not found in database - these tracks may not exist or may have been deleted"
+            )
+
         return resolved_operations
 
     async def _execute_remove_operations(
@@ -468,15 +758,51 @@ class SpotifyOperations:
         remove_ops: list,
         snapshot_id: str | None,
     ) -> str | None:
-        """Execute remove operations, batched by track URI."""
+        """Execute remove operations, batched by track URI with detailed error tracking."""
+        if not remove_ops:
+            return snapshot_id
+
+        logger.debug(
+            "Starting remove operations",
+            remove_count=len(remove_ops),
+            playlist_id=playlist_id,
+        )
+
+        # Pre-validate operations
+        valid_ops = []
+        for op in remove_ops:
+            if not op.spotify_uri:
+                logger.warning(
+                    "Remove operation missing spotify_uri, skipping",
+                    operation=str(op),
+                )
+                continue
+            if not op.spotify_uri.startswith("spotify:track:"):
+                logger.warning(
+                    "Remove operation has invalid Spotify URI format, skipping",
+                    uri=op.spotify_uri,
+                    operation=str(op),
+                )
+                continue
+            valid_ops.append(op)
+
+        if not valid_ops:
+            logger.warning("No valid remove operations after validation")
+            return snapshot_id
+
+        logger.debug(
+            "Remove operations validation completed",
+            valid_operations=len(valid_ops),
+            invalid_operations=len(remove_ops) - len(valid_ops),
+        )
+
         # Group removes by track URI to optimize API calls
         tracks_to_remove = {}
-        for op in remove_ops:
-            if op.spotify_uri:
-                if op.spotify_uri not in tracks_to_remove:
-                    tracks_to_remove[op.spotify_uri] = []
-                if op.old_position is not None:
-                    tracks_to_remove[op.spotify_uri].append(op.old_position)
+        for op in valid_ops:
+            if op.spotify_uri not in tracks_to_remove:
+                tracks_to_remove[op.spotify_uri] = []
+            if op.old_position is not None:
+                tracks_to_remove[op.spotify_uri].append(op.old_position)
 
         # Execute removes in batches
         items_to_remove = []
@@ -486,21 +812,91 @@ class SpotifyOperations:
             else:
                 items_to_remove.append({"uri": uri})
 
-        if items_to_remove:
-            # Process in batches of 100
-            for i in range(0, len(items_to_remove), 100):
-                batch = items_to_remove[i : i + 100]
+        if not items_to_remove:
+            logger.debug("No items to remove after grouping")
+            return snapshot_id
+
+        # Track batch results
+        successful_batches = 0
+        failed_batches = 0
+        total_batches = (len(items_to_remove) + 99) // 100
+
+        logger.debug(
+            "Executing remove operations in batches",
+            total_items=len(items_to_remove),
+            total_batches=total_batches,
+        )
+
+        current_snapshot = snapshot_id
+
+        # Process in batches of 100
+        for i in range(0, len(items_to_remove), 100):
+            batch_num = (i // 100) + 1
+            batch = items_to_remove[i : i + 100]
+
+            try:
+                logger.debug(
+                    "Executing remove batch",
+                    batch_number=batch_num,
+                    batch_size=len(batch),
+                    items=[item["uri"] for item in batch],
+                )
+
                 result = (
                     await self.client.playlist_remove_specific_occurrences_of_items(
                         playlist_id=playlist_id,
                         items=batch,
-                        snapshot_id=snapshot_id,
+                        snapshot_id=current_snapshot,
                     )
                 )
-                snapshot_id = result.get("snapshot_id") if result else snapshot_id
+
+                if result and result.get("snapshot_id"):
+                    current_snapshot = result["snapshot_id"]
+                    successful_batches += 1
+                    logger.debug(
+                        "Remove batch completed successfully",
+                        batch_number=batch_num,
+                        new_snapshot=current_snapshot,
+                    )
+                else:
+                    failed_batches += 1
+                    logger.error(
+                        "Remove batch returned no snapshot_id",
+                        batch_number=batch_num,
+                        batch_items=batch,
+                        result=result,
+                    )
+
                 await asyncio.sleep(settings.api.spotify_request_delay)
 
-        return snapshot_id
+            except Exception as e:
+                failed_batches += 1
+                logger.error(
+                    "Remove batch failed",
+                    batch_number=batch_num,
+                    batch_size=len(batch),
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    batch_items=[item["uri"] for item in batch],
+                    playlist_id=playlist_id,
+                )
+                # Continue with remaining batches
+                continue
+
+        logger.info(
+            "Remove operations completed",
+            successful_batches=successful_batches,
+            failed_batches=failed_batches,
+            total_batches=total_batches,
+            final_snapshot=current_snapshot,
+        )
+
+        if failed_batches > 0 and successful_batches == 0:
+            raise RuntimeError(
+                f"All {total_batches} remove batches failed for playlist {playlist_id}"
+            )
+
+        return current_snapshot
 
     async def _execute_add_operations(
         self,
@@ -508,26 +904,137 @@ class SpotifyOperations:
         add_ops: list,
         snapshot_id: str | None,
     ) -> str | None:
-        """Execute add operations individually."""
+        """Execute add operations individually with detailed error tracking."""
         if not add_ops:
             return snapshot_id
 
+        logger.debug(
+            "Starting add operations",
+            add_count=len(add_ops),
+            playlist_id=playlist_id,
+        )
+
+        # Pre-validate operations
+        valid_ops = []
+        for i, op in enumerate(add_ops):
+            if not op.spotify_uri:
+                logger.warning(
+                    "Add operation missing spotify_uri, skipping",
+                    operation_index=i,
+                    operation=str(op),
+                )
+                continue
+            if not op.spotify_uri.startswith("spotify:track:"):
+                logger.warning(
+                    "Add operation has invalid Spotify URI format, skipping",
+                    operation_index=i,
+                    uri=op.spotify_uri,
+                    operation=str(op),
+                )
+                continue
+            if op.position is not None and op.position < 0:
+                logger.warning(
+                    "Add operation has invalid position, skipping",
+                    operation_index=i,
+                    position=op.position,
+                    operation=str(op),
+                )
+                continue
+            valid_ops.append((i, op))
+
+        if not valid_ops:
+            logger.warning("No valid add operations after validation")
+            return snapshot_id
+
+        logger.debug(
+            "Add operations validation completed",
+            valid_operations=len(valid_ops),
+            invalid_operations=len(add_ops) - len(valid_ops),
+        )
+
+        # Track individual operation results
+        successful_operations = 0
+        failed_operations = 0
+        current_snapshot = snapshot_id
+
         # Execute individual add operations
-        for op in add_ops:
-            if op.spotify_uri:
+        for op_index, op in valid_ops:
+            try:
+                logger.debug(
+                    "Executing add operation",
+                    operation_index=op_index,
+                    spotify_uri=op.spotify_uri,
+                    position=op.position,
+                )
+
                 await self.client.playlist_add_items(
                     playlist_id=playlist_id,
                     items=[op.spotify_uri],
                     position=op.position,
                 )
+
+                successful_operations += 1
+                logger.debug(
+                    "Add operation completed successfully",
+                    operation_index=op_index,
+                    spotify_uri=op.spotify_uri,
+                    position=op.position,
+                )
+
                 await asyncio.sleep(settings.api.spotify_request_delay)
 
-        # Get updated snapshot ID after adds
-        if add_ops:
-            playlist_info = await self.client.get_playlist(playlist_id)
-            snapshot_id = playlist_info.get("snapshot_id") if playlist_info else None
+            except Exception as e:
+                failed_operations += 1
+                logger.error(
+                    "Add operation failed",
+                    operation_index=op_index,
+                    spotify_uri=op.spotify_uri,
+                    position=op.position,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    playlist_id=playlist_id,
+                )
+                # Continue with remaining operations
+                continue
 
-        return snapshot_id
+        # Get updated snapshot ID after successful adds
+        if successful_operations > 0:
+            try:
+                logger.debug("Fetching updated playlist snapshot after add operations")
+                playlist_info = await self.client.get_playlist(playlist_id)
+                if playlist_info and playlist_info.get("snapshot_id"):
+                    current_snapshot = playlist_info["snapshot_id"]
+                    logger.debug(
+                        "Updated snapshot retrieved successfully",
+                        new_snapshot=current_snapshot,
+                    )
+                else:
+                    logger.warning(
+                        "Failed to retrieve updated snapshot after add operations",
+                        playlist_info=playlist_info,
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch updated playlist snapshot",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    playlist_id=playlist_id,
+                )
+
+        logger.info(
+            "Add operations completed",
+            successful_operations=successful_operations,
+            failed_operations=failed_operations,
+            total_operations=len(valid_ops),
+            final_snapshot=current_snapshot,
+        )
+
+        if failed_operations > 0 and successful_operations == 0:
+            raise RuntimeError(
+                f"All {len(valid_ops)} add operations failed for playlist {playlist_id}"
+            )
+
+        return current_snapshot
 
     async def _execute_move_operations(
         self,
@@ -535,24 +1042,181 @@ class SpotifyOperations:
         move_ops: list,
         snapshot_id: str | None,
     ) -> str | None:
-        """Execute move operations individually."""
+        """Execute move operations individually with detailed error tracking."""
         if not move_ops:
             return snapshot_id
 
+        logger.debug(
+            "Starting move operations",
+            move_count=len(move_ops),
+            playlist_id=playlist_id,
+        )
+
+        # Get current playlist info for bounds checking
+        try:
+            playlist_info = await self.client.get_playlist(playlist_id)
+            if not playlist_info:
+                logger.error(
+                    "Could not fetch playlist info for bounds checking, skipping move operations",
+                    playlist_id=playlist_id,
+                )
+                return snapshot_id
+
+            current_track_count = playlist_info.get("tracks", {}).get("total", 0)
+            logger.debug(
+                "Current playlist track count for bounds checking",
+                track_count=current_track_count,
+                playlist_id=playlist_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch playlist info for bounds checking, proceeding without validation",
+                error=str(e),
+                playlist_id=playlist_id,
+            )
+            current_track_count = None
+
+        # Pre-validate operations
+        valid_ops = []
+        for i, op in enumerate(move_ops):
+            if op.old_position is None:
+                logger.warning(
+                    "Move operation missing old_position, skipping",
+                    operation_index=i,
+                    operation=str(op),
+                )
+                continue
+            if op.position is None:
+                logger.warning(
+                    "Move operation missing position, skipping",
+                    operation_index=i,
+                    operation=str(op),
+                )
+                continue
+            if op.old_position < 0:
+                logger.warning(
+                    "Move operation has invalid old_position, skipping",
+                    operation_index=i,
+                    old_position=op.old_position,
+                    operation=str(op),
+                )
+                continue
+            if op.position < 0:
+                logger.warning(
+                    "Move operation has invalid position, skipping",
+                    operation_index=i,
+                    position=op.position,
+                    operation=str(op),
+                )
+                continue
+
+            # Add bounds checking against current playlist length
+            if current_track_count is not None:
+                if op.old_position >= current_track_count:
+                    logger.warning(
+                        "Move operation old_position out of bounds, skipping",
+                        operation_index=i,
+                        old_position=op.old_position,
+                        current_track_count=current_track_count,
+                        operation=str(op),
+                    )
+                    continue
+                if op.position > current_track_count:
+                    logger.warning(
+                        "Move operation position out of bounds, skipping",
+                        operation_index=i,
+                        position=op.position,
+                        current_track_count=current_track_count,
+                        operation=str(op),
+                    )
+                    continue
+
+            valid_ops.append((i, op))
+
+        if not valid_ops:
+            logger.warning("No valid move operations after validation")
+            return snapshot_id
+
+        logger.debug(
+            "Move operations validation completed",
+            valid_operations=len(valid_ops),
+            invalid_operations=len(move_ops) - len(valid_ops),
+        )
+
+        # Track individual operation results
+        successful_operations = 0
+        failed_operations = 0
+        current_snapshot = snapshot_id
+
         # Execute individual move operations
-        for op in move_ops:
-            if op.old_position is not None and op.position is not None:
+        for op_index, op in valid_ops:
+            try:
+                logger.debug(
+                    "Executing move operation",
+                    operation_index=op_index,
+                    old_position=op.old_position,
+                    new_position=op.position,
+                    spotify_uri=getattr(op, "spotify_uri", None),
+                )
+
                 result = await self.client.playlist_reorder_items(
                     playlist_id=playlist_id,
                     range_start=op.old_position,
                     insert_before=op.position,
                     range_length=1,
-                    snapshot_id=snapshot_id,
+                    snapshot_id=current_snapshot,
                 )
-                snapshot_id = result.get("snapshot_id") if result else snapshot_id
+
+                if result and result.get("snapshot_id"):
+                    current_snapshot = result["snapshot_id"]
+                    successful_operations += 1
+                    logger.debug(
+                        "Move operation completed successfully",
+                        operation_index=op_index,
+                        old_position=op.old_position,
+                        new_position=op.position,
+                        new_snapshot=current_snapshot,
+                    )
+                else:
+                    failed_operations += 1
+                    logger.error(
+                        "Move operation returned no snapshot_id",
+                        operation_index=op_index,
+                        old_position=op.old_position,
+                        new_position=op.position,
+                        result=result,
+                    )
+
                 await asyncio.sleep(settings.api.spotify_request_delay)
 
-        return snapshot_id
+            except Exception as e:
+                failed_operations += 1
+                logger.error(
+                    "Move operation failed",
+                    operation_index=op_index,
+                    old_position=op.old_position,
+                    new_position=op.position,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    playlist_id=playlist_id,
+                )
+                # Continue with remaining operations
+                continue
+
+        logger.info(
+            "Move operations completed",
+            successful_operations=successful_operations,
+            failed_operations=failed_operations,
+            total_operations=len(valid_ops),
+            final_snapshot=current_snapshot,
+        )
+
+        if failed_operations > 0 and successful_operations == 0:
+            raise RuntimeError(
+                f"All {len(valid_ops)} move operations failed for playlist {playlist_id}"
+            )
+
+        return current_snapshot
 
     # User Library Operations
 

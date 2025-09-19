@@ -5,6 +5,7 @@ platform (canonical database vs external API). Enables DRY compliance by using
 the same diff logic with different execution approaches.
 """
 
+import bisect
 from typing import Any, Protocol
 
 from attrs import define
@@ -279,7 +280,7 @@ class APIExecutionStrategy:
 
         # MOVE operations: most complex - need to handle cascading position changes
         if move_ops:
-            adjusted_moves = self._adjust_move_operations(move_ops)
+            adjusted_moves = self._adjust_move_operations(move_ops, remove_ops_sorted)
             adjusted_operations.extend(adjusted_moves)
 
         logger.debug(
@@ -290,15 +291,17 @@ class APIExecutionStrategy:
         return adjusted_operations
 
     def _adjust_move_operations(
-        self, move_ops: list[PlaylistOperation]
+        self, move_ops: list[PlaylistOperation], remove_ops: list[PlaylistOperation]
     ) -> list[PlaylistOperation]:
-        """Adjust move operations to account for position shifts from previous moves.
+        """Adjust move operations to account for position shifts from remove operations.
 
-        Uses reverse-order execution to minimize position conflicts and simulates
-        the playlist state to calculate correct positions for each operation.
+        Uses optimal position mapping algorithm to calculate correct positions after
+        removals have changed the playlist structure. This prevents out-of-bounds
+        errors when move operations are executed after remove operations.
 
         Args:
             move_ops: List of move operations to adjust
+            remove_ops: List of remove operations that affect positions
 
         Returns:
             List of adjusted move operations with corrected positions
@@ -306,18 +309,89 @@ class APIExecutionStrategy:
         if not move_ops:
             return move_ops
 
-        # Sort by old_position in descending order for reverse execution
-        sorted_moves = sorted(
-            move_ops, key=lambda op: op.old_position or 0, reverse=True
-        )
+        if not remove_ops:
+            # No removals, just sort by old_position in descending order for reverse execution
+            sorted_moves = sorted(
+                move_ops, key=lambda op: op.old_position or 0, reverse=True
+            )
+            logger.debug(
+                f"No removals to adjust for, using reverse-order execution for {len(move_ops)} moves"
+            )
+            return sorted_moves
 
-        # For reverse-order execution, positions should already be correct
-        # since we're moving from highest positions first
+        # Extract removed positions and sort them for efficient lookup
+        removed_positions = sorted([op.old_position for op in remove_ops if op.old_position is not None])
+
         logger.debug(
-            f"Adjusted {len(move_ops)} move operations using reverse-order execution"
+            f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
+            removed_positions=removed_positions[:10] if len(removed_positions) > 10 else removed_positions
         )
 
-        return sorted_moves
+        adjusted_moves = []
+        for move_op in move_ops:
+            if move_op.old_position is None or move_op.position is None:
+                logger.warning(
+                    "Move operation missing position data, skipping",
+                    old_position=move_op.old_position,
+                    position=move_op.position
+                )
+                continue
+
+            # Calculate how many removals happened before old_position
+            old_shift = bisect.bisect_left(removed_positions, move_op.old_position)
+            # Calculate how many removals happened before target position
+            new_shift = bisect.bisect_left(removed_positions, move_op.position)
+
+            # Create adjusted move operation with position shifts applied
+            adjusted_old_position = move_op.old_position - old_shift
+            adjusted_new_position = move_op.position - new_shift
+
+            # Validate bounds - positions must be non-negative
+            if adjusted_old_position < 0 or adjusted_new_position < 0:
+                logger.warning(
+                    "Move operation would result in negative position after adjustment, skipping",
+                    original_old_position=move_op.old_position,
+                    original_new_position=move_op.position,
+                    adjusted_old_position=adjusted_old_position,
+                    adjusted_new_position=adjusted_new_position,
+                    old_shift=old_shift,
+                    new_shift=new_shift
+                )
+                continue
+
+            # Create new operation with adjusted positions
+            adjusted_op = PlaylistOperation(
+                operation_type=move_op.operation_type,
+                track=move_op.track,
+                position=adjusted_new_position,
+                old_position=adjusted_old_position,
+                spotify_uri=move_op.spotify_uri,
+            )
+
+            adjusted_moves.append(adjusted_op)
+
+            logger.debug(
+                "Adjusted move operation positions",
+                original_old=move_op.old_position,
+                original_new=move_op.position,
+                adjusted_old=adjusted_old_position,
+                adjusted_new=adjusted_new_position,
+                shift_old=old_shift,
+                shift_new=new_shift
+            )
+
+        # Sort adjusted moves by old_position in descending order for reverse execution
+        sorted_adjusted_moves = sorted(
+            adjusted_moves, key=lambda op: op.old_position or 0, reverse=True
+        )
+
+        logger.debug(
+            f"Position adjustment complete: {len(move_ops)} original moves, "
+            f"{len(adjusted_moves)} valid after adjustment, "
+            f"{len(move_ops) - len(adjusted_moves)} filtered out"
+        )
+
+        return sorted_adjusted_moves
 
 
 def get_execution_strategy(target_type: str) -> ExecutionStrategy:

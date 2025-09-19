@@ -10,7 +10,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.interface.cli.console import get_console, live_display_context
+from src.interface.cli.console import get_console, progress_coordination_context
 from src.interface.shared.ui import display_operation_result
 
 console = get_console()
@@ -146,7 +146,7 @@ def _run_workflow(
 
         # Execute workflow with Rich Live Display and progress bars
         async def _run_workflow_with_progress():
-            async with live_display_context(show_live=True) as context:
+            async with progress_coordination_context(show_live=True) as context:
                 # Get progress manager from the unified context
                 progress_manager = context.get_progress_manager()
 

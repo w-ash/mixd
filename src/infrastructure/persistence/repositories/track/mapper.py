@@ -279,6 +279,17 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     @override
-    def get_default_relationships() -> list[str]:
-        """Get default relationships to load for tracks."""
-        return ["mappings", "likes"]
+    def get_default_relationships() -> list[Any]:
+        """Get default relationships using SQLAlchemy 2.1 best practices."""
+        from sqlalchemy.orm import selectinload
+
+        from src.infrastructure.persistence.database.db_models import (
+            DBTrack,
+            DBTrackMapping,
+        )
+
+        return [
+            selectinload(DBTrack.mappings),  # Simple relationship
+            selectinload(DBTrack.mappings).selectinload(DBTrackMapping.connector_track),  # Nested chaining
+            selectinload(DBTrack.likes),  # Simple relationship
+        ]

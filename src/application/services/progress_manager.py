@@ -128,14 +128,6 @@ class AsyncProgressManager:
             # Validate and record event through domain service
             validated_event = await self._coordinator.record_progress_event(event)
 
-            self._logger.debug(
-                "Progress event validated and recorded",
-                operation_id=event.operation_id,
-                current=event.current,
-                total=event.total,
-                status=event.status.value,
-                event_sequence=validated_event.metadata.get("event_sequence"),
-            )
 
             # Notify all active subscribers
             await self._notify_subscribers("progress_event", validated_event)
