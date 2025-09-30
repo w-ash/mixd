@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src.domain.entities.track import Artist, Track, TrackList
-from src.domain.transforms.core import (
+from src.application.transforms.play_history import (
     filter_by_play_history,
     sort_by_play_history,
     time_range_predicate,

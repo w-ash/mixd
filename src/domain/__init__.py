@@ -31,9 +31,7 @@ from .transforms import (
     filter_duplicates,
     limit,
     rename,
-    sort_by_external_metrics,
     sort_by_key_function,
-    sort_by_play_history,
 )
 
 __all__ = [
@@ -59,8 +57,6 @@ __all__ = [
     "limit",
     "matching",
     "rename",
-    "sort_by_external_metrics",
     "sort_by_key_function",
-    "sort_by_play_history",
     "transforms",
 ]

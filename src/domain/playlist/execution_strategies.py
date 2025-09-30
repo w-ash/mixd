@@ -18,7 +18,7 @@ from src.domain.playlist.diff_engine import (
     PlaylistOperation,
     PlaylistOperationType,
 )
-from src.domain.transforms.core import reorder_to_match_target
+from src.domain.transforms.playlist_operations import reorder_to_match_target
 
 # Constants for debug logging limits
 DEBUG_POSITIONS_LIMIT = 10

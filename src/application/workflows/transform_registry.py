@@ -16,20 +16,22 @@ Each strategy focuses on a single responsibility and adheres to a consistent
 interface, making the system extensible through new strategy implementations.
 """
 
-from src.domain.transforms.core import (
+from src.application.transforms import (
+    filter_by_metric_range,
+    filter_by_play_history,
+    sort_by_external_metrics,
+    sort_by_play_history,
+    weighted_shuffle,
+)
+from src.domain.transforms import (
     concatenate,
     exclude_artists,
     exclude_tracks,
     filter_by_date_range,
-    filter_by_metric_range,
-    filter_by_play_history,
     filter_duplicates,
     interleave,
     select_by_method,
-    sort_by_external_metrics,
     sort_by_key_function,
-    sort_by_play_history,
-    weighted_shuffle,
 )
 
 # === METRIC CLASSIFICATION SYSTEM ===

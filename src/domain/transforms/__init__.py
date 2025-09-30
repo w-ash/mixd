@@ -1,51 +1,59 @@
-"""Pure functional transformations for domain entities."""
+"""Pure functional transformations for domain entities.
 
-from .core import (
-    Transform,
-    concatenate,
-    create_pipeline,
+This package contains immutable, side-effect free transformations that operate
+solely on Track, TrackList, and Playlist domain entities. All functions are pure
+with zero external dependencies (no logging, no config, no metadata assumptions).
+
+Modules:
+- core: Pipeline composition and Transform type alias
+- filtering: Pure track filtering operations
+- sorting: Pure track sorting operations
+- selecting: Pure track selection operations
+- combining: Pure track combination operations
+- playlist_operations: Pure playlist transformation operations
+"""
+
+from .combining import concatenate, interleave
+from .core import Transform, create_pipeline
+from .filtering import (
     exclude_artists,
     exclude_tracks,
     filter_by_date_range,
-    filter_by_metric_range,
     filter_by_predicate,
     filter_duplicates,
-    interleave,
-    limit,
-    rename,
-    sample_random,
-    select_by_method,
-    set_description,
-    sort_by_external_metrics,
-    sort_by_key_function,
-    sort_by_play_history,
-    take_last,
 )
+from .playlist_operations import (
+    calculate_track_list_diff,
+    rename,
+    reorder_to_match_target,
+    set_description,
+)
+from .selecting import limit, sample_random, select_by_method, take_last
+from .sorting import sort_by_key_function
 
 __all__ = [
     # Core pipeline functions
     "Transform",
-    # Track list combination
+    # Playlist operations
+    "calculate_track_list_diff",
+    # Track combination
     "concatenate",
     "create_pipeline",
     # Track filtering
     "exclude_artists",
     "exclude_tracks",
     "filter_by_date_range",
-    "filter_by_metric_range",
     "filter_by_predicate",
     "filter_duplicates",
     "interleave",
     # Track selection
     "limit",
-    # Playlist operations
     "rename",
+    "reorder_to_match_target",
     "sample_random",
     "select_by_method",
     "set_description",
     # Track sorting
-    "sort_by_external_metrics",
     "sort_by_key_function",
-    "sort_by_play_history",
     "take_last",
 ]
