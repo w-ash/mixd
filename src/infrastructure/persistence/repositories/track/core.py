@@ -137,15 +137,16 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             for rel_item in default_rels:
                 if isinstance(rel_item, str):
                     rel_names.append(rel_item)
-                else:
-                    # For selectinload objects, extract the attribute name
-                    if hasattr(rel_item, 'path') and rel_item.path:
-                        # Get the first path element (the direct relationship)
-                        path_element = rel_item.path[0]
-                        if hasattr(path_element, 'key'):
-                            rel_names.append(path_element.key)
-                        elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
-                            rel_names.append(path_element.property.key)
+                # For selectinload objects, extract the attribute name
+                elif hasattr(rel_item, "path") and rel_item.path:
+                    # Get the first path element (the direct relationship)
+                    path_element = rel_item.path[0]
+                    if hasattr(path_element, "key"):
+                        rel_names.append(path_element.key)
+                    elif hasattr(path_element, "property") and hasattr(
+                        path_element.property, "key"
+                    ):
+                        rel_names.append(path_element.property.key)
 
             if rel_names:
                 await self.session.refresh(db_track, attribute_names=rel_names)

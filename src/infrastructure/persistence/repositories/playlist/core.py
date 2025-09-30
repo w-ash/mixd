@@ -749,4 +749,39 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         return playlist_deleted
 
+    @db_operation("playlist list all")
+    async def list_all_playlists(self) -> list[Playlist]:
+        """Get all playlists with basic metadata for efficient listing.
+
+        Optimized query that loads only essential playlist data without
+        heavy relationship loading. Perfect for CLI listing and management.
+
+        Returns:
+            List of all stored playlists with basic metadata
+        """
+        logger.debug("Listing all playlists")
+
+        # Build query with minimal relationship loading for efficiency
+        stmt = (
+            self.select()
+            .options(
+                # Load only playlist mappings for connector info, skip heavy track loading
+                selectinload(DBPlaylist.mappings)
+            )
+            .order_by(DBPlaylist.updated_at.desc())  # Most recently updated first
+        )
+
+        result = await self.session.execute(stmt)
+        db_playlists = result.scalars().all()
+
+        # Convert to domain entities with minimal track loading
+        playlists = []
+        for db_playlist in db_playlists:
+            # Map to domain entity without loading full track relationships
+            playlist = await self.mapper.to_domain(db_playlist)
+            playlists.append(playlist)
+
+        logger.info("Retrieved playlists for listing", count=len(playlists))
+        return playlists
+
     # _soft_delete_playlist_relations method removed - CASCADE handles related record deletion

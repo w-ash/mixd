@@ -69,6 +69,15 @@ from .constants import HTTPStatus
 from .settings import settings
 
 # =============================================================================
+# MODULE-LEVEL STATE FOR CONSOLE OUTPUT COORDINATION
+# =============================================================================
+
+# Store state for console output coordination
+_original_loguru_handlers: list[int] = []
+_original_handlers_by_logger: dict[str, list[logging.Handler]] = {}
+_bridge_handler: logging.Handler | None = None
+
+# =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 
@@ -422,7 +431,8 @@ def enable_unified_console_output(progress_console) -> None:
         original_loguru_handlers = list(loguru_logger._core.handlers.keys())  # type: ignore[attr-defined]
 
         # Store in module for restoration
-        enable_unified_console_output._original_loguru_handlers = original_loguru_handlers  # type: ignore[attr-defined]
+        global _original_loguru_handlers
+        _original_loguru_handlers = original_loguru_handlers
 
         # Remove all existing Loguru handlers
         for handler_id in original_loguru_handlers:
@@ -437,18 +447,18 @@ def enable_unified_console_output(progress_console) -> None:
                 record = message.record
 
                 # Format timestamp
-                timestamp = record['time'].strftime("%H:%M:%S.%f")[:-3]
+                timestamp = record["time"].strftime("%H:%M:%S.%f")[:-3]
 
                 # Map levels to Rich colors
                 level_colors = {
-                    'DEBUG': 'blue',
-                    'INFO': 'white',
-                    'WARNING': 'yellow',
-                    'ERROR': 'red',
-                    'CRITICAL': 'bright_red'
+                    "DEBUG": "blue",
+                    "INFO": "white",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "bright_red",
                 }
-                level_name = record['level'].name
-                level_color = level_colors.get(level_name, 'white')
+                level_name = record["level"].name
+                level_color = level_colors.get(level_name, "white")
 
                 # Create Rich formatted message (no ANSI codes)
                 rich_message = (
@@ -503,20 +513,19 @@ def enable_unified_console_output(progress_console) -> None:
                 try:
                     # Map Python logging levels to Loguru levels
                     level_mapping = {
-                        logging.DEBUG: 'DEBUG',
-                        logging.INFO: 'INFO',
-                        logging.WARNING: 'WARNING',
-                        logging.ERROR: 'ERROR',
-                        logging.CRITICAL: 'CRITICAL'
+                        logging.DEBUG: "DEBUG",
+                        logging.INFO: "INFO",
+                        logging.WARNING: "WARNING",
+                        logging.ERROR: "ERROR",
+                        logging.CRITICAL: "CRITICAL",
                     }
 
-                    loguru_level = level_mapping.get(record.levelno, 'INFO')
+                    loguru_level = level_mapping.get(record.levelno, "INFO")
 
                     # Forward to Loguru with module context preserved
-                    loguru_logger.bind(
-                        module=record.name,
-                        service="narada"
-                    ).log(loguru_level, record.getMessage())
+                    loguru_logger.bind(module=record.name, service="narada").log(
+                        loguru_level, record.getMessage()
+                    )
 
                 except Exception:
                     self.handleError(record)
@@ -528,24 +537,24 @@ def enable_unified_console_output(progress_console) -> None:
         # Target specific loggers that might bypass the root logger
         # Expanded list based on Prefect 3.0 documentation to capture startup activity
         loggers_to_intercept = [
-            'prefect',
-            'prefect.flow_runs',
-            'prefect.task_runs',
-            'prefect.logging',
-            'prefect.engine',
-            'prefect.client',
-            'prefect.worker',  # Worker logger mentioned in docs
-            'prefect.workers',  # Potential plural form
-            'prefect.server',  # Server-side operations
-            'prefect.api',     # API operations
-            'prefect.flows',   # Flow operations
-            'prefect.tasks',   # Task operations
-            'prefect.infrastructure',  # Infrastructure management
-            'prefect.deployments',     # Deployment operations
-            'prefect.blocks',          # Blocks system
-            'prefect.runtime',         # Runtime operations
-            'prefect.settings',        # Settings/configuration
-            'prefect.orchestration',   # Orchestration engine
+            "prefect",
+            "prefect.flow_runs",
+            "prefect.task_runs",
+            "prefect.logging",
+            "prefect.engine",
+            "prefect.client",
+            "prefect.worker",  # Worker logger mentioned in docs
+            "prefect.workers",  # Potential plural form
+            "prefect.server",  # Server-side operations
+            "prefect.api",  # API operations
+            "prefect.flows",  # Flow operations
+            "prefect.tasks",  # Task operations
+            "prefect.infrastructure",  # Infrastructure management
+            "prefect.deployments",  # Deployment operations
+            "prefect.blocks",  # Blocks system
+            "prefect.runtime",  # Runtime operations
+            "prefect.settings",  # Settings/configuration
+            "prefect.orchestration",  # Orchestration engine
         ]
 
         # Store original handlers for restoration
@@ -556,23 +565,29 @@ def enable_unified_console_output(progress_console) -> None:
 
             # Remove existing console handlers to prevent duplication
             target_logger.handlers = [
-                h for h in target_logger.handlers
+                h
+                for h in target_logger.handlers
                 if not isinstance(h, logging.StreamHandler)
             ]
 
             # Add our Loguru bridge handler
             target_logger.addHandler(bridge_handler)
-            target_logger.setLevel(getattr(logging, settings.logging.prefect_logger_level))
+            target_logger.setLevel(
+                getattr(logging, settings.logging.prefect_logger_level)
+            )
             # Prevent propagation to root logger to avoid duplicates
             target_logger.propagate = False
 
         # Store handlers for cleanup
-        enable_unified_console_output._original_handlers_by_logger = original_handlers_by_logger  # type: ignore[attr-defined]
-        enable_unified_console_output._bridge_handler = bridge_handler  # type: ignore[attr-defined]
+        global _original_handlers_by_logger, _bridge_handler
+        _original_handlers_by_logger = original_handlers_by_logger
+        _bridge_handler = bridge_handler
 
     except Exception as e:
         # Fallback error reporting through progress console
-        progress_console.print(f"[yellow]Warning: Failed to configure progress console logging: {e}[/yellow]")
+        progress_console.print(
+            f"[yellow]Warning: Failed to configure progress console logging: {e}[/yellow]"
+        )
 
 
 def restore_standard_console_output() -> None:
@@ -589,10 +604,8 @@ def restore_standard_console_output() -> None:
         setup_loguru_logger()
 
         # Restore Python logging for all intercepted loggers
-        if hasattr(enable_unified_console_output, '_original_handlers_by_logger'):
-            original_handlers_by_logger = enable_unified_console_output._original_handlers_by_logger  # type: ignore[attr-defined]
-
-            for logger_name, original_handlers in original_handlers_by_logger.items():
+        if _original_handlers_by_logger:
+            for logger_name, original_handlers in _original_handlers_by_logger.items():
                 target_logger = logging.getLogger(logger_name)
                 target_logger.handlers.clear()
 
@@ -603,17 +616,20 @@ def restore_standard_console_output() -> None:
                 # Restore propagation (we set it to False)
                 target_logger.propagate = True
 
-            delattr(enable_unified_console_output, '_original_handlers_by_logger')  # type: ignore[attr-defined]
+            delattr(enable_unified_console_output, "_original_handlers_by_logger")  # type: ignore[attr-defined]
 
         # Clean up our stored state
-        for attr in ['_original_loguru_handlers', '_bridge_handler']:
+        for attr in ["_original_loguru_handlers", "_bridge_handler"]:
             if hasattr(enable_unified_console_output, attr):
                 delattr(enable_unified_console_output, attr)  # type: ignore[attr-defined]
 
     except Exception as e:
         # Final fallback: complete reconfiguration
-        print(f"Warning: Failed to restore progress console logging, doing full reset: {e}")
+        print(
+            f"Warning: Failed to restore progress console logging, doing full reset: {e}"
+        )
         from loguru import logger as loguru_logger
+
         loguru_logger.remove()
         setup_loguru_logger()
 

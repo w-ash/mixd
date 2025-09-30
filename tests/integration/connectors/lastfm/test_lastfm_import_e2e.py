@@ -33,11 +33,14 @@ class TestLastfmImportE2E:
 
     # E2E TEST 1: Complete Incremental Import Success Path
     @pytest.mark.asyncio
-    async def test_complete_incremental_import_success(self, unit_of_work, test_data_tracker):
+    async def test_complete_incremental_import_success(
+        self, unit_of_work, test_data_tracker
+    ):
         """Test complete incremental import from use case to database."""
-        
+
         # Create test track in database before starting the test
         from src.domain.entities import Artist, Track
+
         track = Track(
             title="Test Song",
             artists=[Artist(name="Test Artist")],
@@ -57,7 +60,7 @@ class TestLastfmImportE2E:
 
             # Make the connector method async - return different records for different time periods
             async def mock_get_recent_tracks(*args, **kwargs):
-                from_time = kwargs.get('from_time')
+                from_time = kwargs.get("from_time")
                 if from_time and from_time.day == 1:  # First day
                     return [
                         PlayRecord(
@@ -80,11 +83,14 @@ class TestLastfmImportE2E:
                 # Mock track resolution - return successfully resolved Track entity
                 mock_resolution_service = AsyncMock()
                 from src.domain.entities import Artist, Track
-                
+
                 # Use the pre-created track from the test setup
                 async def mock_resolve_plays(*args, **kwargs):
-                    return [test_track], {"new_tracks_count": 1, "updated_tracks_count": 0}
-                
+                    return [test_track], {
+                        "new_tracks_count": 1,
+                        "updated_tracks_count": 0,
+                    }
+
                 mock_resolution_service.resolve_plays_to_canonical_tracks.side_effect = mock_resolve_plays
                 mock_resolution_class.return_value = mock_resolution_service
 
@@ -200,9 +206,10 @@ class TestLastfmImportE2E:
     @pytest.mark.asyncio
     async def test_checkpoint_persistence_e2e(self, unit_of_work, test_data_tracker):
         """Test checkpoint creation and persistence through complete workflow."""
-        
+
         # Create test track in database before starting the test
         from src.domain.entities import Artist, Track
+
         track = Track(
             title="Checkpoint Test",
             artists=[Artist(name="Test Artist")],
@@ -246,16 +253,19 @@ class TestLastfmImportE2E:
             ) as mock_resolution_class:
                 mock_resolution_service = AsyncMock()
                 from src.domain.entities import Artist, Track
-                
+
                 # Use the pre-created track from the test setup
                 async def mock_resolve_plays(play_records, *args, **kwargs):
                     if not play_records:
                         # No plays to resolve
                         return [], {"new_tracks_count": 0, "updated_tracks_count": 0}
-                    
+
                     # Return the pre-created test track
-                    return [test_track], {"new_tracks_count": 1, "updated_tracks_count": 0}
-                
+                    return [test_track], {
+                        "new_tracks_count": 1,
+                        "updated_tracks_count": 0,
+                    }
+
                 mock_resolution_service.resolve_plays_to_canonical_tracks.side_effect = mock_resolve_plays
                 mock_resolution_class.return_value = mock_resolution_service
 

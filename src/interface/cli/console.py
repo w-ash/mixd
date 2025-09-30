@@ -57,7 +57,7 @@ class ProgressDisplayContext:
 # Commands that should use Live Display for progress tracking
 LIVE_DISPLAY_COMMANDS = {
     "playlist.run",
-    "history.import", 
+    "history.import",
     "likes.sync",
     # Add other long-running commands as needed
 }
@@ -65,17 +65,17 @@ LIVE_DISPLAY_COMMANDS = {
 
 def get_console() -> Console:
     """Get the global shared Rich console for the CLI.
-    
+
     Creates a console with consistent configuration matching the main app
     settings. All CLI components should use this shared console for
     unified formatting and Live Display integration.
-    
+
     Returns:
-        Shared Rich Console instance with 80-character width
+        Shared Rich Console instance with auto-detected terminal width
     """
     global _console
     if _console is None:
-        _console = Console(width=80)  # Match existing app.py configuration
+        _console = Console()  # Auto-detect terminal width for table expansion
         logger.debug("Global Rich console initialized")
     return _console
 
@@ -118,6 +118,7 @@ async def progress_coordination_context(show_live: bool = True) -> AsyncGenerato
         async with progress_provider:
             # Get the global progress manager and subscribe our provider
             from src.application.services.progress_manager import get_progress_manager
+
             progress_manager = get_progress_manager()
             subscription_id = await progress_manager.subscribe(progress_provider)
 

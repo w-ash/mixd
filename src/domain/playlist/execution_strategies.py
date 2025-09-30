@@ -20,6 +20,9 @@ from src.domain.playlist.diff_engine import (
 )
 from src.domain.transforms.core import reorder_to_match_target
 
+# Constants for debug logging limits
+DEBUG_POSITIONS_LIMIT = 10
+
 logger = get_logger(__name__)
 
 
@@ -320,11 +323,15 @@ class APIExecutionStrategy:
             return sorted_moves
 
         # Extract removed positions and sort them for efficient lookup
-        removed_positions = sorted([op.old_position for op in remove_ops if op.old_position is not None])
+        removed_positions = sorted([
+            op.old_position for op in remove_ops if op.old_position is not None
+        ])
 
         logger.debug(
             f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
-            removed_positions=removed_positions[:10] if len(removed_positions) > 10 else removed_positions
+            removed_positions=removed_positions[:DEBUG_POSITIONS_LIMIT]
+            if len(removed_positions) > DEBUG_POSITIONS_LIMIT
+            else removed_positions,
         )
 
         adjusted_moves = []
@@ -333,7 +340,7 @@ class APIExecutionStrategy:
                 logger.warning(
                     "Move operation missing position data, skipping",
                     old_position=move_op.old_position,
-                    position=move_op.position
+                    position=move_op.position,
                 )
                 continue
 
@@ -355,7 +362,7 @@ class APIExecutionStrategy:
                     adjusted_old_position=adjusted_old_position,
                     adjusted_new_position=adjusted_new_position,
                     old_shift=old_shift,
-                    new_shift=new_shift
+                    new_shift=new_shift,
                 )
                 continue
 
@@ -377,7 +384,7 @@ class APIExecutionStrategy:
                 adjusted_old=adjusted_old_position,
                 adjusted_new=adjusted_new_position,
                 shift_old=old_shift,
-                shift_new=new_shift
+                shift_new=new_shift,
             )
 
         # Sort adjusted moves by old_position in descending order for reverse execution

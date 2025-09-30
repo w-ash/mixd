@@ -402,7 +402,7 @@ class UpdateConnectorPlaylistUseCase:
             connector = connector_provider.get_connector(command.connector)
 
             if not connector:
-                raise ValueError(f"Connector '{command.connector}' not available")
+                raise ValueError(f"Connector '{command.connector}' not available")  # noqa: TRY301
 
             tracks_added, tracks_removed, tracks_moved = self._count_operation_types(
                 sequenced_operations
@@ -568,7 +568,7 @@ class UpdateConnectorPlaylistUseCase:
 
             # Validate repository is available
             if not connector_repo:
-                raise RuntimeError("Connector playlist repository not available")
+                raise RuntimeError("Connector playlist repository not available")  # noqa: TRY301
 
             # Create playlist items from final desired state
             updated_items = self._create_playlist_items_from_tracklist(command)
@@ -629,9 +629,9 @@ class UpdateConnectorPlaylistUseCase:
 
             # Validate the playlist before saving
             if not updated_connector_playlist.connector_name:
-                raise ValueError("Connector name cannot be empty")
+                raise ValueError("Connector name cannot be empty")  # noqa: TRY301
             if not updated_connector_playlist.connector_playlist_identifier:
-                raise ValueError("Connector playlist identifier cannot be empty")
+                raise ValueError("Connector playlist identifier cannot be empty")  # noqa: TRY301
 
             # Attempt database update with error recovery
             try:

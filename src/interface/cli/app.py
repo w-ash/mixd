@@ -67,14 +67,22 @@ def _register_commands():
             setup_commands,
             status_commands,
             track_commands,
+            workflow_commands,
         )
 
         # Add command groups using Typer best practices
         app.add_typer(
+            workflow_commands.app,
+            name="workflow",
+            help="Execute and manage playlist workflows",
+            rich_help_panel="⚡ Workflow Execution",
+        )
+
+        app.add_typer(
             playlist_commands.app,
             name="playlist",
-            help="Create and manage playlists",
-            rich_help_panel="🎼 Playlist Workflows",
+            help="Manage stored playlists and data operations",
+            rich_help_panel="🎵 Playlist Management",
         )
 
         app.add_typer(

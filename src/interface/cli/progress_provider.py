@@ -120,7 +120,7 @@ class RichProgressProvider:
             refresh_per_second=10,
             redirect_stdout=True,  # Capture any remaining stdout
             redirect_stderr=True,  # Capture any remaining stderr
-            transient=False,       # Keep progress visible after completion
+            transient=False,  # Keep progress visible after completion
         )
 
         self._operation_tasks: dict[str, OperationTask] = {}
@@ -130,7 +130,9 @@ class RichProgressProvider:
         # Contextual logger
         self._logger = logger.bind(provider_type="rich_progress", show_rate=show_rate)
 
-        self._logger.info("RichProgressProvider initialized with Progress.console coordination")
+        self._logger.info(
+            "RichProgressProvider initialized with Progress.console coordination"
+        )
 
     async def start_display(self) -> None:
         """Start Live Display with Progress and unified logging coordination."""
@@ -161,7 +163,8 @@ class RichProgressProvider:
                 self._operation_tasks.clear()
 
                 self._logger.info(
-                    "Live Display stopped and logging restored", cleared_operations=operation_count
+                    "Live Display stopped and logging restored",
+                    cleared_operations=operation_count,
                 )
 
     async def on_operation_started(self, operation: ProgressOperation) -> None:
@@ -248,7 +251,6 @@ class RichProgressProvider:
                 if not hasattr(task, "fields"):
                     task.fields = {}
                 task.fields.update(task_fields)
-
 
     async def on_operation_completed(
         self, operation_id: str, final_status: OperationStatus
@@ -403,8 +405,11 @@ class RichProgressProvider:
         """Configure unified logging through Live Display console using centralized config."""
         try:
             from src.config.logging import enable_unified_console_output
+
             enable_unified_console_output(self._live.console)
-            self._logger.debug("Unified logging configured through Live Display console")
+            self._logger.debug(
+                "Unified logging configured through Live Display console"
+            )
         except Exception as e:
             # Fallback error reporting with rich markup
             self._live.console.print(
@@ -415,9 +420,9 @@ class RichProgressProvider:
         """Restore normal logging configuration."""
         try:
             from src.config.logging import restore_standard_console_output
+
             restore_standard_console_output()
             self._logger.debug("Normal logging configuration restored")
         except Exception as e:
             # Use regular print as fallback since Progress is stopping
             print(f"Warning: Failed to restore normal logging: {e}")
-

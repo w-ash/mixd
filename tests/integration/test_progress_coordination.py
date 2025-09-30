@@ -53,6 +53,7 @@ class TestProgressConsoleCoordination:
 
             # Import logger after configuration to use the redirected logging
             from src.config import get_logger
+
             test_logger = get_logger("test_module")
 
             # Test that Loguru logs go through Progress.console
@@ -65,18 +66,23 @@ class TestProgressConsoleCoordination:
 
             # Give logging a moment to process
             import asyncio
+
             await asyncio.sleep(0.01)
 
             # Verify that at least the Loguru log was captured
             # (Python logging interception is specifically for Prefect loggers)
-            assert len(captured_output) >= 1, f"Expected at least 1 captured message, got {len(captured_output)}"
+            assert len(captured_output) >= 1, (
+                f"Expected at least 1 captured message, got {len(captured_output)}"
+            )
 
             # Check that Loguru message was captured
             loguru_captured = any(
                 "Test log message from Loguru" in str(args)
                 for category, args, kwargs in captured_output
             )
-            assert loguru_captured, "Loguru message should route through Progress.console"
+            assert loguru_captured, (
+                "Loguru message should route through Progress.console"
+            )
 
             # Check that Prefect message was captured (if interception is working)
             prefect_captured = any(
@@ -87,7 +93,9 @@ class TestProgressConsoleCoordination:
             # Note: Prefect logging interception may not work in test environment,
             # so we just verify the primary Loguru routing is working
             if len(captured_output) >= 2:
-                assert prefect_captured, "Prefect logging should route through Progress.console when intercepted"
+                assert prefect_captured, (
+                    "Prefect logging should route through Progress.console when intercepted"
+                )
 
         finally:
             # Always restore normal logging
@@ -97,8 +105,8 @@ class TestProgressConsoleCoordination:
         """Test that progress_coordination_context provides proper console coordination."""
         async with progress_coordination_context(show_live=True) as context:
             # Verify context provides the expected interface
-            assert hasattr(context, 'console')
-            assert hasattr(context, 'get_progress_manager')
+            assert hasattr(context, "console")
+            assert hasattr(context, "get_progress_manager")
 
             # Verify we get a progress manager
             progress_manager = context.get_progress_manager()
@@ -112,8 +120,8 @@ class TestProgressConsoleCoordination:
         """Test that simple context works when progress is disabled."""
         async with progress_coordination_context(show_live=False) as context:
             # Verify context provides basic console access
-            assert hasattr(context, 'console')
-            assert hasattr(context, 'get_progress_manager')
+            assert hasattr(context, "console")
+            assert hasattr(context, "get_progress_manager")
 
             # Verify no progress manager when disabled
             progress_manager = context.get_progress_manager()
@@ -141,7 +149,7 @@ class TestProgressConsoleCoordination:
             operation = ProgressOperation(
                 operation_id="test_op_001",
                 description="Test Progress Operation",
-                total_items=100
+                total_items=100,
             )
 
             await provider.on_operation_started(operation)
@@ -153,7 +161,7 @@ class TestProgressConsoleCoordination:
                     current=i,
                     total=100,
                     message=f"Processing item {i}",
-                    status=ProgressStatus.IN_PROGRESS
+                    status=ProgressStatus.IN_PROGRESS,
                 )
                 await provider.on_progress_event(event)
 
@@ -164,7 +172,9 @@ class TestProgressConsoleCoordination:
                 await asyncio.sleep(0.01)
 
             # Complete the operation
-            await provider.on_operation_completed("test_op_001", OperationStatus.COMPLETED)
+            await provider.on_operation_completed(
+                "test_op_001", OperationStatus.COMPLETED
+            )
 
             # Verify operation is tracked
             assert provider.active_operation_count == 0  # Should be 0 after completion
@@ -186,7 +196,7 @@ class TestProgressConsoleCoordination:
                 ProgressOperation(
                     operation_id=f"test_op_{i:03d}",
                     description=f"Operation {i}",
-                    total_items=50
+                    total_items=50,
                 )
                 for i in range(3)
             ]
@@ -201,7 +211,9 @@ class TestProgressConsoleCoordination:
             # Update all operations in parallel
             tasks = []
             for i, op in enumerate(operations):
-                task = asyncio.create_task(self._update_operation_progress(provider, op, i))
+                task = asyncio.create_task(
+                    self._update_operation_progress(provider, op, i)
+                )
                 tasks.append(task)
 
             # Wait for all operations to complete
@@ -221,17 +233,20 @@ class TestProgressConsoleCoordination:
                 current=i,
                 total=50,
                 message=f"Operation {offset}: step {i}",
-                status=ProgressStatus.IN_PROGRESS
+                status=ProgressStatus.IN_PROGRESS,
             )
             await provider.on_progress_event(event)
             await asyncio.sleep(0.005 * (offset + 1))  # Different timing per operation
 
-        await provider.on_operation_completed(operation.operation_id, OperationStatus.COMPLETED)
+        await provider.on_operation_completed(
+            operation.operation_id, OperationStatus.COMPLETED
+        )
 
     async def test_console_restoration_after_coordination(self):
         """Test that console behavior is properly restored after coordination ends."""
         # Capture initial logging state
         from loguru import logger as loguru_logger
+
         list(loguru_logger._core.handlers.keys())  # type: ignore[attr-defined]
 
         # Use coordination context
@@ -248,6 +263,7 @@ class TestProgressConsoleCoordination:
 
         # Verify we can still log normally after coordination
         from src.config import get_logger
+
         test_logger = get_logger("restoration_test")
         test_logger.info("Test message after coordination restoration")
 
@@ -268,8 +284,8 @@ class TestProgressWebInterfaceCompatibility:
             metadata={
                 "items_per_second": 15.5,
                 "eta_seconds": 30,
-                "source": "api_import"
-            }
+                "source": "api_import",
+            },
         )
 
         # Convert to dictionary (as would be done for JSON serialization)
@@ -280,7 +296,7 @@ class TestProgressWebInterfaceCompatibility:
             "message": event.message,
             "status": event.status.value,
             "completion_percentage": event.completion_percentage,
-            "metadata": event.metadata
+            "metadata": event.metadata,
         }
 
         # Verify JSON serialization works
@@ -307,8 +323,8 @@ class TestProgressWebInterfaceCompatibility:
             metadata={
                 "user_id": "user123",
                 "session_id": "session456",
-                "operation_type": "playlist_sync"
-            }
+                "operation_type": "playlist_sync",
+            },
         )
 
         # Convert to web-compatible format
@@ -317,7 +333,7 @@ class TestProgressWebInterfaceCompatibility:
             "description": operation.description,
             "total": operation.total_items,
             "determinate": operation.total_items is not None,
-            "metadata": operation.metadata
+            "metadata": operation.metadata,
         }
 
         # Verify JSON compatibility

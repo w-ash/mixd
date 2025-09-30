@@ -18,14 +18,6 @@ class TestLastfmPlayImporterIntegration:
     """Integration tests for LastfmPlayImporter with real repositories."""
 
     @pytest.fixture
-    async def db_session(self):
-        """Real database session for integration tests."""
-        from src.infrastructure.persistence.database.db_connection import get_session
-
-        async with get_session() as session:
-            yield session
-
-    @pytest.fixture
     def unit_of_work(self, db_session):
         """Real UnitOfWork with database session."""
         from src.infrastructure.persistence.repositories.factories import (

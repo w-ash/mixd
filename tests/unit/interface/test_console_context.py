@@ -29,8 +29,8 @@ class TestSimpleConsoleContext:
         context = SimpleConsoleContext(console)
 
         # Should be able to access console methods
-        assert hasattr(context.console, 'print')
-        assert hasattr(context.console, 'status')
+        assert hasattr(context.console, "print")
+        assert hasattr(context.console, "status")
 
     def test_no_progress_manager(self):
         """Test that progress manager is None when not needed."""
@@ -110,20 +110,20 @@ class TestContextClassComparison:
         progress_context = ProgressDisplayContext(mock_provider, mock_manager)
 
         # Both should have console access
-        assert hasattr(simple_context, 'console')
-        assert hasattr(progress_context, 'console')
+        assert hasattr(simple_context, "console")
+        assert hasattr(progress_context, "console")
 
         # Both should have get_progress_manager method
-        assert hasattr(simple_context, 'get_progress_manager')
-        assert hasattr(progress_context, 'get_progress_manager')
+        assert hasattr(simple_context, "get_progress_manager")
+        assert hasattr(progress_context, "get_progress_manager")
 
         # But only progress context should have actual progress manager
         assert simple_context.get_progress_manager() is None
         assert progress_context.get_progress_manager() is not None
 
         # Progress context should have provider reference
-        assert hasattr(progress_context, 'provider')
-        assert not hasattr(simple_context, 'provider')
+        assert hasattr(progress_context, "provider")
+        assert not hasattr(simple_context, "provider")
 
     def test_both_contexts_support_console_operations(self):
         """Test that both contexts support basic console operations."""
@@ -140,8 +140,8 @@ class TestContextClassComparison:
         contexts = [simple_context, progress_context]
 
         for context in contexts:
-            assert hasattr(context.console, 'print')
-            assert hasattr(context.console, 'status')
-            assert hasattr(context.console, 'rule')
+            assert hasattr(context.console, "print")
+            assert hasattr(context.console, "status")
+            assert hasattr(context.console, "rule")
             # Test backward compatibility
             assert context.live_console is context.console

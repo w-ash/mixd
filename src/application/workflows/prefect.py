@@ -412,13 +412,14 @@ async def run_workflow(
         total_tasks = len(tasks)
 
         workflow_operation = create_progress_operation(
-            description=f"Executing {workflow_name}",
-            total_items=total_tasks
+            description=f"Executing {workflow_name}", total_items=total_tasks
         )
         workflow_operation_id = await progress_manager.start_operation(
             workflow_operation
         )
-        logger.info(f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)")
+        logger.info(
+            f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
+        )
 
     try:
         with tags("workflow", workflow_name):

@@ -290,6 +290,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         return [
             selectinload(DBTrack.mappings),  # Simple relationship
-            selectinload(DBTrack.mappings).selectinload(DBTrackMapping.connector_track),  # Nested chaining
+            selectinload(DBTrack.mappings).selectinload(
+                DBTrackMapping.connector_track
+            ),  # Nested chaining
             selectinload(DBTrack.likes),  # Simple relationship
         ]

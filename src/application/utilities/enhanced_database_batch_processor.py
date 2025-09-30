@@ -251,5 +251,3 @@ class EnhancedDatabaseBatchProcessor[T, R]:
                 operation_id, OperationStatus.FAILED
             )
             raise
-
-

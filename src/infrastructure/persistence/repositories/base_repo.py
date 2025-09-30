@@ -224,7 +224,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             if isinstance(rel, str):
                 # Simple string relationship name
                 options.append(selectinload(getattr(self.model_class, rel)))
-            elif hasattr(rel, '__module__') and 'sqlalchemy.orm.strategy_options' in str(rel.__class__.__module__):
+            elif hasattr(
+                rel, "__module__"
+            ) and "sqlalchemy.orm.strategy_options" in str(rel.__class__.__module__):
                 # Pre-constructed SQLAlchemy loader option (selectinload, joinedload, etc.)
                 options.append(rel)
             else:
@@ -529,15 +531,16 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         for rel_item in self.mapper.get_default_relationships():
             if isinstance(rel_item, str):
                 rel_names.append(rel_item)
-            else:
-                # For selectinload objects, extract the attribute name
-                if hasattr(rel_item, 'path') and rel_item.path:
-                    # Get the first path element (the direct relationship)
-                    path_element = rel_item.path[0]
-                    if hasattr(path_element, 'key'):
-                        rel_names.append(path_element.key)
-                    elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
-                        rel_names.append(path_element.property.key)
+            # For selectinload objects, extract the attribute name
+            elif hasattr(rel_item, "path") and rel_item.path:
+                # Get the first path element (the direct relationship)
+                path_element = rel_item.path[0]
+                if hasattr(path_element, "key"):
+                    rel_names.append(path_element.key)
+                elif hasattr(path_element, "property") and hasattr(
+                    path_element.property, "key"
+                ):
+                    rel_names.append(path_element.property.key)
 
         if rel_names:
             await self.session.refresh(updated_entity, attribute_names=rel_names)
@@ -676,7 +679,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                         # Only add relationships that actually exist on this model class
                         if (
                             hasattr(self.model_class, rel_name)
-                            and rel_name in inspect(self.model_class).relationships.keys()
+                            and rel_name in inspect(self.model_class).relationships
                         ):
                             options.append(
                                 selectinload(getattr(self.model_class, rel_name))
@@ -726,7 +729,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                         # Only add relationships that actually exist on this model class
                         if (
                             hasattr(self.model_class, rel_name)
-                            and rel_name in inspect(self.model_class).relationships.keys()
+                            and rel_name in inspect(self.model_class).relationships
                         ):
                             options.append(
                                 selectinload(getattr(self.model_class, rel_name))
@@ -823,19 +826,20 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                         # Handle both string names and selectinload objects
                         if isinstance(rel_item, str):
                             await self.session.refresh(db_entity, [rel_item])
-                        else:
-                            # For selectinload objects, extract the attribute name
-                            if hasattr(rel_item, 'path') and rel_item.path:
-                                # Get the first path element (the direct relationship)
-                                path_element = rel_item.path[0]
-                                rel_name = None
-                                if hasattr(path_element, 'key'):
-                                    rel_name = path_element.key
-                                elif hasattr(path_element, 'property') and hasattr(path_element.property, 'key'):
-                                    rel_name = path_element.property.key
+                        # For selectinload objects, extract the attribute name
+                        elif hasattr(rel_item, "path") and rel_item.path:
+                            # Get the first path element (the direct relationship)
+                            path_element = rel_item.path[0]
+                            rel_name = None
+                            if hasattr(path_element, "key"):
+                                rel_name = path_element.key
+                            elif hasattr(path_element, "property") and hasattr(
+                                path_element.property, "key"
+                            ):
+                                rel_name = path_element.property.key
 
-                                if rel_name:
-                                    await self.session.refresh(db_entity, [rel_name])
+                            if rel_name:
+                                await self.session.refresh(db_entity, [rel_name])
 
                 return await self.mapper.map_collection(list(db_entities))
             else:

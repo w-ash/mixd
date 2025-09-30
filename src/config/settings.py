@@ -122,6 +122,15 @@ class BatchConfig(BaseModel):
     truncation_limit: int = 5  # Number of items to show before truncating lists
 
 
+class CLIConfig(BaseModel):
+    """CLI display and formatting configuration."""
+
+    # Table display settings
+    playlist_name_min_width: int = 15
+    playlist_description_max_width: int = 40
+    playlist_description_truncation_length: int = 37  # max_width - 3 for "..."
+
+
 class ImportConfig(BaseModel):
     """Import processing and data quality configuration."""
 
@@ -218,6 +227,7 @@ class Settings(BaseSettings):
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
     api: APIConfig = Field(default_factory=APIConfig)
     batch: BatchConfig = Field(default_factory=BatchConfig)
+    cli: CLIConfig = Field(default_factory=CLIConfig)
     import_settings: ImportConfig = Field(default_factory=ImportConfig)
     matching: MatchingConfig = Field(default_factory=MatchingConfig)
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)

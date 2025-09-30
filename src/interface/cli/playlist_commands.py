@@ -1,47 +1,38 @@
-"""CLI commands for playlist workflow execution and management."""
+"""CLI commands for playlist data management and CRUD operations.
+
+Clean implementation focused solely on stored playlist operations:
+list, backup, delete. Workflow functionality moved to workflow_commands.py.
+"""
+
+from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from typing import Annotated
 
 from rich.panel import Panel
-from rich.prompt import Prompt
+from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
-from src.interface.cli.console import get_console, progress_coordination_context
-from src.interface.shared.ui import display_operation_result
+from src.interface.cli.console import get_console
 
 console = get_console()
 
-# Create playlist subcommand app
-app = typer.Typer(help="Create and manage playlists")
-
-
-@app.callback(invoke_without_command=True)
-def playlist_main(ctx: typer.Context) -> None:
-    """Create and manage playlists."""
-    if ctx.invoked_subcommand is None:
-        _show_interactive_workflow_menu()
-
-
-@app.command()
-def run(
-    workflow_id: Annotated[
-        str | None, typer.Argument(help="Workflow ID to execute")
-    ] = None,
-    show_results: Annotated[bool, typer.Option("--show-results/--no-results")] = True,
-    output_format: Annotated[str, typer.Option("--format", "-f")] = "table",
-) -> None:
-    """Run a workflow from available definitions."""
-    _run_workflow(workflow_id, show_results, output_format)
+# Create playlist data management app
+app = typer.Typer(
+    help="Manage stored playlists and data operations",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 
 @app.command()
 def list() -> None:
-    """List available workflows."""
-    _list_workflows()
+    """List all playlists stored in your local database.
+
+    Shows playlist ID, name, description, and track count in a Rich table.
+    """
+    asyncio.run(_list_stored_playlists())
 
 
 @app.command()
@@ -64,167 +55,153 @@ def backup(
     asyncio.run(_backup_playlist_async(connector, playlist_id))
 
 
-def _show_interactive_workflow_menu() -> None:
-    """Display interactive workflow selection menu."""
-    workflows = _get_available_workflows()
-
-    if not workflows:
-        console.print("[red]No workflows found.[/red]")
-        return
-
-    console.print(
-        Panel.fit(
-            "🎵 Available Workflows",
-            title="[bold blue]Narada Playlist[/bold blue]",
-            border_style="blue",
-        )
-    )
-
-    for i, wf in enumerate(workflows, 1):
-        console.print(
-            f"  [cyan]{i}[/cyan]. [bold]{wf['id']}[/bold] - {wf['name']} ([dim]{wf['task_count']} tasks[/dim])"
-        )
-
-    choices = [str(i) for i in range(1, len(workflows) + 1)]
-    choices.extend([wf["id"] for wf in workflows])
-    choices.extend(["q", "quit", "exit", "cancel"])
-
-    choice = Prompt.ask(
-        f"Select workflow [1-{len(workflows)}] or type name",
-        choices=choices,
-        default="",
-        show_choices=False,
-    ).strip()
-
-    if choice in ("", "q", "quit", "exit", "cancel"):
-        return
-
-    # Parse selection
-    workflow_id = None
-    if choice.isdigit():
-        choice_num = int(choice)
-        if 1 <= choice_num <= len(workflows):
-            workflow_id = workflows[choice_num - 1]["id"]
-    else:
-        workflow_id = choice
-
-    if workflow_id:
-        console.print(f"\n[green]Running workflow:[/green] [bold]{workflow_id}[/bold]")
-        _run_workflow(workflow_id, show_results=True, output_format="table")
-
-
-def _run_workflow(
-    workflow_id: str | None, show_results: bool, output_format: str
+@app.command()
+def delete(
+    playlist_id: int = typer.Argument(..., help="Playlist ID to delete"),
+    force: Annotated[bool, typer.Option("--force", "-f")] = False,
 ) -> None:
-    """Execute a workflow."""
-    workflows = _get_available_workflows()
+    """Delete a playlist from your local database.
 
-    if not workflow_id:
-        console.print("[red]No workflow specified.[/red]")
-        return
+    Removes the playlist and all associated data permanently. This action
+    cannot be undone. Use --force to skip confirmation prompt.
 
-    # Find workflow
-    workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
-    if not workflow_info:
-        console.print(f"[red]Workflow '{workflow_id}' not found.[/red]")
-        return
+    Examples:
+        narada playlist delete 5
+        narada playlist delete 3 --force
+    """
+    asyncio.run(_delete_playlist_async(playlist_id, force))
 
+
+async def _list_stored_playlists() -> None:
+    """List all stored playlists with metadata following DDD principles."""
     try:
-        # Load and execute workflow
-        workflow_path = Path(workflow_info["path"])
-        workflow_def = json.loads(workflow_path.read_text(encoding="utf-8"))
+        # Import here to avoid circular dependencies
+        from src.application.use_cases.list_playlists import ListPlaylistsUseCase
+        from src.infrastructure.persistence.database import get_session
+        from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 
-        console.print(
-            Panel.fit(
-                f"[bold]{workflow_info['name']}[/bold]\n"
-                f"[dim]{workflow_info['description']}[/dim]\n"
-                f"[cyan]Tasks: [bold]{workflow_info.get('task_count', 0)}[/bold][/cyan]",
-                title="[bold bright_blue]⚡ Running Workflow[/bold bright_blue]",
-                border_style="blue",
-            )
-        )
+        # Use proper DDD structure: Interface -> Application -> Domain -> Infrastructure
+        async with get_session() as session:
+            uow = DatabaseUnitOfWork(session)
+            use_case = ListPlaylistsUseCase(uow)
+            result = await use_case.execute()
 
-        # Execute workflow with Rich Live Display and progress bars
-        async def _run_workflow_with_progress():
-            async with progress_coordination_context(show_live=True) as context:
-                # Get progress manager from the unified context
-                progress_manager = context.get_progress_manager()
+        if not result.has_playlists:
+            console.print("[yellow]No playlists found in your database.[/yellow]")
+            return
 
-                # Lazy import to avoid startup dependency issues
-                from src.application.workflows.prefect import (
-                    run_workflow as execute_workflow,
-                )
-
-                return await execute_workflow(workflow_def, progress_manager)
-
-        _, result = asyncio.run(_run_workflow_with_progress())
-
-        console.print(
-            Panel.fit(
-                f"[bold green]{workflow_info['name']}[/bold green]\n"
-                f"[cyan]Processed [bold]{len(result.tracks) if result and hasattr(result, 'tracks') else 0}[/bold] tracks[/cyan]",
-                title="[bold green]✓ Workflow Completed[/bold green]",
-                border_style="green",
-            )
-        )
-
-        if show_results and result:
-            display_operation_result(result, output_format=output_format)
+        # Display Rich table
+        _display_playlists_table(result.playlists)
 
     except Exception as e:
-        console.print("[bold red]✗ Workflow failed[/bold red]")
-        console.print(f"[red]Error: {e}[/red]")
+        typer.echo(f"Error: Failed to list playlists: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
-def _list_workflows() -> None:
-    """Display available workflows."""
-    workflows = _get_available_workflows()
+def _display_playlists_table(playlists) -> None:
+    """Display playlists in a Rich table format."""
+    from src.config.settings import settings
 
-    if not workflows:
-        console.print("[red]No workflows found.[/red]")
-        return
+    table = Table(
+        title="Stored Playlists", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("ID", style="cyan", no_wrap=True, justify="right")
+    table.add_column(
+        "Name", style="green", min_width=settings.cli.playlist_name_min_width
+    )
+    table.add_column(
+        "Description",
+        style="dim",
+        max_width=settings.cli.playlist_description_max_width,
+    )
+    table.add_column("Tracks", style="yellow", justify="right")
+    table.add_column("Last Updated", style="blue", no_wrap=True)
 
-    table = Table(title="Available Workflows")
-    table.add_column("ID", style="cyan")
-    table.add_column("Name", style="green")
-    table.add_column("Description", style="dim")
-    table.add_column("Tasks", style="yellow", justify="right")
+    for playlist in playlists:
+        # Note: Domain entities don't expose timestamp fields by design
+        # For CLI listing, we show track count as primary metadata
+        updated_str = "N/A"
 
-    for wf in workflows:
-        table.add_row(wf["id"], wf["name"], wf["description"], str(wf["task_count"]))
+        # Truncate description if too long (using centralized settings)
+        from src.config.settings import settings
+
+        max_length = settings.cli.playlist_description_max_width
+        truncation_length = settings.cli.playlist_description_truncation_length
+        description = playlist.description or ""
+        if len(description) > max_length:
+            description = description[:truncation_length] + "..."
+
+        table.add_row(
+            str(playlist.id),
+            playlist.name,
+            description,
+            str(len(playlist.tracks)),
+            updated_str,
+        )
 
     console.print(table)
 
 
-def _get_available_workflows():
-    """Get available workflow definitions."""
-    # Get path to workflow definitions directory
-    current_file = Path(__file__)
-    definitions_path = (
-        current_file.parent.parent.parent / "application" / "workflows" / "definitions"
-    )
-    workflows = []
+async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
+    """Delete a playlist with confirmation unless forced."""
+    try:
+        # Import here to avoid circular dependencies
+        from src.infrastructure.persistence.database import get_session
+        from src.infrastructure.persistence.repositories.playlist.core import (
+            PlaylistRepository,
+        )
 
-    if not definitions_path.exists():
-        return workflows
+        async with get_session() as session:
+            repo = PlaylistRepository(session)
 
-    for json_file in definitions_path.glob("*.json"):
-        try:
-            definition = json.loads(json_file.read_text())
-            workflows.append({
-                "id": definition.get("id", json_file.stem),
-                "name": definition.get("name", "Unknown"),
-                "description": definition.get("description", ""),
-                "task_count": len(definition.get("tasks", [])),
-                "path": str(json_file),
-            })
-        except (OSError, json.JSONDecodeError) as e:
-            console.print(
-                f"[yellow]Warning: Could not parse {json_file.name}: {e}[/yellow]"
-            )
-            continue
+            # Get playlist info for confirmation
+            try:
+                playlist = await repo.get_playlist_by_id(playlist_id)
+            except Exception as e:
+                typer.echo(
+                    f"Error: Playlist with ID {playlist_id} not found.", err=True
+                )
+                raise typer.Exit(1) from e
 
-    return workflows
+            # Confirmation unless forced
+            if not force:
+                console.print(
+                    Panel.fit(
+                        f"[bold]{playlist.name}[/bold]\n"
+                        f"[dim]{playlist.description or 'No description'}[/dim]\n"
+                        f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
+                        title="[bold red]⚠️  Delete Playlist[/bold red]",
+                        border_style="red",
+                    )
+                )
+
+                if not Confirm.ask(
+                    "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
+                    "[dim]This action cannot be undone.[/dim]"
+                ):
+                    console.print("[yellow]Delete cancelled.[/yellow]")
+                    return
+
+            # Perform deletion
+            deleted = await repo.delete_playlist(playlist_id)
+
+            if deleted:
+                console.print(
+                    Panel.fit(
+                        f"[bold green]✓ Playlist Deleted[/bold green]\n"
+                        f"[cyan]Name:[/cyan] {playlist.name}\n"
+                        f"[cyan]ID:[/cyan] {playlist_id}",
+                        title="[bold green]🗑️  Deletion Complete[/bold green]",
+                        border_style="green",
+                    )
+                )
+            else:
+                typer.echo(f"Error: Failed to delete playlist {playlist_id}", err=True)
+                raise typer.Exit(1)  # noqa: TRY301
+
+    except Exception as e:
+        typer.echo(f"Error: Failed to delete playlist: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
@@ -280,8 +257,8 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             )
 
     except ValueError as e:
-        console.print(f"❌ [red]Error: {e}[/red]")
+        typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1) from e
     except Exception as e:
-        console.print(f"❌ [bold red]Backup failed:[/bold red] {e}")
+        typer.echo(f"Error: Backup failed: {e}", err=True)
         raise typer.Exit(1) from e

@@ -44,6 +44,10 @@ from src.infrastructure.connectors.spotify.conversions import (
 # Get contextual logger for operations
 logger = get_logger(__name__).bind(service="spotify_operations")
 
+# Constants for debug logging limits
+DEBUG_TRACK_IDS_LIMIT = 10
+DEBUG_ALL_TRACK_IDS_LIMIT = 20
+
 
 @define(slots=True)
 class SpotifyOperations:
@@ -530,7 +534,9 @@ class SpotifyOperations:
                 logger.debug(
                     "Operation missing spotify_uri",
                     operation_index=i,
-                    operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                    operation_type=op.operation_type.value
+                    if hasattr(op.operation_type, "value")
+                    else str(op.operation_type),
                 )
                 continue
 
@@ -563,7 +569,7 @@ class SpotifyOperations:
         logger.debug(
             "Phase 1 complete - URI analysis",
             canonical_track_ids=sorted(canonical_track_ids),
-            **{k: v for k, v in stats.items() if v > 0}
+            **{k: v for k, v in stats.items() if v > 0},
         )
 
         # Phase 2: Bulk load tracks by IDs
@@ -573,9 +579,13 @@ class SpotifyOperations:
             logger.info(
                 "Phase 2: Loading tracks from database",
                 track_count=len(canonical_ids_list),
-                track_ids_sample=sorted(canonical_ids_list)[:10],  # Show first 10 for debugging
-                all_track_ids=sorted(canonical_ids_list) if len(canonical_ids_list) <= 20 else None,
-                track_repo_type=type(track_repo).__name__
+                track_ids_sample=sorted(canonical_ids_list)[
+                    :DEBUG_TRACK_IDS_LIMIT
+                ],  # Show first batch for debugging
+                all_track_ids=sorted(canonical_ids_list)
+                if len(canonical_ids_list) <= DEBUG_ALL_TRACK_IDS_LIMIT
+                else None,
+                track_repo_type=type(track_repo).__name__,
             )
 
             try:
@@ -583,17 +593,19 @@ class SpotifyOperations:
                     "Calling find_tracks_by_ids",
                     method_name="find_tracks_by_ids",
                     input_type=type(canonical_ids_list).__name__,
-                    input_length=len(canonical_ids_list)
+                    input_length=len(canonical_ids_list),
                 )
                 track_map = await track_repo.find_tracks_by_ids(canonical_ids_list)
                 logger.debug(
                     "Database call completed successfully",
                     returned_type=type(track_map).__name__,
-                    returned_length=len(track_map) if track_map else 0
+                    returned_length=len(track_map) if track_map else 0,
                 )
 
                 stats["tracks_found_in_db"] = len(track_map)
-                stats["tracks_missing_from_db"] = len(canonical_track_ids) - len(track_map)
+                stats["tracks_missing_from_db"] = len(canonical_track_ids) - len(
+                    track_map
+                )
 
                 missing_track_ids = canonical_track_ids - set(track_map.keys())
                 logger.info(
@@ -602,14 +614,22 @@ class SpotifyOperations:
                     found_count=stats["tracks_found_in_db"],
                     missing_count=stats["tracks_missing_from_db"],
                     success_rate=f"{(stats['tracks_found_in_db'] / len(canonical_track_ids) * 100):.1f}%",
-                    found_track_ids=sorted(track_map.keys())[:10] if track_map else [],
-                    missing_track_ids=sorted(missing_track_ids)[:10] if missing_track_ids else [],
-                    all_requested_ids=sorted(canonical_track_ids) if len(canonical_track_ids) <= 10 else None,
+                    found_track_ids=sorted(track_map.keys())[:DEBUG_TRACK_IDS_LIMIT]
+                    if track_map
+                    else [],
+                    missing_track_ids=sorted(missing_track_ids)[:DEBUG_TRACK_IDS_LIMIT]
+                    if missing_track_ids
+                    else [],
+                    all_requested_ids=sorted(canonical_track_ids)
+                    if len(canonical_track_ids) <= DEBUG_TRACK_IDS_LIMIT
+                    else None,
                 )
 
                 # Log connector identifier availability for found tracks
                 for track_id, track in track_map.items():
-                    available_connectors = list(track.connector_track_identifiers.keys())
+                    available_connectors = list(
+                        track.connector_track_identifiers.keys()
+                    )
                     has_spotify = "spotify" in track.connector_track_identifiers
                     spotify_id = track.connector_track_identifiers.get("spotify")
 
@@ -627,16 +647,22 @@ class SpotifyOperations:
 
             except Exception as e:
                 import traceback
+
                 logger.error(
                     "Database track loading failed",
                     track_count=len(canonical_track_ids),
-                    track_ids_sample=sorted(canonical_track_ids)[:10],
-                    all_track_ids=sorted(canonical_track_ids) if len(canonical_track_ids) <= 20 else None,
+                    track_ids_sample=sorted(canonical_track_ids)[
+                        :DEBUG_TRACK_IDS_LIMIT
+                    ],
+                    all_track_ids=sorted(canonical_track_ids)
+                    if len(canonical_track_ids) <= DEBUG_ALL_TRACK_IDS_LIMIT
+                    else None,
                     error_message=str(e),
                     error_type=type(e).__name__,
-                    error_module=getattr(e, '__module__', 'unknown'),
+                    error_module=getattr(e, "__module__", "unknown"),
                     track_repo_type=type(track_repo).__name__,
-                    track_repo_session_active=hasattr(track_repo, 'session') and track_repo.session is not None,
+                    track_repo_session_active=hasattr(track_repo, "session")
+                    and track_repo.session is not None,
                     full_traceback=traceback.format_exc(),
                 )
                 raise
@@ -660,27 +686,36 @@ class SpotifyOperations:
                             operation_index=i,
                             canonical_id=track_id,
                             canonical_uri=op.spotify_uri,
-                            operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                            operation_type=op.operation_type.value
+                            if hasattr(op.operation_type, "value")
+                            else str(op.operation_type),
                         )
                         continue
 
                     spotify_id = track.connector_track_identifiers.get("spotify")
                     if not spotify_id:
-                        available_connectors = list(track.connector_track_identifiers.keys())
+                        available_connectors = list(
+                            track.connector_track_identifiers.keys()
+                        )
                         logger.warning(
                             "Track found but missing Spotify connector ID",
                             operation_index=i,
                             canonical_id=track_id,
                             track_title=track.title,
                             available_connectors=available_connectors,
-                            operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                            operation_type=op.operation_type.value
+                            if hasattr(op.operation_type, "value")
+                            else str(op.operation_type),
                         )
                         continue
 
                     # Update operation with Spotify URI
                     try:
                         from attrs import evolve
-                        resolved_op = evolve(op, spotify_uri=f"spotify:track:{spotify_id}")
+
+                        resolved_op = evolve(
+                            op, spotify_uri=f"spotify:track:{spotify_id}"
+                        )
                         resolved_operations.append(resolved_op)
                         stats["successful_resolutions"] += 1
 
@@ -727,7 +762,9 @@ class SpotifyOperations:
                     "Unknown URI format, skipping operation",
                     operation_index=i,
                     uri=op.spotify_uri,
-                    operation_type=op.operation_type.value if hasattr(op.operation_type, 'value') else str(op.operation_type),
+                    operation_type=op.operation_type.value
+                    if hasattr(op.operation_type, "value")
+                    else str(op.operation_type),
                 )
                 continue
 
@@ -737,7 +774,9 @@ class SpotifyOperations:
             input_operations=len(operations),
             output_operations=len(resolved_operations),
             resolution_stats=stats,
-            success_rate=f"{(stats['successful_resolutions'] / max(stats['canonical_uris_found'], 1)) * 100:.1f}%" if stats['canonical_uris_found'] > 0 else "N/A",
+            success_rate=f"{(stats['successful_resolutions'] / max(stats['canonical_uris_found'], 1)) * 100:.1f}%"
+            if stats["canonical_uris_found"] > 0
+            else "N/A",
         )
 
         if stats["tracks_missing_spotify_id"] > 0:

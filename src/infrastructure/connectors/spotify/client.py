@@ -15,7 +15,6 @@ workflows and business logic are handled in separate operation modules.
 """
 
 import asyncio
-import os
 from typing import Any
 
 from attrs import define, field
@@ -37,11 +36,6 @@ from src.infrastructure.connectors.spotify.error_classifier import (
 
 # Load environment variables for Spotify credentials
 load_dotenv()
-
-# Set spotipy environment variables from configuration
-os.environ["SPOTIPY_CLIENT_ID"] = os.getenv("SPOTIFY_CLIENT_ID", "")
-os.environ["SPOTIPY_CLIENT_SECRET"] = os.getenv("SPOTIFY_CLIENT_SECRET", "")
-os.environ["SPOTIPY_REDIRECT_URI"] = os.getenv("SPOTIFY_REDIRECT_URI", "")
 
 # Get contextual logger for API client operations
 logger = get_logger(__name__).bind(service="spotify_client")
@@ -91,6 +85,9 @@ class SpotifyAPIClient:
 
         self.client = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
+                client_id=settings.credentials.spotify_client_id,
+                client_secret=settings.credentials.spotify_client_secret.get_secret_value(),
+                redirect_uri=settings.credentials.spotify_redirect_uri,
                 scope=[
                     "playlist-modify-public",
                     "playlist-modify-private",

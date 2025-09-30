@@ -84,6 +84,17 @@ class PlaylistRepositoryProtocol(Protocol):
         """
         ...
 
+    def list_all_playlists(self) -> Awaitable[list["Playlist"]]:
+        """Get all playlists with basic metadata for listing.
+
+        Returns playlists with minimal relationship loading for efficient
+        listing operations. Suitable for CLI display and management interfaces.
+
+        Returns:
+            List of all stored playlists with basic metadata
+        """
+        ...
+
 
 class LikeRepositoryProtocol(Protocol):
     """Repository interface for like persistence operations."""
