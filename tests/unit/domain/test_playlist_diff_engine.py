@@ -166,7 +166,7 @@ class TestPlaylistDiffIntegration:
             Track(id=3, title="Track C", artists=[Artist(name="Artist 3")]),
             Track(id=4, title="Track D", artists=[Artist(name="Artist 4")]),
         ]
-        return Playlist(name="Test Playlist", tracks=tracks)
+        return Playlist.from_tracklist(name="Test Playlist", tracklist=tracks)
 
     def test_no_changes_idempotent(self, sample_playlist):
         """Unchanged playlist should generate zero operations (idempotent)."""
@@ -323,7 +323,7 @@ class TestPlaylistDiffIntegration:
             Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
             for i in range(100)
         ]
-        playlist = Playlist(name="Large Playlist", tracks=tracks)
+        playlist = Playlist.from_tracklist(name="Large Playlist", tracklist=tracks)
 
         # Reverse the order for maximum reordering challenge
         target_tracks = list(reversed(tracks))

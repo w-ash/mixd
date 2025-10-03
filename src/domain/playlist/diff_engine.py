@@ -226,7 +226,7 @@ def calculate_remove_operations(
 
 @curry
 def calculate_add_operations(
-    unmatched_target_tracks: list[Track], target_tracklist: TrackList
+    unmatched_target_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate ADD operations for tracks in target but not current playlist."""
     operations = []
@@ -243,7 +243,7 @@ def calculate_add_operations(
     for track in unmatched_target_tracks:
         try:
             # Find the correct target position for this track
-            target_position = target_tracklist.tracks.index(track)
+            target_position = target_tracks.index(track)
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.ADD,
@@ -477,7 +477,7 @@ def calculate_lis_reorder_operations(
 
 @curry
 def calculate_move_operations(
-    matched_tracks: list[Track], current_playlist: Playlist, target_tracklist: TrackList
+    matched_tracks: list[Track], current_playlist: Playlist, target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate MOVE operations for tracks that exist in both but need reordering.
 
@@ -491,7 +491,6 @@ def calculate_move_operations(
         return operations
 
     current_tracks = current_playlist.tracks
-    target_tracks = target_tracklist.tracks
 
     # Use LIS-based minimal move calculation
     operations = calculate_lis_reorder_operations(current_tracks, target_tracks)
@@ -542,7 +541,7 @@ def calculate_confidence_score(
 
 
 def calculate_playlist_diff(
-    current_playlist: Playlist, target_tracklist: TrackList
+    current_playlist: Playlist, target_playlist: Playlist | TrackList
 ) -> PlaylistDiff:
     """Calculate minimal operations to transform current playlist to match target.
 
@@ -552,13 +551,20 @@ def calculate_playlist_diff(
 
     Args:
         current_playlist: Current state of the playlist.
-        target_tracklist: Desired final state of the playlist.
+        target_playlist: Desired final state (Playlist or TrackList).
 
     Returns:
         PlaylistDiff containing operations and metadata.
     """
+    # Extract tracks from target (handles both Playlist and TrackList)
+    target_tracks = (
+        target_playlist.tracks
+        if isinstance(target_playlist, (Playlist, TrackList))
+        else target_playlist
+    )
+
     logger.debug(
-        f"Calculating diff: {len(current_playlist.tracks)} → {len(target_tracklist.tracks)} tracks"
+        f"Calculating diff: {len(current_playlist.tracks)} → {len(target_tracks)} tracks"
     )
 
     # Step 1: Use sophisticated database-first track matching
@@ -566,7 +572,7 @@ def calculate_playlist_diff(
         matched_tracks,
         unmatched_current,
         unmatched_target,
-    ) = match_tracks_with_db_lookup(current_playlist.tracks, target_tracklist.tracks)
+    ) = match_tracks_with_db_lookup(current_playlist.tracks, target_tracks)
 
     # Step 2: Calculate operations using functional composition
     remove_operations: list[PlaylistOperation] = cast(
@@ -575,11 +581,11 @@ def calculate_playlist_diff(
     )
     add_operations: list[PlaylistOperation] = cast(
         "list[PlaylistOperation]",
-        calculate_add_operations(unmatched_target, target_tracklist),
+        calculate_add_operations(unmatched_target, target_tracks),
     )
     move_operations: list[PlaylistOperation] = cast(
         "list[PlaylistOperation]",
-        calculate_move_operations(matched_tracks, current_playlist, target_tracklist),
+        calculate_move_operations(matched_tracks, current_playlist, target_tracks),
     )
 
     # Combine all operations

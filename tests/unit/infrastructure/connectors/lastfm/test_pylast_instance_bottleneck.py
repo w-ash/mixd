@@ -116,12 +116,11 @@ class TestPylastInstanceBottleneck:
         overlaps = 0
         for i, r1 in enumerate(call_results):
             for j, r2 in enumerate(call_results):
-                if i != j:
-                    if (
-                        r1["start_time"] < r2["end_time"]
-                        and r1["end_time"] > r2["start_time"]
-                    ):
-                        overlaps += 1
+                if i != j and (
+                    r1["start_time"] < r2["end_time"]
+                    and r1["end_time"] > r2["start_time"]
+                ):
+                    overlaps += 1
 
         concurrent_execution = overlaps > 0
         print(f"   Overlapping execution: {concurrent_execution}")
@@ -218,12 +217,11 @@ class TestPylastInstanceBottleneck:
         overlaps = 0
         for i, r1 in enumerate(call_results):
             for j, r2 in enumerate(call_results):
-                if i != j:
-                    if (
-                        r1["start_time"] < r2["end_time"]
-                        and r1["end_time"] > r2["start_time"]
-                    ):
-                        overlaps += 1
+                if i != j and (
+                    r1["start_time"] < r2["end_time"]
+                    and r1["end_time"] > r2["start_time"]
+                ):
+                    overlaps += 1
 
         concurrent_execution = overlaps > 0
         print(f"   Overlapping execution: {concurrent_execution}")

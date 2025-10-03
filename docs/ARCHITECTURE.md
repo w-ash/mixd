@@ -30,9 +30,21 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 ### Layer Responsibilities
 
+#### Config Layer (`src/config/`)
+- **Purpose**: Application configuration and cross-cutting concerns
+- **Contents**: Settings management, logging setup, constants
+- **Structure**:
+  - `settings.py` - Pydantic Settings with environment variable loading
+  - `logging.py` - Loguru configuration with structured logging
+  - `constants.py` - Application-wide constants
+- **Key Principle**: Zero business logic, only configuration and cross-cutting utilities
+
 #### Interface Layer (`src/interface/`)
 - **Purpose**: Primary adapters that provide entry points to the application
-- **Contents**: CLI commands, future web controllers, API endpoints
+- **Contents**: CLI commands, shared UI components, future web controllers
+- **Structure**:
+  - `cli/` - 7 Typer command groups (playlist, workflow, history, likes, track, setup, status)
+  - `shared/` - Shared UI components (ui.py for console utilities)
 - **Examples**: Typer CLI commands for playlist management, track operations, sync commands
 - **Responsibilities**: 
   - **User interaction handling**: Parse user input, format output, manage user sessions
@@ -44,29 +56,41 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 #### Domain Layer (`src/domain/`)
 - **Purpose**: Pure business logic with zero external dependencies
-- **Contents**: Core entities, business rules, algorithms, repository interfaces
-- **Examples**: Track matching algorithms, confidence scoring, playlist transformations
+- **Contents**: Core entities, business rules, algorithms, repository interfaces, pure transformations
+- **Structure**:
+  - `entities/` - attrs classes (Track, Playlist, PlaylistEntry, Progress, Operations, Shared types)
+  - `repositories/` - Abstract protocols (TrackRepositoryProtocol, PlaylistRepositoryProtocol, PlayRepositoryProtocol)
+  - `matching/` - Track matching algorithms, evaluation service, protocols, confidence scoring types
+  - `playlist/` - Diff engine for minimal playlist updates, execution strategies
+  - `transforms/` - Pure transformation modules (filtering, sorting, selecting, combining, core operations)
+  - `workflows/` - Playlist operation business rules and domain workflow logic
+  - `services/` - Domain services (progress_coordinator)
+- **Examples**: Track matching with confidence scoring, playlist diff algorithm for minimal API calls, pure functional transforms
 - **Responsibilities**: Enforces business rules and data integrity (e.g., playlists can't have duplicate tracks, tracks must have valid structure)
-- **Benefits**: Fast tests, pure functions, technology-agnostic
+- **Benefits**: Fast tests, pure functions, technology-agnostic, organized by domain concept
 - **Key Principle**: Never touches databases, APIs, or external systems directly
+- **Playlist Identity Preservation**: The `Playlist` entity uses `PlaylistEntry` (not bare tracks) to preserve track membership metadata (`added_at`, `added_by`) through playlist operations. This follows industry best practices (Spotify, MusicBrainz) where playlist-track relationships are "membership instances" with stable identity, not "position slots". Each `PlaylistEntry` preserves its record identity through reordering, enabling duplicate tracks and timestamp preservation.
 
 #### Application Layer (`src/application/`)
 - **Purpose**: Orchestration and transaction boundary management
-- **Contents**: Use case implementations, workflow definitions, application services
+- **Contents**: Use case implementations, workflow definitions, application services, utilities
 - **Structure**:
   - `use_cases/` - High-level business operations (13 use cases)
     - Core playlist operations: create, read, update, delete canonical playlists
-    - Connector operations: create/update connector playlists  
+    - Connector operations: create/update connector playlists
     - Data operations: import play history, enrich tracks, sync likes
     - Query operations: get liked/played tracks, match and identify tracks
-  - `services/` - Application-level coordination services (6 services)
+  - `services/` - Application-level coordination services (7 services)
     - `connector_playlist_processing_service.py` - Playlist processing coordination
     - `connector_playlist_sync_service.py` - Cross-service playlist synchronization
     - `metrics_application_service.py` - Metrics collection and caching coordination
     - `play_import_orchestrator.py` - Play history import orchestration
     - `playlist_backup_service.py` - Playlist backup and restoration
+    - `progress_manager.py` - Progress tracking and UI coordination
     - `track_merge_service.py` - Canonical track merging operations
-  - `workflows/` - Prefect workflow definitions and node implementations
+  - `transforms/` - Application-level transforms (metrics, shuffle, play_history, _helpers)
+  - `utilities/` - Batch processing utilities (batch_results, conversions, enhanced_database_batch_processor, results)
+  - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
 - **Responsibilities**: 
   - **Orchestrates business processes**: Coordinates the steps involved in complex operations (fetching, comparing, filtering, saving)
   - **Controls transaction boundaries**: Decides when transactions begin, commit, or rollback based on business logic
@@ -77,16 +101,23 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 #### Infrastructure Layer (`src/infrastructure/`)
 - **Purpose**: External integrations and technical implementation
-- **Contents**: Database repositories, API connectors, UnitOfWork implementations, persistence layer
+- **Contents**: Database repositories, API connectors, UnitOfWork implementations, persistence layer, infrastructure services
 - **Examples**: SpotifyConnector, SQLAlchemyRepository implementations, DatabaseUnitOfWork
 - **Structure**:
-  - `connectors/` - External service API clients (Spotify, Last.fm, Apple Music)
-  - `persistence/repositories/` - Concrete repository implementations organized by domain
+  - `connectors/` - External service API clients (Spotify, Last.fm, MusicBrainz, Apple Music)
+  - `persistence/repositories/` - Concrete repository implementations organized by domain aggregate
     - `track/` - Core track operations, connector mappings, likes, metrics, plays
     - `playlist/` - Core playlist operations, connector mappings
     - `play/` - Play history and connector play operations
   - `persistence/database/` - SQLAlchemy models and database configuration
-  - `services/` - Infrastructure-level services (playlist operations, etc.)
+  - `services/` - Infrastructure-level services (6 services)
+    - `base_play_importer.py` - Base class for play import implementations
+    - `metric_freshness_controller.py` - Controls metric cache freshness
+    - `play_deduplication.py` - Deduplicates play history records
+    - `play_import_registry.py` - Registry for play import strategies
+    - `playlist_operation_service.py` - Low-level playlist operations
+    - `track_identity_service_impl.py` - Track identity resolution implementation
+  - `metadata_providers/` - Metadata provider protocols for external services
 - **Responsibilities**: 
   - **Implements repository contracts**: Provides concrete implementations that handle database queries and external service calls
   - **Handles technical transaction details**: Manages actual database connections, commits, rollbacks
@@ -855,8 +886,33 @@ Start with simple implementations, add sophistication incrementally. Avoid over-
 - **Sophisticated Updates**: Differential playlist operations with conflict resolution
 
 ### Future Extensibility
+
+#### Adding New Music Services
+
+Each music service connector is completely self-contained in its own folder:
+
+```
+src/infrastructure/connectors/spotify/
+├── client.py           # API client (auth, requests)
+├── connector.py        # Main service interface
+├── factory.py          # Creates all Spotify services
+├── operations.py       # Core operations (get playlists, etc)
+├── matching_provider.py # Track matching logic
+├── conversions.py      # External ↔ Domain model conversion
+├── error_classifier.py # Service-specific error handling
+└── utilities.py        # Spotify-specific helpers
+```
+
+**To add YouTube Music:**
+1. Copy existing connector: `cp -r src/infrastructure/connectors/spotify src/infrastructure/connectors/youtube_music`
+2. Rename classes: `SpotifyConnector` → `YouTubeMusicConnector`
+3. Implement interfaces: `ConnectorProtocol`, `MatchProvider`, etc.
+4. Register in connector factory - **done!**
+
+**Benefits**: Self-contained design means zero changes to other services when adding new ones.
+
+#### Other Extensions
 - **Web Interface**: FastAPI backend with React frontend using existing use cases
-- **Additional Services**: Apple Music, YouTube Music integration using established patterns
 - **Advanced Analytics**: Machine learning on comprehensive listening data
 - **Collaborative Features**: Multi-user support with existing architecture
 

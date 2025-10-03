@@ -120,12 +120,10 @@ class TestFormatDestinationResult:
 
     def test_format_basic_result(self, tracklist, tracks):
         """Test basic result formatting."""
-        playlist = Playlist(
-            id=1,
-            name="Test Playlist",
-            description="Test Description",
-            tracks=tracks,
+        temp = Playlist.from_tracklist(
+            name="Test Playlist", tracklist=tracks, description="Test Description"
         )
+        playlist = Playlist(id=1, name=temp.name, entries=temp.entries, description=temp.description)
         stats = {"new_tracks": 2, "updated_tracks": 0}
 
         result = format_destination_result(
@@ -146,7 +144,8 @@ class TestFormatDestinationResult:
 
     def test_format_with_additional_fields(self, tracklist, tracks):
         """Test result formatting with additional fields."""
-        playlist = Playlist(id=1, name="Test", tracks=tracks)
+        temp = Playlist.from_tracklist(name="Test", tracklist=tracks)
+        playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
         stats = {"new_tracks": 1, "updated_tracks": 1}
 
         result = format_destination_result(
@@ -171,9 +170,8 @@ class TestUpdatePlaylistTracksOperation:
         existing_tracks = [
             Track(id=99, title="Old Track", artists=[Artist(name="Old Artist")])
         ]
-        existing_playlist = Playlist(
-            id=1, name="Existing Playlist", tracks=existing_tracks
-        )
+        temp = Playlist.from_tracklist(name="Existing Playlist", tracklist=existing_tracks)
+        existing_playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
 
         updated = update_playlist_tracks_operation(
             existing_playlist, tracks, append_mode=False
@@ -187,9 +185,8 @@ class TestUpdatePlaylistTracksOperation:
         existing_tracks = [
             Track(id=99, title="Old Track", artists=[Artist(name="Old Artist")])
         ]
-        existing_playlist = Playlist(
-            id=1, name="Existing Playlist", tracks=existing_tracks
-        )
+        temp = Playlist.from_tracklist(name="Existing Playlist", tracklist=existing_tracks)
+        existing_playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
 
         updated = update_playlist_tracks_operation(
             existing_playlist, tracks, append_mode=True
@@ -207,10 +204,11 @@ class TestSpotifyFormatting:
 
     def test_format_spotify_destination_result(self, tracklist, tracks):
         """Test Spotify destination result formatting."""
+        temp = Playlist.from_tracklist(name="Spotify Playlist", tracklist=tracks)
         playlist = Playlist(
             id=1,
-            name="Spotify Playlist",
-            tracks=tracks,
+            name=temp.name,
+            entries=temp.entries,
             connector_playlist_identifiers={"spotify": "spotify_123"},
         )
         stats = {"new_tracks": 2, "updated_tracks": 0}
@@ -229,7 +227,8 @@ class TestSpotifyFormatting:
 
     def test_format_update_destination_result(self, tracklist, tracks):
         """Test Spotify update destination result formatting."""
-        playlist = Playlist(id=1, name="Updated Playlist", tracks=tracks)
+        temp = Playlist.from_tracklist(name="Updated Playlist", tracklist=tracks)
+        playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
         stats = {"new_tracks": 1, "updated_tracks": 1}
 
         result = format_update_destination_result(

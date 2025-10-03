@@ -8,13 +8,13 @@ the transaction. Returns operational metrics for monitoring.
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import define, field
+from attrs import define, evolve, field
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.config import get_logger
-from src.domain.entities.playlist import Playlist
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.metrics import (
@@ -140,8 +140,8 @@ class CreateCanonicalPlaylistUseCase:
 
         async with uow:
             try:
-                # Step 1: Process ConnectorPlaylist data if present
-                processed_tracklist = command.tracklist
+                # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
+                source_data = command.tracklist
                 if command.tracklist.metadata and command.tracklist.metadata.get(
                     "connector_playlist"
                 ):
@@ -150,55 +150,104 @@ class CreateCanonicalPlaylistUseCase:
                     )
 
                     processing_service = ConnectorPlaylistProcessingService()
-                    processed_tracklist = (
+                    source_data = (
                         await processing_service.process_connector_playlist(
                             command.tracklist.metadata["connector_playlist"], uow
                         )
                     )
 
-                # Step 2: Ensure all tracks are persisted
-                track_repo = uow.get_track_repository()
-                persisted_tracks = []
+                # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
+                if isinstance(source_data, Playlist):
+                    # Processing service returned a Playlist with entries - use it directly
+                    # Ensure all tracks in entries are persisted
+                    track_repo = uow.get_track_repository()
+                    persisted_entries = []
 
-                for track in processed_tracklist.tracks:
-                    # Save track if it doesn't have an ID (not yet persisted)
-                    if track.id is None:
-                        saved_track = await track_repo.save_track(track)
-                        persisted_tracks.append(saved_track)
-                    else:
-                        persisted_tracks.append(track)
+                    for entry in source_data.entries:
+                        # Save track if it doesn't have an ID (not yet persisted)
+                        if entry.track.id is None:
+                            saved_track = await track_repo.save_track(entry.track)
+                            persisted_entries.append(
+                                PlaylistEntry(
+                                    track=saved_track,
+                                    added_at=entry.added_at,
+                                    added_by=entry.added_by,
+                                )
+                            )
+                        else:
+                            persisted_entries.append(entry)
 
-                # Step 2: Create playlist entity with optional connector mapping
-                connector_playlist_identifiers = {}
-                if (
-                    command.metadata
-                    and "connector" in command.metadata
-                    and "connector_id" in command.metadata
-                ):
-                    # Create connector mapping from metadata
-                    connector_playlist_identifiers[command.metadata["connector"]] = (
-                        command.metadata["connector_id"]
+                    # Build final playlist with persisted entries
+                    connector_playlist_identifiers = source_data.connector_playlist_identifiers.copy()
+                    if (
+                        command.metadata
+                        and "connector" in command.metadata
+                        and "connector_id" in command.metadata
+                    ):
+                        connector_playlist_identifiers[command.metadata["connector"]] = (
+                            command.metadata["connector_id"]
+                        )
+                        logger.info(
+                            "Creating canonical playlist with connector mapping",
+                            connector=command.metadata["connector"],
+                            connector_id=command.metadata["connector_id"],
+                        )
+
+                    playlist = Playlist(
+                        name=command.name,
+                        entries=persisted_entries,
+                        description=command.description,
+                        connector_playlist_identifiers=connector_playlist_identifiers,
+                        metadata=command.metadata.copy() if command.metadata else {},
                     )
-                    logger.info(
-                        "Creating canonical playlist with connector mapping",
-                        connector=command.metadata["connector"],
-                        connector_id=command.metadata["connector_id"],
-                    )
+                else:
+                    # TrackList input - convert to Playlist with uniform added_at
+                    track_repo = uow.get_track_repository()
+                    persisted_tracks = []
 
-                playlist = Playlist(
-                    name=command.name,
-                    tracks=persisted_tracks,
-                    description=command.description,
-                    connector_playlist_identifiers=connector_playlist_identifiers,
-                    metadata=command.metadata.copy() if command.metadata else {},
-                )
+                    for track in source_data.tracks:
+                        # Save track if it doesn't have an ID (not yet persisted)
+                        if track.id is None:
+                            saved_track = await track_repo.save_track(track)
+                            persisted_tracks.append(saved_track)
+                        else:
+                            persisted_tracks.append(track)
+
+                    # Create playlist using from_tracklist() helper
+                    connector_playlist_identifiers = {}
+                    if (
+                        command.metadata
+                        and "connector" in command.metadata
+                        and "connector_id" in command.metadata
+                    ):
+                        connector_playlist_identifiers[command.metadata["connector"]] = (
+                            command.metadata["connector_id"]
+                        )
+                        logger.info(
+                            "Creating canonical playlist with connector mapping",
+                            connector=command.metadata["connector"],
+                            connector_id=command.metadata["connector_id"],
+                        )
+
+                    from src.domain.entities.track import TrackList
+                    tracklist_with_persisted = TrackList(tracks=persisted_tracks)
+                    playlist = Playlist.from_tracklist(
+                        name=command.name,
+                        tracklist=tracklist_with_persisted,
+                        added_at=command.timestamp,
+                        description=command.description,
+                        connector_playlist_identifiers=connector_playlist_identifiers or {},
+                    )
+                    # Add metadata if provided
+                    if command.metadata:
+                        playlist = evolve(playlist, metadata=command.metadata.copy())
 
                 # Step 3: Persist playlist
                 playlist_repo = uow.get_playlist_repository()
                 saved_playlist = await playlist_repo.save_playlist(playlist)
 
-                # Step 4: Extract metrics from connector metadata
-                await self._extract_track_metrics(persisted_tracks, uow)
+                # Step 4: Extract metrics from connector metadata (extract tracks from playlist)
+                await self._extract_track_metrics(playlist.tracks, uow)
 
                 # Step 5: Commit transaction
                 await uow.commit()
@@ -208,9 +257,14 @@ class CreateCanonicalPlaylistUseCase:
                     (datetime.now(UTC) - start_time).total_seconds() * 1000
                 )
 
+                # Count unique tracks in the final playlist
+                unique_track_count = len({
+                    track.id for track in saved_playlist.tracks if track.id
+                })
+
                 result = CreateCanonicalPlaylistResult(
                     playlist=saved_playlist,
-                    tracks_created=len(persisted_tracks),
+                    tracks_created=unique_track_count,
                     execution_time_ms=execution_time,
                 )
 
@@ -218,7 +272,7 @@ class CreateCanonicalPlaylistUseCase:
                     "Canonical playlist creation completed",
                     playlist_id=saved_playlist.id,
                     name=saved_playlist.name,
-                    tracks_created=len(persisted_tracks),
+                    tracks_created=unique_track_count,
                     execution_time_ms=execution_time,
                 )
 

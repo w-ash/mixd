@@ -507,9 +507,38 @@ class DBPlaylistMapping(BaseEntity):
 
 
 class DBPlaylistTrack(BaseEntity):
-    """Playlist track ordering and metadata.
+    """Playlist track membership instance with position and metadata.
 
-    Represents tracks within playlists with ordering information.
+    CRITICAL PRINCIPLE: Each DBPlaylistTrack record represents ONE TRACK'S
+    MEMBERSHIP INSTANCE in a playlist, NOT a "position slot".
+
+    This design enables:
+    - Multiple records for the same track_id (duplicates in playlist)
+    - Stable record identity through reordering (preserves added_at, etc.)
+    - Independent metadata per playlist position
+
+    Schema:
+        id: Auto-increment PK representing this specific membership instance
+        playlist_id: Which playlist this membership belongs to
+        track_id: Which track this is (can appear multiple times)
+        sort_key: Lexicographic position key (e.g., "a00000000")
+        added_at: When this track was added to this position (preserved through moves)
+
+    Examples:
+        Playlist [Track A, Track B, Track A]:
+        - Record 1: (id=1, playlist_id=1, track_id=5, sort_key="a00000000", added_at=2024-01-01)
+        - Record 2: (id=2, playlist_id=1, track_id=6, sort_key="a00000001", added_at=2024-01-02)
+        - Record 3: (id=3, playlist_id=1, track_id=5, sort_key="a00000002", added_at=2024-06-15)
+                     ↑ Same track_id as Record 1, but DIFFERENT record with own added_at
+
+        When reordering [A,B,A] → [B,A,A]:
+        - Record 1: sort_key changes "a00000000" → "a00000001" (id=1 preserved!)
+        - Record 2: sort_key changes "a00000001" → "a00000000" (id=2 preserved!)
+        - Record 3: sort_key stays "a00000002" (id=3 preserved!)
+
+    WARNING: Do NOT treat records as "position slots" that can be overwritten.
+    Always update EXISTING records by track_id, only create new records for
+    genuinely new track memberships.
     """
 
     __tablename__ = "playlist_tracks"

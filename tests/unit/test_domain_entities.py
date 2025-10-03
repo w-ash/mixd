@@ -118,8 +118,8 @@ class TestPlaylistEntities:
         artist = Artist(name="Artist")
         tracks = [Track(title="Song", artists=[artist])]
 
-        playlist = Playlist(
-            name="My Playlist", tracks=tracks, description="Test playlist"
+        playlist = Playlist.from_tracklist(
+            name="My Playlist", tracklist=tracks, description="Test playlist"
         )
 
         assert playlist.name == "My Playlist"

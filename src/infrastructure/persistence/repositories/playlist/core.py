@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrack, Playlist, Track
+from src.domain.entities import ConnectorTrack, Playlist, PlaylistEntry, Track
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
     DBPlaylistMapping,
@@ -215,44 +215,43 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     async def _manage_playlist_tracks(
         self,
         playlist_id: int,
-        tracks: list[Track],
+        entries: list[PlaylistEntry],
         operation: str = "create",
     ) -> None:
         """Manage playlist-track associations with bulk database operations.
 
         Handles initial track assignment and subsequent reordering/updates.
-        Preserves external 'added_at' timestamps from service metadata.
+        Preserves 'added_at' timestamps from PlaylistEntry metadata.
 
         Args:
             playlist_id: Target playlist database ID.
-            tracks: Ordered list of tracks for the playlist.
+            entries: Ordered list of playlist entries (track + position metadata).
             operation: Either 'create' for new playlist or 'update' for existing.
         """
-        if not tracks:
+        if not entries:
             return
 
         now = datetime.now(UTC)
 
         if operation == "create":
-            # Bulk insert tracks with sort keys and added_at timestamps from connector data if available
+            # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
             values = []
-            for idx, track in enumerate(tracks):
-                if track.id is None:
+            for idx, entry in enumerate(entries):
+                if entry.track.id is None:
                     continue
 
-                # Get added_at timestamp from connector metadata if available
-                added_at = None
-                for metadata in track.connector_metadata.values():
-                    if metadata.get("added_at"):
-                        try:
-                            added_at = datetime.fromisoformat(metadata["added_at"])
-                            break
-                        except (ValueError, TypeError):
-                            pass
+                # Direct access to added_at from PlaylistEntry - clean architecture!
+                added_at = entry.added_at
+                if added_at:
+                    logger.debug(
+                        "Using added_at from PlaylistEntry for create operation",
+                        track_id=entry.track.id,
+                        added_at=added_at,
+                    )
 
                 values.append({
                     "playlist_id": playlist_id,
-                    "track_id": track.id,
+                    "track_id": entry.track.id,
                     "sort_key": self._generate_sort_key(idx),
                     "added_at": added_at,
                     "created_at": now,
@@ -264,92 +263,108 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 await self.session.flush()
 
         elif operation == "update":
-            # Respect the precise track ordering from the use case layer
-            # The use case layer has calculated exact diffs - we just need to update the ordering
+            # CRITICAL: DBPlaylistTrack records represent "track membership instances"
+            # NOT "position slots". When tracks move, we update the SAME record's sort_key,
+            # preserving its id, added_at, and other metadata.
+            #
+            # Algorithm: Consumption-based matching by track identity
+            # 1. Build pool of available records grouped by track_id
+            # 2. For each target position, consume one record for that track
+            # 3. Reuse record (preserve id, added_at) by updating only sort_key
+            # 4. Delete unconsumed records (removed tracks)
+            # 5. Create new records only for genuinely new memberships
 
-            # Get existing tracks sorted by sort_key (current position order)
+            # Get all existing playlist track records
             stmt = (
                 select(DBPlaylistTrack)
-                .where(
-                    DBPlaylistTrack.playlist_id == playlist_id,
-                )
-                .order_by(DBPlaylistTrack.sort_key)
+                .where(DBPlaylistTrack.playlist_id == playlist_id)
             )
             result = await self.session.scalars(stmt)
-            existing_tracks = list(result.all())
+            existing_records = list(result.all())
 
-            # Step 1: Identify tracks to remove (exist in current but not in target)
-            target_track_ids = {track.id for track in tracks if track.id is not None}
-            existing_track_ids = {pt.track_id for pt in existing_tracks}
+            # Build consumption pool: track_id → list of available records
+            # This allows handling duplicate tracks (same track_id, multiple records)
+            from collections import defaultdict
+            available_records = defaultdict(list)
+            for record in existing_records:
+                available_records[record.track_id].append(record)
 
-            tracks_to_remove_ids = existing_track_ids - target_track_ids
+            logger.debug(
+                f"Playlist update: {len(existing_records)} existing records, "
+                f"{len(available_records)} unique tracks, "
+                f"{len(entries)} target entries"
+            )
 
-            # Step 2: Explicitly remove the identified tracks (hard delete)
-            records_to_remove = [
-                existing_record
-                for existing_record in existing_tracks
-                if existing_record.track_id in tracks_to_remove_ids
-            ]
-
-            # Step 3: Get remaining tracks (after removals) for position mapping
-            remaining_tracks = [
-                pt for pt in existing_tracks if pt.track_id not in tracks_to_remove_ids
-            ]
-
-            # Step 4: Map target tracks to existing position records (preserve metadata)
-            values_to_insert = []
             records_to_update = []
+            records_to_create = []
 
-            for idx, track in enumerate(tracks):
-                if track.id is None:
+            # Consume records for each target position
+            for idx, entry in enumerate(entries):
+                if entry.track.id is None:
+                    logger.warning(f"Skipping entry without track ID at position {idx}")
                     continue
 
                 sort_key = self._generate_sort_key(idx)
 
-                if idx < len(remaining_tracks):
-                    # Update existing record at this position with new track and sort_key
-                    existing_record = remaining_tracks[idx]
-                    existing_record.track_id = track.id
-                    existing_record.sort_key = sort_key
-                    existing_record.updated_at = now
-                    records_to_update.append(existing_record)
+                if available_records[entry.track.id]:
+                    # CONSUME one existing record for this track
+                    # This preserves the record's id and added_at metadata
+                    record = available_records[entry.track.id].pop(0)
+                    record.sort_key = sort_key  # Update position only
+                    record.updated_at = now
+                    records_to_update.append(record)
+
+                    logger.debug(
+                        f"Reusing record {record.id} for track {entry.track.id} at position {idx}"
+                    )
                 else:
-                    # Insert new record for additional tracks
-                    added_at = None
-                    if hasattr(track, "connector_metadata"):
-                        # Get added_at from connector metadata if available
-                        for metadata in track.connector_metadata.values():
-                            if metadata.get("added_at"):
-                                try:
-                                    added_at = datetime.fromisoformat(
-                                        metadata["added_at"]
-                                    )
-                                    break
-                                except (ValueError, TypeError):
-                                    pass
+                    # No existing record for this track - create new membership instance
+                    # Direct access to added_at from PlaylistEntry - clean architecture!
+                    added_at = entry.added_at
+                    if added_at:
+                        logger.debug(
+                            "Using added_at from PlaylistEntry for new record",
+                            track_id=entry.track.id,
+                            added_at=added_at,
+                        )
 
-                    values_to_insert.append({
-                        "playlist_id": playlist_id,
-                        "track_id": track.id,
-                        "sort_key": sort_key,
-                        "added_at": added_at,
-                        "created_at": now,
-                        "updated_at": now,
-                    })
+                    records_to_create.append(
+                        DBPlaylistTrack(
+                            playlist_id=playlist_id,
+                            track_id=entry.track.id,
+                            sort_key=sort_key,
+                            added_at=added_at,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
 
-            # Commit all changes while preserving metadata
+                    logger.debug(
+                        f"Creating new record for track {entry.track.id} at position {idx}"
+                    )
 
+            # Collect unconsumed records (tracks removed from playlist)
+            records_to_delete = []
+            for track_id, remaining_records in available_records.items():
+                for record in remaining_records:
+                    records_to_delete.append(record)
+                    logger.debug(
+                        f"Deleting unconsumed record {record.id} for track {track_id}"
+                    )
+
+            # Execute database operations
             if records_to_update:
                 self.session.add_all(records_to_update)
+                logger.debug(f"Updating {len(records_to_update)} existing records")
 
-            if records_to_remove:
-                for record in records_to_remove:
+            if records_to_create:
+                self.session.add_all(records_to_create)
+                logger.debug(f"Creating {len(records_to_create)} new records")
+
+            if records_to_delete:
+                for record in records_to_delete:
                     await self.session.delete(record)
-
-            if values_to_insert:
-                await self.session.execute(
-                    insert(DBPlaylistTrack).values(values_to_insert)
-                )
+                logger.debug(f"Deleting {len(records_to_delete)} removed records")
 
             await self.session.flush()
 
@@ -606,10 +621,22 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
         # Save tracks first with source connector for proper mappings
+        # Extract tracks from entries for persistence
+        tracks_to_save = [entry.track for entry in playlist.entries]
         updated_tracks = await self._save_new_tracks(
-            playlist.tracks,
+            tracks_to_save,
             connector=source_connector,
         )
+
+        # Rebuild entries with persisted tracks (preserving added_at metadata)
+        updated_entries = [
+            PlaylistEntry(
+                track=updated_tracks[idx],
+                added_at=playlist.entries[idx].added_at,
+                added_by=playlist.entries[idx].added_by,
+            )
+            for idx in range(len(playlist.entries))
+        ]
 
         # Create the playlist DB entity
         db_playlist = self.mapper.to_db(playlist)
@@ -621,7 +648,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         if db_playlist.id is None:
             raise ValueError("Failed to create playlist: no ID was generated")
 
-        # Add mappings and tracks with batch operations
+        # Add mappings and entries with batch operations
         await self._manage_connector_mappings(
             db_playlist.id,
             playlist.connector_playlist_identifiers,
@@ -629,7 +656,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
         await self._manage_playlist_tracks(
             db_playlist.id,
-            updated_tracks,
+            updated_entries,
             operation="create",
         )
 
@@ -670,7 +697,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """Execute playlist update with track reordering and mapping sync."""
         # Count actual tracks that will be inserted (not input count)
         actual_track_count = len([
-            track for track in playlist.tracks if track.id is not None
+            entry.track for entry in playlist.entries if entry.track.id is not None
         ])
 
         # Update basic properties using base repository's update method
@@ -695,15 +722,28 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             playlist.connector_playlist_identifiers
         )
 
-        # Process tracks and mappings in parallel
-        if playlist.tracks:
+        # Process entries and mappings
+        if playlist.entries:
+            # Extract tracks from entries for persistence
+            tracks_to_save = [entry.track for entry in playlist.entries]
             updated_tracks = await self._save_new_tracks(
-                playlist.tracks,
+                tracks_to_save,
                 connector=source_connector,
             )
+
+            # Rebuild entries with persisted tracks (preserving added_at metadata)
+            updated_entries = [
+                PlaylistEntry(
+                    track=updated_tracks[idx],
+                    added_at=playlist.entries[idx].added_at,
+                    added_by=playlist.entries[idx].added_by,
+                )
+                for idx in range(len(playlist.entries))
+            ]
+
             await self._manage_playlist_tracks(
                 playlist_id,
-                updated_tracks,
+                updated_entries,
                 operation="update",
             )
 

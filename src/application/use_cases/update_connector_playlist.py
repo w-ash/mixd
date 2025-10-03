@@ -866,7 +866,7 @@ class UpdateConnectorPlaylistUseCase:
             description=connector_playlist_info.get(
                 "description", f"Imported from {connector.title()}"
             ),
-            tracks=[],  # Will be populated separately if needed
+            entries=[],  # Will be populated separately if needed
             connector_playlist_identifiers={connector: connector_playlist_id},
             metadata={
                 "created_from_connector": connector,

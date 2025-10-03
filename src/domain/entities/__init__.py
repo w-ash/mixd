@@ -19,7 +19,7 @@ from .playlist import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     Playlist,
-    PlaylistTrack,
+    PlaylistEntry,
 )
 
 # Shared utilities
@@ -47,7 +47,7 @@ __all__ = [
     "OperationResult",
     "PlayRecord",
     "Playlist",
-    "PlaylistTrack",
+    "PlaylistEntry",
     "SyncCheckpoint",
     "SyncCheckpointStatus",
     "Track",

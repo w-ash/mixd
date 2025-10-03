@@ -161,10 +161,11 @@ class CreateConnectorPlaylistUseCase:
                 result_playlist = internal_playlist
             else:
                 # Create minimal playlist entity for result (not persisted)
-                result_playlist = Playlist(
+                result_playlist = Playlist.from_tracklist(
                     name=command.playlist_name,
+                    tracklist=command.tracklist,
+                    added_at=datetime.now(UTC),
                     description=command.playlist_description,
-                    tracks=command.tracklist.tracks,
                     connector_playlist_identifiers={
                         command.connector: external_result["playlist_id"]
                     },
@@ -338,10 +339,15 @@ class CreateConnectorPlaylistUseCase:
                         persisted_tracks.append(track)
 
                 # Step 2: Create internal playlist with connector mapping
-                playlist = Playlist(
+                # Convert persisted tracks to TrackList then to Playlist with entries
+                from src.domain.entities.track import TrackList
+
+                tracklist = TrackList(tracks=persisted_tracks)
+                playlist = Playlist.from_tracklist(
                     name=command.playlist_name,
+                    tracklist=tracklist,
+                    added_at=datetime.now(UTC),
                     description=command.playlist_description,
-                    tracks=persisted_tracks,
                     connector_playlist_identifiers={
                         command.connector: external_playlist_id
                     },

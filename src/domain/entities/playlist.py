@@ -6,9 +6,30 @@ Pure playlist representations and related value objects with zero external depen
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import define, field, validators
+from attrs import define, evolve, field, validators
 
-from .track import Track
+from .track import Track, TrackList
+
+
+@define(frozen=True, slots=True)
+class PlaylistEntry:
+    """A track's membership in a playlist with position-specific metadata.
+
+    Represents the relationship between a Track and a Playlist, capturing
+    when and by whom the track was added. Enables temporal analytics and
+    position-aware operations.
+
+    Domain Semantics:
+    - Track = song identity (immutable attributes like title, artist)
+    - PlaylistEntry = membership instance (relationship metadata)
+
+    The same Track can appear multiple times with different PlaylistEntry
+    instances, each with independent added_at timestamps and positions.
+    """
+
+    track: Track
+    added_at: datetime | None = None  # When added to THIS playlist
+    added_by: str | None = None  # Who added it (user ID or service)
 
 
 @define(frozen=True, slots=True)
@@ -29,19 +50,20 @@ class ConnectorPlaylistItem:
 
 @define(frozen=True, slots=True)
 class Playlist:
-    """Playlists are persistent entities with DB/API identity and metadata.
+    """Persistent playlist entity with position-aware track memberships.
 
-    Playlists are a representation of a user-facing list of tracks to be played,
-    stored sources or destinations for track collections. Unlike TrackLists, Playlists
-    are persisted entities that can be shared, stored, and retrieved.
+    Playlists are persistent entities that maintain track ordering along with
+    position-specific metadata (when added, by whom). Unlike TrackLists which
+    are ephemeral processing artifacts, Playlists represent stored, user-facing
+    collections with full temporal history.
 
-    Playlists maintain track ordering while supporting additional metadata and
-    cross-connector playlist identifiers for resolution across
-    different music services.
+    Key Distinction:
+    - TrackList: Ephemeral, workflow processing (just tracks)
+    - Playlist: Persistent, database entity (entries with metadata)
     """
 
     name: str = field(validator=validators.instance_of(str))
-    tracks: list[Track] = field(factory=list)
+    entries: list[PlaylistEntry] = field(factory=list)
     description: str | None = field(default=None)
     # The internal database ID - source of truth for our system
     id: int | None = field(default=None)
@@ -50,16 +72,74 @@ class Playlist:
     # Additional metadata for playlist management (snapshot IDs, sync state, etc.)
     metadata: dict[str, Any] = field(factory=dict)
 
-    def with_tracks(self, tracks: list[Track]) -> "Playlist":
-        """Create a new playlist with the given tracks."""
-        return self.__class__(
-            name=self.name,
-            tracks=tracks,
-            description=self.description,
-            id=self.id,
-            connector_playlist_identifiers=self.connector_playlist_identifiers.copy(),
-            metadata=self.metadata.copy(),
+    @property
+    def tracks(self) -> list[Track]:
+        """Extract tracks without position metadata (convenience property)."""
+        return [entry.track for entry in self.entries]
+
+    def to_tracklist(self) -> TrackList:
+        """Convert to TrackList for workflow processing.
+
+        Strips position metadata, returning just the tracks for use in
+        transformation pipelines.
+        """
+        return TrackList(tracks=self.tracks)
+
+    @classmethod
+    def from_tracklist(
+        cls,
+        name: str,
+        tracklist: TrackList | list[Track],
+        added_at: datetime | None = None,
+        description: str | None = None,
+        connector_playlist_identifiers: dict[str, str] | None = None,
+    ) -> "Playlist":
+        """Create Playlist from TrackList or list of Tracks with uniform added_at timestamp.
+
+        Args:
+            name: Playlist name
+            tracklist: TrackList or list[Track] to convert
+            added_at: Timestamp for all entries (defaults to now)
+            description: Optional playlist description
+            connector_playlist_identifiers: Optional connector IDs (spotify, apple_music, etc)
+
+        Returns:
+            New Playlist with entries
+        """
+        # Handle both TrackList and list[Track] for convenience
+        if isinstance(tracklist, list):
+            from src.domain.entities.track import TrackList as TL
+            tracklist = TL(tracks=tracklist)
+
+        added_at = added_at or datetime.now(UTC)
+        return cls(
+            name=name,
+            entries=[
+                PlaylistEntry(track=t, added_at=added_at) for t in tracklist.tracks
+            ],
+            description=description,
+            connector_playlist_identifiers=connector_playlist_identifiers or {},
         )
+
+    def with_entries(self, entries: list[PlaylistEntry]) -> "Playlist":
+        """Create new playlist with updated entries."""
+        return evolve(self, entries=entries)
+
+    def sort_by_added_at(self, reverse: bool = False) -> "Playlist":
+        """Sort playlist entries by when tracks were added.
+
+        Args:
+            reverse: If True, newest first. If False, oldest first.
+
+        Returns:
+            New Playlist with sorted entries
+        """
+        sorted_entries = sorted(
+            self.entries,
+            key=lambda e: e.added_at or datetime.min,
+            reverse=reverse,
+        )
+        return self.with_entries(sorted_entries)
 
     def with_connector_playlist_id(
         self,
@@ -78,17 +158,9 @@ class Playlist:
                 f"Cannot use '{connector}' as connector name - use the id field instead",
             )
 
-        new_ids = self.connector_playlist_identifiers.copy()
-        new_ids[connector] = external_id
-
-        return self.__class__(
-            name=self.name,
-            tracks=self.tracks,
-            description=self.description,
-            id=self.id,
-            connector_playlist_identifiers=new_ids,
-            metadata=self.metadata.copy(),
-        )
+        # Python 3.13+ dict merge operator
+        new_ids = self.connector_playlist_identifiers | {connector: external_id}
+        return evolve(self, connector_playlist_identifiers=new_ids)
 
     def with_id(self, db_id: int) -> "Playlist":
         """Set the internal database ID for this playlist.
@@ -100,14 +172,7 @@ class Playlist:
                 f"Invalid database ID: {db_id}. Must be a positive integer.",
             )
 
-        return self.__class__(
-            name=self.name,
-            tracks=self.tracks,
-            description=self.description,
-            id=db_id,
-            connector_playlist_identifiers=self.connector_playlist_identifiers.copy(),
-            metadata=self.metadata.copy(),
-        )
+        return evolve(self, id=db_id)
 
 
 @define(frozen=True, slots=True)
@@ -136,12 +201,3 @@ class ConnectorPlaylist:
         return [item.connector_track_identifier for item in self.items]
 
 
-@define(frozen=True, slots=True)
-class PlaylistTrack:
-    """Playlist track ordering and metadata."""
-
-    playlist_id: int
-    track_id: int
-    sort_key: str
-    added_at: datetime | None = None
-    id: int | None = None

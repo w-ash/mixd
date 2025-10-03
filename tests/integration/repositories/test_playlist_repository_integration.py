@@ -40,12 +40,19 @@ class TestPlaylistRepositoryIntegration:
         test_data_tracker.add_track(saved_track2.id)
 
         # Create test playlist with unique name
-        test_playlist = Playlist(
-            id=None,
+        test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_{uuid4()}",
+            tracklist=[saved_track1, saved_track2],
             description="Test playlist for integration testing",
-            tracks=[saved_track1, saved_track2],
-            connector_playlist_identifiers={"spotify": f"spotify_{uuid4()}"},
+        )
+        # Add connector identifier separately
+        spotify_id = f"spotify_{uuid4()}"
+        test_playlist = Playlist(
+            id=test_playlist.id,
+            name=test_playlist.name,
+            description=test_playlist.description,
+            entries=test_playlist.entries,
+            connector_playlist_identifiers={"spotify": spotify_id},
         )
 
         # Save playlist
@@ -70,10 +77,14 @@ class TestPlaylistRepositoryIntegration:
         playlist_repo = uow.get_playlist_repository()
 
         # Create minimal test playlist
-        test_playlist = Playlist(
-            id=None,
+        test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Delete_{uuid4()}",
-            tracks=[],
+            tracklist=[],
+        )
+        test_playlist = Playlist(
+            id=test_playlist.id,
+            name=test_playlist.name,
+            entries=test_playlist.entries,
             connector_playlist_identifiers={},
         )
 
@@ -104,10 +115,14 @@ class TestPlaylistRepositoryIntegration:
         playlist_repo = uow.get_playlist_repository()
 
         # Create playlist with multiple connector identifiers
-        test_playlist = Playlist(
-            id=None,
+        test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Connectors_{uuid4()}",
-            tracks=[],
+            tracklist=[],
+        )
+        test_playlist = Playlist(
+            id=test_playlist.id,
+            name=test_playlist.name,
+            entries=test_playlist.entries,
             connector_playlist_identifiers={
                 "spotify": f"spotify_{uuid4()}",
                 "lastfm": f"lastfm_{uuid4()}",
@@ -156,10 +171,14 @@ class TestPlaylistRepositoryIntegration:
             test_data_tracker.add_track(saved_track.id)
 
         # Create playlist with initial tracks
-        initial_playlist = Playlist(
-            id=None,
+        initial_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Management_{uuid4()}",
-            tracks=tracks[:2],  # Start with first 2 tracks
+            tracklist=tracks[:2],  # Start with first 2 tracks
+        )
+        initial_playlist = Playlist(
+            id=initial_playlist.id,
+            name=initial_playlist.name,
+            entries=initial_playlist.entries,
             connector_playlist_identifiers={},
         )
 
@@ -170,10 +189,14 @@ class TestPlaylistRepositoryIntegration:
         assert len(saved_playlist.tracks) == 2
 
         # Test updating with more tracks (repository behavior may vary)
+        temp = Playlist.from_tracklist(
+            name=saved_playlist.name,
+            tracklist=tracks,  # All 4 tracks now
+        )
         updated_playlist = Playlist(
             id=saved_playlist.id,
-            name=saved_playlist.name,
-            tracks=tracks,  # All 4 tracks now
+            name=temp.name,
+            entries=temp.entries,
             connector_playlist_identifiers=saved_playlist.connector_playlist_identifiers,
         )
 
@@ -209,10 +232,14 @@ class TestPlaylistRepositoryIntegration:
         assert delete_result is False
 
         # Test playlist with empty name (should be handled gracefully)
-        empty_name_playlist = Playlist(
-            id=None,
+        empty_name_playlist = Playlist.from_tracklist(
             name="",  # Empty name
-            tracks=[],
+            tracklist=[],
+        )
+        empty_name_playlist = Playlist(
+            id=empty_name_playlist.id,
+            name=empty_name_playlist.name,
+            entries=empty_name_playlist.entries,
             connector_playlist_identifiers={},
         )
 
@@ -234,10 +261,14 @@ class TestPlaylistRepositoryIntegration:
         playlist_repo = uow.get_playlist_repository()
 
         # Create playlist with multiple connector mappings at once (simpler approach)
-        test_playlist = Playlist(
-            id=None,
+        test_playlist = Playlist.from_tracklist(
             name=f"TEST_Playlist_Connectors_{uuid4()}",
-            tracks=[],
+            tracklist=[],
+        )
+        test_playlist = Playlist(
+            id=test_playlist.id,
+            name=test_playlist.name,
+            entries=test_playlist.entries,
             connector_playlist_identifiers={
                 "spotify": f"spotify_{uuid4()}",
                 "lastfm": f"lastfm_{uuid4()}",
@@ -283,10 +314,14 @@ class TestPlaylistRepositoryIntegration:
         test_data_tracker.add_track(saved_track.id)
 
         # Create playlist with the same track multiple times
-        playlist_with_duplicates = Playlist(
-            id=None,
+        playlist_with_duplicates = Playlist.from_tracklist(
             name=f"TEST_Playlist_Duplicates_{uuid4()}",
-            tracks=[saved_track, saved_track, saved_track],  # Same track 3 times
+            tracklist=[saved_track, saved_track, saved_track],  # Same track 3 times
+        )
+        playlist_with_duplicates = Playlist(
+            id=playlist_with_duplicates.id,
+            name=playlist_with_duplicates.name,
+            entries=playlist_with_duplicates.entries,
             connector_playlist_identifiers={},
         )
 

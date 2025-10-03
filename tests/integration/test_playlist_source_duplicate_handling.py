@@ -163,7 +163,7 @@ class TestPlaylistSourceDuplicateHandling:
                 assert result.playlist.name == "Test Integration Playlist"
 
                 # Verify: Integration test confirms end-to-end duplicate handling through real services
-                assert result.tracks_created == 3, "Should report all tracks created"
+                assert result.tracks_created == 2, "Should report unique tracks created (2 unique tracks, 3 entries)"
                 assert result.playlist.id is not None, (
                     "Playlist should be persisted with ID"
                 )

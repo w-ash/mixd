@@ -1,24 +1,31 @@
-"""ConnectorPlaylist processing service for converting external playlist data to domain tracks.
+"""ConnectorPlaylist processing service for converting external playlist data to domain Playlist.
 
-Provides shared functionality for processing ConnectorPlaylist metadata into TrackList
-with actual Track entities, handling bulk operations, duplicate preservation, and
-performance optimization across create and update use cases.
+Provides shared functionality for processing ConnectorPlaylist metadata into Playlist
+with PlaylistEntry objects (tracks + position metadata), handling bulk operations,
+duplicate preservation, and performance optimization across create and update use cases.
 """
 
+from datetime import datetime
+
 from src.config import get_logger, settings
-from src.domain.entities.track import TrackList
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
 class ConnectorPlaylistProcessingService:
-    """Service for processing ConnectorPlaylist data into domain tracks.
+    """Service for processing ConnectorPlaylist data into domain Playlist.
 
     Handles the conversion of ConnectorPlaylist metadata (with external track IDs
-    and rich playlist metadata) into a TrackList containing actual Track entities
+    and position-specific data) into a Playlist containing PlaylistEntry objects
     from the database. Optimizes performance by only processing unique tracks
-    while preserving duplicate positions and rich metadata.
+    while preserving duplicate positions and position-specific metadata.
+
+    CLEAN ARCHITECTURE - PlaylistEntry Pattern:
+    Creates PlaylistEntry objects that properly encapsulate track + position metadata
+    (added_at, added_by). PlaylistEntry enables clean separation: Track = song identity,
+    PlaylistEntry = membership.
 
     This service maintains DRY principles by providing shared functionality
     for both CreateCanonicalPlaylistUseCase and UpdateCanonicalPlaylistUseCase.
@@ -26,19 +33,19 @@ class ConnectorPlaylistProcessingService:
 
     async def process_connector_playlist(
         self, connector_playlist, uow: UnitOfWorkProtocol
-    ) -> TrackList:
-        """Process ConnectorPlaylist data to create tracks with preserved duplicates.
+    ) -> Playlist:
+        """Process ConnectorPlaylist data to create Playlist with entries.
 
         Extracts ConnectorPlaylist metadata, processes unique tracks for persistence,
-        then creates a TrackList preserving all playlist positions including
-        duplicates with their rich metadata.
+        then creates a Playlist with PlaylistEntry objects preserving all playlist
+        positions including duplicates with their position-specific metadata.
 
         Args:
             connector_playlist: ConnectorPlaylist entity with items and metadata
             uow: Database transaction manager and repository access
 
         Returns:
-            TrackList with persisted tracks preserving duplicate positions
+            Playlist with PlaylistEntry objects (track + position metadata)
 
         Raises:
             ValueError: If connector_playlist is invalid or missing required data
@@ -51,8 +58,10 @@ class ConnectorPlaylistProcessingService:
 
         if not playlist_items:
             logger.warning(f"Empty ConnectorPlaylist from {connector_name}")
-            return TrackList(
-                tracks=[],
+            return Playlist(
+                name=connector_playlist.name,
+                entries=[],
+                description=connector_playlist.description,
                 metadata={
                     "connector_playlist_processed": True,
                     "original_item_count": 0,
@@ -206,8 +215,10 @@ class ConnectorPlaylistProcessingService:
             created=len(new_connector_tracks),
         )
 
-        # Step 4: Create tracks for each playlist position, preserving duplicates
-        playlist_tracks = []
+        # Step 4: Create PlaylistEntry for each position, preserving duplicates and metadata
+        # CLEAN ARCHITECTURE: PlaylistEntry properly models "track membership in playlist"
+        # by combining track identity with position-specific metadata (added_at, added_by).
+        playlist_entries = []
         missing_tracks = []
 
         for position, playlist_item in enumerate(playlist_items):
@@ -215,7 +226,25 @@ class ConnectorPlaylistProcessingService:
                 domain_track = track_id_to_domain_track[
                     playlist_item.connector_track_identifier
                 ]
-                playlist_tracks.append(domain_track)
+
+                # Parse added_at timestamp (ISO format from Spotify)
+                added_at = None
+                if playlist_item.added_at:
+                    try:
+                        added_at = datetime.fromisoformat(playlist_item.added_at)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(
+                            f"Invalid added_at timestamp for position {position}: {playlist_item.added_at}",
+                            error=str(e),
+                        )
+
+                # Create PlaylistEntry with track + position metadata
+                entry = PlaylistEntry(
+                    track=domain_track,
+                    added_at=added_at,
+                    added_by=playlist_item.added_by_id,
+                )
+                playlist_entries.append(entry)
             else:
                 missing_tracks.append((
                     position,
@@ -235,19 +264,24 @@ class ConnectorPlaylistProcessingService:
             )
 
         logger.info(
-            f"Created playlist structure: {len(playlist_tracks)} tracks preserved",
+            f"Created playlist structure: {len(playlist_entries)} entries preserved",
             original_count=len(playlist_items),
-            preserved_count=len(playlist_tracks),
-            duplicates_preserved=len(playlist_tracks) - len(track_id_to_domain_track),
+            preserved_count=len(playlist_entries),
+            duplicates_preserved=len(playlist_entries) - len(track_id_to_domain_track),
         )
 
-        # Return TrackList with preserved playlist structure
-        return TrackList(
-            tracks=playlist_tracks,
+        # Return Playlist with PlaylistEntry objects (track + position metadata)
+        return Playlist(
+            name=connector_playlist.name,
+            entries=playlist_entries,
+            description=connector_playlist.description,
+            connector_playlist_identifiers={
+                connector_name: connector_playlist.connector_playlist_identifier
+            },
             metadata={
                 "connector_playlist_processed": True,
                 "original_item_count": len(playlist_items),
-                "preserved_track_count": len(playlist_tracks),
+                "preserved_entry_count": len(playlist_entries),
                 "unique_tracks": len(track_id_to_domain_track),
             },
         )

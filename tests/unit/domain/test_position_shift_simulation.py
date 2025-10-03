@@ -111,7 +111,7 @@ class TestPositionShiftSimulation:
     def test_complex_reordering_scenario(self, api_strategy, sample_tracks):
         """Test complex reordering with many move operations."""
         # Create a scenario with many moves that could cause index conflicts
-        current_playlist = Playlist(name="Test", tracks=sample_tracks.copy())
+        current_playlist = Playlist.from_tracklist(name="Test", tracklist=sample_tracks.copy())
 
         # Completely reverse the playlist
         target_tracks = list(reversed(sample_tracks))
@@ -211,7 +211,7 @@ class TestPositionShiftSimulation:
 
     def test_execution_plan_metadata(self, api_strategy, sample_tracks):
         """Test that execution plan includes position shift metadata."""
-        current_playlist = Playlist(name="Test", tracks=sample_tracks.copy())
+        current_playlist = Playlist.from_tracklist(name="Test", tracklist=sample_tracks.copy())
         target_tracklist = TrackList(
             tracks=sample_tracks[2:] + sample_tracks[:2]
         )  # Reorder
@@ -234,7 +234,7 @@ class TestPositionShiftSimulation:
             for i in range(100)
         ]
 
-        current_playlist = Playlist(name="Large Test", tracks=tracks)
+        current_playlist = Playlist.from_tracklist(name="Large Test", tracklist=tracks)
         target_tracks = list(reversed(tracks))  # Reverse order - worst case
         target_tracklist = TrackList(tracks=target_tracks)
 

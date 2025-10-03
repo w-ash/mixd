@@ -73,12 +73,11 @@ class TestAsyncioToThreadDiagnosis:
         overlaps = 0
         for i, r1 in enumerate(results):
             for j, r2 in enumerate(results):
-                if i != j:
-                    if (
-                        r1["start_time"] < r2["end_time"]
-                        and r1["end_time"] > r2["start_time"]
-                    ):
-                        overlaps += 1
+                if i != j and (
+                    r1["start_time"] < r2["end_time"]
+                    and r1["end_time"] > r2["start_time"]
+                ):
+                    overlaps += 1
 
         concurrent_calls = overlaps // 2 + 1 if overlaps > 0 else 1
 

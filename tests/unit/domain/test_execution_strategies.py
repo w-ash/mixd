@@ -30,9 +30,9 @@ def sample_tracks():
 @pytest.fixture
 def sample_playlist(sample_tracks):
     """Create a sample playlist."""
-    return Playlist(
+    return Playlist.from_tracklist(
         name="Test Playlist",
-        tracks=sample_tracks,
+        tracklist=sample_tracks,
     )
 
 
@@ -46,9 +46,9 @@ def reordered_playlist(sample_tracks):
         sample_tracks[4],
         sample_tracks[3],
     ]
-    return Playlist(
+    return Playlist.from_tracklist(
         name="Test Playlist",
-        tracks=reordered_tracks,
+        tracklist=reordered_tracks,
     )
 
 

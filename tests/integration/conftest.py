@@ -457,11 +457,10 @@ async def test_playlist(
     # Create test playlist (implementation depends on your playlist entity)
     from src.domain.entities.playlist import Playlist
 
-    test_playlist = Playlist(
-        id=None,
+    test_playlist = Playlist.from_tracklist(
         name=f"TEST_Playlist_{unique_id}",
+        tracklist=[],
         description=f"TEST_Description_{unique_id}",
-        tracks=[],
     )
 
     # Save to database (assuming your playlist repo has a save method)

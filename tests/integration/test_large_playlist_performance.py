@@ -37,7 +37,7 @@ class TestLargePlaylistPerformance:
             )
             for i in range(5000)
         ]
-        return Playlist(name="5K Test Playlist", tracks=tracks)
+        return Playlist.from_tracklist(name="5K Test Playlist", tracklist=tracks)
 
     @pytest.fixture
     def large_playlist_10k(self):
@@ -48,7 +48,7 @@ class TestLargePlaylistPerformance:
             )
             for i in range(10000)
         ]
-        return Playlist(name="10K Test Playlist", tracks=tracks)
+        return Playlist.from_tracklist(name="10K Test Playlist", tracklist=tracks)
 
     @pytest.mark.asyncio
     async def test_5k_playlist_idempotency_performance(
@@ -223,7 +223,7 @@ class TestLargePlaylistPerformance:
         for _ in range(50):
             tracks.extend(base_tracks)
 
-        playlist = Playlist(name="Duplicate Heavy", tracks=tracks)
+        playlist = Playlist.from_tracklist(name="Duplicate Heavy", tracklist=tracks)
 
         # Reverse the entire playlist
         target_tracks = list(reversed(tracks))

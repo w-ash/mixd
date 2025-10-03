@@ -13,6 +13,7 @@ from src.domain.entities import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     Playlist,
+    PlaylistEntry,
     Track,
     ensure_utc,
 )
@@ -51,8 +52,8 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         if not db_model:
             return None
 
-        # Process tracks - consistently use awaitable_attrs pattern for async safety
-        domain_tracks = []
+        # Process playlist entries - build PlaylistEntry with track + position metadata
+        playlist_entries = []
 
         # Get playlist tracks using safe fetch relationship (always returns a list)
         playlist_tracks = await safe_fetch_relationship(db_model, "tracks")
@@ -63,7 +64,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             key=lambda pt: pt.sort_key if hasattr(pt, "sort_key") else 0,
         )
 
-        # Process each playlist track
+        # Process each playlist track to build PlaylistEntry
         for pt in active_tracks:
             # Get track consistently - safe_fetch_relationship always returns a list
             tracks = await safe_fetch_relationship(pt, "track")
@@ -136,7 +137,18 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
                 isrc=getattr(track, "isrc", None),
                 connector_track_identifiers=connector_track_identifiers,
             )
-            domain_tracks.append(domain_track)
+
+            # Extract position metadata from DBPlaylistTrack
+            # NOTE: Only added_at is stored in DB. added_by would require schema changes.
+            added_at = getattr(pt, "added_at", None)
+
+            # Create PlaylistEntry with track + position metadata
+            playlist_entry = PlaylistEntry(
+                track=domain_track,
+                added_at=added_at,
+                added_by=None,  # Not stored in DB currently
+            )
+            playlist_entries.append(playlist_entry)
 
         # Get playlist mappings using safe fetch relationship (always returns a list)
         playlist_mappings = await safe_fetch_relationship(db_model, "mappings")
@@ -164,7 +176,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             id=db_model.id,
             name=db_model.name,
             description=db_model.description,
-            tracks=domain_tracks,
+            entries=playlist_entries,
             connector_playlist_identifiers=connector_playlist_identifiers,
         )
 

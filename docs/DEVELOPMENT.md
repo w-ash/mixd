@@ -17,14 +17,14 @@ See `CLAUDE.md` for complete reference:
 ```bash
 # Testing
 poetry run pytest                               # All tests
-poetry run pytest tests/domain/                 # Fast domain tests
-poetry run pytest tests/integration/           # Database integration tests
+poetry run pytest tests/unit/domain/            # Fast domain tests
+poetry run pytest tests/integration/            # Database integration tests
 poetry run pytest --cov=narada --cov-report=html # Coverage
 
 # Quality
-ruff check . --fix --unsafe-fixes              # Modern Python 3.13+ linting
-ruff format .                                   # Format
-poetry run basedpyright src/                   # Type check
+poetry run ruff check . --fix --unsafe-fixes    # Modern Python 3.13+ linting
+poetry run ruff format .                        # Format
+poetry run basedpyright src/                    # Type check
 
 # Database
 poetry run alembic revision --autogenerate     # Generate migration
@@ -38,20 +38,23 @@ poetry run alembic upgrade head                # Apply migrations
 
 ```
 src/
-├── domain/                   # Pure business logic (zero dependencies)
-│   ├── entities/            # DDD aggregates (Track, Playlist)
-│   └── repositories/        # Abstract repository protocols
+├── config/                  # Settings, logging, constants
 │
-├── application/             # Use cases and orchestration
-│   ├── services/           # Application services  
-│   └── use_cases/          # DDD use cases
+├── domain/                  # Pure business logic (zero dependencies)
+│   ├── entities/           # DDD aggregates (Track, Playlist)
+│   └── repositories/       # Abstract repository protocols
 │
-├── infrastructure/         # External adapters
-│   ├── connectors/        # External service adapters
-│   └── persistence/       # Database adapters
+├── application/            # Use cases and orchestration
+│   ├── services/          # Application services
+│   └── use_cases/         # DDD use cases
 │
-└── interface/             # Primary adapters
-    └── cli/              # CLI entry points
+├── infrastructure/        # External adapters
+│   ├── connectors/       # External service adapters
+│   └── persistence/      # Database adapters
+│
+└── interface/            # Primary adapters
+    ├── cli/             # CLI entry points
+    └── shared/          # Shared UI utilities
 ```
 
 ### Key Files
@@ -96,20 +99,26 @@ async with get_unit_of_work() as uow:
 tests/
 ├── conftest.py                    # Root fixtures: db_session, test_data_tracker
 ├── unit/                          # Fast, isolated tests (<100ms)
-│   ├── domain/                   # Pure business logic, zero dependencies
+│   ├── domain/                   # Pure business logic tests
 │   ├── application/              # Use cases with mocked repositories
-│   └── infrastructure/           # Connector logic with mocks
-├── integration/                  # Real database, external services  
+│   ├── infrastructure/           # Connector logic with mocks
+│   ├── config/                   # Config layer tests
+│   └── interface/                # CLI command tests
+├── integration/                  # Real database, external services
+│   ├── connectors/              # External service integration tests
 │   ├── repositories/            # Database integration tests
-│   └── workflows/               # Multi-component integration
-└── fixtures/                     # Shared test data and utilities
+│   ├── use_cases/               # End-to-end use case tests
+│   └── workflows/               # Workflow execution tests
+├── fixtures/                     # Shared test data models
+├── diagnostics/                  # Diagnostic and investigation tests
+└── data/                        # Test data files
 ```
 
 ### Fixture Organization
 - **Root** (`tests/conftest.py`) - `db_session`, `test_data_tracker` with automatic cleanup
 - **Unit** (`tests/unit/*/conftest.py`) - Mocked repositories and services by layer
 - **Integration** (`tests/integration/conftest.py`) - Real database fixtures with cleanup
-- **Shared** (`tests/fixtures/`) - Cross-layer reusable test utilities
+- **Shared** (`tests/fixtures/`) - Test data models and factory functions
 
 ### Performance Tests
 Performance tests are **excluded from regular runs** to keep test execution fast:
@@ -161,22 +170,20 @@ def test_import_command(cli_runner):
     assert "✓ Spotify likes import completed" in result.output
 ```
 
-### DRY Test Builders
-Use `tests/shared/builders.py` for consistent test data:
+### Test Data Fixtures
+Use `tests/fixtures/models.py` for test data creation:
 ```python
-class TrackBuilder:
-    def with_title(self, title: str) -> "TrackBuilder": ...
-    def with_spotify_id(self, spotify_id: str) -> "TrackBuilder": ...
-    def build(self) -> Track: ...
+from tests.fixtures.models import create_test_track, create_test_playlist
 
-# Usage
-track = TrackBuilder().with_title("Test").with_spotify_id("123").build()
+# Create test data with sensible defaults
+track = create_test_track(title="Test", spotify_id="123")
+playlist = create_test_playlist(name="Test Playlist")
 ```
 
 ### Test Commands
 ```bash
-# Fast development feedback  
-poetry run pytest tests/domain/ -x              # Pure business logic (fastest)
+# Fast development feedback
+poetry run pytest tests/unit/domain/ -x         # Pure business logic (fastest)
 poetry run pytest tests/integration/ --maxfail=3  # Database integration
 poetry run pytest --lf                          # Run last failed tests only
 
@@ -221,14 +228,15 @@ class NewFeatureUseCase:
 
 ### Workflow Node
 ```python
-# src/application/workflows/transforms.py
-async def new_transform(tracklist: TrackList) -> TrackList:
-    # Transform logic
+# Create transform in domain/transforms/ or application/transforms/
+# Register in application/workflows/node_catalog.py
 
-# src/application/workflows/node_catalog.py
-@node("transformer.new_transform")
-async def handle_new_transform(tracklist: TrackList, config: dict) -> TrackList:
-    return await new_transform(tracklist, **config)
+from src.application.workflows.node_catalog import node
+
+@node("sorter.custom_sort", category="sorter")
+async def custom_sort_node(tracklist: TrackList, config: dict) -> TrackList:
+    # Your sorting logic
+    return sorted_tracklist
 ```
 
 ### External Service Connector

@@ -13,6 +13,7 @@ All playlist operations follow functional programming principles:
 
 from collections.abc import Callable
 
+from attrs import evolve
 from toolz import curry
 
 from src.domain.entities.playlist import Playlist
@@ -113,13 +114,7 @@ def rename(
     """
 
     def transform(p: Playlist) -> Playlist:
-        return Playlist(
-            name=new_name,
-            tracks=p.tracks,
-            description=p.description,
-            id=p.id,
-            connector_playlist_identifiers=p.connector_playlist_identifiers.copy(),
-        )
+        return evolve(p, name=new_name)
 
     return transform(playlist) if playlist is not None else transform
 
@@ -141,12 +136,6 @@ def set_description(
     """
 
     def transform(p: Playlist) -> Playlist:
-        return Playlist(
-            name=p.name,
-            tracks=p.tracks,
-            description=description,
-            id=p.id,
-            connector_playlist_identifiers=p.connector_playlist_identifiers.copy(),
-        )
+        return evolve(p, description=description)
 
     return transform(playlist) if playlist is not None else transform

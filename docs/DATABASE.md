@@ -327,6 +327,29 @@ CREATE TABLE sync_checkpoints (
 - Supports different entity types per service
 - Tracks separate sync state per user
 
+## Repository Pattern Implementation
+
+**Complete separation between business logic and database implementation:**
+
+```
+Domain:        TrackRepositoryProtocol (interface - never changes)
+                         ↑
+Infrastructure: SQLAlchemyTrackRepository (current implementation)
+Future:        PostgreSQLTrackRepository, MongoTrackRepository, RedisTrackRepository
+```
+
+**How it works:**
+- **Domain defines contracts** - `TrackRepositoryProtocol` in `src/domain/repositories/interfaces.py`
+- **Infrastructure implements** - `SQLAlchemyTrackRepository` in `src/infrastructure/persistence/repositories/`
+- **Application uses contracts** - `def __init__(self, track_repo: TrackRepositoryProtocol)`
+- **UnitOfWork coordinates** - `async with uow:` manages transactions, `await uow.commit()` saves changes
+
+**Key files for database swaps:**
+- `src/domain/repositories/interfaces.py` - Abstract protocols (never change)
+- `src/infrastructure/persistence/repositories/base_repo.py` - Generic base (replace for new DB)
+- `src/infrastructure/persistence/repositories/track/core.py` - Track operations (reimplement for new DB)
+- **Critical** - Always use `selectinload()` for relationships, UnitOfWork for transactions
+
 ## Relationship Architecture
 
 The database uses a rich relationship model with SQLAlchemy's relationship features:

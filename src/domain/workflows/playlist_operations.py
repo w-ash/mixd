@@ -26,10 +26,10 @@ def create_playlist_operation(
     name = config.get("name", "Narada Playlist")
     description = config.get("description", "Created by Narada")
 
-    return Playlist(
+    return Playlist.from_tracklist(
         name=name,
+        tracklist=persisted_tracks,
         description=description,
-        tracks=persisted_tracks,
     )
 
 
@@ -54,10 +54,16 @@ def create_spotify_playlist_operation(
     name = config.get("name", "Narada Playlist")
     description = config.get("description", "Created by Narada")
 
-    return Playlist(
+    playlist = Playlist.from_tracklist(
         name=name,
+        tracklist=persisted_tracks,
         description=description,
-        tracks=persisted_tracks,
+    )
+    # Add Spotify connector identifier
+    return Playlist(
+        name=playlist.name,
+        entries=playlist.entries,
+        description=playlist.description,
         connector_playlist_identifiers={"spotify": spotify_id},
     )
 
@@ -156,12 +162,26 @@ def update_playlist_tracks_operation(
     Returns:
         Updated playlist entity
     """
-    if append_mode:
-        updated_tracks = existing_playlist.tracks + new_tracks
-    else:
-        updated_tracks = new_tracks
+    from datetime import UTC, datetime
 
-    return existing_playlist.with_tracks(updated_tracks)
+    from src.domain.entities.playlist import PlaylistEntry
+
+    if append_mode:
+        # Preserve existing entries, add new ones with current timestamp
+        existing_entries = list(existing_playlist.entries)
+        new_entries = [
+            PlaylistEntry(track=track, added_at=datetime.now(UTC))
+            for track in new_tracks
+        ]
+        updated_entries = existing_entries + new_entries
+    else:
+        # Replace all tracks with new timestamp
+        updated_entries = [
+            PlaylistEntry(track=track, added_at=datetime.now(UTC))
+            for track in new_tracks
+        ]
+
+    return existing_playlist.with_entries(updated_entries)
 
 
 def format_update_destination_result(

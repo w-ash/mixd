@@ -12,7 +12,7 @@ from src.domain.entities.playlist import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     Playlist,
-    PlaylistTrack,
+    PlaylistEntry,
 )
 from src.domain.entities.track import Artist, Track
 
@@ -28,8 +28,8 @@ class TestPlaylistEntity:
             Track(title="Song 2", artists=[Artist(name="Artist 2")]),
         ]
 
-        playlist = Playlist(
-            name="My Playlist", tracks=tracks, description="A great playlist"
+        playlist = Playlist.from_tracklist(
+            name="My Playlist", tracklist=tracks, description="A great playlist"
         )
 
         assert playlist.name == "My Playlist"
@@ -40,7 +40,7 @@ class TestPlaylistEntity:
 
     def test_playlist_creation_with_minimal_data(self):
         """Test creating a playlist with only required fields."""
-        playlist = Playlist(name="Minimal Playlist")
+        playlist = Playlist.from_tracklist(name="Minimal Playlist", tracklist=[])
 
         assert playlist.name == "Minimal Playlist"
         assert playlist.tracks == []
@@ -48,13 +48,37 @@ class TestPlaylistEntity:
         assert playlist.id is None
         assert playlist.connector_playlist_identifiers == {}
 
-    def test_playlist_with_tracks(self):
-        """Test creating new playlist with different tracks."""
+    def test_from_tracklist_with_connector_identifiers(self):
+        """Test creating playlist with connector identifiers in one step."""
+        tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
+
+        playlist = Playlist.from_tracklist(
+            name="Test Playlist",
+            tracklist=tracks,
+            description="Description",
+            connector_playlist_identifiers={"spotify": "spotify_123", "apple_music": "am_456"},
+        )
+
+        assert playlist.name == "Test Playlist"
+        assert len(playlist.tracks) == 1
+        assert playlist.description == "Description"
+        assert playlist.connector_playlist_identifiers == {
+            "spotify": "spotify_123",
+            "apple_music": "am_456",
+        }
+
+    def test_playlist_with_entries(self):
+        """Test creating new playlist with different entries."""
+        from datetime import UTC, datetime
+
+        from src.domain.entities.playlist import PlaylistEntry
+
         original_tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
         new_tracks = [Track(title="Song 2", artists=[Artist(name="Artist 2")])]
 
-        playlist = Playlist(name="Test Playlist", tracks=original_tracks)
-        updated_playlist = playlist.with_tracks(new_tracks)
+        playlist = Playlist.from_tracklist(name="Test Playlist", tracklist=original_tracks)
+        new_entries = [PlaylistEntry(track=t, added_at=datetime.now(UTC)) for t in new_tracks]
+        updated_playlist = playlist.with_entries(new_entries)
 
         assert updated_playlist.tracks == new_tracks
         assert updated_playlist.name == "Test Playlist"  # Other fields preserved
@@ -224,27 +248,29 @@ class TestConnectorPlaylistItemEntity:
 
 
 @pytest.mark.unit
-class TestPlaylistTrackEntity:
-    """Test playlist track entity behavior."""
+class TestPlaylistEntryEntity:
+    """Test playlist entry entity behavior."""
 
-    def test_playlist_track_creation(self):
-        """Test creating a playlist track."""
-        track = PlaylistTrack(
-            playlist_id=1, track_id=123, sort_key="001", added_at=datetime.now(UTC)
+    def test_playlist_entry_creation(self):
+        """Test creating a playlist entry."""
+        test_track = Track(id=123, title="Test", artists=[Artist(name="Test Artist")])
+        entry = PlaylistEntry(
+            track=test_track,
+            added_at=datetime.now(UTC),
+            added_by="user123"
         )
 
-        assert track.playlist_id == 1
-        assert track.track_id == 123
-        assert track.sort_key == "001"
-        assert track.added_at is not None
-        assert track.id is None
+        assert entry.track.id == 123
+        assert entry.added_at is not None
+        assert entry.added_by == "user123"
 
-    def test_playlist_track_defaults(self):
-        """Test playlist track default values."""
-        track = PlaylistTrack(playlist_id=1, track_id=123, sort_key="001")
+    def test_playlist_entry_defaults(self):
+        """Test playlist entry default values."""
+        test_track = Track(id=123, title="Test", artists=[Artist(name="Test Artist")])
+        entry = PlaylistEntry(track=test_track)
 
-        assert track.added_at is None
-        assert track.id is None
+        assert entry.added_at is None
+        assert entry.added_by is None
 
 
 # TODO(#123): Add tests for domain services once they're implemented
