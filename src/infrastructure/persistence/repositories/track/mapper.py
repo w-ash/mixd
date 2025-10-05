@@ -270,10 +270,11 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # Mixed format - extract what we can
         names = []
         for artist in artists_data:
-            if isinstance(artist, str) and artist:
-                names.append(artist)
-            elif isinstance(artist, dict) and artist.get("name"):
-                names.append(artist.get("name"))
+            match artist:
+                case str() as name if name:
+                    names.append(name)
+                case dict() as d if d.get("name"):
+                    names.append(d.get("name"))
 
         return names
 

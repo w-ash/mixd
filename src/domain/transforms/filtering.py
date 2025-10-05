@@ -14,49 +14,36 @@ All filters follow functional programming principles:
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from toolz import curry
-
 from src.domain.entities.track import Track, TrackList
-
-# Type alias for transformation functions
-Transform = Callable[[TrackList], TrackList]
+from src.domain.transforms.core import Transform, optional_tracklist_transform
 
 
-@curry
-def filter_by_predicate(
-    predicate: Callable[[Track], bool],
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+@optional_tracklist_transform
+def filter_by_predicate(predicate: Callable[[Track], bool]) -> Transform:
     """
     Filter tracks based on a predicate function.
 
     Args:
         predicate: Function returning True for tracks to keep
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
         filtered = [track for track in t.tracks if predicate(track)]
         return t.with_tracks(filtered)
 
-    if tracklist is not None:
-        return transform(tracklist)
     return transform
 
 
-@curry
-def filter_duplicates(tracklist: TrackList | None = None) -> Transform | TrackList:
+@optional_tracklist_transform
+def filter_duplicates() -> Transform:
     """
     Remove duplicate tracks from a tracklist.
 
-    Args:
-        tracklist: Optional tracklist to transform immediately
-
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
@@ -85,25 +72,23 @@ def filter_duplicates(tracklist: TrackList | None = None) -> Transform | TrackLi
             .with_metadata("tracks_without_ids", tracks_without_ids)
         )
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform
 
 
-@curry
+@optional_tracklist_transform
 def filter_by_date_range(
     min_age_days: int | None = None,
     max_age_days: int | None = None,
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+) -> Transform:
     """
     Filter tracks by release date range.
 
     Args:
         min_age_days: Minimum age in days (None for no minimum)
         max_age_days: Maximum age in days (None for no maximum)
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def in_date_range(track: Track) -> bool:
@@ -117,48 +102,42 @@ def filter_by_date_range(
 
         return not (min_age_days is not None and age_days < min_age_days)
 
-    return filter_by_predicate(in_date_range, tracklist)  # type: ignore[return-value]
+    return filter_by_predicate(in_date_range)
 
 
-@curry
-def exclude_tracks(
-    reference_tracks: list[Track],
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+@optional_tracklist_transform
+def exclude_tracks(reference_tracks: list[Track]) -> Transform:
     """
     Filter out tracks that exist in a reference collection.
 
     Args:
         reference_tracks: List of tracks to exclude
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
     exclude_ids = {track.id for track in reference_tracks if track.id}
 
     def not_in_reference(track: Track) -> bool:
         return track.id not in exclude_ids
 
-    return filter_by_predicate(not_in_reference, tracklist)  # type: ignore[return-value]
+    return filter_by_predicate(not_in_reference)
 
 
-@curry
+@optional_tracklist_transform
 def exclude_artists(
     reference_tracks: list[Track],
     exclude_all_artists: bool = False,
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+) -> Transform:
     """
     Filter out tracks whose artists appear in a reference collection.
 
     Args:
         reference_tracks: List of tracks with artists to exclude
         exclude_all_artists: If True, checks all artists on a track, not just primary
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
     # Create set of artist names to exclude (case-insensitive)
     exclude_artists_set = set()
@@ -187,4 +166,4 @@ def exclude_artists(
             # Check only the primary artist
             return track.artists[0].name.lower() not in exclude_artists_set
 
-    return filter_by_predicate(not_artist_in_reference, tracklist)  # type: ignore[return-value]
+    return filter_by_predicate(not_artist_in_reference)

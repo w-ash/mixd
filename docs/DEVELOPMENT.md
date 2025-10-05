@@ -281,6 +281,67 @@ class NewServiceMatchingProvider(BaseMatchingProvider):
 - UTC timestamps: `datetime.now(UTC)`
 - Dependency injection in use cases
 
+### Shared Utilities (`src/application/use_cases/_shared/`)
+
+Use these utilities to eliminate duplication in playlist-related use cases:
+
+```python
+from src.application.use_cases._shared import (
+    # Operation counting for playlist diffs
+    count_operation_types,           # Returns OperationCounts(added, removed, moved)
+
+    # Type-safe result objects (replace tuple returns)
+    OperationCounts,                 # Instead of tuple[int, int, int]
+    ApiExecutionResult,              # For API operation results
+    AppendOperationResult,           # For append operations
+
+    # Fluent metadata builders (replace dict construction)
+    PlaylistMetadataBuilder,         # .with_timestamp().with_operations().build()
+    build_api_execution_metadata,
+    build_database_update_metadata,
+
+    # Validation and error classification
+    classify_connector_api_error,    # Pattern matching for API errors
+    classify_database_error,
+    ConnectorPlaylistUpdateValidator,
+
+    # Playlist item factories
+    create_connector_playlist_items_from_tracks,
+)
+```
+
+**Extract to `_shared/` when**: Logic duplicated in 3+ files (not 2)
+**Keep local when**: Single use, domain-specific, or context-dependent
+
+### Intentional "Duplication" (Don't Extract)
+
+Some patterns repeat by design in hexagonal architecture:
+
+**Command/Result Classes** - Each use case has its own types
+```python
+# ✅ Correct: Each use case defines its own Command/Result
+@define(frozen=True)
+class GetPlayedTracksCommand:  # Specific to this use case
+    limit: int
+    days_back: int | None
+```
+
+**Transaction Boundaries** - Each use case manages its own UoW
+```python
+# ✅ Correct: Use case controls transaction lifecycle
+async with uow:
+    result = await self._execute_operation(...)
+    await uow.commit()  # Business logic decides when
+```
+
+**Context-Specific Error Handling** - Preserves valuable debugging info
+```python
+# ✅ Correct: Context-specific error messages
+except Exception as e:
+    logger.error("Playlist sync failed", playlist_id=id, error=str(e))
+    # Don't extract - context matters for debugging
+```
+
 ## Logging
 
 ### Basic Usage

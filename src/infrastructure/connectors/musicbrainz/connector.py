@@ -71,8 +71,6 @@ class MusicBrainzConnector(BaseAPIConnector):
         if not isrcs:
             return {}
 
-        logger.info(f"Starting {progress_desc} for {len(isrcs)} ISRCs")
-
         results = {}
 
         for i, isrc in enumerate(isrcs, 1):

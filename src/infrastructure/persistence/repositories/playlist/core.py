@@ -780,7 +780,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
         deleted_ids = result.scalars().all()
-        playlist_deleted = len(deleted_ids) > 0
+        playlist_deleted = bool(deleted_ids)
 
         if playlist_deleted:
             logger.info("Playlist deleted successfully", playlist_id=playlist_id)

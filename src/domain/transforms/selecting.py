@@ -11,74 +11,60 @@ All selection functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
-from collections.abc import Callable
 import random
 from typing import cast
 
-from toolz import curry
-
 from src.domain.entities.track import TrackList
-
-# Type alias for transformation functions
-Transform = Callable[[TrackList], TrackList]
+from src.domain.transforms.core import Transform, optional_tracklist_transform
 
 
-@curry
-def limit(count: int, tracklist: TrackList | None = None) -> Transform | TrackList:
+@optional_tracklist_transform
+def limit(count: int) -> Transform:
     """
     Limit to the first n tracks.
 
     Args:
         count: Maximum number of tracks to keep
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
         return t.with_tracks(t.tracks[:count])
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform
 
 
-@curry
-def take_last(
-    count: int,
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+@optional_tracklist_transform
+def take_last(count: int) -> Transform:
     """
     Take the last n tracks.
 
     Args:
         count: Number of tracks to keep from the end
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
         n = min(count, len(t.tracks))
         return t.with_tracks(t.tracks[-n:])
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform
 
 
-@curry
-def sample_random(
-    count: int,
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+@optional_tracklist_transform
+def sample_random(count: int) -> Transform:
     """
     Randomly sample n tracks.
 
     Args:
         count: Number of tracks to sample
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
@@ -86,25 +72,20 @@ def sample_random(
         selected = random.sample(t.tracks, n)
         return t.with_tracks(selected)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform
 
 
-@curry
-def select_by_method(
-    count: int,
-    method: str = "first",
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+@optional_tracklist_transform
+def select_by_method(count: int, method: str = "first") -> Transform:
     """
     Select tracks using specified method.
 
     Args:
         count: Number of tracks to select
         method: Selection method ("first", "last", or "random")
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
     if method == "first":
         transform_fn = limit(count)
@@ -123,4 +104,4 @@ def select_by_method(
             .with_metadata("original_count", len(t.tracks))
         )
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform

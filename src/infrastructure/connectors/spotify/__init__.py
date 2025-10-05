@@ -4,7 +4,8 @@ Modular Spotify API integration with clear separation of concerns.
 
 Components:
 - SpotifyAPIClient: Pure API wrapper with OAuth authentication
-- SpotifyOperations: Business logic for complex workflows
+- SpotifyOperations: Business logic with delegated playlist sync operations
+- SpotifyPlaylistSyncOperations: Differential playlist synchronization
 - SpotifyConversions: Data transformation utilities
 - SpotifyConnector: Main facade implementing connector protocols
 - SpotifyProvider: Track matching provider for identity resolution

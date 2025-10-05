@@ -85,7 +85,7 @@ class PlaylistDiff:
     @property
     def has_changes(self) -> bool:
         """True if any operations are needed to synchronize playlists."""
-        return len(self.operations) > 0
+        return bool(self.operations)
 
     @property
     def operation_summary(self) -> dict[str, int]:

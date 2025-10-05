@@ -119,8 +119,6 @@ class MusicBrainzProvider:
 
     async def _process_isrc_batch(self, tracks: list[Track]) -> ProviderMatchResult:
         """Process ISRC tracks using MusicBrainz batch optimization."""
-        logger.info(f"Processing {len(tracks)} tracks with ISRCs")
-
         matches = {}
         failures = []
 
@@ -193,8 +191,6 @@ class MusicBrainzProvider:
         self, tracks: list[Track], method: str
     ) -> ProviderMatchResult:
         """Process tracks using specified method with structured failure handling."""
-        logger.info(f"Processing {len(tracks)} tracks with {method}")
-
         matches = {}
         failures = []
 

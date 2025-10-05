@@ -12,6 +12,7 @@ from attrs import define, field
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits
+from src.domain.entities import utc_now_factory
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -36,7 +37,7 @@ class GetPlayedTracksCommand:
         None  # Optional service filter ("spotify", "lastfm", etc.)
     )
     sort_by: str | None = None  # Optional sorting method
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Checks if command parameters are valid for execution.
@@ -83,7 +84,7 @@ class GetPlayedTracksResult:
             "days_back": self.tracklist.metadata.get("days_back"),
             "connector_filter": self.tracklist.metadata.get("connector_filter"),
             "execution_time_ms": self.execution_time_ms,
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 

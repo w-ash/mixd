@@ -77,11 +77,26 @@ class PlayImportOrchestrator:
             ingestion_result, resolution_result
         )
 
+        # Extract success rate from combined result summary metrics
+        success_rate_metric = next(
+            (m for m in combined_result.summary_metrics.metrics if m.name == "success_rate"),
+            None,
+        )
+        success_rate_str = (
+            f"{success_rate_metric.value:.1f}%" if success_rate_metric else "N/A"
+        )
+
+        # Extract resolved plays from resolution result
+        resolved_count = next(
+            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "resolved"),
+            0,
+        )
+
         logger.info(
             "Two-phase import complete",
             ingested_plays=len(connector_plays),
-            resolved_plays=resolution_result.imported_count,
-            success_rate=f"{combined_result.success_rate:.1f}%",
+            resolved_plays=int(resolved_count),
+            success_rate=success_rate_str,
         )
 
         return combined_result
@@ -135,18 +150,33 @@ class PlayImportOrchestrator:
             await plays_repo.bulk_insert_plays(all_track_plays)
             logger.info(f"Saved {len(all_track_plays)} resolved track plays")
 
-        # Convert to OperationResult
-        return OperationResult(
+        # Convert to OperationResult with summary metrics
+        result = OperationResult(
             operation_name="Connector Play Resolution",
-            imported_count=len(all_track_plays),
-            filtered_count=combined_metrics["total_plays"]
-            - combined_metrics["resolved_plays"]
-            - combined_metrics["error_count"],
-            duplicate_count=0,  # No duplicates in resolution phase
-            error_count=combined_metrics["error_count"],
             execution_time=0.0,  # Timing handled at orchestrator level
-            play_metrics=combined_metrics,
         )
+
+        # Add metadata
+        result.metadata.update(combined_metrics)
+
+        # Add summary metrics
+        total_plays = combined_metrics["total_plays"]
+        resolved = len(all_track_plays)
+        errors = combined_metrics["error_count"]
+        filtered = total_plays - resolved - errors
+
+        result.summary_metrics.add("total", total_plays, "Total Plays", significance=0)
+        result.summary_metrics.add(
+            "resolved", resolved, "Track Plays Resolved", significance=1
+        )
+        if filtered > 0:
+            result.summary_metrics.add(
+                "filtered", filtered, "Filtered", significance=2
+            )
+        if errors > 0:
+            result.summary_metrics.add("errors", errors, "Errors", significance=3)
+
+        return result
 
     async def _resolve_spotify_plays_direct(
         self,
@@ -176,15 +206,19 @@ class PlayImportOrchestrator:
 
     def _create_empty_resolution_result(self) -> OperationResult:
         """Create empty resolution result when no plays to resolve."""
-        return OperationResult(
+        result = OperationResult(
             operation_name="Connector Play Resolution",
-            imported_count=0,
-            filtered_count=0,
-            duplicate_count=0,
-            error_count=0,
             execution_time=0.0,
-            play_metrics={"total_plays": 0, "resolved_plays": 0, "error_count": 0},
         )
+
+        # Add metadata
+        result.metadata.update({"total_plays": 0, "resolved_plays": 0, "error_count": 0})
+
+        # Add summary metrics showing zeros
+        result.summary_metrics.add("total", 0, "Total Plays", significance=0)
+        result.summary_metrics.add("resolved", 0, "Track Plays Resolved", significance=1)
+
+        return result
 
     def _combine_phase_results(
         self,
@@ -195,27 +229,74 @@ class PlayImportOrchestrator:
 
         Provides user with comprehensive view of the two-phase workflow.
         """
-        return OperationResult(
+        result = OperationResult(
             operation_name="Two-Phase Play Import",
-            plays_processed=ingestion_result.plays_processed,  # Raw tracks that entered the system
-            imported_count=resolution_result.imported_count,  # Final canonical plays
-            filtered_count=resolution_result.filtered_count,
-            duplicate_count=ingestion_result.duplicate_count,  # From ingestion phase
-            error_count=(ingestion_result.error_count or 0)
-            + (resolution_result.error_count or 0),
-            execution_time=(ingestion_result.execution_time or 0)
-            + (resolution_result.execution_time or 0),
-            play_metrics={
-                "ingestion_phase": {
-                    "connector_plays_ingested": ingestion_result.imported_count,
-                    "ingestion_errors": ingestion_result.error_count,
-                    "ingestion_duplicates": ingestion_result.duplicate_count,
-                },
-                "resolution_phase": {
-                    "track_plays_resolved": resolution_result.imported_count,
-                    "resolution_errors": resolution_result.error_count,
-                    "plays_filtered": resolution_result.filtered_count,
-                },
-                "combined_metrics": resolution_result.play_metrics,
-            },
+            execution_time=ingestion_result.execution_time + resolution_result.execution_time,
         )
+
+        # Combine metadata from both phases
+        result.metadata["ingestion_phase"] = {
+            "batch_id": ingestion_result.metadata.get("batch_id"),
+            "checkpoint_timestamp": ingestion_result.metadata.get("checkpoint_timestamp"),
+        }
+        result.metadata["resolution_phase"] = resolution_result.metadata.copy()
+
+        # Extract values from ingestion result summary metrics
+        ingestion_imported = next(
+            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "imported"), 0
+        )
+        ingestion_duplicates = next(
+            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "duplicates"), 0
+        )
+        ingestion_errors = next(
+            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "errors"), 0
+        )
+        raw_plays = next(
+            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "raw_plays"), 0
+        )
+
+        # Extract values from resolution result summary metrics
+        resolved = next(
+            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "resolved"), 0
+        )
+        resolution_filtered = next(
+            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "filtered"), 0
+        )
+        resolution_errors = next(
+            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "errors"), 0
+        )
+
+        total_errors = int(ingestion_errors + resolution_errors)
+
+        # Add combined summary metrics
+        result.summary_metrics.add("raw_plays", int(raw_plays), "Raw Plays Found", significance=0)
+        result.summary_metrics.add(
+            "connector_plays", int(ingestion_imported), "Connector Plays Ingested", significance=1
+        )
+        result.summary_metrics.add(
+            "track_plays", int(resolved), "Track Plays Created", significance=2
+        )
+
+        if ingestion_duplicates > 0:
+            result.summary_metrics.add(
+                "duplicates",
+                int(ingestion_duplicates),
+                "Filtered (Duplicates)",
+                significance=3,
+            )
+        if resolution_filtered > 0:
+            result.summary_metrics.add(
+                "filtered", int(resolution_filtered), "Filtered", significance=4
+            )
+        if total_errors > 0:
+            result.summary_metrics.add("errors", total_errors, "Errors", significance=5)
+
+        # Calculate success rate
+        attempted = int(resolved + resolution_filtered + resolution_errors)
+        if attempted > 0:
+            success_rate = (resolved / attempted) * 100
+            result.summary_metrics.add(
+                "success_rate", success_rate, "Success Rate", format="percent", significance=6
+            )
+
+        return result

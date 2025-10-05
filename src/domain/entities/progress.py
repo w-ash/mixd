@@ -5,12 +5,14 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol
 from uuid import uuid4
 
 from attrs import define, field
+
+from .shared import utc_now_factory
 
 
 class ProgressEmitter(Protocol):
@@ -113,7 +115,7 @@ class ProgressEvent:
     current: int
     total: int | None
     message: str
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
     status: ProgressStatus = ProgressStatus.IN_PROGRESS
     metadata: dict[str, Any] = field(factory=dict)
 
@@ -185,7 +187,7 @@ class ProgressOperation:
     operation_id: str = field(factory=lambda: str(uuid4()))
     description: str = "Processing..."
     total_items: int | None = None
-    start_time: datetime = field(factory=lambda: datetime.now(UTC))
+    start_time: datetime = field(factory=utc_now_factory)
     end_time: datetime | None = None
     status: OperationStatus = OperationStatus.PENDING
     metadata: dict[str, Any] = field(factory=dict)

@@ -14,21 +14,16 @@ All sorting functions follow functional programming principles:
 from collections.abc import Callable
 from typing import Any
 
-from toolz import curry
-
 from src.domain.entities.track import Track, TrackList
-
-# Type alias for transformation functions
-Transform = Callable[[TrackList], TrackList]
+from src.domain.transforms.core import Transform, optional_tracklist_transform
 
 
-@curry
+@optional_tracklist_transform
 def sort_by_key_function(
     key_fn: Callable[[Track], Any],
     reverse: bool = False,
     metric_name: str | None = None,
-    tracklist: TrackList | None = None,
-) -> Transform | TrackList:
+) -> Transform:
     """Pure sorting function - sorts tracks by the provided key function.
 
     Simple domain function that does one thing: sort tracks using the key function.
@@ -38,10 +33,9 @@ def sort_by_key_function(
         key_fn: Function to extract sort key from each track
         reverse: Whether to sort in descending order
         metric_name: Optional name to store sort values in metadata
-        tracklist: Optional tracklist to transform immediately
 
     Returns:
-        Transformation function or transformed tracklist if provided
+        Transformation function
     """
 
     def transform(t: TrackList) -> TrackList:
@@ -64,4 +58,4 @@ def sort_by_key_function(
 
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return transform

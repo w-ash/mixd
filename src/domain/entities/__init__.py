@@ -23,7 +23,10 @@ from .playlist import (
 )
 
 # Shared utilities
-from .shared import ensure_utc
+from .shared import ensure_utc, utc_now_factory
+
+# Summary metrics
+from .summary_metrics import SummaryMetric, SummaryMetricCollection
 from .track import (
     Artist,
     ConnectorTrack,
@@ -48,6 +51,9 @@ __all__ = [
     "PlayRecord",
     "Playlist",
     "PlaylistEntry",
+    # Summary metrics
+    "SummaryMetric",
+    "SummaryMetricCollection",
     "SyncCheckpoint",
     "SyncCheckpointStatus",
     "Track",
@@ -60,4 +66,5 @@ __all__ = [
     "create_lastfm_play_record",
     # Shared utilities
     "ensure_utc",
+    "utc_now_factory",
 ]

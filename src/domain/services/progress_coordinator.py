@@ -11,6 +11,7 @@ from typing import Any
 
 from attrs import define, field
 
+from src.domain.entities import utc_now_factory
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,
@@ -25,7 +26,7 @@ class OperationState:
 
     operation: ProgressOperation
     last_current: int = 0
-    last_event_time: datetime = field(factory=lambda: datetime.now(UTC))
+    last_event_time: datetime = field(factory=utc_now_factory)
     event_count: int = 0
 
     @property

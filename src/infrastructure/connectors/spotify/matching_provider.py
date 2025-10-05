@@ -119,8 +119,6 @@ class SpotifyProvider:
         self, tracks: list[Track], method: str
     ) -> ProviderMatchResult:
         """Process tracks using specified method with structured failure handling."""
-        logger.info(f"Processing {len(tracks)} tracks with {method}")
-
         matches = {}
         failures = []
 

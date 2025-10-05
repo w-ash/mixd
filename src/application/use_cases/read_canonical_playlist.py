@@ -10,6 +10,7 @@ from typing import Any
 from attrs import define, field
 
 from src.config import get_logger
+from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -30,7 +31,7 @@ class ReadCanonicalPlaylistCommand:
     playlist_id: str
     connector: str | None = None  # Optional connector for external ID lookup
     include_track_metadata: bool = True
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Checks if playlist_id is provided.
@@ -63,7 +64,7 @@ class ReadCanonicalPlaylistResult:
             "playlist_name": self.playlist.name if self.playlist else None,
             "track_count": len(self.playlist.tracks) if self.playlist else 0,
             "execution_time_ms": self.execution_time_ms,
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 

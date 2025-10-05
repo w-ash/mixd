@@ -54,18 +54,11 @@ def create_spotify_playlist_operation(
     name = config.get("name", "Narada Playlist")
     description = config.get("description", "Created by Narada")
 
-    playlist = Playlist.from_tracklist(
+    return Playlist.from_tracklist(
         name=name,
         tracklist=persisted_tracks,
         description=description,
-    )
-    # Add Spotify connector identifier
-    return Playlist(
-        name=playlist.name,
-        entries=playlist.entries,
-        description=playlist.description,
-        connector_playlist_identifiers={"spotify": spotify_id},
-    )
+    ).with_connector_playlist_id("spotify", spotify_id)
 
 
 def calculate_track_persistence_stats(

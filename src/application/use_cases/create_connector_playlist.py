@@ -10,9 +10,12 @@ from typing import Any
 
 from attrs import define, field
 
+from src.application.use_cases._shared import (
+    create_connector_playlist_items_from_tracks,
+)
 from src.config import get_logger
-from src.domain.entities import ConnectorPlaylist
-from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
+from src.domain.entities import ConnectorPlaylist, utc_now_factory
+from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -33,7 +36,7 @@ class CreateConnectorPlaylistCommand:
     playlist_description: str = "Created by Narada"
     create_internal_playlist: bool = True  # Whether to also create internal playlist
     metadata: dict[str, Any] = field(factory=dict)
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Checks if the command has valid data for playlist creation.
@@ -41,30 +44,21 @@ class CreateConnectorPlaylistCommand:
         Returns:
             True if the command contains valid tracks, playlist name, and connector.
         """
-        logger.debug(
-            "Validating CreateConnectorPlaylistCommand",
-            has_tracks=bool(self.tracklist.tracks),
-            track_count=len(self.tracklist.tracks) if self.tracklist.tracks else 0,
-            has_playlist_name=bool(self.playlist_name),
-            playlist_name=self.playlist_name,
-            has_connector=bool(self.connector),
-            connector=self.connector,
-        )
+        is_valid = all([
+            self.tracklist.tracks,
+            self.playlist_name,
+            self.connector,
+        ])
 
-        if not self.tracklist.tracks:
-            logger.warning("Validation failed: no tracks in tracklist")
-            return False
+        if not is_valid:
+            logger.warning(
+                "Validation failed",
+                has_tracks=bool(self.tracklist.tracks),
+                has_name=bool(self.playlist_name),
+                has_connector=bool(self.connector),
+            )
 
-        if not self.playlist_name:
-            logger.warning("Validation failed: missing playlist name")
-            return False
-
-        if not self.connector:
-            logger.warning("Validation failed: missing connector")
-            return False
-
-        logger.debug("CreateConnectorPlaylistCommand validation passed")
-        return True
+        return is_valid
 
 
 @define(frozen=True, slots=True)
@@ -93,7 +87,7 @@ class CreateConnectorPlaylistResult:
             "external_playlist_id": self.external_playlist_id,
             "tracks_created": self.tracks_created,
             "execution_time_ms": self.execution_time_ms,
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 
@@ -413,28 +407,11 @@ class CreateConnectorPlaylistUseCase:
         try:
             connector_repo = uow.get_connector_playlist_repository()
 
-            # Create track items list for connector_playlist table
-            items = []
-            for i, track in enumerate(saved_playlist.tracks):
-                if (
-                    track.connector_track_identifiers
-                    and track.connector_track_identifiers.get(command.connector)
-                ):
-                    item = ConnectorPlaylistItem(
-                        connector_track_identifier=track.connector_track_identifiers[
-                            command.connector
-                        ],
-                        position=i,
-                        added_at=datetime.now(UTC).isoformat(),
-                        added_by_id="narada",
-                        extras={
-                            "track_uri": f"{command.connector}:track:{track.connector_track_identifiers[command.connector]}",
-                            "local": False,
-                            "primary_color": None,
-                            "video_thumbnail": None,
-                        },
-                    )
-                    items.append(item)
+            # Create track items list for connector_playlist table using factory
+            items = create_connector_playlist_items_from_tracks(
+                tracks=list(saved_playlist.tracks),
+                connector_name=command.connector,
+            )
 
             # Create ConnectorPlaylist domain model
             connector_playlist = ConnectorPlaylist(

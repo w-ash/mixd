@@ -734,7 +734,7 @@ Narada follows modern clean architecture principles with strict adherence to dep
 
 ### Architecture Principles Applied
 
-#### Ruthlessly DRY
+#### Ruthlessly DRY (With Intentional Exceptions)
 **Principle**: Single-maintainer codebase demands zero redundancy. One implementation per concept, reused across contexts.
 
 **Implementation**:
@@ -742,6 +742,13 @@ Narada follows modern clean architecture principles with strict adherence to dep
 - ✅ **Removed temporary adapter classes** that violated single responsibility
 - ✅ **Unified creation patterns** across all workflow components
 - ✅ **Single shared implementation** for transform node creation
+- ✅ **Shared utilities** in `_shared/` for playlist operations (extract at 3+ uses)
+
+**Intentional Pattern Repetition** (Not Duplication):
+- Each use case has its own `Command`/`Result` types (domain separation)
+- Each use case manages its own transaction boundaries (business control)
+- Error handling preserves context-specific information (debugging value)
+- Validation logic reflects domain-specific business rules (not technical)
 
 #### Clean Breaks, No Legacy Code
 **Principle**: When modernizing architecture, make clean breaks rather than maintaining compatibility layers.

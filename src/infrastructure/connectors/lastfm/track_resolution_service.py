@@ -447,7 +447,7 @@ class LastfmTrackResolutionService:
     def _extract_primary_artist(self, spotify_track: dict) -> str:
         """Extract primary artist name from Spotify track data."""
         artists = spotify_track.get("artists", [])
-        if artists and len(artists) > 0:
+        if artists:
             return artists[0].get("name", "")
         return ""
 

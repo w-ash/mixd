@@ -158,7 +158,7 @@ def convert_musicbrainz_track_to_connector(
     album = None
     if "release-list" in recording_data:
         releases = recording_data["release-list"]
-        if releases and len(releases) > 0:
+        if releases:
             # Use the first release as primary album
             album = releases[0].get("title")
 
@@ -173,7 +173,7 @@ def convert_musicbrainz_track_to_connector(
     isrc = None
     if "isrc-list" in recording_data:
         isrcs = recording_data["isrc-list"]
-        if isrcs and len(isrcs) > 0:
+        if isrcs:
             raw_isrc = isrcs[0]
             isrc = normalize_isrc(raw_isrc)
 

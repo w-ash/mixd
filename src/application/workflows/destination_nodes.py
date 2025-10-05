@@ -57,8 +57,7 @@ async def create_playlist(
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
 
-    connector = config.get("connector")
-    if connector:
+    if connector := config.get("connector"):
         # Create on both canonical and connector
         command = CreateConnectorPlaylistCommand(
             tracklist=tracklist,
@@ -138,10 +137,9 @@ async def update_playlist(
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
 
-    connector = config.get("connector")
     append = config.get("append", False)
 
-    if connector:
+    if connector := config.get("connector"):
         # playlist_id is connector ID - update connector with optimistic canonical sync
         command = UpdateConnectorPlaylistCommand(
             playlist_id=playlist_id,

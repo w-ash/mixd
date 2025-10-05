@@ -108,12 +108,20 @@ class TestLastfmImportE2E:
                 result = await use_case.execute(command, unit_of_work)
 
                 # Assert - Verify successful import
-                assert (
-                    result.operation_result.error_count is None
-                    or result.operation_result.error_count == 0
+                # Extract error count from summary metrics
+                error_metric = next(
+                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
+                    0
                 )
-                assert result.operation_result.imported_count is not None
-                assert result.operation_result.imported_count >= 0
+                assert error_metric == 0
+
+                # Extract track plays count from summary metrics
+                track_plays_metric = next(
+                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
+                    None
+                )
+                assert track_plays_metric is not None
+                assert track_plays_metric >= 0
                 assert result.service == "lastfm"
                 assert result.mode == "incremental"
                 assert result.execution_time_ms > 0
@@ -151,16 +159,23 @@ class TestLastfmImportE2E:
             result = await use_case.execute(command, unit_of_work)
 
             # Assert - Should return error result, not raise exception
-            assert result.operation_result.error_count is not None
-            assert result.operation_result.error_count > 0
-            assert (
-                result.operation_result.imported_count is None
-                or result.operation_result.imported_count == 0
+            # Extract error count from summary metrics
+            error_metric = next(
+                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
+                0
             )
+            assert error_metric > 0
+
+            # Extract track plays count from summary metrics
+            track_plays_metric = next(
+                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
+                0
+            )
+            assert track_plays_metric == 0
+
             # Note: failed_batches might be 0 since error occurs during setup, not batch processing
-            assert "API Error" in str(
-                result.operation_result.play_metrics.get("errors", [])
-            )
+            # Error details are in metadata
+            assert "errors" in str(result.operation_result.metadata)
 
     # E2E TEST 3: Boundary Condition - Empty Data
     @pytest.mark.asyncio
@@ -195,12 +210,26 @@ class TestLastfmImportE2E:
             result = await use_case.execute(command, unit_of_work)
 
             # Assert - Should handle empty data gracefully
-            assert (
-                result.operation_result.error_count is None
-                or result.operation_result.error_count == 0
+            # Extract error count from summary metrics
+            error_metric = next(
+                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
+                0
             )
-            assert result.operation_result.imported_count == 0
-            assert result.operation_result.plays_processed == 0
+            assert error_metric == 0
+
+            # Extract track plays count from summary metrics
+            track_plays_metric = next(
+                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
+                0
+            )
+            assert track_plays_metric == 0
+
+            # Extract raw plays count from summary metrics
+            raw_plays_metric = next(
+                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "raw_plays"),
+                0
+            )
+            assert raw_plays_metric == 0
 
     # E2E TEST 4: Critical Path - Checkpoint Persistence
     @pytest.mark.asyncio
@@ -282,10 +311,12 @@ class TestLastfmImportE2E:
                 result = await use_case.execute(command, unit_of_work)
 
                 # Assert - Import succeeded
-                assert (
-                    result.operation_result.error_count is None
-                    or result.operation_result.error_count == 0
+                # Extract error count from summary metrics
+                error_metric = next(
+                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
+                    0
                 )
+                assert error_metric == 0
 
                 # Verify checkpoint was created by running another incremental import
                 incremental_command = ImportTracksCommand(
@@ -299,7 +330,9 @@ class TestLastfmImportE2E:
                 incremental_result = await use_case.execute(
                     incremental_command, unit_of_work
                 )
-                assert (
-                    incremental_result.operation_result.error_count is None
-                    or incremental_result.operation_result.error_count == 0
+                # Extract error count from incremental result
+                incremental_error_metric = next(
+                    (m.value for m in incremental_result.operation_result.summary_metrics.metrics if m.name == "errors"),
+                    0
                 )
+                assert incremental_error_metric == 0

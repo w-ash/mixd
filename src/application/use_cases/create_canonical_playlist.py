@@ -14,6 +14,7 @@ from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.config import get_logger
+from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
@@ -41,7 +42,7 @@ class CreateCanonicalPlaylistCommand:
     tracklist: TrackList
     description: str | None = None
     metadata: dict[str, Any] = field(factory=dict)
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Check if command has required data for playlist creation.
@@ -49,17 +50,13 @@ class CreateCanonicalPlaylistCommand:
         Returns:
             True if name is non-empty and tracklist contains tracks or ConnectorPlaylist metadata
         """
-        if not self.name.strip():
-            return False
-
-        # Accept either tracks OR ConnectorPlaylist metadata for processing
-        has_tracks = bool(self.tracklist.tracks)
-        has_connector_playlist = bool(
-            self.tracklist.metadata
-            and self.tracklist.metadata.get("connector_playlist")
+        return bool(
+            self.name.strip()
+            and (
+                self.tracklist.tracks
+                or self.tracklist.metadata.get("connector_playlist")
+            )
         )
-
-        return has_tracks or has_connector_playlist
 
 
 @define(frozen=True, slots=True)
@@ -86,7 +83,7 @@ class CreateCanonicalPlaylistResult:
             "playlist_name": self.playlist.name,
             "tracks_created": self.tracks_created,
             "execution_time_ms": self.execution_time_ms,
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 
@@ -142,9 +139,7 @@ class CreateCanonicalPlaylistUseCase:
             try:
                 # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
                 source_data = command.tracklist
-                if command.tracklist.metadata and command.tracklist.metadata.get(
-                    "connector_playlist"
-                ):
+                if command.tracklist.has_metadata("connector_playlist"):
                     from src.application.services.connector_playlist_processing_service import (
                         ConnectorPlaylistProcessingService,
                     )

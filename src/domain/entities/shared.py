@@ -11,3 +11,12 @@ def ensure_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
+
+
+def utc_now_factory() -> datetime:
+    """Standard factory for UTC timestamp fields in attrs classes.
+
+    Use with attrs field factory to get current UTC time:
+        timestamp: datetime = field(factory=utc_now_factory)
+    """
+    return datetime.now(UTC)

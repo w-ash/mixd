@@ -222,25 +222,23 @@ def convert_lastfm_track_to_connector(lastfm_track_data: dict) -> "ConnectorTrac
     # Extract artist information - Last.fm can have multiple artists
     artists = []
     if "artist" in lastfm_track_data:
-        artist_data = lastfm_track_data["artist"]
-        if isinstance(artist_data, dict):
-            # Single artist object
-            artist_name = artist_data.get("name", "")
-            if artist_name:
+        match lastfm_track_data["artist"]:
+            case dict() as artist_data:
+                # Single artist object
+                if artist_name := artist_data.get("name", ""):
+                    artists.append(Artist(name=artist_name))
+            case str() as artist_name if artist_name:
+                # Artist name as string
                 artists.append(Artist(name=artist_name))
-        elif isinstance(artist_data, str):
-            # Artist name as string
-            if artist_data:
-                artists.append(Artist(name=artist_data))
 
     # Extract album information
     album = None
     if "album" in lastfm_track_data:
-        album_data = lastfm_track_data["album"]
-        if isinstance(album_data, dict):
-            album = album_data.get("name")
-        elif isinstance(album_data, str):
-            album = album_data
+        match lastfm_track_data["album"]:
+            case dict() as album_data:
+                album = album_data.get("name")
+            case str() as album_name:
+                album = album_name
 
     # Extract duration (Last.fm returns duration in seconds, convert to ms)
     duration_ms = None

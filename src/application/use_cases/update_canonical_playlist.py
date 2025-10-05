@@ -8,17 +8,18 @@ mode (calculate minimal changes to transform current playlist into target state)
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import define, field
+from attrs import define, evolve, field
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+from src.application.use_cases._shared import OperationCounts, count_operation_types
 from src.config import get_logger
+from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import Track, TrackList
 from src.domain.playlist import (
     PlaylistDiff,
-    PlaylistOperationType,
     calculate_playlist_diff,
 )
 from src.domain.playlist.execution_strategies import (
@@ -56,7 +57,7 @@ class UpdateCanonicalPlaylistCommand:
     playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
     metadata: dict[str, Any] = field(factory=dict)
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Checks if command has required data for execution.
@@ -64,17 +65,13 @@ class UpdateCanonicalPlaylistCommand:
         Returns:
             True if playlist_id exists and tracklist has tracks or ConnectorPlaylist metadata
         """
-        if not self.playlist_id:
-            return False
-
-        # Allow empty tracks if ConnectorPlaylist metadata is present for processing
-        has_tracks = bool(self.new_tracklist.tracks)
-        has_connector_playlist = bool(
-            self.new_tracklist.metadata
-            and self.new_tracklist.metadata.get("connector_playlist")
+        return bool(
+            self.playlist_id
+            and (
+                self.new_tracklist.tracks
+                or self.new_tracklist.metadata.get("connector_playlist")
+            )
         )
-
-        return has_tracks or has_connector_playlist
 
 
 @define(frozen=True, slots=True)
@@ -94,9 +91,7 @@ class UpdateCanonicalPlaylistResult:
 
     playlist: Playlist
     operations_performed: int = 0
-    tracks_added: int = 0
-    tracks_removed: int = 0
-    tracks_moved: int = 0
+    operation_counts: OperationCounts = field(factory=lambda: OperationCounts())
     execution_time_ms: int = 0
     confidence_score: float = 1.0
     errors: list[str] = field(factory=list)
@@ -107,12 +102,12 @@ class UpdateCanonicalPlaylistResult:
         return {
             "playlist_id": self.playlist.id,
             "operations_performed": self.operations_performed,
-            "added": self.tracks_added,
-            "removed": self.tracks_removed,
-            "moved": self.tracks_moved,
+            "added": self.operation_counts.added,
+            "removed": self.operation_counts.removed,
+            "moved": self.operation_counts.moved,
             "execution_time_ms": self.execution_time_ms,
             "confidence_score": self.confidence_score,
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 
@@ -131,6 +126,7 @@ class UpdateCanonicalPlaylistUseCase:
     metrics_service: MetricsApplicationService = field(
         factory=MetricsApplicationService
     )
+
 
     async def execute(
         self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
@@ -206,12 +202,10 @@ class UpdateCanonicalPlaylistUseCase:
                     (
                         result_playlist,
                         operations_performed,
-                        tracks_added,
+                        operation_counts,
                     ) = await self._append_entries(
                         current_playlist, processed_playlist, uow, command.dry_run
                     )
-                    tracks_removed = 0
-                    tracks_moved = 0
                     confidence_score = 1.0  # High confidence for simple append
 
                     # Extract metrics from new tracks (only for non-dry runs)
@@ -238,17 +232,13 @@ class UpdateCanonicalPlaylistUseCase:
                     # Execute differential operations
                     result_playlist = current_playlist
                     operations_performed = 0
-                    tracks_added = 0
-                    tracks_removed = 0
-                    tracks_moved = 0
+                    operation_counts = OperationCounts()
 
                     if not command.dry_run:
                         (
                             result_playlist,
                             operations_performed,
-                            tracks_added,
-                            tracks_removed,
-                            tracks_moved,
+                            operation_counts,
                         ) = await self._execute_operations(
                             current_playlist, diff, processed_playlist, uow
                         )
@@ -272,9 +262,7 @@ class UpdateCanonicalPlaylistUseCase:
                 result = UpdateCanonicalPlaylistResult(
                     playlist=result_playlist,
                     operations_performed=operations_performed,
-                    tracks_added=tracks_added,
-                    tracks_removed=tracks_removed,
-                    tracks_moved=tracks_moved,
+                    operation_counts=operation_counts,
                     execution_time_ms=execution_time,
                     confidence_score=confidence_score,
                 )
@@ -330,7 +318,7 @@ class UpdateCanonicalPlaylistUseCase:
         diff: PlaylistDiff,
         target_playlist: Playlist,
         uow: UnitOfWorkProtocol,
-    ) -> tuple[Playlist, int, int, int, int]:
+    ) -> tuple[Playlist, int, OperationCounts]:
         """Applies calculated add/remove operations to transform playlist.
 
         Args:
@@ -340,27 +328,12 @@ class UpdateCanonicalPlaylistUseCase:
             uow: Database transaction manager
 
         Returns:
-            Tuple of (updated_playlist, operations_performed, tracks_added,
-                     tracks_removed, tracks_moved)
+            Tuple of (updated_playlist, operations_performed, operation_counts)
         """
         logger.debug(f"Executing {len(diff.operations)} operations")
 
-        # Count operations by type
-        tracks_added = sum(
-            1
-            for op in diff.operations
-            if op.operation_type == PlaylistOperationType.ADD
-        )
-        tracks_removed = sum(
-            1
-            for op in diff.operations
-            if op.operation_type == PlaylistOperationType.REMOVE
-        )
-        tracks_moved = sum(
-            1
-            for op in diff.operations
-            if op.operation_type == PlaylistOperationType.MOVE
-        )
+        # Count operations by type using shared utility
+        operation_counts = count_operation_types(diff.operations)
 
         # Use unified execution strategy for canonical playlists
         # This provides consistent behavior with mathematical guarantees from LIS algorithm
@@ -401,20 +374,12 @@ class UpdateCanonicalPlaylistUseCase:
                 )
 
         # Create updated playlist with preserved metadata
-        updated_playlist = current_playlist.with_entries(updated_entries)
-        updated_playlist = Playlist(
-            name=updated_playlist.name,
-            entries=updated_playlist.entries,
-            description=updated_playlist.description,
-            id=updated_playlist.id,
-            connector_playlist_identifiers=updated_playlist.connector_playlist_identifiers.copy(),
-            metadata={
-                **current_playlist.metadata,
-                "last_updated": datetime.now(UTC).isoformat(),
-                "update_operations": len(diff.operations),
-                "execution_strategy": execution_metadata,
-            },
-        )
+        updated_playlist = current_playlist.with_entries(updated_entries).with_metadata({
+            **current_playlist.metadata,
+            "last_updated": datetime.now(UTC).isoformat(),
+            "update_operations": len(diff.operations),
+            "execution_strategy": execution_metadata,
+        })
 
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
@@ -424,13 +389,7 @@ class UpdateCanonicalPlaylistUseCase:
             current_playlist.id, updated_playlist
         )
 
-        return (
-            saved_playlist,
-            len(diff.operations),
-            tracks_added,
-            tracks_removed,
-            tracks_moved,
-        )
+        return (saved_playlist, len(diff.operations), operation_counts)
 
     async def _update_playlist_metadata(
         self,
@@ -461,13 +420,10 @@ class UpdateCanonicalPlaylistUseCase:
                 updates=updates,
             )
             # Preserve connector mappings and entries when updating metadata
-            updated_playlist = Playlist(
+            updated_playlist = evolve(
+                current_playlist,
                 name=updates.get("name", current_playlist.name),
                 description=updates.get("description", current_playlist.description),
-                entries=current_playlist.entries,  # Preserve entries
-                id=current_playlist.id,
-                connector_playlist_identifiers=current_playlist.connector_playlist_identifiers.copy(),
-                metadata=current_playlist.metadata.copy(),
             )
 
             # Persist metadata changes using update_playlist for existing playlists
@@ -486,7 +442,7 @@ class UpdateCanonicalPlaylistUseCase:
         new_playlist: Playlist,
         uow: UnitOfWorkProtocol,
         dry_run: bool,
-    ) -> tuple[Playlist, int, int]:
+    ) -> tuple[Playlist, int, OperationCounts]:
         """Adds new unique entries to the end of the playlist.
 
         Filters out entries for tracks that already exist to prevent duplicates.
@@ -498,7 +454,7 @@ class UpdateCanonicalPlaylistUseCase:
             dry_run: If True, calculate result but don't save to database
 
         Returns:
-            Tuple of (updated_playlist, operations_performed, entries_added)
+            Tuple of (updated_playlist, operations_performed, operation_counts)
         """
         # Filter out entries for tracks that already exist to avoid duplicates
         existing_track_ids = {
@@ -512,7 +468,7 @@ class UpdateCanonicalPlaylistUseCase:
 
         if not new_entries:
             logger.info("No new entries to append")
-            return current_playlist, 0, 0
+            return current_playlist, 0, OperationCounts()
 
         logger.info(f"Appending {len(new_entries)} new entries to playlist")
 
@@ -521,21 +477,20 @@ class UpdateCanonicalPlaylistUseCase:
             result_playlist = current_playlist.with_entries(
                 current_playlist.entries + new_entries
             )
-            return result_playlist, len(new_entries), len(new_entries)
+            return (
+                result_playlist,
+                len(new_entries),
+                OperationCounts(added=len(new_entries)),
+            )
 
         # Create updated playlist with appended entries
-        updated_playlist = Playlist(
-            name=current_playlist.name,
-            entries=current_playlist.entries + new_entries,
-            description=current_playlist.description,
-            id=current_playlist.id,
-            connector_playlist_identifiers=current_playlist.connector_playlist_identifiers.copy(),
-            metadata={
-                **current_playlist.metadata,
-                "last_updated": datetime.now(UTC).isoformat(),
-                "entries_appended": len(new_entries),
-            },
-        )
+        updated_playlist = current_playlist.with_entries(
+            current_playlist.entries + new_entries
+        ).with_metadata({
+            **current_playlist.metadata,
+            "last_updated": datetime.now(UTC).isoformat(),
+            "entries_appended": len(new_entries),
+        })
 
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
@@ -545,7 +500,11 @@ class UpdateCanonicalPlaylistUseCase:
             current_playlist.id, updated_playlist
         )
 
-        return saved_playlist, len(new_entries), len(new_entries)
+        return (
+            saved_playlist,
+            len(new_entries),
+            OperationCounts(added=len(new_entries)),
+        )
 
     async def _extract_track_metrics(
         self, tracks: list["Track"], uow: UnitOfWorkProtocol

@@ -8,6 +8,7 @@ from typing import Any
 
 from attrs import define, evolve, field, validators
 
+from .shared import utc_now_factory
 from .track import Track, TrackList
 
 
@@ -174,6 +175,17 @@ class Playlist:
 
         return evolve(self, id=db_id)
 
+    def with_metadata(self, metadata: dict[str, Any]) -> "Playlist":
+        """Create new playlist with updated metadata.
+
+        Args:
+            metadata: Dictionary of metadata to attach to playlist
+
+        Returns:
+            New Playlist with updated metadata
+        """
+        return evolve(self, metadata=metadata)
+
 
 @define(frozen=True, slots=True)
 class ConnectorPlaylist:
@@ -192,7 +204,7 @@ class ConnectorPlaylist:
     collaborative: bool = False
     follower_count: int | None = None
     raw_metadata: dict[str, Any] = field(factory=dict)
-    last_updated: datetime = field(factory=lambda: datetime.now(UTC))
+    last_updated: datetime = field(factory=utc_now_factory)
     id: int | None = None
 
     @property

@@ -200,8 +200,6 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
             return []
 
         # Process raw data directly into ConnectorTrackPlay objects
-        logger.info(f"Processing {len(raw_data)} raw Spotify records")
-
         connector_plays = []
         for record in raw_data:
             # Extract Spotify-specific data from SpotifyPlayRecord attributes

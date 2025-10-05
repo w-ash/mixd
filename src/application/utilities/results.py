@@ -78,32 +78,82 @@ class ResultFactory:
             execution_time: Operation execution time in seconds
 
         Returns:
-            OperationResult with standardized import metrics
+            OperationResult with standardized import summary metrics
         """
-        play_metrics = {
-            "batch_id": import_data.batch_id,
-        }
+        result = OperationResult(
+            operation_name=operation_name,
+            tracks=import_data.tracks,
+            execution_time=execution_time,
+        )
 
-        # Add checkpoint timestamp if available
+        # Add metadata (batch_id, checkpoint, etc.)
+        result.metadata["batch_id"] = import_data.batch_id
         if import_data.checkpoint_timestamp:
-            play_metrics["checkpoint_timestamp"] = (
+            result.metadata["checkpoint_timestamp"] = (
                 import_data.checkpoint_timestamp.isoformat()
             )
 
-        return OperationResult(
-            operation_name=operation_name,
-            plays_processed=import_data.raw_data_count,
-            play_metrics=play_metrics,
-            tracks=import_data.tracks,
-            execution_time=execution_time,
-            # Unified fields for import operations
-            imported_count=import_data.imported_count,
-            filtered_count=import_data.filtered_count,
-            duplicate_count=import_data.duplicate_count,
-            error_count=import_data.error_count,
-            new_tracks_count=import_data.new_tracks_count,
-            updated_tracks_count=import_data.updated_tracks_count,
+        # Add summary metrics with display order
+        result.summary_metrics.add(
+            "raw_plays", import_data.raw_data_count, "Raw Plays Found", significance=0
         )
+        result.summary_metrics.add(
+            "imported",
+            import_data.imported_count,
+            "Track Plays Created",
+            significance=1,
+        )
+
+        if import_data.filtered_count > 0:
+            result.summary_metrics.add(
+                "filtered",
+                import_data.filtered_count,
+                "Filtered (Too Short)",
+                significance=2,
+            )
+        if import_data.duplicate_count > 0:
+            result.summary_metrics.add(
+                "duplicates",
+                import_data.duplicate_count,
+                "Filtered (Duplicates)",
+                significance=3,
+            )
+        if import_data.new_tracks_count > 0:
+            result.summary_metrics.add(
+                "new_tracks",
+                import_data.new_tracks_count,
+                "New Tracks",
+                significance=4,
+            )
+        if import_data.updated_tracks_count > 0:
+            result.summary_metrics.add(
+                "updated_tracks",
+                import_data.updated_tracks_count,
+                "Updated Tracks",
+                significance=5,
+            )
+        if import_data.error_count > 0:
+            result.summary_metrics.add(
+                "errors", import_data.error_count, "Errors", significance=6
+            )
+
+        # Calculate success rate
+        attempted = (
+            import_data.imported_count
+            + import_data.duplicate_count
+            + import_data.error_count
+        )
+        if attempted > 0:
+            success_rate = (import_data.imported_count / attempted) * 100
+            result.summary_metrics.add(
+                "success_rate",
+                success_rate,
+                "Success Rate",
+                format="percent",
+                significance=7,
+            )
+
+        return result
 
     @staticmethod
     def create_error_result(
@@ -123,14 +173,16 @@ class ResultFactory:
         Returns:
             OperationResult representing the error state
         """
-        return OperationResult(
+        result = OperationResult(
             operation_name=operation_name,
-            plays_processed=0,
-            play_metrics={
-                "batch_id": batch_id,
-                "errors": [error_message],
-            },
             execution_time=execution_time,
-            # Unified fields for error state
-            error_count=1,
         )
+
+        # Add metadata
+        result.metadata["batch_id"] = batch_id
+        result.metadata["errors"] = [error_message]
+
+        # Add error summary metric
+        result.summary_metrics.add("errors", 1, "Errors", significance=0)
+
+        return result

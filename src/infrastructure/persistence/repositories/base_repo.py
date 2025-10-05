@@ -31,6 +31,13 @@ logger = get_logger(__name__)
 # -------------------------------------------------------------------------
 
 
+def _normalize_to_list(result: Any) -> list[Any]:
+    """Normalize a result to a list (helper for safe_fetch_relationship)."""
+    if result is None:
+        return []
+    return result if isinstance(result, list) else [result]
+
+
 async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
     """Helper to safely load relationships using AsyncAttrs.awaitable_attrs.
 
@@ -46,20 +53,10 @@ async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
         # Standard SQLAlchemy 2.0 pattern: use awaitable_attrs
         if hasattr(db_model, "awaitable_attrs"):
             result = await getattr(db_model.awaitable_attrs, rel_name)
-            # Ensure consistent return type (always list)
-            if result is None:
-                return []
-            if isinstance(result, list):
-                return result
-            return [result]
+            return _normalize_to_list(result)
         # Simple fallback for non-AsyncAttrs models
         elif hasattr(db_model, rel_name):
-            result = getattr(db_model, rel_name)
-            if result is None:
-                return []
-            if isinstance(result, list):
-                return result
-            return [result]
+            return _normalize_to_list(getattr(db_model, rel_name))
         return []
     except Exception:
         return []

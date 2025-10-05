@@ -3,11 +3,13 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import attrs
 from attrs import define, field, validators
+
+from .shared import utc_now_factory
 
 
 @define(frozen=True, slots=True)
@@ -157,7 +159,7 @@ class TrackMetric:
     connector_name: str
     metric_type: str
     value: float
-    collected_at: datetime = field(factory=lambda: datetime.now(UTC))
+    collected_at: datetime = field(factory=utc_now_factory)
     id: int | None = None
 
 
@@ -174,7 +176,7 @@ class ConnectorTrack:
     isrc: str | None = None
     release_date: datetime | None = None
     raw_metadata: dict[str, Any] = field(factory=dict)
-    last_updated: datetime = field(factory=lambda: datetime.now(UTC))
+    last_updated: datetime = field(factory=utc_now_factory)
     id: int | None = None
 
 
@@ -225,6 +227,29 @@ class TrackList:
         new_metadata = self.metadata.copy()
         new_metadata[key] = value
         return self.__class__(tracks=self.tracks, metadata=new_metadata)
+
+    def get_metadata(self, key: str, default: Any = None) -> Any:
+        """Get metadata value with optional default.
+
+        Args:
+            key: Metadata key to retrieve
+            default: Default value if key doesn't exist
+
+        Returns:
+            Metadata value or default
+        """
+        return self.metadata.get(key, default)
+
+    def has_metadata(self, key: str) -> bool:
+        """Check if metadata key exists.
+
+        Args:
+            key: Metadata key to check
+
+        Returns:
+            True if key exists in metadata
+        """
+        return key in self.metadata
 
     @classmethod
     def from_playlist(cls, playlist: Any) -> "TrackList":  # Avoiding circular import

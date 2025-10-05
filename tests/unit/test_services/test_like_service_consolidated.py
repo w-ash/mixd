@@ -169,38 +169,68 @@ class TestLikeUseCases:
 
 
 class TestOperationResultForLikeOperations:
-    """Test OperationResult for like import/export operations."""
+    """Test OperationResult for like import/export operations with summary metrics."""
 
     def test_like_import_result_metrics(self):
-        """Test that OperationResult tracks import metrics correctly."""
-        result = OperationResult(
-            operation_name="Test Import",
-            imported_count=50,
-            filtered_count=5,  # Changed from skipped_count to filtered_count
-            error_count=2,
-            already_liked=100,
-            candidates=57,
+        """Test that OperationResult tracks import metrics with summary metrics."""
+        result = OperationResult(operation_name="Test Import")
+        result.summary_metrics.add("imported", 50, "Likes Imported", significance=1)
+        result.summary_metrics.add("filtered", 5, "Filtered", significance=2)
+        result.summary_metrics.add("errors", 2, "Errors", significance=3)
+        result.summary_metrics.add("already_liked", 100, "Already Liked", significance=4)
+        result.summary_metrics.add("candidates", 57, "Candidates", significance=5)
+
+        # Calculate success rate
+        total = 57
+        success_rate = (50 / total) * 100
+        result.summary_metrics.add(
+            "success_rate", success_rate, "Success Rate", format="percent", significance=6
         )
 
         assert result.operation_name == "Test Import"
-        assert result.imported_count == 50
-        assert result.total_processed == 57  # 50 + 5 + 2
-        assert result.success_rate > 0
-        assert result.already_liked == 100
+
+        # Verify metrics are present
+        imported = next(m for m in result.summary_metrics.metrics if m.name == "imported")
+        assert imported.value == 50
+
+        already_liked = next(
+            m for m in result.summary_metrics.metrics if m.name == "already_liked"
+        )
+        assert already_liked.value == 100
+
+        success = next(
+            m for m in result.summary_metrics.metrics if m.name == "success_rate"
+        )
+        assert success.value > 0
 
     def test_like_export_result_metrics(self):
-        """Test that OperationResult tracks export metrics correctly."""
-        result = OperationResult(
-            operation_name="Test Export",
-            exported_count=25,
-            filtered_count=3,  # Changed from skipped_count to filtered_count
-            error_count=1,
-            already_liked=50,
-            candidates=29,
+        """Test that OperationResult tracks export metrics with summary metrics."""
+        result = OperationResult(operation_name="Test Export")
+        result.summary_metrics.add("exported", 25, "Exported", significance=1)
+        result.summary_metrics.add("filtered", 3, "Filtered", significance=2)
+        result.summary_metrics.add("errors", 1, "Errors", significance=3)
+        result.summary_metrics.add("already_liked", 50, "Already Loved", significance=4)
+        result.summary_metrics.add("candidates", 29, "Candidates", significance=5)
+
+        # Calculate success rate
+        total = 29
+        success_rate = (25 / total) * 100
+        result.summary_metrics.add(
+            "success_rate", success_rate, "Success Rate", format="percent", significance=6
         )
 
         assert result.operation_name == "Test Export"
-        assert result.exported_count == 25
-        assert result.total_processed == 29  # 25 + 3 + 1
-        assert result.success_rate > 0
-        assert result.already_liked == 50
+
+        # Verify metrics are present
+        exported = next(m for m in result.summary_metrics.metrics if m.name == "exported")
+        assert exported.value == 25
+
+        already_liked = next(
+            m for m in result.summary_metrics.metrics if m.name == "already_liked"
+        )
+        assert already_liked.value == 50
+
+        success = next(
+            m for m in result.summary_metrics.metrics if m.name == "success_rate"
+        )
+        assert success.value > 0

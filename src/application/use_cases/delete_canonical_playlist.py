@@ -11,6 +11,7 @@ from typing import Any, NoReturn
 from attrs import define, field
 
 from src.config import get_logger
+from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -31,7 +32,7 @@ class DeleteCanonicalPlaylistCommand:
     force_delete: bool = (
         False  # Whether to delete even if playlist has external connections
     )
-    timestamp: datetime = field(factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(factory=utc_now_factory)
 
     def validate(self) -> bool:
         """Validates that required command parameters are present.
@@ -71,7 +72,7 @@ class DeleteCanonicalPlaylistResult:
             "tracks_count": self.tracks_count,
             "execution_time_ms": self.execution_time_ms,
             "warnings_count": len(self.warnings),
-            "success": len(self.errors) == 0,
+            "success": not self.errors,
         }
 
 

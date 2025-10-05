@@ -14,7 +14,7 @@ Modules:
 """
 
 from .combining import concatenate, interleave
-from .core import Transform, create_pipeline
+from .core import Transform, create_pipeline, optional_tracklist_transform
 from .filtering import (
     exclude_artists,
     exclude_tracks,
@@ -39,6 +39,7 @@ __all__ = [
     # Track combination
     "concatenate",
     "create_pipeline",
+    "optional_tracklist_transform",
     # Track filtering
     "exclude_artists",
     "exclude_tracks",

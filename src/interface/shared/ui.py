@@ -7,8 +7,28 @@ from rich.console import Console
 from rich.table import Table
 
 from src.domain.entities import OperationResult
+from src.domain.entities.summary_metrics import SummaryMetricFormat
 
 console = Console()
+
+
+def _format_metric_value(value: float, format: SummaryMetricFormat) -> str:
+    """Format metric value based on format hint.
+
+    Args:
+        value: The metric value to format
+        format: Format type ("count", "percent", "duration")
+
+    Returns:
+        Formatted string representation of the value
+    """
+    match format:
+        case "percent":
+            return f"{value:.1f}%"
+        case "duration":
+            return f"{value:.1f}s"
+        case "count" | _:
+            return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
 
 
 def _is_play_import_operation(result: OperationResult) -> bool:
@@ -48,92 +68,24 @@ def _display_table_result(
     title: str | None = None,
     next_step_message: str | None = None,
 ) -> None:
-    """Display result as formatted tables with track details and metrics."""
+    """Display result as formatted tables with summary metrics and track details."""
     # Display title
     display_title = title or result.operation_name or "Operation Results"
     console.print(f"\n[bold blue]{display_title}[/bold blue]")
-
-    # Summary statistics
-    summary_data = []
-
-    # Play-based operations show both plays and tracks
-    if hasattr(result, "plays_processed") and result.plays_processed > 0:
-        summary_data.extend((
-            ("Raw Plays Found", str(result.plays_processed)),
-            ("Plays Saved", str(len(result.tracks))),
-        ))
-
-        # Add play-level metrics
-        if hasattr(result, "play_metrics"):
-            for metric_name, metric_value in result.play_metrics.items():
-                display_name = metric_name.replace("_", " ").title()
-                summary_data.append((display_name, str(metric_value)))
-    else:
-        summary_data.append(("Tracks Processed", str(len(result.tracks))))
-
-    # Add operation-specific summaries only if they have been set (not None)
-    # Only show sync/import metrics if they are actually relevant to this operation
-    if (hasattr(result, "imported_count") and result.imported_count is not None) or (
-        hasattr(result, "exported_count") and result.exported_count is not None
-    ):
-        # Get values, treating None as not set (don't display)
-        imported = result.imported_count
-        exported = result.exported_count
-        filtered = result.filtered_count
-        duplicates = result.duplicate_count
-        errors = result.error_count
-        total = result.total_processed
-        already_liked = result.already_liked
-        candidates = result.candidates
-        success_rate = result.success_rate
-        efficiency_rate = result.efficiency_rate
-
-        # Show intelligence first (most important insight) if meaningful
-        if already_liked is not None and already_liked > 0 and candidates is not None:
-            summary_data.extend([
-                ("Total Tracks", str(total or 0)),
-                (
-                    "Already Liked ✅",
-                    f"{already_liked} ({efficiency_rate:.1f}%)"
-                    if efficiency_rate
-                    else str(already_liked),
-                ),
-                ("Candidates", str(candidates)),
-            ])
-
-        # Only show sync metrics that have been set
-        if imported is not None:
-            summary_data.append(("Track Plays Created", str(imported)))
-        if exported is not None:
-            summary_data.append(("Exported", str(exported)))
-        if filtered is not None and filtered > 0:
-            summary_data.append(("Filtered (Too Short)", str(filtered)))
-        if duplicates is not None and duplicates > 0:
-            summary_data.append(("Filtered (Duplicates)", str(duplicates)))
-
-        # Show canonical track metrics if available
-        new_tracks = getattr(result, "new_tracks_count", None)
-        updated_tracks = getattr(result, "updated_tracks_count", None)
-        if new_tracks is not None and new_tracks > 0:
-            summary_data.append(("New Tracks", str(new_tracks)))
-        if updated_tracks is not None and updated_tracks > 0:
-            summary_data.append(("Updated Tracks", str(updated_tracks)))
-
-        if errors is not None and errors > 0:
-            summary_data.append(("Errors", str(errors)))
-        if success_rate is not None:
-            summary_data.append(("Success Rate", f"{success_rate:.1f}%"))
-
-    if hasattr(result, "execution_time") and result.execution_time > 0:
-        summary_data.append(("Duration", f"{result.execution_time:.1f}s"))
 
     # Create summary table
     summary_table = Table(show_header=False, box=None, padding=(0, 2))
     summary_table.add_column(style="cyan")
     summary_table.add_column(style="green bold")
 
-    for metric, value in summary_data:
-        summary_table.add_row(metric, value)
+    # Display all summary metrics in sorted order (by significance)
+    for metric in result.summary_metrics.sorted():
+        formatted_value = _format_metric_value(metric.value, metric.format)
+        summary_table.add_row(metric.label, formatted_value)
+
+    # Add execution time if present
+    if result.execution_time > 0:
+        summary_table.add_row("Duration", f"{result.execution_time:.1f}s")
 
     console.print(summary_table)
 
@@ -172,19 +124,19 @@ def _display_table_result(
             # Add metric values for this track
             for metric_name in metric_columns:
                 value = result.get_metric(track.id, metric_name, "—")
-                if metric_name == "sync_status" and isinstance(value, str):
-                    # Add emoji for sync status
-                    emoji = {
-                        "imported": "✅",
-                        "exported": "📤",
-                        "skipped": "⚠️",
-                        "error": "❌",
-                    }.get(value, "❓")
-                    row.append(f"{emoji} {value}")
-                elif isinstance(value, float):
-                    row.append(f"{value:.1f}")
-                else:
-                    row.append(str(value))
+                match (metric_name, value):
+                    case ("sync_status", str() as status):
+                        emoji = {
+                            "imported": "✅",
+                            "exported": "📤",
+                            "skipped": "⚠️",
+                            "error": "❌",
+                        }.get(status, "❓")
+                        row.append(f"{emoji} {status}")
+                    case (_, float() as num):
+                        row.append(f"{num:.1f}")
+                    case _:
+                        row.append(str(value))
 
             details_table.add_row(*row)
 

@@ -20,20 +20,10 @@ Example:
 """
 
 from abc import ABC, abstractmethod
-import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from attrs import define
 import backoff
-
-from src.domain.entities.progress import (
-    NullProgressEmitter,
-    OperationStatus,
-    ProgressEmitter,
-    ProgressOperation,
-    ProgressStatus,
-    create_progress_event,
-)
 
 if TYPE_CHECKING:
     from src.domain.entities.playlist import ConnectorPlaylist
@@ -133,157 +123,6 @@ class BaseAPIConnector(ABC):
     def error_classifier(self) -> ErrorClassifierProtocol:
         """Get error classifier for this connector. Override for service-specific classification."""
         return DefaultErrorClassifier()
-
-    async def process_tracks_concurrent(
-        self,
-        tracks,
-        process_func,
-        progress_emitter: ProgressEmitter | None = None,
-    ):
-        """Process tracks concurrently using proven asyncio pattern.
-
-        Simple, fast concurrent implementation that all connectors inherit.
-        Uses modern asyncio patterns for optimal performance with rate limiting.
-
-        Args:
-            tracks: List of tracks to process
-            process_func: Async function that processes a single track
-            progress_emitter: Progress emitter for tracking operation status
-
-        Returns:
-            List of results from processing each track
-        """
-        if progress_emitter is None:
-            progress_emitter = NullProgressEmitter()
-
-        import asyncio
-
-        if not tracks:
-            return []
-
-        # Start progress tracking
-        operation = ProgressOperation(
-            description=f"Process {len(tracks)} tracks with {self.connector_name}",
-            total_items=len(tracks),
-        )
-        operation_id = await progress_emitter.start_operation(operation)
-
-        batch_start_time = time.time()
-        logger.info(
-            f"Processing {len(tracks)} tracks concurrently with {self.connector_name}",
-            track_count=len(tracks),
-            connector=self.connector_name,
-            batch_start_time=batch_start_time,
-        )
-
-        # Create concurrent tasks using the proven pattern - LOG EACH TASK CREATION
-        task_creation_start = time.time()
-        tasks = []
-        for idx, track in enumerate(tracks):
-            task_creation_time = time.time()
-            task = asyncio.create_task(process_func(track))
-            tasks.append(task)
-
-            logger.debug(
-                f"Created task {idx + 1}/{len(tracks)} for {self.connector_name}",
-                task_idx=idx + 1,
-                total_tasks=len(tracks),
-                track_id=getattr(track, "id", None),
-                task_creation_time=task_creation_time,
-                milliseconds_since_batch_start=round(
-                    (task_creation_time - batch_start_time) * 1000, 1
-                ),
-            )
-
-        task_creation_duration = time.time() - task_creation_start
-        logger.info(
-            f"Created {len(tasks)} concurrent tasks for {self.connector_name}",
-            task_creation_duration_ms=round(task_creation_duration * 1000, 1),
-            connector=self.connector_name,
-        )
-
-        # Process results as they complete (maintains rate limiting and progress tracking)
-        results = []
-        completed_count = 0
-        await_loop_start = time.time()
-
-        logger.info(
-            f"Starting awaiting of {len(tasks)} tasks for {self.connector_name}",
-            await_start_time=await_loop_start,
-            milliseconds_since_batch_start=round(
-                (await_loop_start - batch_start_time) * 1000, 1
-            ),
-        )
-
-        for task in asyncio.as_completed(tasks):
-            task_await_start = time.time()
-            try:
-                result = await task
-                task_completion_time = time.time()
-                task_duration = task_completion_time - task_await_start
-
-                results.append(result)
-                completed_count += 1
-
-                logger.info(
-                    f"Task {completed_count}/{len(tasks)} completed for {self.connector_name}",
-                    task_completed=completed_count,
-                    total_tasks=len(tasks),
-                    task_await_duration_ms=round(task_duration * 1000, 1),
-                    task_completion_time=task_completion_time,
-                    milliseconds_since_batch_start=round(
-                        (task_completion_time - batch_start_time) * 1000, 1
-                    ),
-                    milliseconds_since_await_start=round(
-                        (task_completion_time - await_loop_start) * 1000, 1
-                    ),
-                    connector=self.connector_name,
-                )
-
-                # Emit progress event every 10 items
-                if completed_count % 10 == 0:
-                    await progress_emitter.emit_progress(
-                        create_progress_event(
-                            operation_id=operation_id,
-                            current=completed_count,
-                            total=len(tracks),
-                            message=f"Processed {completed_count}/{len(tracks)} tracks with {self.connector_name}",
-                            status=ProgressStatus.IN_PROGRESS,
-                        )
-                    )
-
-            except Exception as e:
-                task_completion_time = time.time()
-                logger.error(
-                    f"Track processing failed in {self.connector_name}",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    task_completion_time=task_completion_time,
-                    milliseconds_since_batch_start=round(
-                        (task_completion_time - batch_start_time) * 1000, 1
-                    ),
-                )
-                # Continue processing other tracks
-                completed_count += 1
-                results.append(None)
-
-        successful_results = [r for r in results if r is not None]
-        logger.info(
-            f"Completed concurrent processing: {len(successful_results)}/{len(tracks)} successful",
-            connector=self.connector_name,
-            success_count=len(successful_results),
-            total_count=len(tracks),
-        )
-
-        # Complete progress tracking
-        final_status = (
-            OperationStatus.COMPLETED
-            if len(successful_results) == len(tracks)
-            else OperationStatus.FAILED
-        )
-        await progress_emitter.complete_operation(operation_id, final_status)
-
-        return results
 
     def get_connector_config(self, key: str, default=None):
         """Load configuration value from modern settings structure.

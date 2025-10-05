@@ -114,7 +114,11 @@ class ImportTracksResult:
     @property
     def success_rate(self) -> float:
         """Returns import success rate as percentage (0-100)."""
-        return self.operation_result.success_rate or 0.0
+        # Extract success_rate from summary metrics
+        for metric in self.operation_result.summary_metrics.metrics:
+            if metric.name == "success_rate":
+                return metric.value
+        return 0.0
 
 
 @define(slots=True)
@@ -156,8 +160,6 @@ class ImportTracksUseCase:
             service=command.service,
             mode=command.mode,
         ):
-            logger.info(f"Starting {command.service} {command.mode} import")
-
             try:
                 # Delegate to appropriate import strategy
                 operation_result = await self._execute_import(
@@ -166,9 +168,12 @@ class ImportTracksUseCase:
 
                 execution_time_ms = int((time.time() - start_time) * 1000)
 
+                # Extract imported count from summary metrics
+                imported_count = self._get_metric_value(operation_result, "track_plays", 0)
+
                 logger.info(
                     f"Successfully completed {command.service} {command.mode} import: "
-                    f"{operation_result.imported_count} tracks imported"
+                    f"{imported_count} tracks imported"
                 )
 
                 return ImportTracksResult(
@@ -187,11 +192,10 @@ class ImportTracksUseCase:
                 # Return failed result instead of raising
                 failed_result = OperationResult(
                     operation_name=f"{command.service.title()} {command.mode.title()} Import",
-                    imported_count=0,
-                    error_count=1,
                     execution_time=execution_time_ms / 1000.0,
-                    play_metrics={"error": str(e)},
                 )
+                failed_result.summary_metrics.add("errors", 1, "Errors", significance=1)
+                failed_result.metadata["error"] = str(e)
 
                 return ImportTracksResult(
                     operation_result=failed_result,
@@ -256,6 +260,16 @@ class ImportTracksUseCase:
                 raise ValueError(
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
+
+    @staticmethod
+    def _get_metric_value(
+        result: OperationResult, metric_name: str, default: float = 0
+    ) -> int | float:
+        """Extract metric value from summary metrics by name."""
+        for metric in result.summary_metrics.metrics:
+            if metric.name == metric_name:
+                return metric.value
+        return default
 
     async def _create_play_import_orchestrator(self):
         """Create play import orchestrator for two-phase workflow.
@@ -325,7 +339,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Recent play two-phase import completed: {result.imported_count} track plays created"
+                f"Recent play two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
             return result
 
@@ -372,7 +386,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Incremental two-phase import completed: {result.imported_count} track plays created"
+                f"Incremental two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
             return result
 
@@ -419,18 +433,13 @@ class ImportTracksUseCase:
             if not proceed:
                 console.print("[dim]Full history import cancelled[/dim]")
                 # Return a cancelled result instead of raising Exit
-                return OperationResult(
+                result = OperationResult(
                     operation_name="Last.fm Full History Import",
-                    plays_processed=0,
-                    play_metrics={
-                        "cancelled": True,
-                    },
-                    # Unified count fields
-                    imported_count=0,
-                    filtered_count=0,
-                    duplicate_count=0,
-                    error_count=0,
+                    execution_time=0.0,
                 )
+                result.metadata["cancelled"] = True
+                result.summary_metrics.add("status", 0, "Cancelled", significance=0)
+                return result
 
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow)
@@ -447,7 +456,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Full history two-phase import completed: {result.imported_count} track plays created"
+                f"Full history two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
             return result
 
@@ -495,7 +504,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"File two-phase import completed: {result.imported_count} track plays created"
+                f"File two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
             return result
 

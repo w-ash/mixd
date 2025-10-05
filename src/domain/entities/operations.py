@@ -12,6 +12,7 @@ from attrs import define, field
 if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
+from .summary_metrics import SummaryMetricCollection
 from .track import Artist, Track, TrackList
 
 
@@ -429,68 +430,29 @@ class TrackPlay:
 class OperationResult:
     """Collects results and metrics from music data operations.
 
-    Tracks processed tracks, timing, success/failure counts, and per-track metrics
-    for operations like syncing likes, importing plays, or running workflows.
-    Provides statistics calculation and JSON serialization for API responses.
+    Uses self-describing summary metrics to eliminate hardcoded UI labels.
 
     Attributes:
-        tracks: List of processed Track objects
-        metrics: Per-track metrics (track_id -> metric_value mappings)
         operation_name: Human-readable operation identifier
+        summary_metrics: Self-describing operation-level metrics (counts, rates, aggregates)
+        tracks: List of processed Track objects
         execution_time: Operation duration in seconds
+        metadata: Operation metadata (batch_id, checkpoint, etc.)
+        metrics: Per-track operational metrics (track_id -> metric_value mappings)
         tracklist: Optional TrackList with metadata
-        plays_processed: Number of play records processed
-        play_metrics: Play-level statistics
-        imported_count: Successfully imported/processed tracks
-        exported_count: Tracks exported to external services
-        filtered_count: Tracks intentionally filtered out (too short, incognito, etc.)
-        duplicate_count: Tracks that already existed in database
-        error_count: Tracks that failed processing
-        already_liked: Tracks already in target state
-        candidates: Total tracks considered for operation
-        new_tracks_count: Canonical tracks created during import
-        updated_tracks_count: Existing canonical tracks with new plays
     """
 
+    operation_name: str = field(default="")
+    summary_metrics: SummaryMetricCollection = field(factory=SummaryMetricCollection)
     tracks: list[Track] = field(factory=list)
+    execution_time: float = field(default=0.0)
+    metadata: dict[str, Any] = field(factory=dict)
     metrics: dict[str, dict[int, Any]] = field(
         factory=dict,
-    )  # metric_name -> {track_id(int) -> value}
-    operation_name: str = field(default="")
-    execution_time: float = field(default=0.0)
+    )  # Per-track operational metrics: metric_name -> {track_id -> value}
     tracklist: "TrackList | None" = field(
         default=None
     )  # Optional tracklist with metadata
-
-    # Play-based operation support
-    plays_processed: int = field(default=0)  # Number of play records processed
-    play_metrics: dict[str, Any] = field(factory=dict)  # Play-level statistics
-
-    # Unified count fields (consolidated from specialized classes)
-    # These fields are Optional - only operations that use them should set them
-    imported_count: int | None = field(
-        default=None
-    )  # Tracks imported/processed successfully
-    exported_count: int | None = field(
-        default=None
-    )  # Tracks exported to external service
-    filtered_count: int | None = field(
-        default=None
-    )  # Plays filtered out (too short, incognito, etc.)
-    duplicate_count: int | None = field(
-        default=None
-    )  # Plays that already existed in database
-    error_count: int | None = field(default=None)  # Tracks that failed processing
-    already_liked: int | None = field(default=None)  # Tracks already in desired state
-    candidates: int | None = field(
-        default=None
-    )  # Total tracks considered for operation
-    new_tracks_count: int | None = field(
-        default=None
-    )  # Canonical tracks created during import
-    updated_tracks_count: int | None = field(
-        default=None
-    )  # Existing canonical tracks with new plays
 
     def get_metric(
         self,
@@ -498,7 +460,7 @@ class OperationResult:
         metric_name: str,
         default: Any = None,
     ) -> Any:
-        """Get specific metric value for a track.
+        """Get specific per-track metric value.
 
         Args:
             track_id: The ID of the track to get the metric for
@@ -512,88 +474,37 @@ class OperationResult:
             return default
         return self.metrics.get(metric_name, {}).get(track_id, default)
 
-    @property
-    def total_processed(self) -> int | None:
-        """Returns sum of imported, exported, filtered, duplicate and error counts.
-
-        Returns:
-            Total processed items, or None if no counts were set
-        """
-        counts = [
-            self.imported_count,
-            self.exported_count,
-            self.filtered_count,
-            self.duplicate_count,
-            self.error_count,
-        ]
-        # Only calculate if at least one count field has been set
-        if all(count is None for count in counts):
-            return None
-        # Treat None as 0 for calculation
-        return sum(count or 0 for count in counts)
-
-    @property
-    def attempted_to_process(self) -> int | None:
-        """Returns count of items we actually attempted to process (excludes filtered).
-
-        This is used for success rate calculation - filtered items are intentionally
-        skipped and shouldn't count as processing attempts.
-
-        Returns:
-            Attempted processing count, or None if no counts were set
-        """
-        counts = [
-            self.imported_count,
-            self.exported_count,
-            self.duplicate_count,
-            self.error_count,
-        ]
-        # Only calculate if at least one count field has been set
-        if all(count is None for count in counts):
-            return None
-        # Treat None as 0 for calculation
-        return sum(count or 0 for count in counts)
-
-    @property
-    def success_rate(self) -> float | None:
-        """Returns percentage of successful operations out of attempted processing.
-
-        Uses attempted_to_process (excludes filtered) as denominator since filtered
-        items are intentionally skipped, not processing failures.
-
-        Returns:
-            Success rate percentage, or None if no counts available
-        """
-        attempted = self.attempted_to_process
-        if attempted is None or attempted == 0:
-            return None
-        imported = self.imported_count or 0
-        exported = self.exported_count or 0
-        return ((imported + exported) / attempted) * 100
-
-    @property
-    def efficiency_rate(self) -> float | None:
-        """Returns percentage of tracks already in target state: already_liked / candidates * 100.
-
-        Returns:
-            Efficiency rate percentage, or None if no candidate count available
-        """
-        if self.candidates is None or self.candidates == 0:
-            return None
-        already_liked = self.already_liked or 0
-        return (already_liked / self.candidates) * 100
-
     def to_dict(self) -> dict[str, Any]:
         """Converts result to JSON-serializable dictionary for API responses.
 
         Returns:
-            Dictionary with operation stats, track details, and metrics summary
+            Dictionary with operation stats, summary metrics, track details, and per-track metrics
         """
-        result = {
+        result: dict[str, Any] = {
             "operation_name": self.operation_name,
             "execution_time": self.execution_time,
             "track_count": len(self.tracks),
-            "tracks": [
+        }
+
+        # Add summary metrics
+        if self.summary_metrics.metrics:
+            result["summary_metrics"] = [
+                {
+                    "name": m.name,
+                    "value": m.value,
+                    "label": m.label,
+                    "format": m.format,
+                }
+                for m in self.summary_metrics.sorted()
+            ]
+
+        # Add metadata if present
+        if self.metadata:
+            result["metadata"] = self.metadata.copy()
+
+        # Add track details
+        if self.tracks:
+            result["tracks"] = [
                 {
                     "id": t.id,
                     "title": t.title,
@@ -605,8 +516,11 @@ class OperationResult:
                     },
                 }
                 for t in self.tracks
-            ],
-            "metrics_summary": {
+            ]
+
+        # Add per-track metrics summary if present
+        if self.metrics:
+            result["per_track_metrics_summary"] = {
                 name: {
                     "total_tracks": len(values),
                     "avg_value": (
@@ -619,37 +533,7 @@ class OperationResult:
                     else None,
                 }
                 for name, values in self.metrics.items()
-            },
-        }
-
-        # Only include unified count fields that have been set (not None)
-        if self.imported_count is not None:
-            result["imported_count"] = self.imported_count
-        if self.exported_count is not None:
-            result["exported_count"] = self.exported_count
-        if self.filtered_count is not None:
-            result["filtered_count"] = self.filtered_count
-        if self.duplicate_count is not None:
-            result["duplicate_count"] = self.duplicate_count
-        if self.error_count is not None:
-            result["error_count"] = self.error_count
-        if self.already_liked is not None:
-            result["already_liked"] = self.already_liked
-        if self.candidates is not None:
-            result["candidates"] = self.candidates
-
-        # Only include computed properties if they're meaningful (not None)
-        if self.total_processed is not None:
-            result["total_processed"] = self.total_processed
-        if self.success_rate is not None:
-            result["success_rate"] = self.success_rate
-        if self.efficiency_rate is not None:
-            result["efficiency_rate"] = self.efficiency_rate
-
-        # Add play-based metrics if this is a play operation
-        if self.plays_processed > 0:
-            result["plays_processed"] = self.plays_processed
-            result["play_metrics"] = self.play_metrics.copy()
+            }
 
         return result
 
