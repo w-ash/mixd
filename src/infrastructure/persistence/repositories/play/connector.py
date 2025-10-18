@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from toolz import partition_all
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay
+from src.domain.entities import ConnectorTrackPlay, ensure_utc
 from src.infrastructure.persistence.database.db_models import DBConnectorPlay
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -62,18 +62,10 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         # Prepare data for bulk insert by converting domain objects to db format
         play_data = []
         for play in new_plays:
-            # Ensure datetime fields are timezone-aware
-            played_at = play.played_at
-            if played_at.tzinfo is None:
-                played_at = played_at.replace(tzinfo=UTC)
-
-            import_timestamp = play.import_timestamp
-            if import_timestamp and import_timestamp.tzinfo is None:
-                import_timestamp = import_timestamp.replace(tzinfo=UTC)
-
-            resolved_at = play.resolved_at
-            if resolved_at and resolved_at.tzinfo is None:
-                resolved_at = resolved_at.replace(tzinfo=UTC)
+            # Ensure datetime fields are timezone-aware using utility function
+            played_at = ensure_utc(play.played_at)
+            import_timestamp = ensure_utc(play.import_timestamp)
+            resolved_at = ensure_utc(play.resolved_at)
 
             # Build raw metadata from ConnectorTrackPlay fields
             raw_metadata = {
@@ -278,10 +270,8 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
 
             # Convert to set of tuples for fast lookup
             for play in existing_db_plays:
-                # Normalize timezone for consistent comparison
-                played_at = play.played_at
-                if played_at.tzinfo is None:
-                    played_at = played_at.replace(tzinfo=UTC)
+                # Normalize timezone for consistent comparison using utility function
+                played_at = ensure_utc(play.played_at)
 
                 existing_keys.add((
                     play.connector_name,
@@ -299,10 +289,8 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         new_plays = []
 
         for play in plays:
-            # Normalize timezone for consistent comparison
-            played_at = play.played_at
-            if played_at.tzinfo is None:
-                played_at = played_at.replace(tzinfo=UTC)
+            # Normalize timezone for consistent comparison using utility function
+            played_at = ensure_utc(play.played_at)
 
             play_key = (
                 play.connector_name,

@@ -212,189 +212,216 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         return updated_tracks
 
-    async def _manage_playlist_tracks(
+    async def _create_playlist_tracks(
         self,
         playlist_id: int,
         entries: list[PlaylistEntry],
-        operation: str = "create",
     ) -> None:
-        """Manage playlist-track associations with bulk database operations.
+        """Create initial playlist-track associations for a new playlist.
 
-        Handles initial track assignment and subsequent reordering/updates.
-        Preserves 'added_at' timestamps from PlaylistEntry metadata.
+        Uses bulk insert for optimal performance with new playlists.
 
         Args:
             playlist_id: Target playlist database ID.
             entries: Ordered list of playlist entries (track + position metadata).
-            operation: Either 'create' for new playlist or 'update' for existing.
         """
         if not entries:
             return
 
         now = datetime.now(UTC)
 
-        if operation == "create":
-            # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
-            values = []
-            for idx, entry in enumerate(entries):
-                if entry.track.id is None:
-                    continue
+        # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
+        values = []
+        for idx, entry in enumerate(entries):
+            if entry.track.id is None:
+                continue
 
+            # Direct access to added_at from PlaylistEntry - clean architecture!
+            added_at = entry.added_at
+            if added_at:
+                logger.debug(
+                    "Using added_at from PlaylistEntry for create operation",
+                    track_id=entry.track.id,
+                    added_at=added_at,
+                )
+
+            values.append({
+                "playlist_id": playlist_id,
+                "track_id": entry.track.id,
+                "sort_key": self._generate_sort_key(idx),
+                "added_at": added_at,
+                "created_at": now,
+                "updated_at": now,
+            })
+
+        if values:
+            await self.session.execute(insert(DBPlaylistTrack).values(values))
+            await self.session.flush()
+
+    async def _update_playlist_tracks(
+        self,
+        playlist_id: int,
+        entries: list[PlaylistEntry],
+    ) -> None:
+        """Update existing playlist-track associations preserving metadata.
+
+        Uses consumption-based matching to preserve track membership instances
+        when tracks are reordered. Only updates sort_key while preserving
+        added_at timestamps and record IDs.
+
+        Args:
+            playlist_id: Target playlist database ID.
+            entries: Ordered list of playlist entries (track + position metadata).
+        """
+        if not entries:
+            return
+
+        now = datetime.now(UTC)
+
+        # CRITICAL: DBPlaylistTrack records represent "track membership instances"
+        # NOT "position slots". When tracks move, we update the SAME record's sort_key,
+        # preserving its id, added_at, and other metadata.
+        #
+        # Algorithm: Consumption-based matching by track identity
+        # 1. Build pool of available records grouped by track_id
+        # 2. For each target position, consume one record for that track
+        # 3. Reuse record (preserve id, added_at) by updating only sort_key
+        # 4. Delete unconsumed records (removed tracks)
+        # 5. Create new records only for genuinely new memberships
+
+        # Get all existing playlist track records
+        stmt = (
+            select(DBPlaylistTrack)
+            .where(DBPlaylistTrack.playlist_id == playlist_id)
+        )
+        result = await self.session.scalars(stmt)
+        existing_records = list(result.all())
+
+        # Build consumption pool: track_id → list of available records
+        # This allows handling duplicate tracks (same track_id, multiple records)
+        from collections import defaultdict
+        available_records = defaultdict(list)
+        for record in existing_records:
+            available_records[record.track_id].append(record)
+
+        logger.debug(
+            f"Playlist update: {len(existing_records)} existing records, "
+            f"{len(available_records)} unique tracks, "
+            f"{len(entries)} target entries"
+        )
+
+        records_to_update = []
+        records_to_create = []
+
+        # Consume records for each target position
+        for idx, entry in enumerate(entries):
+            if entry.track.id is None:
+                logger.warning(f"Skipping entry without track ID at position {idx}")
+                continue
+
+            sort_key = self._generate_sort_key(idx)
+
+            if available_records[entry.track.id]:
+                # CONSUME one existing record for this track
+                # This preserves the record's id and added_at metadata
+                record = available_records[entry.track.id].pop(0)
+                record.sort_key = sort_key  # Update position only
+                record.updated_at = now
+                records_to_update.append(record)
+
+                logger.debug(
+                    f"Reusing record {record.id} for track {entry.track.id} at position {idx}"
+                )
+            else:
+                # No existing record for this track - create new membership instance
                 # Direct access to added_at from PlaylistEntry - clean architecture!
                 added_at = entry.added_at
                 if added_at:
                     logger.debug(
-                        "Using added_at from PlaylistEntry for create operation",
+                        "Using added_at from PlaylistEntry for new record",
                         track_id=entry.track.id,
                         added_at=added_at,
                     )
 
-                values.append({
-                    "playlist_id": playlist_id,
-                    "track_id": entry.track.id,
-                    "sort_key": self._generate_sort_key(idx),
-                    "added_at": added_at,
-                    "created_at": now,
-                    "updated_at": now,
-                })
-
-            if values:
-                await self.session.execute(insert(DBPlaylistTrack).values(values))
-                await self.session.flush()
-
-        elif operation == "update":
-            # CRITICAL: DBPlaylistTrack records represent "track membership instances"
-            # NOT "position slots". When tracks move, we update the SAME record's sort_key,
-            # preserving its id, added_at, and other metadata.
-            #
-            # Algorithm: Consumption-based matching by track identity
-            # 1. Build pool of available records grouped by track_id
-            # 2. For each target position, consume one record for that track
-            # 3. Reuse record (preserve id, added_at) by updating only sort_key
-            # 4. Delete unconsumed records (removed tracks)
-            # 5. Create new records only for genuinely new memberships
-
-            # Get all existing playlist track records
-            stmt = (
-                select(DBPlaylistTrack)
-                .where(DBPlaylistTrack.playlist_id == playlist_id)
-            )
-            result = await self.session.scalars(stmt)
-            existing_records = list(result.all())
-
-            # Build consumption pool: track_id → list of available records
-            # This allows handling duplicate tracks (same track_id, multiple records)
-            from collections import defaultdict
-            available_records = defaultdict(list)
-            for record in existing_records:
-                available_records[record.track_id].append(record)
-
-            logger.debug(
-                f"Playlist update: {len(existing_records)} existing records, "
-                f"{len(available_records)} unique tracks, "
-                f"{len(entries)} target entries"
-            )
-
-            records_to_update = []
-            records_to_create = []
-
-            # Consume records for each target position
-            for idx, entry in enumerate(entries):
-                if entry.track.id is None:
-                    logger.warning(f"Skipping entry without track ID at position {idx}")
-                    continue
-
-                sort_key = self._generate_sort_key(idx)
-
-                if available_records[entry.track.id]:
-                    # CONSUME one existing record for this track
-                    # This preserves the record's id and added_at metadata
-                    record = available_records[entry.track.id].pop(0)
-                    record.sort_key = sort_key  # Update position only
-                    record.updated_at = now
-                    records_to_update.append(record)
-
-                    logger.debug(
-                        f"Reusing record {record.id} for track {entry.track.id} at position {idx}"
+                records_to_create.append(
+                    DBPlaylistTrack(
+                        playlist_id=playlist_id,
+                        track_id=entry.track.id,
+                        sort_key=sort_key,
+                        added_at=added_at,
+                        created_at=now,
+                        updated_at=now,
                     )
-                else:
-                    # No existing record for this track - create new membership instance
-                    # Direct access to added_at from PlaylistEntry - clean architecture!
-                    added_at = entry.added_at
-                    if added_at:
-                        logger.debug(
-                            "Using added_at from PlaylistEntry for new record",
-                            track_id=entry.track.id,
-                            added_at=added_at,
-                        )
+                )
 
-                    records_to_create.append(
-                        DBPlaylistTrack(
-                            playlist_id=playlist_id,
-                            track_id=entry.track.id,
-                            sort_key=sort_key,
-                            added_at=added_at,
-                            created_at=now,
-                            updated_at=now,
-                        )
-                    )
+                logger.debug(
+                    f"Creating new record for track {entry.track.id} at position {idx}"
+                )
 
-                    logger.debug(
-                        f"Creating new record for track {entry.track.id} at position {idx}"
-                    )
+        # Collect unconsumed records (tracks removed from playlist)
+        records_to_delete = []
+        for track_id, remaining_records in available_records.items():
+            for record in remaining_records:
+                records_to_delete.append(record)
+                logger.debug(
+                    f"Deleting unconsumed record {record.id} for track {track_id}"
+                )
 
-            # Collect unconsumed records (tracks removed from playlist)
-            records_to_delete = []
-            for track_id, remaining_records in available_records.items():
-                for record in remaining_records:
-                    records_to_delete.append(record)
-                    logger.debug(
-                        f"Deleting unconsumed record {record.id} for track {track_id}"
-                    )
+        # Execute database operations
+        if records_to_update:
+            self.session.add_all(records_to_update)
+            logger.debug(f"Updating {len(records_to_update)} existing records")
 
-            # Execute database operations
-            if records_to_update:
-                self.session.add_all(records_to_update)
-                logger.debug(f"Updating {len(records_to_update)} existing records")
+        if records_to_create:
+            self.session.add_all(records_to_create)
+            logger.debug(f"Creating {len(records_to_create)} new records")
 
-            if records_to_create:
-                self.session.add_all(records_to_create)
-                logger.debug(f"Creating {len(records_to_create)} new records")
+        if records_to_delete:
+            for record in records_to_delete:
+                await self.session.delete(record)
+            logger.debug(f"Deleting {len(records_to_delete)} removed records")
 
-            if records_to_delete:
-                for record in records_to_delete:
-                    await self.session.delete(record)
-                logger.debug(f"Deleting {len(records_to_delete)} removed records")
+        await self.session.flush()
 
-            await self.session.flush()
-
-    async def _manage_connector_mappings(
+    async def _manage_playlist_tracks(
         self,
         playlist_id: int,
-        connector_ids: dict[str, str],
-        operation: str = "create",
+        entries: list[PlaylistEntry],
+        is_update: bool,
     ) -> None:
-        """Manage external service ID mappings for playlist synchronization.
-
-        Links internal playlist ID with external service identifiers for syncing
-        across Spotify, Last.fm, MusicBrainz, etc.
+        """Manage playlist-track associations (delegates to focused methods).
 
         Args:
-            playlist_id: Internal database playlist ID.
-            connector_ids: Map of service names to external playlist IDs.
-            operation: Either 'create' for new mappings or 'update' for existing.
+            playlist_id: Target playlist database ID.
+            entries: Ordered list of playlist entries (track + position metadata).
+            is_update: True for existing playlists, False for new playlists.
         """
-        if not connector_ids:
-            return
+        if is_update:
+            await self._update_playlist_tracks(playlist_id, entries)
+        else:
+            await self._create_playlist_tracks(playlist_id, entries)
 
+    async def _ensure_connector_playlists(
+        self, connector_ids: dict[str, str]
+    ) -> dict[str, int]:
+        """Ensure connector playlists exist and return their database IDs.
+
+        Creates minimal connector playlist entries if they don't exist yet,
+        allowing mappings to work before full playlist sync.
+
+        Args:
+            connector_ids: Map of service names to external playlist IDs.
+
+        Returns:
+            Map of connector names to their database IDs.
+        """
         from src.infrastructure.persistence.database.db_models import (
             DBConnectorPlaylist,
         )
 
         now = datetime.now(UTC)
-
-        # First ensure connector playlists exist and get their database IDs
         connector_playlist_db_ids = {}
+
         for connector_name, external_id in connector_ids.items():
             # Check if connector playlist exists
             stmt = select(DBConnectorPlaylist).where(
@@ -408,7 +435,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 connector_playlist_db_ids[connector_name] = connector_playlist.id
             else:
                 # Create minimal connector playlist entry if it doesn't exist
-                # This allows mappings to work even if the full playlist sync hasn't happened yet
                 new_connector_playlist = DBConnectorPlaylist(
                     connector_name=connector_name,
                     connector_playlist_identifier=external_id,
@@ -430,71 +456,137 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 await self.session.refresh(new_connector_playlist)
                 connector_playlist_db_ids[connector_name] = new_connector_playlist.id
 
-        if operation == "create":
-            # Bulk create all mappings using connector playlist database IDs
-            values = [
-                {
+        return connector_playlist_db_ids
+
+    async def _create_connector_mappings(
+        self, playlist_id: int, connector_ids: dict[str, str]
+    ) -> None:
+        """Create initial connector mappings for a new playlist.
+
+        Uses bulk insert for optimal performance with new playlists.
+
+        Args:
+            playlist_id: Internal database playlist ID.
+            connector_ids: Map of service names to external playlist IDs.
+        """
+        if not connector_ids:
+            return
+
+        from src.infrastructure.persistence.database.db_models import (
+            DBPlaylistMapping,
+        )
+
+        now = datetime.now(UTC)
+
+        # Ensure connector playlists exist and get their database IDs
+        connector_playlist_db_ids = await self._ensure_connector_playlists(
+            connector_ids
+        )
+
+        # Bulk create all mappings
+        values = [
+            {
+                "playlist_id": playlist_id,
+                "connector_name": connector_name,
+                "connector_playlist_id": connector_playlist_db_ids[connector_name],
+                "created_at": now,
+                "updated_at": now,
+            }
+            for connector_name in connector_ids
+            if connector_name in connector_playlist_db_ids
+        ]
+
+        if values:
+            await self.session.execute(insert(DBPlaylistMapping).values(values))
+            await self.session.flush()
+
+    async def _update_connector_mappings(
+        self, playlist_id: int, connector_ids: dict[str, str]
+    ) -> None:
+        """Update connector mappings for an existing playlist.
+
+        Checks existing mappings, updates changed ones, and creates new ones.
+
+        Args:
+            playlist_id: Internal database playlist ID.
+            connector_ids: Map of service names to external playlist IDs.
+        """
+        if not connector_ids:
+            return
+
+        from src.infrastructure.persistence.database.db_models import (
+            DBPlaylistMapping,
+        )
+
+        now = datetime.now(UTC)
+
+        # Ensure connector playlists exist and get their database IDs
+        connector_playlist_db_ids = await self._ensure_connector_playlists(
+            connector_ids
+        )
+
+        # Get existing mappings
+        stmt = select(DBPlaylistMapping).where(
+            DBPlaylistMapping.playlist_id == playlist_id,
+        )
+        result = await self.session.scalars(stmt)
+        existing = {m.connector_name: m for m in result.all()}
+
+        # Track updates and new additions
+        new_mappings = []
+        update_mappings = []
+
+        # Process each mapping
+        for connector_name in connector_ids:
+            if connector_name not in connector_playlist_db_ids:
+                continue  # Skip if we couldn't resolve the connector playlist
+
+            connector_playlist_db_id = connector_playlist_db_ids[connector_name]
+
+            if connector_name in existing:
+                # Update if connector playlist ID changed
+                mapping = existing[connector_name]
+                if mapping.connector_playlist_id != connector_playlist_db_id:
+                    mapping.connector_playlist_id = connector_playlist_db_id
+                    mapping.updated_at = now
+                    update_mappings.append(mapping)
+            else:
+                # Add new mapping
+                new_mappings.append({
                     "playlist_id": playlist_id,
                     "connector_name": connector_name,
-                    "connector_playlist_id": connector_playlist_db_ids[connector_name],
+                    "connector_playlist_id": connector_playlist_db_id,
                     "created_at": now,
                     "updated_at": now,
-                }
-                for connector_name in connector_ids
-                if connector_name in connector_playlist_db_ids
-            ]
+                })
 
-            if values:
-                await self.session.execute(insert(DBPlaylistMapping).values(values))
-                await self.session.flush()
+        # Execute updates
+        if update_mappings:
+            self.session.add_all(update_mappings)
 
-        elif operation == "update":
-            # Get existing mappings
-            stmt = select(DBPlaylistMapping).where(
-                DBPlaylistMapping.playlist_id == playlist_id,
-            )
-            result = await self.session.scalars(stmt)
-            existing = {m.connector_name: m for m in result.all()}
+        # Execute inserts
+        if new_mappings:
+            await self.session.execute(insert(DBPlaylistMapping).values(new_mappings))
 
-            # Track updates and new additions
-            new_mappings = []
-            update_mappings = []
+        await self.session.flush()
 
-            # Process each mapping
-            for connector_name in connector_ids:
-                if connector_name not in connector_playlist_db_ids:
-                    continue  # Skip if we couldn't resolve the connector playlist
+    async def _manage_connector_mappings(
+        self,
+        playlist_id: int,
+        connector_ids: dict[str, str],
+        is_update: bool,
+    ) -> None:
+        """Manage connector mappings (delegates to focused methods).
 
-                connector_playlist_db_id = connector_playlist_db_ids[connector_name]
-
-                if connector_name in existing:
-                    # Update if connector playlist ID changed
-                    mapping = existing[connector_name]
-                    if mapping.connector_playlist_id != connector_playlist_db_id:
-                        mapping.connector_playlist_id = connector_playlist_db_id
-                        mapping.updated_at = now
-                        update_mappings.append(mapping)
-                else:
-                    # Add new mapping
-                    new_mappings.append({
-                        "playlist_id": playlist_id,
-                        "connector_name": connector_name,
-                        "connector_playlist_id": connector_playlist_db_id,
-                        "created_at": now,
-                        "updated_at": now,
-                    })
-
-            # Execute updates
-            if update_mappings:
-                self.session.add_all(update_mappings)
-
-            # Execute inserts
-            if new_mappings:
-                await self.session.execute(
-                    insert(DBPlaylistMapping).values(new_mappings)
-                )
-
-            await self.session.flush()
+        Args:
+            playlist_id: Internal database playlist ID.
+            connector_ids: Map of service names to external playlist IDs.
+            is_update: True if updating existing playlist, False if creating new.
+        """
+        if is_update:
+            await self._update_connector_mappings(playlist_id, connector_ids)
+        else:
+            await self._create_connector_mappings(playlist_id, connector_ids)
 
     # -------------------------------------------------------------------------
     # UTILITY METHODS
@@ -594,7 +686,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         playlist: Playlist,
     ) -> Playlist:
-        """Create new playlist with all tracks and external mappings atomically.
+        """Create or update playlist with all tracks and external mappings atomically.
+
+        Uses playlist.id to detect create vs update operation. This unified method
+        eliminates duplication between create and update paths.
 
         Args:
             playlist: Playlist entity with tracks and connector IDs.
@@ -614,7 +709,15 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
     async def _save_playlist_impl(self, playlist: Playlist) -> Playlist:
-        """Execute playlist creation with tracks and mappings."""
+        """Execute playlist create/update with tracks and mappings (unified implementation).
+
+        This method handles both creation and updates, detecting the operation
+        based on playlist.id existence. All shared logic (track persistence,
+        entry rebuilding, relationship management) is consolidated here.
+        """
+        # Detect create vs update based on playlist.id
+        is_update = playlist.id is not None
+
         # Determine source connector if available
         source_connector = self._determine_source_connector(
             playlist.connector_playlist_identifiers
@@ -638,126 +741,61 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             for idx in range(len(playlist.entries))
         ]
 
-        # Create the playlist DB entity
-        db_playlist = self.mapper.to_db(playlist)
-        self.session.add(db_playlist)
-        await self.session.flush()
-        await self.session.refresh(db_playlist)
+        # Create or update the playlist DB entity
+        playlist_id: int
+        if is_update:
+            # Update existing playlist
+            if playlist.id is None:
+                raise ValueError("Cannot update playlist without an ID")
 
-        # Ensure we got an ID
-        if db_playlist.id is None:
-            raise ValueError("Failed to create playlist: no ID was generated")
+            actual_track_count = len([
+                entry.track for entry in updated_entries if entry.track.id is not None
+            ])
 
-        # Add mappings and entries with batch operations
-        await self._manage_connector_mappings(
-            db_playlist.id,
-            playlist.connector_playlist_identifiers,
-            operation="create",
-        )
+            updates = {
+                "name": playlist.name,
+                "description": playlist.description,
+                "track_count": actual_track_count,
+                "updated_at": datetime.now(UTC),
+            }
+
+            await self.session.execute(
+                update(self.model_class)
+                .where(self.model_class.id == playlist.id)
+                .values(**updates)
+            )
+            playlist_id = playlist.id
+        else:
+            # Create new playlist
+            db_playlist = self.mapper.to_db(playlist)
+            self.session.add(db_playlist)
+            await self.session.flush()
+            await self.session.refresh(db_playlist)
+
+            # Ensure we got an ID
+            if db_playlist.id is None:
+                raise ValueError("Failed to create playlist: no ID was generated")
+
+            playlist_id = db_playlist.id
+
+        # Manage playlist tracks (unified for both create and update)
         await self._manage_playlist_tracks(
-            db_playlist.id,
+            playlist_id,
             updated_entries,
-            operation="create",
+            is_update,
         )
 
-        # Return a fresh copy with all relationships eager-loaded
-        return await self.get_playlist_by_id(db_playlist.id)
-
-    @db_operation("update_playlist")
-    async def update_playlist(
-        self,
-        playlist_id: int,
-        playlist: Playlist,
-    ) -> Playlist:
-        """Update existing playlist metadata, tracks, and external mappings.
-
-        Args:
-            playlist_id: Database ID of playlist to update.
-            playlist: Updated playlist data.
-
-        Returns:
-            Updated playlist entity.
-
-        Raises:
-            ValueError: If playlist lacks required name.
-        """
-        if not playlist.name:
-            raise ValueError("Playlist must have a name")
-
-        # Execute in a transaction using base repository method
-        return await self.execute_transaction(
-            lambda: self._update_playlist_impl(playlist_id, playlist)
-        )
-
-    async def _update_playlist_impl(
-        self,
-        playlist_id: int,
-        playlist: Playlist,
-    ) -> Playlist:
-        """Execute playlist update with track reordering and mapping sync."""
-        # Count actual tracks that will be inserted (not input count)
-        actual_track_count = len([
-            entry.track for entry in playlist.entries if entry.track.id is not None
-        ])
-
-        # Update basic properties using base repository's update method
-        updates = {
-            "name": playlist.name,
-            "description": playlist.description,
-            "track_count": actual_track_count,  # Use actual count, not input count
-            "updated_at": datetime.now(UTC),
-        }
-
-        # Update core properties
-        await self.session.execute(
-            update(self.model_class)
-            .where(
-                self.model_class.id == playlist_id,
-            )
-            .values(**updates),
-        )
-
-        # Determine source connector if available
-        source_connector = self._determine_source_connector(
-            playlist.connector_playlist_identifiers
-        )
-
-        # Process entries and mappings
-        if playlist.entries:
-            # Extract tracks from entries for persistence
-            tracks_to_save = [entry.track for entry in playlist.entries]
-            updated_tracks = await self._save_new_tracks(
-                tracks_to_save,
-                connector=source_connector,
-            )
-
-            # Rebuild entries with persisted tracks (preserving added_at metadata)
-            updated_entries = [
-                PlaylistEntry(
-                    track=updated_tracks[idx],
-                    added_at=playlist.entries[idx].added_at,
-                    added_by=playlist.entries[idx].added_by,
-                )
-                for idx in range(len(playlist.entries))
-            ]
-
-            await self._manage_playlist_tracks(
-                playlist_id,
-                updated_entries,
-                operation="update",
-            )
-
-        # Update connector mappings
+        # Manage connector mappings (unified for both create and update)
         await self._manage_connector_mappings(
             playlist_id,
             playlist.connector_playlist_identifiers,
-            operation="update",
+            is_update,
         )
 
         # Flush changes to ensure they're visible to subsequent queries
         await self.session.flush()
 
-        # Return the updated playlist with all relationships
+        # Return a fresh copy with all relationships eager-loaded
         return await self.get_playlist_by_id(playlist_id)
 
     @db_operation("playlist delete")

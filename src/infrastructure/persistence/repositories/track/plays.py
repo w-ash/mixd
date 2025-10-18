@@ -1,6 +1,6 @@
 """Track repository for play operations."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from attrs import define
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from toolz import groupby, partition_all
 
 from src.config import get_logger
-from src.domain.entities import TrackPlay
+from src.domain.entities import TrackPlay, ensure_utc
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
@@ -32,14 +32,12 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
     @staticmethod
     async def to_domain(db_model: DBTrackPlay) -> TrackPlay:
         """Convert database play to domain model."""
-        # Ensure datetime fields are timezone-aware
-        played_at = db_model.played_at
-        if played_at and played_at.tzinfo is None:
-            played_at = played_at.replace(tzinfo=UTC)
-
-        import_timestamp = db_model.import_timestamp
-        if import_timestamp and import_timestamp.tzinfo is None:
-            import_timestamp = import_timestamp.replace(tzinfo=UTC)
+        # Ensure datetime fields are timezone-aware using utility function
+        # played_at is required (non-None) in the database model
+        played_at = ensure_utc(db_model.played_at)
+        if played_at is None:
+            raise ValueError("TrackPlay requires a non-None played_at timestamp")
+        import_timestamp = ensure_utc(db_model.import_timestamp)
 
         return TrackPlay(
             track_id=db_model.track_id,
@@ -150,8 +148,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         if not plays:
             return set()
 
-        from datetime import UTC
-
         existing_keys = set()
 
         # Batch plays to avoid SQLite expression tree limit (max depth 1000)
@@ -190,10 +186,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             # Convert to set of tuples for fast lookup
             # Normalize timezone to handle timezone-aware vs timezone-naive comparison
             for play in existing_db_plays:
-                # Ensure played_at has UTC timezone for consistent comparison
-                played_at = play.played_at
-                if played_at.tzinfo is None:
-                    played_at = played_at.replace(tzinfo=UTC)
+                # Ensure played_at has UTC timezone for consistent comparison using utility function
+                played_at = ensure_utc(play.played_at)
                 existing_keys.add((
                     play.track_id,
                     play.service,
@@ -210,12 +204,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         new_plays = []
 
         for play in plays:
-            # Normalize timezone for consistent comparison
-            from datetime import UTC
-
-            played_at = play.played_at
-            if played_at.tzinfo is None:
-                played_at = played_at.replace(tzinfo=UTC)
+            # Normalize timezone for consistent comparison using utility function
+            played_at = ensure_utc(play.played_at)
 
             play_key = (play.track_id, play.service, played_at, play.ms_played)
             if play_key not in existing_keys:
@@ -301,17 +291,13 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         # Calculate period plays if requested
         if "period_plays" in metrics and period_start and period_end:
-            # Ensure timezone consistency - if periods are naive, assume UTC
-            start_aware = (
-                period_start.replace(tzinfo=UTC)
-                if period_start.tzinfo is None
-                else period_start
-            )
-            end_aware = (
-                period_end.replace(tzinfo=UTC)
-                if period_end.tzinfo is None
-                else period_end
-            )
+            # Ensure timezone consistency using utility function
+            start_aware = ensure_utc(period_start)
+            end_aware = ensure_utc(period_end)
+
+            # Both timestamps are required for period comparison
+            if start_aware is None or end_aware is None:
+                raise ValueError("Period start and end must be non-None timestamps")
 
             logger.debug(
                 "Period play comparison setup",
@@ -327,18 +313,23 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 matching_plays = []
                 for play in track_plays:
                     try:
-                        # Defensive validation - ensure play.played_at is timezone-aware
+                        # Defensive validation - ensure play.played_at is timezone-aware using utility function
+                        play_played_at_aware = ensure_utc(play.played_at)
+                        if play_played_at_aware is None:
+                            logger.warning(
+                                "Skipping play with None played_at",
+                                play_id=play.id,
+                                track_id=play.track_id,
+                            )
+                            continue
+
                         if play.played_at.tzinfo is None:
                             logger.warning(
-                                "Found timezone-naive play.played_at, converting to UTC",
+                                "Found timezone-naive play.played_at, converted to UTC",
                                 play_id=play.id,
                                 track_id=play.track_id,
                                 played_at=play.played_at,
                             )
-                            # Convert naive datetime to UTC for comparison
-                            play_played_at_aware = play.played_at.replace(tzinfo=UTC)
-                        else:
-                            play_played_at_aware = play.played_at
 
                         if start_aware <= play_played_at_aware <= end_aware:
                             matching_plays.append(play)

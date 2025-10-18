@@ -336,7 +336,6 @@ class UpdateConnectorPlaylistUseCase:
             )
             raise
 
-
     async def execute(
         self, command: UpdateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> UpdateConnectorPlaylistResult:

@@ -2,62 +2,25 @@
 
 from datetime import UTC, datetime
 
-from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import TrackLike
 from src.infrastructure.persistence.database.db_models import DBTrackLike
 from src.infrastructure.persistence.repositories.base_repo import (
-    BaseModelMapper,
     BaseRepository,
+    SimpleMapperFactory,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
 
 
-@define(frozen=True, slots=True)
-class TrackLikeMapper(BaseModelMapper[DBTrackLike, TrackLike]):
-    """Maps between DBTrackLike and TrackLike domain models."""
-
-    @staticmethod
-    def get_default_relationships() -> list[str]:
-        """Return relationships to eagerly load for track likes.
-
-        Following SQLAlchemy 2.0 best practices, we specify which relationships
-        should be eagerly loaded. For TrackLike, we typically don't need to load
-        the related track object since we're usually just working with the like
-        status itself. If needed, consumers can explicitly request track loading.
-        """
-        return []  # Don't eagerly load track by default for performance
-
-    @staticmethod
-    async def to_domain(db_model: DBTrackLike) -> TrackLike:
-        """Convert database like to domain model."""
-        if not db_model:
-            return None
-
-        return TrackLike(
-            track_id=db_model.track_id,
-            service=db_model.service,
-            is_liked=db_model.is_liked,
-            liked_at=db_model.liked_at,
-            last_synced=db_model.last_synced,
-            id=db_model.id,
-        )
-
-    @staticmethod
-    def to_db(domain_model: TrackLike) -> DBTrackLike:
-        """Convert domain like to database model."""
-        return DBTrackLike(
-            id=domain_model.id,
-            track_id=domain_model.track_id,
-            service=domain_model.service,
-            is_liked=domain_model.is_liked,
-            liked_at=domain_model.liked_at,
-            last_synced=domain_model.last_synced,
-        )
+# Use SimpleMapperFactory to eliminate boilerplate - this replaces ~42 lines of repetitive code
+TrackLikeMapper = SimpleMapperFactory.create(
+    DBTrackLike,
+    TrackLike,
+)
 
 
 class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):

@@ -39,7 +39,6 @@ __all__ = [
     # Track combination
     "concatenate",
     "create_pipeline",
-    "optional_tracklist_transform",
     # Track filtering
     "exclude_artists",
     "exclude_tracks",
@@ -49,6 +48,7 @@ __all__ = [
     "interleave",
     # Track selection
     "limit",
+    "optional_tracklist_transform",
     "rename",
     "reorder_to_match_target",
     "sample_random",

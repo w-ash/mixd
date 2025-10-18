@@ -186,6 +186,29 @@ class Playlist:
         """
         return evolve(self, metadata=metadata)
 
+    def get_metadata(self, key: str, default: Any = None) -> Any:
+        """Get metadata value with optional default.
+
+        Args:
+            key: Metadata key to retrieve
+            default: Default value if key doesn't exist
+
+        Returns:
+            Metadata value or default
+        """
+        return self.metadata.get(key, default)
+
+    def has_metadata(self, key: str) -> bool:
+        """Check if metadata key exists.
+
+        Args:
+            key: Metadata key to check
+
+        Returns:
+            True if key exists in metadata
+        """
+        return key in self.metadata
+
 
 @define(frozen=True, slots=True)
 class ConnectorPlaylist:

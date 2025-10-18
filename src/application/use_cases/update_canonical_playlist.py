@@ -91,7 +91,7 @@ class UpdateCanonicalPlaylistResult:
 
     playlist: Playlist
     operations_performed: int = 0
-    operation_counts: OperationCounts = field(factory=lambda: OperationCounts())
+    operation_counts: OperationCounts = field(factory=OperationCounts)
     execution_time_ms: int = 0
     confidence_score: float = 1.0
     errors: list[str] = field(factory=list)
@@ -126,7 +126,6 @@ class UpdateCanonicalPlaylistUseCase:
     metrics_service: MetricsApplicationService = field(
         factory=MetricsApplicationService
     )
-
 
     async def execute(
         self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
@@ -384,10 +383,13 @@ class UpdateCanonicalPlaylistUseCase:
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
+
+        # Ensure updated playlist has ID set for save_playlist to detect update operation
+        import attrs
+        updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.update_playlist(
-            current_playlist.id, updated_playlist
-        )
+        saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)
 
         return (saved_playlist, len(diff.operations), operation_counts)
 
@@ -429,10 +431,13 @@ class UpdateCanonicalPlaylistUseCase:
             # Persist metadata changes using update_playlist for existing playlists
             if current_playlist.id is None:
                 raise ValueError("Cannot update playlist without an ID")
+
+            # Ensure updated playlist has ID set for save_playlist to detect update operation
+            import attrs
+            updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
             playlist_repo = uow.get_playlist_repository()
-            return await playlist_repo.update_playlist(
-                current_playlist.id, updated_playlist
-            )
+            return await playlist_repo.save_playlist(updated_playlist_with_id)
 
         return current_playlist
 
@@ -495,10 +500,13 @@ class UpdateCanonicalPlaylistUseCase:
         # Persist updated playlist using update_playlist for existing playlists
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
+
+        # Ensure updated playlist has ID set for save_playlist to detect update operation
+        import attrs
+        updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.update_playlist(
-            current_playlist.id, updated_playlist
-        )
+        saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)
 
         return (
             saved_playlist,

@@ -1,7 +1,5 @@
 """CLI commands for importing and managing play history from music services."""
 
-import asyncio
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -9,13 +7,16 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
 
-from src.application.services.progress_manager import AsyncProgressManagerAdapter
-from src.application.use_cases.import_play_history import run_import
-
-# Removed: workflow_progress_context - using unified progress_coordination_context instead
+from src.application.services.batch_file_import_service import BatchFileImportService
 from src.config import settings
-from src.domain.entities.progress import NullProgressEmitter
-from src.interface.cli.console import get_console, progress_coordination_context
+from src.interface.cli.console import get_console
+from src.interface.shared.cli_helpers import (
+    parse_date_string,
+    prompt_batch_size,
+    run_import_with_progress,
+    validate_date_range,
+    validate_file_path,
+)
 from src.interface.shared.ui import display_operation_result
 
 console = get_console()
@@ -64,56 +65,18 @@ def import_lastfm_cmd(
     • Comprehensive track resolution and deduplication
     • Chronological processing (oldest → newest)
     """
-    # Note: Operation type determined by presence of date parameters
-
     # Parse and validate dates
-    from datetime import UTC
+    from_datetime = parse_date_string(from_date, "from-date")
+    to_datetime = parse_date_string(to_date, "to-date")
+    validate_date_range(from_datetime, to_datetime)
 
-    from_datetime = None
-    to_datetime = None
-    if from_date:
-        try:
-            from_datetime = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=UTC)
-        except ValueError:
-            console.print(
-                f"[red]Invalid from-date format: {from_date}. Use YYYY-MM-DD format.[/red]"
-            )
-            raise typer.Exit(1) from None
-
-    if to_date:
-        try:
-            to_datetime = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=UTC)
-        except ValueError:
-            console.print(
-                f"[red]Invalid to-date format: {to_date}. Use YYYY-MM-DD format.[/red]"
-            )
-            raise typer.Exit(1) from None
-
-    if from_datetime and to_datetime and from_datetime > to_datetime:
-        console.print("[red]from-date cannot be later than to-date[/red]")
-        raise typer.Exit(1)
-
-    # Execute the import with Rich Live Display and progress bars
-    async def _run_import_with_progress():
-        async with progress_coordination_context(show_live=True) as context:
-            # Get progress manager from unified context
-            progress_manager = context.get_progress_manager()
-
-            # Create adapter to implement ProgressEmitter protocol
-            progress_adapter = (
-                AsyncProgressManagerAdapter(progress_manager)
-                if progress_manager
-                else NullProgressEmitter()
-            )
-            return await run_import(
-                service="lastfm",
-                mode="incremental",  # Always use incremental (unified approach)
-                from_date=from_datetime,
-                to_date=to_datetime,
-                progress_emitter=progress_adapter,
-            )
-
-    result = asyncio.run(_run_import_with_progress())
+    # Execute import with unified progress context
+    result = run_import_with_progress(
+        service="lastfm",
+        mode="incremental",
+        from_date=from_datetime,
+        to_date=to_datetime,
+    )
 
     console.print("[bold green]✓ Last.fm import completed![/bold green]")
     if result:
@@ -123,11 +86,11 @@ def import_lastfm_cmd(
 @app.command(name="import-spotify")
 def import_spotify_cmd(
     file_path: Annotated[
-        Path,
+        Path | None,
         typer.Argument(
-            help="Path to your Spotify JSON export file (usually 'StreamingHistory.json' or similar)"
+            help="Path to Spotify JSON export file. If not provided, processes all Streaming_History_Audio_*.json files in data/imports/"
         ),
-    ],
+    ] = None,
     batch_size: Annotated[
         int | None,
         typer.Option(
@@ -137,26 +100,34 @@ def import_spotify_cmd(
         ),
     ] = None,
 ) -> None:
-    """Import play history from a Spotify JSON export file.
+    """Import play history from Spotify JSON export file(s).
 
     This command processes JSON files from Spotify's data export feature. To get your data:
     1. Go to Spotify Account Overview → Privacy Settings → Request Data
     2. Wait for Spotify to prepare your data (can take several days)
     3. Download and extract the files
-    4. Use the streaming history JSON files with this command
+    4. Place files in data/imports/ or provide a specific path
+
+    Without a file path: Processes all Streaming_History_Audio_*.json files in data/imports/
+    and moves them to data/imports/imported/ when complete.
+
+    With a file path: Processes the specified file only (does not move it).
 
     The import will create tracks in your local library and record when you played them.
     Large files are processed in batches to manage memory usage efficiently.
     """
-    # Validate file exists and is readable
-    if not file_path.exists():
-        console.print(f"[red]File not found: {file_path}[/red]")
-        console.print("Make sure the path is correct and the file exists.")
-        raise typer.Exit(1)
+    if file_path:
+        # Single file mode (original behavior)
+        _import_single_spotify_file(file_path, batch_size)
+    else:
+        # Batch mode: process all pending files
+        _import_all_spotify_files(batch_size)
 
-    if not file_path.is_file():
-        console.print(f"[red]Path is not a file: {file_path}[/red]")
-        raise typer.Exit(1)
+
+def _import_single_spotify_file(file_path: Path, batch_size: int | None) -> None:
+    """Import a single Spotify JSON file."""
+    # Validate file
+    validate_file_path(file_path)
 
     # Check file size and warn if very large
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
@@ -165,30 +136,71 @@ def import_spotify_cmd(
             f"[yellow]Large file detected ({file_size_mb:.1f}MB). This may take several minutes.[/yellow]"
         )
 
-    # Execute the import with Rich Live Display and progress bars
-    async def _run_spotify_import_with_progress():
-        async with progress_coordination_context(show_live=True) as context:
-            # Get progress manager from unified context
-            progress_manager = context.get_progress_manager()
-            # Create adapter to implement ProgressEmitter protocol
-            progress_adapter = (
-                AsyncProgressManagerAdapter(progress_manager)
-                if progress_manager
-                else NullProgressEmitter()
-            )
-            return await run_import(
-                service="spotify",
-                mode="file",
-                file_path=file_path,
-                batch_size=batch_size,
-                progress_emitter=progress_adapter,
-            )
+    console.print(f"[cyan]Processing:[/cyan] {file_path.name}")
 
-    result = asyncio.run(_run_spotify_import_with_progress())
+    # Execute import with unified progress context
+    result = run_import_with_progress(
+        service="spotify",
+        mode="file",
+        file_path=file_path,
+        batch_size=batch_size,
+    )
 
-    console.print("[bold green]✓ Spotify file import completed![/bold green]")
+    console.print(f"[bold green]✓ Imported {file_path.name}[/bold green]")
     if result:
         display_operation_result(result)
+
+
+def _import_all_spotify_files(batch_size: int | None) -> None:
+    """Import all Spotify JSON files from the imports directory."""
+    imports_dir = settings.import_settings.imports_dir
+    imported_dir = settings.import_settings.imported_dir
+    pattern = "Streaming_History_Audio_*.json"
+
+    # Create batch import service with import executor
+    service = BatchFileImportService(import_executor=run_import_with_progress)
+
+    # Discover files
+    pending_files = service.discover_files(imports_dir, pattern)
+
+    if not pending_files:
+        console.print(
+            f"[yellow]No Spotify history files found in {imports_dir}[/yellow]"
+        )
+        console.print(f"[dim]Looking for files matching pattern: {pattern}[/dim]")
+        return
+
+    # Display files to be imported
+    console.print(
+        f"[bold blue]Found {len(pending_files)} file(s) to import[/bold blue]"
+    )
+    for idx, file_path in enumerate(pending_files, 1):
+        console.print(f"  {idx}. {file_path.name}")
+
+    console.print()
+
+    # Execute batch import with progress tracking
+    from src.domain.entities.progress import NullProgressEmitter
+
+    # Note: Using NullProgressEmitter since each file import creates its own progress
+    result = service.import_files_batch(
+        service="spotify",
+        imports_dir=imports_dir,
+        imported_dir=imported_dir,
+        pattern=pattern,
+        batch_size=batch_size,
+        progress_emitter=NullProgressEmitter(),
+    )
+
+    # Display summary
+    console.print("\n[bold]Import Summary[/bold]")
+    console.print(f"  [green]✓ Successful:[/green] {result.successful}")
+    if result.failed > 0:
+        console.print(f"  [red]✗ Failed:[/red] {result.failed}")
+        console.print("\n[bold]Failed Files:[/bold]")
+        for failed_file in result.failed_files:
+            console.print(f"  [red]• {failed_file}[/red]")
+    console.print("[bold green]✓ Batch import completed![/bold green]")
 
 
 def _show_interactive_history_menu() -> None:
@@ -244,12 +256,9 @@ def _interactive_lastfm_import() -> None:
         from_date_str = Prompt.ask("Start date (YYYY-MM-DD) or leave empty", default="")
         to_date_str = Prompt.ask("End date (YYYY-MM-DD) or leave empty", default="")
 
-        from datetime import UTC
-
-        if from_date_str:
-            from_date = datetime.strptime(from_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
-        if to_date_str:
-            to_date = datetime.strptime(to_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        # Parse dates if provided
+        from_date = parse_date_string(from_date_str, "start date")
+        to_date = parse_date_string(to_date_str, "end date")
 
     # Execute with gathered parameters
     operation_desc = "date range" if import_type == "date-range" else "incremental"
@@ -258,26 +267,13 @@ def _interactive_lastfm_import() -> None:
         "[dim]Using smart daily chunking with automatic track resolution[/dim]"
     )
 
-    # Execute with Rich Live Display and progress bars
-    async def _run_interactive_import():
-        async with progress_coordination_context(show_live=True) as context:
-            # Get progress manager from unified context
-            progress_manager = context.get_progress_manager()
-            # Create adapter to implement ProgressEmitter protocol
-            progress_adapter = (
-                AsyncProgressManagerAdapter(progress_manager)
-                if progress_manager
-                else NullProgressEmitter()
-            )
-            return await run_import(
-                service="lastfm",
-                mode="incremental",  # Always use unified approach
-                from_date=from_date,
-                to_date=to_date,
-                progress_emitter=progress_adapter,
-            )
-
-    result = asyncio.run(_run_interactive_import())
+    # Execute import with unified progress context
+    result = run_import_with_progress(
+        service="lastfm",
+        mode="incremental",
+        from_date=from_date,
+        to_date=to_date,
+    )
 
     console.print("[bold green]✓ Last.fm import completed![/bold green]")
     if result:
@@ -288,43 +284,33 @@ def _interactive_spotify_import() -> None:
     """Interactive Spotify file import configuration."""
     console.print("\n[bold]Spotify File Import Configuration[/bold]")
 
-    file_path_str = Prompt.ask("Path to Spotify JSON export file")
-    file_path = Path(file_path_str)
+    # Check for pending files in imports directory
+    imports_dir = settings.import_settings.imports_dir
+    pending_files = sorted(imports_dir.glob("Streaming_History_Audio_*.json"))
 
-    if not file_path.exists():
-        console.print(f"[red]File not found: {file_path}[/red]")
-        return
+    if pending_files:
+        console.print(
+            f"[cyan]Found {len(pending_files)} file(s) in {imports_dir}[/cyan]"
+        )
+        import_mode = Prompt.ask(
+            "Import mode",
+            choices=["batch", "single"],
+            default="batch",
+        )
+    else:
+        import_mode = "single"
 
-    batch_size_str = Prompt.ask(
-        "Batch size (leave empty for default)",
-        default="",
-    )
-    batch_size = int(batch_size_str) if batch_size_str else None
+    if import_mode == "batch":
+        batch_size = prompt_batch_size()
+        _import_all_spotify_files(batch_size)
+    else:
+        # Single file mode
+        file_path_str = Prompt.ask("Path to Spotify JSON export file")
+        file_path = Path(file_path_str)
 
-    # Execute with gathered parameters
-    console.print("\n[green]Starting Spotify file import...[/green]")
+        if not file_path.exists():
+            console.print(f"[red]File not found: {file_path}[/red]")
+            return
 
-    # Execute with Rich Live Display and progress bars
-    async def _run_interactive_spotify_import():
-        async with progress_coordination_context(show_live=True) as context:
-            # Get progress manager from unified context
-            progress_manager = context.get_progress_manager()
-            # Create adapter to implement ProgressEmitter protocol
-            progress_adapter = (
-                AsyncProgressManagerAdapter(progress_manager)
-                if progress_manager
-                else NullProgressEmitter()
-            )
-            return await run_import(
-                service="spotify",
-                mode="file",
-                file_path=file_path,
-                batch_size=batch_size,
-                progress_emitter=progress_adapter,
-            )
-
-    result = asyncio.run(_run_interactive_spotify_import())
-
-    console.print("[bold green]✓ Spotify file import completed![/bold green]")
-    if result:
-        display_operation_result(result)
+        batch_size = prompt_batch_size()
+        _import_single_spotify_file(file_path, batch_size)

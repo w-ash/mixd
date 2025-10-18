@@ -164,6 +164,77 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
         return domain_models
 
 
+class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
+    """Factory to create simple mappers for 1:1 field mappings.
+
+    This eliminates boilerplate for simple mappers that just copy fields between
+    database and domain models without complex transformations or relationship handling.
+
+    Usage:
+        TrackLikeMapper = SimpleMapperFactory.create(DBTrackLike, TrackLike)
+    """
+
+    @staticmethod
+    def create(
+        db_class: type[TDBModel], domain_class: type[TDomainModel]
+    ) -> type[BaseModelMapper[TDBModel, TDomainModel]]:
+        """Create a mapper class for the given DB and domain classes."""
+        import attrs
+
+        @define(frozen=True, slots=True)
+        class GeneratedMapper(BaseModelMapper[TDBModel, TDomainModel]):
+            """Auto-generated mapper for simple 1:1 field mappings."""
+
+            @staticmethod
+            def get_default_relationships() -> list[str]:
+                """Simple mappers typically don't need relationships loaded."""
+                return []
+
+            @staticmethod
+            async def to_domain(db_model: TDBModel) -> TDomainModel:
+                """Convert database model to domain model using attrs field mapping."""
+                if not db_model:
+                    return None
+
+                if attrs.has(domain_class):
+                    # Get all field names from the domain class
+                    field_names = [field.name for field in attrs.fields(domain_class)]
+
+                    # Extract values from db_model for each field
+                    kwargs = {}
+                    for field_name in field_names:
+                        if hasattr(db_model, field_name):
+                            kwargs[field_name] = getattr(db_model, field_name)
+
+                    return domain_class(**kwargs)
+                else:
+                    raise NotImplementedError(
+                        f"Domain class {domain_class} must use attrs.define"
+                    )
+
+            @staticmethod
+            def to_db(domain_model: TDomainModel) -> TDBModel:
+                """Convert domain model to database model using attrs field mapping."""
+                if attrs.has(type(domain_model)):
+                    # Get all attributes from the domain model
+                    domain_dict = attrs.asdict(domain_model, recurse=False)
+
+                    # Filter to only include fields that exist on the database class
+                    db_kwargs = {
+                        key: value
+                        for key, value in domain_dict.items()
+                        if hasattr(db_class, key)
+                    }
+
+                    return db_class(**db_kwargs)
+                else:
+                    raise NotImplementedError(
+                        f"Domain model {type(domain_model)} must use attrs.define"
+                    )
+
+        return GeneratedMapper
+
+
 class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     """Base repository for database operations with SQLAlchemy 2.0 best practices."""
 
@@ -177,6 +248,72 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         self.session = session
         self.model_class = model_class
         self.mapper = mapper
+
+    # -------------------------------------------------------------------------
+    # RELATIONSHIP UTILITIES
+    # -------------------------------------------------------------------------
+
+    def _extract_relationship_names(self, rel_items: list[str | Any]) -> list[str]:
+        """Extract string names from relationship list (handles strings and selectinload objects).
+
+        This utility handles the common pattern of extracting relationship attribute names
+        from a list that may contain either string names or selectinload() objects.
+
+        Args:
+            rel_items: List of relationship specifications (strings or selectinload objects)
+
+        Returns:
+            List of relationship attribute names as strings
+        """
+        rel_names = []
+        for rel_item in rel_items:
+            if isinstance(rel_item, str):
+                rel_names.append(rel_item)
+            # For selectinload objects, extract the attribute name
+            elif hasattr(rel_item, "path") and rel_item.path:
+                # Get the first path element (the direct relationship)
+                path_element = rel_item.path[0]
+                if hasattr(path_element, "key"):
+                    rel_names.append(path_element.key)
+                elif hasattr(path_element, "property") and hasattr(
+                    path_element.property, "key"
+                ):
+                    rel_names.append(path_element.property.key)
+        return rel_names
+
+    def _build_relationship_options(
+        self, rel_items: list[str | Any], skip_nested: bool = True
+    ) -> list[Any]:
+        """Build selectinload options from relationship specifications.
+
+        This utility builds a list of selectinload options for use with session.get()
+        or query options, handling both string names and existing selectinload objects.
+
+        Args:
+            rel_items: List of relationship specifications (strings or selectinload objects)
+            skip_nested: If True, skip relationships with dots in their names (default: True)
+
+        Returns:
+            List of selectinload options ready for use with SQLAlchemy queries
+        """
+        options = []
+        for rel_item in rel_items:
+            if isinstance(rel_item, str):
+                rel_name = rel_item
+                # Skip nested relationships if requested
+                if skip_nested and "." in rel_name:
+                    continue
+
+                # Only add relationships that actually exist on this model class
+                if (
+                    hasattr(self.model_class, rel_name)
+                    and rel_name in inspect(self.model_class).relationships
+                ):
+                    options.append(selectinload(getattr(self.model_class, rel_name)))
+            else:
+                # It's already a selectinload object, just use it directly
+                options.append(rel_item)
+        return options
 
     # -------------------------------------------------------------------------
     # SELECT STATEMENT BUILDERS
@@ -485,7 +622,11 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         id_: int,
         updates: dict[str, Any] | TDomainModel,
     ) -> TDomainModel:
-        """Update entity with a unified approach."""
+        """Update entity using UPDATE ... RETURNING with optimized relationship loading.
+
+        Uses identity map pattern for efficient relationship loading instead of
+        session.refresh(), reducing queries while maintaining UoW semantics.
+        """
         # Get values to update
         if isinstance(updates, dict):
             values = {**updates}
@@ -522,27 +663,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not updated_entity:
             raise ValueError(f"Entity with ID {id_} not found or already deleted")
 
-        # Return updated entity with relationships
-        # Extract string names from relationships (handle both strings and selectinload objects)
-        rel_names = []
-        for rel_item in self.mapper.get_default_relationships():
-            if isinstance(rel_item, str):
-                rel_names.append(rel_item)
-            # For selectinload objects, extract the attribute name
-            elif hasattr(rel_item, "path") and rel_item.path:
-                # Get the first path element (the direct relationship)
-                path_element = rel_item.path[0]
-                if hasattr(path_element, "key"):
-                    rel_names.append(path_element.key)
-                elif hasattr(path_element, "property") and hasattr(
-                    path_element.property, "key"
-                ):
-                    rel_names.append(path_element.property.key)
+        # Load relationships efficiently via identity map
+        await self._load_relationships_via_identity_map([updated_entity])
 
-        if rel_names:
-            await self.session.refresh(updated_entity, attribute_names=rel_names)
-        else:
-            await self.session.refresh(updated_entity)
         if has_session_support(self.mapper):
             return await cast("Any", self.mapper).to_domain_with_session(
                 updated_entity, self.session
@@ -567,6 +690,54 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             raise ValueError(f"Entity with ID {id_} not found")
 
         return len(deleted_ids)
+
+    # -------------------------------------------------------------------------
+    # RELATIONSHIP LOADING OPTIMIZATION
+    # -------------------------------------------------------------------------
+
+    async def _load_relationships_via_identity_map(
+        self,
+        db_entities: list[TDBModel],
+    ) -> None:
+        """Load relationships using selectinload + identity map pattern.
+
+        CRITICAL: This leverages SQLAlchemy's identity map to return
+        THE SAME object instances but with relationships populated.
+        Works across repository boundaries in Unit of Work.
+
+        This optimization reduces queries from O(N×R) to O(1+R) where:
+        - N = number of entities
+        - R = number of relationships
+
+        For 100 entities with 3 relationships:
+        - Before: 401 queries (1 + 100 + 300)
+        - After: 5 queries (1 + 1 + 3)
+
+        See tests:
+        - tests/unit/infrastructure/persistence/test_identity_map_behavior.py
+        - tests/unit/infrastructure/persistence/test_bulk_uow_patterns.py
+
+        Args:
+            db_entities: List of database entities already in session
+
+        Returns:
+            None (mutates entities via identity map)
+        """
+        # Early return if no entities or no relationships to load
+        if not db_entities or not self.mapper.get_default_relationships():
+            return
+
+        # Filter out entities without IDs (shouldn't happen, but defensive)
+        entity_ids = [e.id for e in db_entities if e.id is not None]
+        if not entity_ids:
+            return
+
+        # Build query with relationship options
+        stmt = select(self.model_class).where(self.model_class.id.in_(entity_ids))
+        stmt = self.with_default_relationships(stmt)
+
+        # Execute - SQLAlchemy populates relationships on original objects
+        await self.session.execute(stmt)
 
     # -------------------------------------------------------------------------
     # TRANSACTION MANAGEMENT
@@ -662,28 +833,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 )
 
                 # Fetch updated entity with basic eager loading of direct relationships only
-                options = []
-
-                # Only include direct relationships that exist on this model
-                for rel_item in self.mapper.get_default_relationships():
-                    # Handle both string names and selectinload objects
-                    if isinstance(rel_item, str):
-                        rel_name = rel_item
-                        # Skip any nested relationships containing dots
-                        if "." in rel_name:
-                            continue
-
-                        # Only add relationships that actually exist on this model class
-                        if (
-                            hasattr(self.model_class, rel_name)
-                            and rel_name in inspect(self.model_class).relationships
-                        ):
-                            options.append(
-                                selectinload(getattr(self.model_class, rel_name))
-                            )
-                    else:
-                        # It's already a selectinload object, just use it directly
-                        options.append(rel_item)
+                options = self._build_relationship_options(
+                    self.mapper.get_default_relationships()
+                )
 
                 # Use session.get with eager loading - this is the recommended pattern
                 # for safely loading entities in an async context
@@ -712,28 +864,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 new_id = result.scalar_one()
 
                 # Fetch newly created entity with basic eager loading of direct relationships only
-                options = []
-
-                # Only include direct relationships that exist on this model
-                for rel_item in self.mapper.get_default_relationships():
-                    # Handle both string names and selectinload objects
-                    if isinstance(rel_item, str):
-                        rel_name = rel_item
-                        # Skip any nested relationships containing dots
-                        if "." in rel_name:
-                            continue
-
-                        # Only add relationships that actually exist on this model class
-                        if (
-                            hasattr(self.model_class, rel_name)
-                            and rel_name in inspect(self.model_class).relationships
-                        ):
-                            options.append(
-                                selectinload(getattr(self.model_class, rel_name))
-                            )
-                    else:
-                        # It's already a selectinload object, just use it directly
-                        options.append(rel_item)
+                options = self._build_relationship_options(
+                    self.mapper.get_default_relationships()
+                )
 
                 # Use session.get with eager loading for all needed relationships
                 db_entity = await self.session.get(
@@ -762,6 +895,14 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         return_models: bool = True,
     ) -> list[TDomainModel] | int:
         """Perform bulk upsert optimized for SQLite.
+
+        Uses SQLAlchemy 2.0 INSERT ... ON CONFLICT with RETURNING clause,
+        followed by efficient relationship loading via identity map pattern.
+
+        Performance: O(1+R) queries regardless of entity count, where R is
+        the number of relationships. For 100 entities with 3 relationships:
+        - This implementation: 5 queries
+        - Naive approach: 401 queries (80x improvement)
 
         Args:
             entities: List of dictionaries with entity attributes
@@ -815,30 +956,12 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             result = await self.session.execute(stmt)
 
             if return_models:
-                db_entities = result.scalars().all()
+                db_entities = list(result.scalars().all())
 
-                # Refresh all entities to load relationships
-                for db_entity in db_entities:
-                    for rel_item in self.mapper.get_default_relationships():
-                        # Handle both string names and selectinload objects
-                        if isinstance(rel_item, str):
-                            await self.session.refresh(db_entity, [rel_item])
-                        # For selectinload objects, extract the attribute name
-                        elif hasattr(rel_item, "path") and rel_item.path:
-                            # Get the first path element (the direct relationship)
-                            path_element = rel_item.path[0]
-                            rel_name = None
-                            if hasattr(path_element, "key"):
-                                rel_name = path_element.key
-                            elif hasattr(path_element, "property") and hasattr(
-                                path_element.property, "key"
-                            ):
-                                rel_name = path_element.property.key
+                # Load relationships efficiently via identity map
+                await self._load_relationships_via_identity_map(db_entities)
 
-                            if rel_name:
-                                await self.session.refresh(db_entity, [rel_name])
-
-                return await self.mapper.map_collection(list(db_entities))
+                return await self.mapper.map_collection(db_entities)
             else:
                 return len(entities)
 

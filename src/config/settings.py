@@ -134,6 +134,12 @@ class CLIConfig(BaseModel):
 class ImportConfig(BaseModel):
     """Import processing and data quality configuration."""
 
+    # Import directory configuration
+    imports_dir: Path = Path("data/imports")  # Directory for pending import files
+    imported_dir: Path = Path(
+        "data/imports/imported"
+    )  # Archive for processed files
+
     # Play filtering thresholds
     play_threshold_ms: int = 240000  # 4 minutes fallback threshold
     play_threshold_percentage: float = 0.5  # 50% of track duration
