@@ -274,7 +274,7 @@ class EnrichTracksUseCase:
         # Step 2: Use MetricsApplicationService for cache-first metric resolution
         metrics_service = MetricsApplicationService()
 
-        metrics = await metrics_service.get_external_track_metrics(
+        metrics, fresh_ids = await metrics_service.get_external_track_metrics(
             track_ids=track_ids,
             connector=config.connector,
             metric_names=metric_names,
@@ -282,12 +282,15 @@ class EnrichTracksUseCase:
             connector_instance=config.connector_instance,
         )
 
-        # Attach metrics to tracklist metadata for consistency with existing interface
-        enriched_tracklist = tracklist.with_metadata("metrics", metrics)
+        # Attach metrics and fresh_ids to tracklist metadata
+        enriched_tracklist = tracklist.with_metadata("metrics", metrics).with_metadata(
+            "fresh_metric_ids", {k: list(v) for k, v in fresh_ids.items()}
+        )
 
         logger.info(
             f"Successfully enriched tracklist with {len(metrics)} metric types and "
-            f"{sum(len(values) for values in metrics.values())} total values"
+            f"{sum(len(values) for values in metrics.values())} total values "
+            f"({sum(len(ids) for ids in fresh_ids.values())} fresh)"
         )
 
         return enriched_tracklist, metrics

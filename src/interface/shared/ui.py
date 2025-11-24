@@ -102,7 +102,14 @@ def _display_table_result(
         metric_columns = sorted(result.metrics.keys()) if result.metrics else []
         for metric_name in metric_columns:
             display_name = metric_name.replace("_", " ").title()
-            details_table.add_column(display_name, style="yellow")
+            details_table.add_column(display_name, style="yellow", justify="right")
+
+        # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)
+        fresh_metric_ids: dict[str, list[int]] = (
+            result.tracklist.metadata.get("fresh_metric_ids", {})
+            if hasattr(result, "tracklist") and result.tracklist
+            else {}
+        )
 
         # Add track rows
         for i, track in enumerate(result.tracks, 1):
@@ -124,6 +131,9 @@ def _display_table_result(
             # Add metric values for this track
             for metric_name in metric_columns:
                 value = result.get_metric(track.id, metric_name, "—")
+                # Check if this metric was freshly fetched or from cache
+                is_fresh = track.id in fresh_metric_ids.get(metric_name, [])
+
                 match (metric_name, value):
                     case ("sync_status", str() as status):
                         emoji = {
@@ -134,9 +144,15 @@ def _display_table_result(
                         }.get(status, "❓")
                         row.append(f"{emoji} {status}")
                     case (_, float() as num):
-                        row.append(f"{num:.1f}")
+                        formatted = f"{int(num)}"
+                        row.append(formatted if is_fresh else f"[dim]{formatted}[/dim]")
                     case _:
-                        row.append(str(value))
+                        formatted = str(value)
+                        # Only dim numeric-like values, not placeholders
+                        if value != "—" and not is_fresh:
+                            row.append(f"[dim]{formatted}[/dim]")
+                        else:
+                            row.append(formatted)
 
             details_table.add_row(*row)
 

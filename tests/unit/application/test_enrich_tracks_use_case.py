@@ -88,10 +88,14 @@ class TestEnrichTracksUseCase:
         """Test successful external metadata enrichment."""
         # Arrange
         expected_metrics = {"spotify_popularity": {1: 85, 2: 92}}
+        expected_fresh_ids = {"spotify_popularity": {1, 2}}
 
         # Mock the MetricsApplicationService instance
         mock_metrics_service = AsyncMock()
-        mock_metrics_service.get_external_track_metrics.return_value = expected_metrics
+        mock_metrics_service.get_external_track_metrics.return_value = (
+            expected_metrics,
+            expected_fresh_ids,
+        )
         mock_metrics_service_class.return_value = mock_metrics_service
 
         command = EnrichTracksCommand(

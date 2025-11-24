@@ -180,7 +180,7 @@ class MetricsApplicationService:
         metric_names: list[str],
         uow: UnitOfWorkProtocol,
         connector_instance: TrackMetadataConnector | None = None,
-    ) -> dict[str, dict[int, Any]]:
+    ) -> tuple[dict[str, dict[int, Any]], dict[str, set[int]]]:
         """Get track metrics from external APIs using cache-first strategy.
 
         This is the primary method for retrieving track metrics. It handles multiple
@@ -196,11 +196,14 @@ class MetricsApplicationService:
             connector_instance: Optional connector instance for fresh metadata fetching.
 
         Returns:
-            Dictionary mapping metric names to track_id -> value mappings.
-            Example: {'popularity': {1: 85, 2: 92}, 'danceability': {1: 0.75, 2: 0.82}}
+            Tuple of (metrics_dict, fresh_ids_dict) where:
+            - metrics_dict: Dictionary mapping metric names to track_id -> value mappings.
+              Example: {'popularity': {1: 85, 2: 92}, 'danceability': {1: 0.75, 2: 0.82}}
+            - fresh_ids_dict: Dictionary mapping metric names to sets of track IDs that
+              were freshly fetched (not from cache) in this session.
         """
         if not track_ids or not metric_names:
-            return {}
+            return {}, {}
 
         logger.info(
             f"Getting external track metrics for {len(track_ids)} tracks",
@@ -222,7 +225,7 @@ class MetricsApplicationService:
 
         if not metric_names:
             logger.warning(f"No supported metrics found for connector {connector}")
-            return {}
+            return {}, {}
 
         # Build field map from registered metric configurations
         field_map = {}
@@ -235,12 +238,13 @@ class MetricsApplicationService:
 
         if not field_map:
             logger.warning("No valid field mappings found for any requested metrics")
-            return {}
+            return {}, {}
 
         # PRE-FETCH STRATEGY: SQLite-safe concurrent processing
         import asyncio
 
         result = {}
+        fresh_ids_per_metric: dict[str, set[int]] = {}
 
         # Phase 1: Single database transaction to identify missing data
         missing_tracks_per_metric = {}
@@ -354,6 +358,11 @@ class MetricsApplicationService:
                                     cached_values_per_metric[metric_name] = {}
                                 cached_values_per_metric[metric_name][track_id] = value
 
+                                # Track as freshly fetched
+                                if metric_name not in fresh_ids_per_metric:
+                                    fresh_ids_per_metric[metric_name] = set()
+                                fresh_ids_per_metric[metric_name].add(track_id)
+
                             except (ValueError, TypeError):
                                 logger.warning(
                                     f"Cannot convert {value} for {metric_name}"
@@ -380,10 +389,11 @@ class MetricsApplicationService:
 
         logger.info(
             f"Successfully retrieved {len(result)} metric types with "
-            f"{sum(len(values) for values in result.values())} total values"
+            f"{sum(len(values) for values in result.values())} total values "
+            f"({sum(len(ids) for ids in fresh_ids_per_metric.values())} freshly fetched)"
         )
 
-        return result
+        return result, fresh_ids_per_metric
 
     async def batch_process_fresh_metadata(
         self,

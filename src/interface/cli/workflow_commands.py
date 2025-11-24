@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -46,7 +46,9 @@ def run(
         str | None, typer.Argument(help="Workflow ID to execute")
     ] = None,
     show_results: Annotated[bool, typer.Option("--show-results/--no-results")] = True,
-    output_format: Annotated[str, typer.Option("--format", "-f")] = "table",
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
     quiet: Annotated[bool, typer.Option("--quiet", "-q")] = False,
 ) -> None:
     """Execute a specific workflow.
@@ -71,7 +73,9 @@ def run(
 
 @app.command()
 def list(
-    format: Annotated[str, typer.Option("--format", "-f")] = "table",
+    format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
 ) -> None:
     """List available workflow definitions.
 
@@ -156,7 +160,10 @@ def _prompt_for_workflow_selection(workflows: list[dict]) -> str | None:  # type
 
 
 def _execute_workflow(
-    workflow_id: str, show_results: bool, output_format: str, quiet: bool
+    workflow_id: str,
+    show_results: bool,
+    output_format: Literal["table", "json"],
+    quiet: bool,
 ) -> None:
     """Execute workflow with Rich progress display and error handling."""
     workflows = _get_available_workflows()
