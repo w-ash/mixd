@@ -352,11 +352,12 @@ class TestSpotifyErrorClassifier:
         assert error_type == "temporary"
         assert error_code == "500"  # Uses HTTP status as error code
 
-        # Test without HTTP status (should use parsed error or "unknown")
+        # Test without HTTP status - text pattern classification should still work
+        # "internal_server_error" contains "server error" pattern → temporary
         exception2 = spotipy.SpotifyException(-1, -1, error_msg)
         error_type2, error_code2, _error_description2 = classifier.classify_error(
             exception2
         )
 
-        assert error_type2 == "unknown"
-        assert error_code2 == "internal_server_error"  # Uses parsed error as error code
+        assert error_type2 == "temporary"  # Text pattern detects "server error"
+        assert error_code2 == "text"  # Uses text pattern classification

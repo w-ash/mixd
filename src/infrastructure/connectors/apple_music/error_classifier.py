@@ -5,15 +5,29 @@ from typing import Any
 
 from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classification import (
-    BaseErrorClassifier,
+    HTTPErrorClassifier,
 )
 
 
-class AppleMusicErrorClassifier(BaseErrorClassifier):
-    """Apple Music API error classifier with HTTP status and rate limit handling."""
+class AppleMusicErrorClassifier(HTTPErrorClassifier):
+    """Apple Music API error classifier leveraging HTTP base classification.
+
+    Inherits HTTP status code and text pattern classification from HTTPErrorClassifier,
+    adding only Apple Music-specific error parsing and pattern detection.
+    """
+
+    @property
+    def service_name(self) -> str:
+        """Return service name for logging."""
+        return "apple_music"
 
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Apple Music API errors for proper retry behavior.
+
+        Uses parent class HTTP classification with Apple Music-specific handling for:
+        - Flexible HTTP status extraction from various exception types
+        - JSON:API error format parsing
+        - Apple Music-specific error patterns (e.g., SKCloudService errors)
 
         Args:
             exception: The exception to classify
@@ -22,143 +36,61 @@ class AppleMusicErrorClassifier(BaseErrorClassifier):
             Tuple of (error_type, error_code, error_description)
             error_type: "permanent", "temporary", "rate_limit", "not_found", "unknown"
         """
-        # Handle different types of exceptions that might occur with Apple Music API
         error_str = str(exception).lower()
 
         # Try to extract HTTP status code if available
         http_status = self._extract_http_status(exception)
 
-        # Parse Apple Music specific error details if available
+        # Parse Apple Music specific error details
         error_details = self._parse_apple_music_error_details(exception)
         error_code = error_details.get(
             "code", str(http_status) if http_status else "unknown"
         )
         error_description = error_details.get("detail", str(exception))
 
-        # Classify based on HTTP status codes (Apple Music uses standard HTTP patterns)
-        if http_status:
-            # Client errors (4xx)
-            if http_status == HTTPStatus.BAD_REQUEST:
-                return (
-                    "permanent",
-                    str(http_status),
-                    "Bad Request - malformed request",
-                )
-            elif http_status == HTTPStatus.UNAUTHORIZED:
-                return (
-                    "permanent",
-                    str(http_status),
-                    "Unauthorized - invalid developer token",
-                )
-            elif http_status == HTTPStatus.FORBIDDEN:
-                return (
-                    "permanent",
-                    str(http_status),
-                    "Forbidden - insufficient permissions",
-                )
-            elif http_status == HTTPStatus.NOT_FOUND:
-                return (
-                    "not_found",
-                    str(http_status),
-                    "Not Found - resource doesn't exist",
-                )
-            elif http_status == HTTPStatus.TOO_MANY_REQUESTS:
-                return (
-                    "rate_limit",
-                    str(http_status),
-                    "Too Many Requests - rate limit exceeded",
-                )
-            elif (
-                HTTPStatus.CLIENT_ERROR_MIN <= http_status < HTTPStatus.CLIENT_ERROR_MAX
-            ):
-                return (
-                    "permanent",
-                    str(http_status),
-                    f"Client error: {error_description}",
-                )
+        # Try HTTP status classification first (most reliable)
+        if http_status and (result := self.classify_http_status(http_status, str(exception))):
+            return result
 
-            # Server errors (5xx) - temporary
-            elif http_status == HTTPStatus.INTERNAL_SERVER_ERROR:
-                return ("temporary", str(http_status), "Internal Server Error")
-            elif http_status == HTTPStatus.BAD_GATEWAY:
-                return ("temporary", str(http_status), "Bad Gateway")
-            elif http_status == HTTPStatus.SERVICE_UNAVAILABLE:
-                return ("temporary", str(http_status), "Service Unavailable")
-            elif http_status == HTTPStatus.GATEWAY_TIMEOUT:
-                return ("temporary", str(http_status), "Gateway Timeout")
-            elif (
-                HTTPStatus.INTERNAL_SERVER_ERROR
-                <= http_status
-                < HTTPStatus.SERVER_ERROR_MAX
-            ):
-                return (
-                    "temporary",
-                    str(http_status),
-                    f"Server error: {error_description}",
-                )
+        # Check for Apple Music-specific patterns before falling back to base patterns
+        if apple_result := self._classify_apple_music_patterns(error_str):
+            return apple_result
 
-        # Check for Apple Music specific error patterns
-
-        # Rate limiting patterns (Apple Music uses X-Rate-Limit headers)
-        if any(
-            pattern in error_str
-            for pattern in [
-                "rate limit",
-                "too many",
-                "quota",
-                "throttle",
-                "x-rate-limit",
-            ]
-        ):
-            return ("rate_limit", "text", "Rate limit detected from response")
-
-        # Developer token issues (common with Apple Music API)
-        if any(
-            pattern in error_str
-            for pattern in [
-                "developer token",
-                "invalid token",
-                "token expired",
-                "unauthorized",
-            ]
-        ):
-            return ("permanent", "token", "Developer token issue")
-
-        # Apple Music specific error codes (if we encounter them)
-        # These would be based on actual Apple Music API documentation
-        if "skcloudservicenetworkconnectionfailed" in error_str:
-            return ("temporary", "network", "Cloud service network connection failed")
-
-        # Not found patterns
-        if any(
-            pattern in error_str
-            for pattern in ["not found", "does not exist", "no such", "invalid id"]
-        ):
-            return ("not_found", "text", "Resource not found")
-
-        # Network and connection errors
-        if any(
-            pattern in error_str
-            for pattern in ["timeout", "connection", "network", "dns", "ssl"]
-        ):
-            return ("temporary", "network", "Network or connection error")
-
-        # Temporary service issues
-        if any(
-            pattern in error_str
-            for pattern in [
-                "service temporarily unavailable",
-                "server error",
-                "internal error",
-                "try again",
-                "temporarily",
-                "unavailable",
-            ]
-        ):
-            return ("temporary", "text", "Service temporarily unavailable")
+        # Fall back to base class text pattern classification
+        if result := self.classify_text_patterns(error_str):
+            return result
 
         # Default to unknown for unrecognized errors
         return ("unknown", error_code, error_description)
+
+    def _classify_apple_music_patterns(
+        self, error_str: str
+    ) -> tuple[str, str, str] | None:
+        """Classify Apple Music-specific error patterns.
+
+        Args:
+            error_str: Lowercase error string
+
+        Returns:
+            Classification tuple or None if no Apple Music pattern matches
+        """
+        # Apple Music specific error codes from SDK
+        if "skcloudservicenetworkconnectionfailed" in error_str:
+            return ("temporary", "network", "Cloud service network connection failed")
+
+        # X-Rate-Limit header patterns (Apple Music specific)
+        if "x-rate-limit" in error_str:
+            return (
+                "rate_limit",
+                "text",
+                "Rate limit detected from X-Rate-Limit header",
+            )
+
+        # Developer token patterns (Apple Music uses developer tokens)
+        if "developer token" in error_str:
+            return ("permanent", "token", "Developer token issue")
+
+        return None
 
     def _extract_http_status(self, exception: Exception) -> int | None:
         """Extract HTTP status code from various exception types."""
