@@ -9,9 +9,13 @@ from typing import Any
 from src.config import get_logger
 from src.domain.entities import Track
 from src.domain.matching.types import (
+    MatchFailure,
     MatchFailureReason,
     ProviderMatchResult,
     RawProviderMatch,
+)
+from src.infrastructure.connectors._shared.base_matching_provider import (
+    BaseMatchingProvider,
 )
 from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
 from src.infrastructure.connectors._shared.failure_utils import (
@@ -22,8 +26,12 @@ from src.infrastructure.connectors._shared.failure_utils import (
 logger = get_logger(__name__)
 
 
-class LastFMProvider:
-    """LastFM track matching provider."""
+class LastFMProvider(BaseMatchingProvider):
+    """LastFM track matching provider.
+
+    Note: LastFM uses a batch API that handles all tracks at once, so it overrides
+    fetch_raw_matches_for_tracks() instead of using the template method pattern.
+    """
 
     def __init__(self, connector_instance: Any) -> None:
         """Initialize with LastFM connector.
@@ -37,6 +45,30 @@ class LastFMProvider:
     def service_name(self) -> str:
         """Service identifier."""
         return "lastfm"
+
+    async def _match_by_isrc(
+        self, tracks: list[Track]
+    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+        """Not used - LastFM uses batch API instead.
+
+        LastFM API processes all tracks in a single batch call regardless of
+        whether they have ISRC or not, so this method is not called.
+        """
+        raise NotImplementedError(
+            "LastFM uses batch API - this method should not be called"
+        )
+
+    async def _match_by_artist_title(
+        self, tracks: list[Track]
+    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+        """Not used - LastFM uses batch API instead.
+
+        LastFM API processes all tracks in a single batch call regardless of
+        whether they have ISRC or not, so this method is not called.
+        """
+        raise NotImplementedError(
+            "LastFM uses batch API - this method should not be called"
+        )
 
     async def fetch_raw_matches_for_tracks(
         self,

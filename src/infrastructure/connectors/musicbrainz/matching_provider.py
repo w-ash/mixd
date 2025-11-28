@@ -9,22 +9,22 @@ from typing import Any
 from src.config import get_logger
 from src.domain.entities import Track
 from src.domain.matching.types import (
+    MatchFailure,
     MatchFailureReason,
-    ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
+from src.infrastructure.connectors._shared.base_matching_provider import (
+    BaseMatchingProvider,
+)
 from src.infrastructure.connectors._shared.failure_utils import (
     create_and_log_failure,
     handle_track_processing_failure,
-    merge_results,
-    validate_track_for_method,
 )
 
 logger = get_logger(__name__)
 
 
-class MusicBrainzProvider:
+class MusicBrainzProvider(BaseMatchingProvider):
     """MusicBrainz track matching provider."""
 
     def __init__(self, connector_instance: Any) -> None:
@@ -40,87 +40,19 @@ class MusicBrainzProvider:
         """Service identifier."""
         return "musicbrainz"
 
-    async def fetch_raw_matches_for_tracks(
-        self,
-        tracks: list[Track],
-        **additional_options: Any,
-    ) -> ProviderMatchResult:
-        """Fetch raw track matches from MusicBrainz using batch ISRC and search APIs.
-
-        Prioritizes batch ISRC lookup for efficiency, then falls back to
-        individual artist/title searches.
+    async def _match_by_isrc(
+        self, tracks: list[Track]
+    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+        """Match tracks using MusicBrainz batch ISRC lookup API.
 
         Args:
-            tracks: Tracks to match against MusicBrainz catalog.
-            **additional_options: Additional options (unused).
+            tracks: Tracks with ISRC to match.
 
         Returns:
-            Track IDs mapped to raw match data without business logic applied.
+            Tuple of (matches dict, failures list).
         """
-        # Acknowledge additional options to satisfy linter
-        _ = additional_options
-
-        if not tracks:
-            return ProviderMatchResult()
-
-        with logger.contextualize(
-            operation="match_musicbrainz", track_count=len(tracks)
-        ):
-            # Group tracks by matching method
-            isrc_tracks = [t for t in tracks if t.isrc]
-            artist_title_tracks = [
-                t for t in tracks if not t.isrc and t.artists and t.title
-            ]
-
-            # Handle unprocessable tracks
-            unprocessable_failures = [
-                create_and_log_failure(
-                    track_id=t.id,
-                    reason=MatchFailureReason.NO_METADATA,
-                    service=self.service_name,
-                    method="unknown",
-                    details="Track missing artist or title data",
-                )
-                for t in tracks
-                if t.id and not t.isrc and (not t.artists or not t.title)
-            ]
-
-            # Process tracks by method using MusicBrainz batch optimization for ISRC
-            isrc_result = (
-                await self._process_isrc_batch(isrc_tracks)
-                if isrc_tracks
-                else ProviderMatchResult()
-            )
-            remaining_tracks = [
-                t for t in artist_title_tracks if t.id not in isrc_result.matches
-            ]
-            artist_result = (
-                await self._process_tracks_by_method(remaining_tracks, "artist_title")
-                if remaining_tracks
-                else ProviderMatchResult()
-            )
-
-            # Merge all results
-            final_result = merge_results(
-                isrc_result,
-                artist_result,
-                ProviderMatchResult(failures=unprocessable_failures),
-            )
-
-            # Log summary
-            log_failure_summary(
-                self.service_name, len(final_result.matches), len(final_result.failures)
-            )
-            logger.info(
-                f"Found {len(final_result.matches)} matches from {len(tracks)} tracks"
-            )
-
-            return final_result
-
-    async def _process_isrc_batch(self, tracks: list[Track]) -> ProviderMatchResult:
-        """Process ISRC tracks using MusicBrainz batch optimization."""
-        matches = {}
-        failures = []
+        matches: dict[int, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
 
         # Validate tracks and collect valid ISRCs
         valid_tracks = []
@@ -128,16 +60,16 @@ class MusicBrainzProvider:
             if not track.id:
                 continue
 
-            validation_failure = validate_track_for_method(
-                track,
-                "isrc",
-                self.service_name,
-                lambda t: bool(t.isrc),
-                MatchFailureReason.NO_ISRC,
-                "Track missing ISRC code",
-            )
-            if validation_failure:
-                failures.append(validation_failure)
+            if not track.isrc:
+                failures.append(
+                    create_and_log_failure(
+                        track.id,
+                        MatchFailureReason.NO_ISRC,
+                        self.service_name,
+                        "isrc",
+                        "Track missing ISRC code",
+                    )
+                )
                 continue
 
             valid_tracks.append(track)
@@ -150,7 +82,7 @@ class MusicBrainzProvider:
 
                 # Map results back to tracks
                 for track in valid_tracks:
-                    if track.isrc in isrc_results:
+                    if track.isrc and track.isrc in isrc_results:
                         mbid = isrc_results[track.isrc]
                         raw_match = self._create_isrc_raw_match(mbid)
                         if raw_match:
@@ -183,35 +115,43 @@ class MusicBrainzProvider:
                         track.id, self.service_name, "isrc", e
                     )
                     for track in valid_tracks
+                    if track.id
                 )
 
-        return ProviderMatchResult(matches=matches, failures=failures)
+        return matches, failures
 
-    async def _process_tracks_by_method(
-        self, tracks: list[Track], method: str
-    ) -> ProviderMatchResult:
-        """Process tracks using specified method with structured failure handling."""
-        matches = {}
-        failures = []
+    async def _match_by_artist_title(
+        self, tracks: list[Track]
+    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+        """Match tracks using MusicBrainz artist/title search API.
+
+        Args:
+            tracks: Tracks with artist and title to match.
+
+        Returns:
+            Tuple of (matches dict, failures list).
+        """
+        matches: dict[int, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
 
         for track in tracks:
             if not track.id:
                 continue
 
-            # Validate track for artist/title method
-            validation_failure = validate_track_for_method(
-                track,
-                method,
-                self.service_name,
-                lambda t: bool(t.artists and t.title),
-                MatchFailureReason.NO_METADATA,
-                "Track missing artist or title data",
-            )
-            if validation_failure:
-                failures.append(validation_failure)
+            # Validate track has artist and title
+            if not track.artists or not track.title:
+                failures.append(
+                    create_and_log_failure(
+                        track.id,
+                        MatchFailureReason.NO_METADATA,
+                        self.service_name,
+                        "artist_title",
+                        "Track missing artist or title data",
+                    )
+                )
                 continue
 
-            # Attempt API call
+            # Call MusicBrainz API
             try:
                 artist = track.artists[0].name if track.artists else ""
                 recording = await self.connector_instance.search_recording(
@@ -228,7 +168,7 @@ class MusicBrainzProvider:
                                 track.id,
                                 MatchFailureReason.INVALID_RESPONSE,
                                 self.service_name,
-                                method,
+                                "artist_title",
                                 "Failed to create raw match from MusicBrainz response",
                             )
                         )
@@ -238,7 +178,7 @@ class MusicBrainzProvider:
                             track.id,
                             MatchFailureReason.NO_RESULTS,
                             self.service_name,
-                            method,
+                            "artist_title",
                             f"No MusicBrainz results for '{artist} - {track.title}'",
                         )
                     )
@@ -246,11 +186,11 @@ class MusicBrainzProvider:
             except Exception as e:
                 failures.append(
                     handle_track_processing_failure(
-                        track.id, self.service_name, method, e
+                        track.id, self.service_name, "artist_title", e
                     )
                 )
 
-        return ProviderMatchResult(matches=matches, failures=failures)
+        return matches, failures
 
     def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
         """Create raw match data for ISRC-based matches.
