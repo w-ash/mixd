@@ -342,7 +342,7 @@ class SpotifyOperations:
         track_repo=None,
     ) -> str | None:
         """Execute a list of differential playlist operations.
-        
+
         Delegates to SpotifyPlaylistSyncOperations for complex sync logic
         including canonical URI resolution and operation execution.
         """

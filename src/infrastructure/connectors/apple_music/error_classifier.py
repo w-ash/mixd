@@ -49,7 +49,9 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
         error_description = error_details.get("detail", str(exception))
 
         # Try HTTP status classification first (most reliable)
-        if http_status and (result := self.classify_http_status(http_status, str(exception))):
+        if http_status and (
+            result := self.classify_http_status(http_status, str(exception))
+        ):
             return result
 
         # Check for Apple Music-specific patterns before falling back to base patterns

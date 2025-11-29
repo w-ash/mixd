@@ -139,7 +139,11 @@ class HTTPErrorClassifier(BaseErrorClassifier):
             )
 
         # Generic 5xx server errors (temporary)
-        if HTTPStatusCode.INTERNAL_SERVER_ERROR <= status < HTTPStatusCode.SERVER_ERROR_MAX:
+        if (
+            HTTPStatusCode.INTERNAL_SERVER_ERROR
+            <= status
+            < HTTPStatusCode.SERVER_ERROR_MAX
+        ):
             return (
                 "temporary",
                 str(status),

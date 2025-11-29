@@ -90,9 +90,7 @@ class SpotifyPlaylistSyncOperations:
                 self._execute_add_operations,
             )
 
-            logger.info(
-                "All operations completed", final_snapshot=current_snapshot
-            )
+            logger.info("All operations completed", final_snapshot=current_snapshot)
             return current_snapshot
 
         except Exception as e:
@@ -153,9 +151,7 @@ class SpotifyPlaylistSyncOperations:
 
         # Bulk load tracks
         track_map = await track_repo.find_tracks_by_ids(list(canonical_ids))
-        logger.info(
-            f"Found {len(track_map)}/{len(canonical_ids)} tracks in database"
-        )
+        logger.info(f"Found {len(track_map)}/{len(canonical_ids)} tracks in database")
 
         # Resolve operations
         resolved = []
@@ -250,9 +246,7 @@ class SpotifyPlaylistSyncOperations:
         snapshot_id: str | None,
     ) -> str | None:
         """Execute remove operations batched by track URI."""
-        valid_ops = self._validate_operations(
-            remove_ops, PlaylistOperationType.REMOVE
-        )
+        valid_ops = self._validate_operations(remove_ops, PlaylistOperationType.REMOVE)
         if not valid_ops:
             return snapshot_id
 
@@ -356,7 +350,9 @@ class SpotifyPlaylistSyncOperations:
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
             current_track_count = (
-                playlist_info.get("tracks", {}).get("total", 0) if playlist_info else None
+                playlist_info.get("tracks", {}).get("total", 0)
+                if playlist_info
+                else None
             )
         except Exception as e:
             logger.warning(f"Could not fetch playlist size: {e}")
@@ -430,7 +426,11 @@ class SpotifyPlaylistSyncOperations:
         """Fetch updated playlist snapshot ID."""
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
-            return playlist_info.get("snapshot_id", fallback) if playlist_info else fallback
+            return (
+                playlist_info.get("snapshot_id", fallback)
+                if playlist_info
+                else fallback
+            )
         except Exception as e:
             logger.warning(f"Could not fetch updated snapshot: {e}")
             return fallback

@@ -57,7 +57,9 @@ class SpotifyErrorClassifier(HTTPErrorClassifier):
         error_description = error_details.get("error_description", error_msg)
 
         # Try HTTP status classification first (most reliable)
-        if http_status and (result := self.classify_http_status(http_status, error_msg)):
+        if http_status and (
+            result := self.classify_http_status(http_status, error_msg)
+        ):
             return result
 
         # Fall back to text pattern classification
