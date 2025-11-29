@@ -9,6 +9,10 @@ from typing import Any
 
 from attrs import define, field
 
+from src.application.use_cases._shared.command_validators import (
+    optional_in_choices,
+    positive_int_in_range,
+)
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -29,26 +33,18 @@ class GetLikedTracksCommand:
         timestamp: When the command was created.
     """
 
-    limit: int = 10000  # Maximum tracks to retrieve
-    connector_filter: str | None = (
-        None  # Optional service filter ("spotify", "lastfm", etc.)
+    limit: int = field(
+        default=10000,
+        validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
     )
-    sort_by: str | None = None  # Optional sorting method
+    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    sort_by: str | None = field(
+        default=None,
+        validator=optional_in_choices(
+            ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
+        ),
+    )
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if command parameters are valid.
-
-        Returns:
-            True if limit is 1-10000 and sort_by is a valid option.
-        """
-        valid_limit = self.limit > 0 and self.limit <= BusinessLimits.MAX_USER_LIMIT
-
-        # Validate sort_by if provided
-        valid_sort_options = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
-        valid_sort = self.sort_by is None or self.sort_by in valid_sort_options
-
-        return valid_limit and valid_sort
 
 
 @define(frozen=True, slots=True)
@@ -97,11 +93,8 @@ class GetLikedTracksUseCase:
             Retrieved tracks with execution metadata.
 
         Raises:
-            ValueError: If command validation fails.
+            ValueError: If command execution fails.
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

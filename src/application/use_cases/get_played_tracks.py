@@ -10,6 +10,11 @@ from typing import Any
 
 from attrs import define, field
 
+from src.application.use_cases._shared.command_validators import (
+    optional_in_choices,
+    optional_positive_int,
+    positive_int_in_range,
+)
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -31,35 +36,26 @@ class GetPlayedTracksCommand:
         timestamp: When this command was created.
     """
 
-    limit: int = 10000  # Maximum tracks to retrieve
-    days_back: int | None = None  # Optional time window (e.g., last 90 days)
-    connector_filter: str | None = (
-        None  # Optional service filter ("spotify", "lastfm", etc.)
+    limit: int = field(
+        default=10000,
+        validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
     )
-    sort_by: str | None = None  # Optional sorting method
+    days_back: int | None = field(default=None, validator=optional_positive_int)
+    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    sort_by: str | None = field(
+        default=None,
+        validator=optional_in_choices(
+            [
+                "played_at_desc",
+                "total_plays_desc",
+                "last_played_desc",
+                "first_played_asc",
+                "title_asc",
+                "random",
+            ]
+        ),
+    )
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if command parameters are valid for execution.
-
-        Returns:
-            True if all parameters meet business rules.
-        """
-        valid_limit = self.limit > 0 and self.limit <= BusinessLimits.MAX_USER_LIMIT
-        valid_days = self.days_back is None or self.days_back > 0
-
-        # Validate sort_by if provided
-        valid_sort_options = [
-            "played_at_desc",
-            "total_plays_desc",
-            "last_played_desc",
-            "first_played_asc",
-            "title_asc",
-            "random",
-        ]
-        valid_sort = self.sort_by is None or self.sort_by in valid_sort_options
-
-        return valid_limit and valid_days and valid_sort
 
 
 @define(frozen=True, slots=True)
@@ -110,11 +106,8 @@ class GetPlayedTracksUseCase:
             Tracks matching criteria with play count metadata and execution stats.
 
         Raises:
-            ValueError: If command parameters fail validation.
+            ValueError: If command execution fails.
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

@@ -24,7 +24,6 @@ class TestGetLikedTracksCommand:
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
         command = GetLikedTracksCommand()
-        assert command.validate() is True
         assert command.limit == 10000
         assert command.sort_by is None
 
@@ -34,27 +33,26 @@ class TestGetLikedTracksCommand:
 
         for sort_option in valid_sorts:
             command = GetLikedTracksCommand(limit=1000, sort_by=sort_option)
-            assert command.validate() is True, f"Failed for sort option: {sort_option}"
+            assert command.sort_by == sort_option
 
     def test_invalid_limit_zero(self):
-        """Test command validation fails for zero limit."""
-        command = GetLikedTracksCommand(limit=0)
-        assert command.validate() is False
+        """Test command validation fails for zero limit at construction."""
+        with pytest.raises(ValueError, match="must be between"):
+            GetLikedTracksCommand(limit=0)
 
     def test_invalid_limit_too_large(self):
-        """Test command validation fails for limit exceeding max."""
-        command = GetLikedTracksCommand(limit=10001)
-        assert command.validate() is False
+        """Test command validation fails for limit exceeding max at construction."""
+        with pytest.raises(ValueError, match="must be between"):
+            GetLikedTracksCommand(limit=10001)
 
     def test_invalid_sort_option(self):
-        """Test command validation fails for invalid sort option."""
-        command = GetLikedTracksCommand(sort_by="invalid_sort")
-        assert command.validate() is False
+        """Test command validation fails for invalid sort option at construction."""
+        with pytest.raises(ValueError, match="must be one of"):
+            GetLikedTracksCommand(sort_by="invalid_sort")
 
     def test_valid_connector_filter(self):
         """Test command accepts connector filter."""
         command = GetLikedTracksCommand(connector_filter="spotify")
-        assert command.validate() is True
         assert command.connector_filter == "spotify"
 
 
@@ -181,12 +179,10 @@ class TestGetLikedTracksUseCase:
         assert len(track_ids_requested) == 5
 
     async def test_execute_invalid_command_raises_error(self, mock_uow):
-        """Test that invalid command raises ValueError."""
-        command = GetLikedTracksCommand(limit=0)  # Invalid
-        use_case = GetLikedTracksUseCase()
-
-        with pytest.raises(ValueError, match="Invalid command"):
-            await use_case.execute(command, mock_uow)
+        """Test that invalid command raises ValueError at construction."""
+        # Invalid command now raises ValueError at construction (fail-fast)
+        with pytest.raises(ValueError, match="must be between"):
+            GetLikedTracksCommand(limit=0)
 
     async def test_execute_handles_missing_tracks(self, mock_uow, sample_likes):
         """Test graceful handling when some tracks don't exist."""

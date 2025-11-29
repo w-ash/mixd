@@ -24,7 +24,6 @@ class TestGetPlayedTracksCommand:
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
         command = GetPlayedTracksCommand()
-        assert command.validate() is True
         assert command.limit == 10000
         assert command.days_back is None
         assert command.sort_by is None
@@ -37,7 +36,8 @@ class TestGetPlayedTracksCommand:
             connector_filter="spotify",
             sort_by="played_at_desc",
         )
-        assert command.validate() is True
+        assert command.limit == 1000
+        assert command.days_back == 30
 
     def test_valid_sort_options(self):
         """Test all valid sort options are accepted."""
@@ -52,32 +52,32 @@ class TestGetPlayedTracksCommand:
 
         for sort_option in valid_sorts:
             command = GetPlayedTracksCommand(sort_by=sort_option)
-            assert command.validate() is True, f"Failed for sort option: {sort_option}"
+            assert command.sort_by == sort_option
 
     def test_invalid_limit_zero(self):
-        """Test validation fails for zero limit."""
-        command = GetPlayedTracksCommand(limit=0)
-        assert command.validate() is False
+        """Test validation fails for zero limit at construction."""
+        with pytest.raises(ValueError, match="must be between"):
+            GetPlayedTracksCommand(limit=0)
 
     def test_invalid_limit_exceeds_max(self):
-        """Test validation fails for limit exceeding maximum."""
-        command = GetPlayedTracksCommand(limit=10001)
-        assert command.validate() is False
+        """Test validation fails for limit exceeding maximum at construction."""
+        with pytest.raises(ValueError, match="must be between"):
+            GetPlayedTracksCommand(limit=10001)
 
     def test_invalid_days_back_zero(self):
-        """Test validation fails for zero days_back."""
-        command = GetPlayedTracksCommand(days_back=0)
-        assert command.validate() is False
+        """Test validation fails for zero days_back at construction."""
+        with pytest.raises(ValueError, match="must be positive"):
+            GetPlayedTracksCommand(days_back=0)
 
     def test_invalid_sort_option(self):
-        """Test validation fails for invalid sort option."""
-        command = GetPlayedTracksCommand(sort_by="invalid_sort")
-        assert command.validate() is False
+        """Test validation fails for invalid sort option at construction."""
+        with pytest.raises(ValueError, match="must be one of"):
+            GetPlayedTracksCommand(sort_by="invalid_sort")
 
     def test_negative_days_back_invalid(self):
-        """Test validation fails for negative days_back."""
-        command = GetPlayedTracksCommand(days_back=-1)
-        assert command.validate() is False
+        """Test validation fails for negative days_back at construction."""
+        with pytest.raises(ValueError, match="must be positive"):
+            GetPlayedTracksCommand(days_back=-1)
 
 
 class TestGetPlayedTracksUseCase:
@@ -231,12 +231,10 @@ class TestGetPlayedTracksUseCase:
         assert len(track_ids_requested) <= 5
 
     async def test_execute_invalid_command_raises_error(self, mock_uow):
-        """Test that invalid command raises ValueError."""
-        command = GetPlayedTracksCommand(limit=0)  # Invalid
-        use_case = GetPlayedTracksUseCase()
-
-        with pytest.raises(ValueError, match="Invalid command"):
-            await use_case.execute(command, mock_uow)
+        """Test that invalid command raises ValueError at construction."""
+        # Invalid command now raises ValueError at construction (fail-fast)
+        with pytest.raises(ValueError, match="must be between"):
+            GetPlayedTracksCommand(limit=0)
 
     async def test_execute_handles_empty_plays(self, mock_uow):
         """Test graceful handling when no plays exist."""

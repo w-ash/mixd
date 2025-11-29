@@ -13,6 +13,10 @@ from attrs import define, field
 from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
 )
+from src.application.use_cases._shared.command_validators import (
+    non_empty_list,
+    non_empty_string,
+)
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -20,6 +24,12 @@ from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+def _validate_tracklist_has_tracks(instance, attribute, value):
+    """Validates that TrackList contains tracks."""
+    if not value.tracks:
+        raise ValueError(f"{attribute.name} must contain tracks")
 
 
 @define(frozen=True, slots=True)
@@ -30,35 +40,13 @@ class CreateConnectorPlaylistCommand:
     on services like Spotify or Apple Music, with optional internal sync.
     """
 
-    tracklist: TrackList
-    playlist_name: str
-    connector: str  # "spotify", "apple_music", etc.
+    tracklist: TrackList = field(validator=_validate_tracklist_has_tracks)
+    playlist_name: str = field(validator=non_empty_string)
+    connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     playlist_description: str = "Created by Narada"
     create_internal_playlist: bool = True  # Whether to also create internal playlist
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if the command has valid data for playlist creation.
-
-        Returns:
-            True if the command contains valid tracks, playlist name, and connector.
-        """
-        is_valid = all([
-            self.tracklist.tracks,
-            self.playlist_name,
-            self.connector,
-        ])
-
-        if not is_valid:
-            logger.warning(
-                "Validation failed",
-                has_tracks=bool(self.tracklist.tracks),
-                has_name=bool(self.playlist_name),
-                has_connector=bool(self.connector),
-            )
-
-        return is_valid
 
 
 @define(frozen=True, slots=True)
@@ -116,11 +104,8 @@ class CreateConnectorPlaylistUseCase:
             Results including created playlist, external IDs, and operation metrics.
 
         Raises:
-            ValueError: If the command fails validation checks.
+            ValueError: If the command execution fails.
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

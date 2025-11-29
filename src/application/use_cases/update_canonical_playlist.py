@@ -14,6 +14,10 @@ from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.application.use_cases._shared import OperationCounts, count_operation_types
+from src.application.use_cases._shared.command_validators import (
+    non_empty_string,
+    tracklist_has_tracks_or_metadata,
+)
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist, PlaylistEntry
@@ -50,28 +54,14 @@ class UpdateCanonicalPlaylistCommand:
         timestamp: When this command was created
     """
 
-    playlist_id: str
-    new_tracklist: TrackList
+    playlist_id: str = field(validator=non_empty_string)
+    new_tracklist: TrackList = field(validator=tracklist_has_tracks_or_metadata("connector_playlist"))
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if command has required data for execution.
-
-        Returns:
-            True if playlist_id exists and tracklist has tracks or ConnectorPlaylist metadata
-        """
-        return bool(
-            self.playlist_id
-            and (
-                self.new_tracklist.tracks
-                or self.new_tracklist.metadata.get("connector_playlist")
-            )
-        )
 
 
 @define(frozen=True, slots=True)
@@ -140,11 +130,8 @@ class UpdateCanonicalPlaylistUseCase:
             Result containing updated playlist and operation statistics
 
         Raises:
-            ValueError: If command validation fails or playlist ID is invalid
+            ValueError: If playlist ID is invalid or command execution fails
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

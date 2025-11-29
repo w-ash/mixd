@@ -9,6 +9,7 @@ from typing import Any
 
 from attrs import define, field
 
+from src.application.use_cases._shared.command_validators import non_empty_string
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -28,18 +29,10 @@ class ReadCanonicalPlaylistCommand:
         timestamp: Request timestamp for audit logging
     """
 
-    playlist_id: str
+    playlist_id: str = field(validator=non_empty_string)
     connector: str | None = None  # Optional connector for external ID lookup
     include_track_metadata: bool = True
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if playlist_id is provided.
-
-        Returns:
-            True if playlist_id is not empty
-        """
-        return bool(self.playlist_id)
 
 
 @define(frozen=True, slots=True)
@@ -93,11 +86,8 @@ class ReadCanonicalPlaylistUseCase:
             ReadCanonicalPlaylistResult: Playlist data and operation metrics
 
         Raises:
-            ValueError: If playlist_id is empty or playlist not found
+            ValueError: If playlist not found
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

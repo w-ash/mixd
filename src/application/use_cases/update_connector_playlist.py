@@ -17,6 +17,11 @@ from src.application.use_cases._shared import (
     count_operation_types,
     create_connector_playlist_items_from_tracks,
 )
+from src.application.use_cases._shared.command_validators import (
+    api_batch_size_validator,
+    non_empty_string,
+    positive_int_in_range,
+)
 from src.config import get_logger, settings
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
@@ -28,6 +33,12 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
+def _validate_tracklist_has_tracks(instance, attribute, value):
+    """Validates that TrackList contains tracks."""
+    if not value.tracks:
+        raise ValueError(f"{attribute.name} must contain tracks")
+
+
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistCommand:
     """Input parameters for updating a Spotify/Apple Music playlist.
@@ -36,32 +47,24 @@ class UpdateConnectorPlaylistCommand:
     like append-only mode vs full synchronization.
     """
 
-    playlist_id: str
-    new_tracklist: TrackList
-    connector: str  # "spotify", "apple_music", etc.
+    playlist_id: str = field(validator=non_empty_string)
+    new_tracklist: TrackList = field(validator=_validate_tracklist_has_tracks)
+    connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
     preserve_timestamps: bool = True  # Whether to use proper sequencing
-    batch_size: int = 100  # API batch size limit
-    max_api_calls: int = 50  # Maximum API calls allowed
+    batch_size: int = field(
+        default=100,
+        validator=api_batch_size_validator("api.spotify_large_batch_size"),
+    )
+    max_api_calls: int = field(
+        default=50,
+        validator=positive_int_in_range(1, 1000),
+    )
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Checks if playlist ID, tracks, and API limits are valid.
-
-        Returns:
-            True if command can be executed safely.
-        """
-        return all([
-            self.playlist_id,
-            self.new_tracklist.tracks,
-            self.connector,
-            self.batch_size <= settings.api.spotify_large_batch_size,
-            self.max_api_calls >= 1,
-        ])
 
 
 @define(frozen=True, slots=True)
@@ -352,11 +355,8 @@ class UpdateConnectorPlaylistUseCase:
             Operation results with counts, timing, and success status.
 
         Raises:
-            ValueError: If command validation fails.
+            ValueError: If command execution fails.
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(

@@ -10,6 +10,7 @@ from typing import Any, NoReturn
 
 from attrs import define, field
 
+from src.application.use_cases._shared.command_validators import non_empty_string
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -28,19 +29,11 @@ class DeleteCanonicalPlaylistCommand:
         timestamp: When the deletion command was created (defaults to current UTC time).
     """
 
-    playlist_id: str
+    playlist_id: str = field(validator=non_empty_string)
     force_delete: bool = (
         False  # Whether to delete even if playlist has external connections
     )
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Validates that required command parameters are present.
-
-        Returns:
-            True if playlist_id is provided, False otherwise.
-        """
-        return bool(self.playlist_id)
 
 
 @define(frozen=True, slots=True)
@@ -102,11 +95,8 @@ class DeleteCanonicalPlaylistUseCase:
             Result containing deletion confirmation and operation metadata.
 
         Raises:
-            ValueError: If command validation fails or playlist not found.
+            ValueError: If playlist not found.
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         def _raise_no_id_error() -> NoReturn:

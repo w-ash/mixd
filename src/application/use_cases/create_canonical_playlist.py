@@ -13,6 +13,10 @@ from attrs import define, evolve, field
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+from src.application.use_cases._shared.command_validators import (
+    non_empty_string,
+    tracklist_has_tracks_or_metadata,
+)
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist, PlaylistEntry
@@ -38,25 +42,11 @@ class CreateCanonicalPlaylistCommand:
         timestamp: Creation timestamp (defaults to now)
     """
 
-    name: str
-    tracklist: TrackList
+    name: str = field(validator=non_empty_string)
+    tracklist: TrackList = field(validator=tracklist_has_tracks_or_metadata("connector_playlist"))
     description: str | None = None
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
-
-    def validate(self) -> bool:
-        """Check if command has required data for playlist creation.
-
-        Returns:
-            True if name is non-empty and tracklist contains tracks or ConnectorPlaylist metadata
-        """
-        return bool(
-            self.name.strip()
-            and (
-                self.tracklist.tracks
-                or self.tracklist.metadata.get("connector_playlist")
-            )
-        )
 
 
 @define(frozen=True, slots=True)
@@ -118,11 +108,8 @@ class CreateCanonicalPlaylistUseCase:
             Result containing created playlist and operation metrics
 
         Raises:
-            ValueError: If command validation fails (empty name/tracklist)
+            ValueError: If command execution fails
         """
-        if not command.validate():
-            raise ValueError("Invalid command: failed business rule validation")
-
         start_time = datetime.now(UTC)
 
         logger.info(
