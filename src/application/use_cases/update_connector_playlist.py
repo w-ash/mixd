@@ -22,7 +22,7 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     positive_int_in_range,
 )
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
 from src.domain.entities.track import TrackList

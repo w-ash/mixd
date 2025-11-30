@@ -14,7 +14,6 @@ from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
 )
 from src.application.use_cases._shared.command_validators import (
-    non_empty_list,
     non_empty_string,
 )
 from src.config import get_logger
