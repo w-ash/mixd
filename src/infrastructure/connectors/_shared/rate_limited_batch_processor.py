@@ -29,12 +29,11 @@ Example:
 import asyncio
 from collections.abc import AsyncIterator, Callable
 import contextlib
-from dataclasses import dataclass, field
 import time
 from typing import Any, TypeVar
 import uuid
 
-from attrs import define
+from attrs import define, field
 
 from src.config import get_logger
 
@@ -48,13 +47,13 @@ logger = get_logger(__name__).bind(service="rate_limited_batch_processor")
 _RESULT_POLLING_INTERVAL_MS = 10  # Milliseconds between result collection checks
 
 
-@dataclass
+@define(frozen=True, slots=True)
 class WorkItem:
     """Individual work item with tracking metadata."""
 
     item_id: str
     item: Any
-    queued_at: float = field(default_factory=time.time)
+    queued_at: float = field(factory=time.time)
 
 
 @define(slots=False)  # Disable slots to allow dynamic attribute assignment

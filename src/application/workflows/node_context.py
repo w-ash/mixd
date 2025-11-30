@@ -5,8 +5,9 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-from dataclasses import dataclass
 from typing import Any
+
+from attrs import define
 
 from src.config import get_logger
 from src.domain.entities.track import TrackList
@@ -19,7 +20,7 @@ type DataPath = str | list[str]
 type ContextData = dict[str, Any]
 
 
-@dataclass(frozen=True)
+@define(frozen=True, slots=True)
 class NodeContext:
     """Context extractor with path-based access."""
 

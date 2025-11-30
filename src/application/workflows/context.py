@@ -4,8 +4,9 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
-from dataclasses import dataclass
 from typing import Any
+
+from attrs import define
 
 from src.config import get_logger
 
@@ -328,7 +329,7 @@ class UseCaseProviderImpl:
         return ReadCanonicalPlaylistUseCase()
 
 
-@dataclass
+@define(slots=True)
 class ConcreteWorkflowContext:
     """Central dependency container for playlist workflow operations.
 

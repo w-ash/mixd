@@ -3,7 +3,7 @@
 **Branch:** `refactor/remove-duplication`
 **Started:** 2025-11-29
 **Last Updated:** 2025-11-29
-**Status:** Phase 2 Complete (SKIPPED), Phase 3 In Progress
+**Status:** Phase 3 Complete, Phase 4 In Progress
 
 ---
 
@@ -167,10 +167,10 @@ Phase SKIPPED with documented reasoning. Conversion files are correctly service-
 
 ---
 
-### 🚧 Phase 3: @dataclass → @define Migration (PENDING)
-**Target:** 0 net lines (consistency improvement)
-**What:** Convert last 3 @dataclass usages to @define
-**Why:** 98% of codebase uses attrs, these 3 files are outliers
+### ✅ Phase 3: @dataclass → @define Migration (COMPLETE)
+**Impact:** 0 net lines (consistency improvement only)
+**What:** Converted last 3 @dataclass usages to @define
+**Why:** Achieve 100% attrs consistency across codebase
 
 **Context:**
 Found exactly 3 files still using standard library `@dataclass`:
@@ -178,26 +178,35 @@ Found exactly 3 files still using standard library `@dataclass`:
 2. `application/workflows/node_context.py:22` - `NodeContext`
 3. `infrastructure/connectors/_shared/rate_limited_batch_processor.py:51` - `WorkItem`
 
-These should use attrs for consistency with rest of codebase.
+These were the last remaining dataclass usages in a codebase that's 98% attrs.
+
+**Changes Made:**
+- **ConcreteWorkflowContext**: `@dataclass` → `@define(slots=True)` (NOT frozen - has mutable shared_session)
+- **NodeContext**: `@dataclass(frozen=True)` → `@define(frozen=True, slots=True)` (custom __init__ works correctly)
+- **WorkItem**: `@dataclass` → `@define(frozen=True, slots=True)` + `field(default_factory=...)` → `field(factory=...)`
 
 **Checklist:**
-- [ ] Convert `application/workflows/context.py`
-  - [ ] Change `@dataclass` → `@define(frozen=True, slots=True)`
-  - [ ] Verify no `__post_init__` issues
-- [ ] Convert `application/workflows/node_context.py`
-  - [ ] Change `@dataclass(frozen=True)` → `@define(frozen=True, slots=True)`
-  - [ ] Check custom `__init__` with `object.__setattr__` still works
-- [ ] Convert `infrastructure/connectors/_shared/rate_limited_batch_processor.py`
-  - [ ] Change `@dataclass` → `@define(frozen=True, slots=True)`
-  - [ ] Change `field(default_factory=...)` → `field(factory=...)`
-- [ ] Run all tests (should still be 627 passing)
-- [ ] Run type checking (should still be 0 errors)
-- [ ] Commit: "refactor: convert remaining @dataclass to @define for consistency"
+- [x] Convert `application/workflows/context.py`
+  - [x] Change `@dataclass` → `@define(slots=True)` (mutable for shared_session)
+  - [x] Update import: `from dataclasses import dataclass` → `from attrs import define`
+- [x] Convert `application/workflows/node_context.py`
+  - [x] Change `@dataclass(frozen=True)` → `@define(frozen=True, slots=True)`
+  - [x] Verify custom `__init__` with `object.__setattr__` still works
+  - [x] Update import
+- [x] Convert `infrastructure/connectors/_shared/rate_limited_batch_processor.py`
+  - [x] Change `@dataclass` → `@define(frozen=True, slots=True)`
+  - [x] Change `field(default_factory=time.time)` → `field(factory=time.time)`
+  - [x] Update import: add `field` to attrs import
+- [x] Run all tests (627 passing ✅)
+- [x] Run type checking (0 errors ✅)
+- [x] Commit with detailed message
 
-**Key Notes:**
-- attrs uses `factory=` not `default_factory=`
-- attrs `__attrs_post_init__` instead of `__post_init__` if needed
-- Frozen classes with custom `__init__` need `object.__setattr__` (already in NodeContext)
+**Key Learning:**
+- attrs `factory=` replaces `default_factory=`
+- Dependency containers should use `@define(slots=True)` not frozen (mutable state)
+- Frozen classes with custom `__init__` work correctly with attrs when using `object.__setattr__`
+
+**Result:** Codebase now 100% attrs - zero dataclass usages remain.
 
 ---
 
