@@ -12,7 +12,7 @@ from attrs import define, field
 from src.domain.entities.operations import OperationResult
 
 
-@define(frozen=True)
+@define(frozen=True, slots=True)
 class ImportResultData:
     """Data structure for import operation results."""
 
@@ -28,7 +28,7 @@ class ImportResultData:
     tracks: list[Any] = field(factory=list)
 
 
-@define(frozen=True)
+@define(frozen=True, slots=True)
 class SyncResultData:
     """Data structure for sync operation results."""
 

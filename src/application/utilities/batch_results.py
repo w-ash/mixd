@@ -49,7 +49,7 @@ class Logger(Protocol):
         ...
 
 
-@define(frozen=True)
+@define(frozen=True, slots=True)
 class BatchResult:
     """Success rates and detailed outcomes from processing music items in batches.
 
