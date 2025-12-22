@@ -112,20 +112,17 @@ class TestSpotifyAddedAtPreservation:
             ],
         )
 
-        # Step 2: Process through ConnectorPlaylistProcessingService
+        # Step 2: Create TrackList with connector_playlist metadata
+        # The use case will internally call process_connector_playlist
+        from src.domain.entities.track import TrackList
+
         uow = get_unit_of_work(db_session)
-        processing_service = ConnectorPlaylistProcessingService()
+        tracklist = TrackList(
+            tracks=[],  # Empty tracks, connector_playlist has the data
+            metadata={"connector_playlist": connector_playlist},
+        )
 
-        async with uow:
-            # Process connector playlist → TrackList with domain Tracks
-            tracklist = await processing_service.process_connector_playlist(
-                connector_playlist=connector_playlist,
-                uow=uow,
-            )
-
-            await uow.commit()
-
-        # Step 3: Create canonical playlist from TrackList
+        # Step 3: Create canonical playlist - use case will process connector data
         create_use_case = CreateCanonicalPlaylistUseCase()
         create_command = CreateCanonicalPlaylistCommand(
             name="Canonical Test Playlist",

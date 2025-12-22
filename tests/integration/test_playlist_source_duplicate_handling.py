@@ -123,7 +123,7 @@ class TestPlaylistSourceDuplicateHandling:
                 use_case = CreateCanonicalPlaylistUseCase()
                 command = CreateCanonicalPlaylistCommand(
                     name="Test Integration Playlist",
-                    tracklist=processed_tracklist,
+                    tracklist=processed_tracklist.to_tracklist(),
                     # Use test-specific metadata to ensure we're working with test data
                     metadata={
                         "test_id": "duplicate_handling_test",

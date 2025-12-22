@@ -173,7 +173,7 @@ Narada uses **Domain-Driven Design (DDD) + Hexagonal Architecture** for reliabil
 - **Fast**: Optimized batch processing and async operations
 - **Reliable**: Comprehensive error handling and data validation
 - **Extensible**: Plugin-based workflow system and self-contained service connectors
-- **Type-Safe**: Full typing support with Python 3.13+ features
+- **Type-Safe**: Full typing support with Python 3.14+ features
 - **Maintainable**: Clean architecture with strict dependency boundaries
 
 ## Development
@@ -228,7 +228,7 @@ narada likes --help                    # Test likes sync commands
 
 ### Code Style
 
-- Python 3.13+ with modern typing features
+- Python 3.14+ with modern typing features
 - Line length: 88 characters (enforced by Ruff)
 - Immutable domain models using attrs
 - Repository pattern for all data access

@@ -300,10 +300,10 @@ Declarative transformation pipelines.
 
 ### Core Technology Decisions
 
-#### Python 3.13+
-**Why**: Pattern matching, enhanced typing, performance improvements
-**Usage**: Modern language features throughout codebase
-**Benefits**: Better type safety, cleaner code, future-proofing
+#### Python 3.14+
+**Why**: Enhanced typing, performance improvements, modern async patterns
+**Usage**: Modern language features throughout codebase, PEP 749 support
+**Benefits**: Better type safety, cleaner code, future-proofing, improved asyncio
 
 #### SQLite + SQLAlchemy 2.0
 **Why**: Zero configuration, atomic transactions, rich relationships
@@ -728,7 +728,7 @@ async with get_isolated_session() as session:
 ✅ **Use Context Managers**: Ensure proper session lifecycle management
 ✅ **Follow Injection Patterns**: Maintain Clean Architecture compliance
 
-## Clean Architecture Modernization (2025)
+## Clean Architecture Modernization (2026)
 
 Narada follows modern clean architecture principles with strict adherence to dependency inversion and separation of concerns. The architecture has been continuously refined to eliminate redundancy while maintaining clean boundaries.
 

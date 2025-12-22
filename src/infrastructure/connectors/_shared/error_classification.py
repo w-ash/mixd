@@ -188,6 +188,8 @@ class HTTPErrorClassifier(BaseErrorClassifier):
                 "unauthorized",
                 "forbidden",
                 "invalid token",
+                "invalid api key",
+                "authentication failed",
                 "token expired",
                 "expired token",
                 "invalid access",

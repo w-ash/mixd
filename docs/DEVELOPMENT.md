@@ -22,7 +22,7 @@ poetry run pytest tests/integration/            # Database integration tests
 poetry run pytest --cov=narada --cov-report=html # Coverage
 
 # Quality
-poetry run ruff check . --fix --unsafe-fixes    # Modern Python 3.13+ linting
+poetry run ruff check . --fix --unsafe-fixes    # Modern Python 3.14+ linting
 poetry run ruff format .                        # Format
 poetry run basedpyright src/                    # Type check
 
@@ -89,7 +89,7 @@ async with get_unit_of_work() as uow:
 
 ## Testing Strategy
 
-### Test Pyramid (Speed & Coverage) - 2025 Best Practice
+### Test Pyramid (Speed & Coverage) - 2026 Best Practice
 - **Unit Tests** (`tests/unit/`) - Fast, isolated, 60%+ of test suite, <100ms each
 - **Integration Tests** (`tests/integration/`) - Real database/APIs, 35% of test suite  
 - **E2E Tests** - Critical user workflows, 5% of test suite
@@ -273,7 +273,7 @@ class NewServiceMatchingProvider(BaseMatchingProvider):
 - **Ruthlessly DRY** - No code duplication in single-maintainer codebase
 - **Batch-First** - Design for collections, single items are degenerate cases
 - **Immutable Domain** - Pure transformations with no side effects
-- **Python 3.13+** - Modern syntax, type safety, strict typing
+- **Python 3.14+** - Modern syntax, type safety, strict typing
 
 ### Conventions
 - 88-character lines, double quotes, Google docstrings

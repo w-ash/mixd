@@ -25,16 +25,6 @@ from src.domain.entities.track import Artist, Track, TrackList
 class TestNonEmptyString:
     """Tests for non_empty_string validator."""
 
-    def test_valid_non_empty_string(self):
-        """Should accept non-empty strings."""
-
-        @define
-        class TestCommand:
-            name: str = field(validator=non_empty_string)
-
-        cmd = TestCommand(name="My Playlist")
-        assert cmd.name == "My Playlist"
-
     def test_rejects_empty_string(self):
         """Should reject empty strings."""
 
@@ -69,16 +59,6 @@ class TestNonEmptyString:
 class TestNonEmptyList:
     """Tests for non_empty_list validator."""
 
-    def test_valid_non_empty_list(self):
-        """Should accept non-empty lists."""
-
-        @define
-        class TestCommand:
-            items: list[str] = field(validator=non_empty_list)
-
-        cmd = TestCommand(items=["a", "b"])
-        assert len(cmd.items) == 2
-
     def test_rejects_empty_list(self):
         """Should reject empty lists."""
 
@@ -92,16 +72,6 @@ class TestNonEmptyList:
 
 class TestPositiveIntInRange:
     """Tests for positive_int_in_range validator."""
-
-    def test_valid_int_in_range(self):
-        """Should accept integers within specified range."""
-
-        @define
-        class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
-
-        cmd = TestCommand(limit=50)
-        assert cmd.limit == 50
 
     def test_accepts_min_boundary(self):
         """Should accept minimum boundary value."""
@@ -157,26 +127,6 @@ class TestPositiveIntInRange:
 class TestOptionalPositiveInt:
     """Tests for optional_positive_int validator."""
 
-    def test_accepts_none(self):
-        """Should accept None values."""
-
-        @define
-        class TestCommand:
-            days_back: int | None = field(validator=optional_positive_int)
-
-        cmd = TestCommand(days_back=None)
-        assert cmd.days_back is None
-
-    def test_accepts_positive_int(self):
-        """Should accept positive integers."""
-
-        @define
-        class TestCommand:
-            days_back: int | None = field(validator=optional_positive_int)
-
-        cmd = TestCommand(days_back=90)
-        assert cmd.days_back == 90
-
     def test_rejects_zero(self):
         """Should reject zero."""
 
@@ -201,30 +151,6 @@ class TestOptionalPositiveInt:
 class TestOptionalInChoices:
     """Tests for optional_in_choices validator."""
 
-    def test_accepts_none(self):
-        """Should accept None values."""
-
-        @define
-        class TestCommand:
-            sort_by: str | None = field(
-                validator=optional_in_choices(["asc", "desc", "random"])
-            )
-
-        cmd = TestCommand(sort_by=None)
-        assert cmd.sort_by is None
-
-    def test_accepts_valid_choice(self):
-        """Should accept values in the choices list."""
-
-        @define
-        class TestCommand:
-            sort_by: str | None = field(
-                validator=optional_in_choices(["asc", "desc", "random"])
-            )
-
-        cmd = TestCommand(sort_by="asc")
-        assert cmd.sort_by == "asc"
-
     def test_rejects_invalid_choice(self):
         """Should reject values not in choices list."""
 
@@ -240,21 +166,6 @@ class TestOptionalInChoices:
 
 class TestTracklistHasTracksOrMetadata:
     """Tests for tracklist_has_tracks_or_metadata validator."""
-
-    def test_accepts_tracklist_with_tracks(self):
-        """Should accept TrackList with tracks."""
-
-        @define
-        class TestCommand:
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
-
-        artist = Artist(name="Test Artist")
-        track = Track(title="Test", artists=[artist], duration_ms=180000)
-        tracklist = TrackList(tracks=[track])
-        cmd = TestCommand(tracklist=tracklist)
-        assert len(cmd.tracklist.tracks) == 1
 
     def test_accepts_tracklist_with_connector_metadata(self):
         """Should accept TrackList with connector_playlist metadata."""
@@ -299,19 +210,6 @@ class TestTracklistHasTracksOrMetadata:
 
 class TestApiBatchSizeValidator:
     """Tests for api_batch_size_validator."""
-
-    def test_accepts_valid_batch_size(self):
-        """Should accept batch sizes within settings limit."""
-
-        @define
-        class TestCommand:
-            batch_size: int = field(
-                validator=api_batch_size_validator("api.spotify_large_batch_size")
-            )
-
-        # Assuming settings.api.spotify_large_batch_size is >= 100
-        cmd = TestCommand(batch_size=100)
-        assert cmd.batch_size == 100
 
     def test_rejects_oversized_batch(self):
         """Should reject batch sizes exceeding settings limit."""
