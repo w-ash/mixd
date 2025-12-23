@@ -15,6 +15,7 @@ import pytest
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 
 
+@pytest.mark.diagnostic
 class TestPylastBlockingBehavior:
     """Tests to investigate pylast library blocking patterns."""
 

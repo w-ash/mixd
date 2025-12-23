@@ -16,6 +16,7 @@ from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
 
+@pytest.mark.diagnostic
 class TestLastFMAPICallAnalysis:
     """Test suite to analyze API call patterns in LastFM metadata extraction."""
 

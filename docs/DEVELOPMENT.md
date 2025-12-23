@@ -15,11 +15,17 @@ poetry run pytest && poetry run narada --help  # Verify installation
 See `CLAUDE.md` for complete reference:
 
 ```bash
-# Testing
-poetry run pytest                               # All tests
+# Testing (Fast Development Workflow)
+poetry run pytest                               # Fast tests (skip slow/diagnostic, <1min)
+poetry run pytest -m "unit"                     # Unit tests only (<10s)
 poetry run pytest tests/unit/domain/            # Fast domain tests
 poetry run pytest tests/integration/            # Database integration tests
 poetry run pytest --cov=narada --cov-report=html # Coverage
+
+# Testing (Complete/CI Workflow)
+poetry run pytest -m ""                         # ALL tests including slow/diagnostic
+poetry run pytest -m "slow"                     # Slow tests only
+poetry run pytest -m "diagnostic"               # Diagnostic/profiling tests only
 
 # Quality
 poetry run ruff check . --fix --unsafe-fixes    # Modern Python 3.14+ linting
@@ -120,21 +126,44 @@ tests/
 - **Integration** (`tests/integration/conftest.py`) - Real database fixtures with cleanup
 - **Shared** (`tests/fixtures/`) - Test data models and factory functions
 
-### Performance Tests
-Performance tests are **excluded from regular runs** to keep test execution fast:
+### Test Execution Workflow (2025 Best Practice)
+
+Tests are organized by speed to optimize development feedback loops:
+
+**Fast Development Loop** (default, <1 minute):
 ```bash
-# Run all tests (includes performance tests - may be slow)
-poetry run pytest
-
-# Run only performance tests when needed
-poetry run pytest -m "performance"
-
-# Run integration tests excluding performance tests (faster)
-poetry run pytest -m "integration and not performance"
-
-# Run specific performance test file
-poetry run pytest tests/integration/test_large_playlist_performance.py
+poetry run pytest                    # Skips slow and diagnostic tests
+poetry run pytest -m "unit"          # Unit tests only (<10s)
 ```
+
+**Specific Test Categories**:
+```bash
+# By marker
+poetry run pytest -m "slow"          # Slow tests only (>1s each)
+poetry run pytest -m "performance"   # Performance tests only (>5s each)
+poetry run pytest -m "diagnostic"    # Diagnostic/profiling tests
+
+# By layer
+poetry run pytest -m "integration and not slow"  # Fast integration tests
+poetry run pytest tests/unit/                    # All unit tests
+poetry run pytest tests/integration/             # All integration tests
+
+# By domain
+poetry run pytest -m "matching"      # Track matching tests
+poetry run pytest -m "connector"     # Connector tests
+```
+
+**Complete Test Suite** (CI/CD):
+```bash
+poetry run pytest -m ""              # Run ALL tests including slow/diagnostic
+```
+
+**Marker Definitions**:
+- `unit`: Fast, isolated tests (<100ms each)
+- `integration`: Real DB/APIs (<1s each)
+- `slow`: Tests taking >1s (skipped by default)
+- `performance`: Tests taking >5s (skipped by default)
+- `diagnostic`: Investigation/profiling tests (skipped by default)
 
 ### Testing Patterns
 
@@ -182,14 +211,25 @@ playlist = create_test_playlist(name="Test Playlist")
 
 ### Test Commands
 ```bash
-# Fast development feedback
-poetry run pytest tests/unit/domain/ -x         # Pure business logic (fastest)
-poetry run pytest tests/integration/ --maxfail=3  # Database integration
+# Fast development feedback (skips slow tests by default)
+poetry run pytest                               # Fast tests (<1min)
+poetry run pytest -x                            # Stop on first failure
 poetry run pytest --lf                          # Run last failed tests only
+poetry run pytest tests/unit/domain/            # Pure business logic (fastest)
+
+# Specific test categories
+poetry run pytest -m "unit"                     # Unit tests only
+poetry run pytest -m "integration and not slow" # Fast integration tests
+poetry run pytest -m "slow"                     # Slow tests only
+poetry run pytest -m "diagnostic"               # Diagnostic/profiling tests
+
+# Complete test suite (CI/CD)
+poetry run pytest -m ""                         # ALL tests including slow/diagnostic
+poetry run pytest tests/integration/            # All integration tests
 
 # Coverage and quality
-poetry run pytest --cov=src --cov-report=html   # Coverage report  
-poetry run pytest --durations=10                # Find slow tests
+poetry run pytest --cov=src --cov-report=html   # Coverage report
+poetry run pytest --durations=20                # Find slowest 20 tests
 poetry run pytest -k "test_track_"              # Focus on specific functionality
 ```
 

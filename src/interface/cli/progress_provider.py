@@ -126,6 +126,7 @@ class RichProgressProvider:
         )
 
         self._operation_tasks: dict[str, OperationTask] = {}
+        self._cleanup_tasks: set[asyncio.Task] = set()  # Track cleanup tasks for proper cancellation
         self._progress_started = False
         self._lock = asyncio.Lock()
 
@@ -152,6 +153,18 @@ class RichProgressProvider:
         """Stop Live Display and restore normal logging."""
         async with self._lock:
             if self._progress_started:
+                # Cancel all pending cleanup tasks
+                cleanup_count = len(self._cleanup_tasks)
+                for task in self._cleanup_tasks:
+                    if not task.done():
+                        task.cancel()
+
+                # Wait for all cleanup tasks to be cancelled
+                if self._cleanup_tasks:
+                    await asyncio.gather(*self._cleanup_tasks, return_exceptions=True)
+
+                self._cleanup_tasks.clear()
+
                 # Restore normal logging first
                 self._restore_normal_logging()
 
@@ -167,6 +180,7 @@ class RichProgressProvider:
                 self._logger.info(
                     "Live Display stopped and logging restored",
                     cleared_operations=operation_count,
+                    cancelled_cleanup_tasks=cleanup_count,
                 )
 
     async def on_operation_started(self, operation: ProgressOperation) -> None:
@@ -319,8 +333,10 @@ class RichProgressProvider:
             cleanup_task = asyncio.create_task(
                 self._cleanup_completed_task(operation_id)
             )
-            # Keep reference to prevent garbage collection (fire-and-forget cleanup)
-            cleanup_task.add_done_callback(lambda _: None)
+            # Track cleanup task for proper cancellation
+            self._cleanup_tasks.add(cleanup_task)
+            # Remove from tracking when done
+            cleanup_task.add_done_callback(self._cleanup_tasks.discard)
 
     async def _cleanup_completed_task(
         self, operation_id: str, delay_seconds: float = 2.0
@@ -330,23 +346,35 @@ class RichProgressProvider:
         Args:
             operation_id: ID of operation to clean up
             delay_seconds: How long to wait before cleanup
+
+        Note:
+            This task may be cancelled during shutdown. CancelledError
+            is allowed to propagate per Python 3.14 best practices.
         """
-        await asyncio.sleep(delay_seconds)
+        try:
+            await asyncio.sleep(delay_seconds)
 
-        async with self._lock:
-            operation_task = self._operation_tasks.get(operation_id)
-            if operation_task is not None:
-                # Remove from Rich progress display
-                with contextlib.suppress(KeyError):
-                    # Task may have already been removed
-                    self._progress.remove_task(operation_task.task_id)
+            async with self._lock:
+                operation_task = self._operation_tasks.get(operation_id)
+                if operation_task is not None:
+                    # Remove from Rich progress display
+                    with contextlib.suppress(KeyError):
+                        # Task may have already been removed
+                        self._progress.remove_task(operation_task.task_id)
 
-                # Remove from our tracking
-                del self._operation_tasks[operation_id]
+                    # Remove from our tracking
+                    del self._operation_tasks[operation_id]
 
-                self._logger.debug(
-                    "Completed progress task cleaned up", operation_id=operation_id
-                )
+                    self._logger.debug(
+                        "Completed progress task cleaned up", operation_id=operation_id
+                    )
+        except asyncio.CancelledError:
+            # Task was cancelled during shutdown - this is expected
+            # Re-raise to allow proper cancellation propagation (Python 3.14 best practice)
+            self._logger.debug(
+                "Cleanup task cancelled during shutdown", operation_id=operation_id
+            )
+            raise
 
     async def cleanup_all_tasks(self) -> int:
         """Clean up all progress tasks immediately.

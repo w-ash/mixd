@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 
+@pytest.mark.diagnostic
 class TestThreadPoolConcurrency:
     """Diagnostic tests for asyncio thread pool concurrency limits."""
 

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 
+@pytest.mark.diagnostic
 class TestAsyncioToThreadDiagnosis:
     """Diagnose asyncio.to_thread behavior without any external libraries."""
 
