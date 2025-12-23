@@ -11,6 +11,8 @@ All entities use hard deletes for simplicity and performance.
 Data recovery relies on external API re-import and database backups.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -112,27 +114,27 @@ class DBTrack(BaseEntity):
     mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
     # Relationships
-    mappings: Mapped[list["DBTrackMapping"]] = relationship(
+    mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="track",
         passive_deletes=True,
     )
-    metrics: Mapped[list["DBTrackMetric"]] = relationship(
+    metrics: Mapped[list[DBTrackMetric]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    likes: Mapped[list["DBTrackLike"]] = relationship(
+    likes: Mapped[list[DBTrackLike]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    plays: Mapped[list["DBTrackPlay"]] = relationship(
+    plays: Mapped[list[DBTrackPlay]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    playlist_tracks: Mapped[list["DBPlaylistTrack"]] = relationship(
+    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    connector_plays: Mapped[list["DBConnectorPlay"]] = relationship(
+    connector_plays: Mapped[list[DBConnectorPlay]] = relationship(
         back_populates="resolved_track",
         passive_deletes=True,
     )
@@ -172,7 +174,7 @@ class DBConnectorTrack(BaseEntity):
     )
 
     # Mapping relationship - plural to reflect conceptual many-to-one possibility
-    mappings: Mapped[list["DBTrackMapping"]] = relationship(
+    mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="connector_track",
         passive_deletes=True,
     )
@@ -203,11 +205,11 @@ class DBTrackMapping(BaseEntity):
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
-    track: Mapped["DBTrack"] = relationship(
+    track: Mapped[DBTrack] = relationship(
         back_populates="mappings",
         passive_deletes=True,
     )
-    connector_track: Mapped["DBConnectorTrack"] = relationship(
+    connector_track: Mapped[DBConnectorTrack] = relationship(
         back_populates="mappings",
         passive_deletes=True,
     )
@@ -284,7 +286,7 @@ class DBTrackLike(BaseEntity):
     last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
-    track: Mapped["DBTrack"] = relationship(
+    track: Mapped[DBTrack] = relationship(
         back_populates="likes",
         passive_deletes=True,
     )
@@ -425,11 +427,11 @@ class DBPlaylist(BaseEntity):
     track_count: Mapped[int] = mapped_column(default=0)
 
     # Relationships
-    tracks: Mapped[list["DBPlaylistTrack"]] = relationship(
+    tracks: Mapped[list[DBPlaylistTrack]] = relationship(
         back_populates="playlist",
         cascade="all, delete-orphan",
     )
-    mappings: Mapped[list["DBPlaylistMapping"]] = relationship(
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="playlist",
         passive_deletes=True,
     )
@@ -459,7 +461,7 @@ class DBConnectorPlaylist(BaseEntity):
     last_updated: Mapped[datetime]
 
     # Relationships
-    mappings: Mapped[list["DBPlaylistMapping"]] = relationship(
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="connector_playlist",
         passive_deletes=True,
     )
@@ -500,7 +502,7 @@ class DBPlaylistMapping(BaseEntity):
         back_populates="mappings",
         passive_deletes=True,
     )
-    connector_playlist: Mapped["DBConnectorPlaylist"] = relationship(
+    connector_playlist: Mapped[DBConnectorPlaylist] = relationship(
         back_populates="mappings",
         passive_deletes=True,
     )

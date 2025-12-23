@@ -6,13 +6,10 @@ and UnitOfWork pattern, without direct infrastructure dependencies.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from attrs import define
 
-if TYPE_CHECKING:
-    from src.domain.entities import Playlist
-    from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.entities import Playlist
+from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

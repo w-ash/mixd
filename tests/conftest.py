@@ -25,11 +25,8 @@ from src.infrastructure.persistence.database.db_connection import (
 from src.infrastructure.persistence.database.db_models import init_db
 
 
-# Pytest 8.4.1: Use session scope with proper async handling
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    """Modern event loop policy for pytest 8.4.1 async test sessions."""
-    return asyncio.get_event_loop_policy()
+# Python 3.14+: Event loop policy system is deprecated
+# pytest-asyncio handles event loop management internally without custom policy fixtures
 
 
 # Modern async generator typing for pytest 8.4.1

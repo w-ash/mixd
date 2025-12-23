@@ -14,6 +14,8 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 
 # Import for enrichment functionality

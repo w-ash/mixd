@@ -5,6 +5,8 @@ music services. Supports both append mode (add tracks to end) and differential
 mode (calculate minimal changes to transform current playlist into target state).
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -502,7 +504,7 @@ class UpdateCanonicalPlaylistUseCase:
         )
 
     async def _extract_track_metrics(
-        self, tracks: list["Track"], uow: UnitOfWorkProtocol
+        self, tracks: list[Track], uow: UnitOfWorkProtocol
     ) -> None:
         """Extracts analytics metrics from track metadata for each music service.
 

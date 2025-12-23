@@ -1,5 +1,7 @@
 """Track mappers for converting between domain and database models."""
 
+from __future__ import annotations
+
 from typing import Any, override
 
 from attrs import define

@@ -26,6 +26,8 @@ Example:
     ```
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncIterator, Callable
 import contextlib
@@ -130,7 +132,7 @@ class RateLimitedBatchProcessor:
         # Queue all initial work items
         for item in items:
             work_item = WorkItem(
-                item_id=str(uuid.uuid4()),
+                item_id=str(uuid.uuid7()),  # Time-ordered UUID for better tracking
                 item=item,
             )
             await self.work_queue.put(work_item)

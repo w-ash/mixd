@@ -1,5 +1,7 @@
 """Track repository for like operations."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession

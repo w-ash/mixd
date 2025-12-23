@@ -15,14 +15,14 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from typing import TYPE_CHECKING, Any, NamedTuple
+from __future__ import annotations
+
+from typing import Any, NamedTuple
 
 from attrs import define, field
 
-if TYPE_CHECKING:
-    from src.domain.entities.track import ConnectorTrack
-
 from src.config import get_logger
+from src.domain.entities.track import ConnectorTrack
 from src.domain.entities import PlayRecord, Track, create_lastfm_play_record
 from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
@@ -57,7 +57,7 @@ class LastFMOperations(BaseAPIConnector):
         """Service identifier for Last.fm connector."""
         return "lastfm"
 
-    def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
+    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
 

@@ -5,6 +5,8 @@ error handling, and transaction management. Supports LastFM recent/incremental/f
 history imports and Spotify JSON file processing.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -438,7 +440,7 @@ class ImportTracksUseCase:
                     execution_time=0.0,
                 )
                 result.metadata["cancelled"] = True
-                result.summary_metrics.add("status", 0, "Cancelled", significance=0)
+                result.summary_metrics.add("status", 0, Cancelled, significance=0)
                 return result
 
         # Create generic service importer and orchestrator

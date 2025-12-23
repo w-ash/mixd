@@ -13,6 +13,8 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 

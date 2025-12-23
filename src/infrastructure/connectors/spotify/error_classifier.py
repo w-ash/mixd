@@ -1,5 +1,7 @@
 """Spotify-specific error classification for retry behavior."""
 
+from __future__ import annotations
+
 import spotipy
 
 from src.infrastructure.connectors._shared.error_classification import (

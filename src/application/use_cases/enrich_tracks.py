@@ -7,6 +7,8 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
+from __future__ import annotations
+
 from typing import Any, Literal, NoReturn
 
 from attrs import define, field

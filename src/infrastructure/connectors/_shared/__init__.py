@@ -6,6 +6,8 @@ This module provides common functionality used across all connectors:
 - Matching provider base protocols and utilities
 """
 
+from __future__ import annotations
+
 from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,

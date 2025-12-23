@@ -15,15 +15,13 @@ The facade pattern allows the rest of the codebase to use MusicBrainzConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
 from attrs import define, field
 
 from src.config import get_logger
+from src.domain.entities import ConnectorTrack
 from src.infrastructure.connectors.base import BaseAPIConnector
-
-if TYPE_CHECKING:
-    from src.domain.entities import ConnectorTrack
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
 from src.infrastructure.connectors.musicbrainz.conversions import (
     normalize_isrc,
@@ -92,7 +90,7 @@ class MusicBrainzConnector(BaseAPIConnector):
 
         return results
 
-    def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
+    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert MusicBrainz recording data to ConnectorTrack domain model."""
         from .conversions import convert_musicbrainz_track_to_connector
 

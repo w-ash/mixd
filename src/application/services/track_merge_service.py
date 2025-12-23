@@ -4,17 +4,16 @@ Service that moves foreign key references and hard-deletes duplicate tracks.
 Cascading deletes automatically handle cleanup of related records.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from attrs import define
 from sqlalchemy import delete, update
 
 from src.config import get_logger
 from src.domain.entities import Track
-
-if TYPE_CHECKING:
-    from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
@@ -24,7 +23,7 @@ class TrackMergeService:
     """Merge duplicate canonical tracks by moving all references to winner track."""
 
     async def merge_tracks(
-        self, winner_id: int, loser_id: int, uow: "UnitOfWorkProtocol"
+        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
     ) -> Track:
         """Move all foreign key references from loser to winner, then hard-delete loser.
 
@@ -59,7 +58,7 @@ class TrackMergeService:
         return winner_track
 
     async def _move_all_references(
-        self, loser_id: int, winner_id: int, uow: "UnitOfWorkProtocol"
+        self, loser_id: int, winner_id: int, uow: UnitOfWorkProtocol
     ) -> None:
         """Move all foreign key references from loser to winner track."""
         session = uow.get_session()
@@ -446,7 +445,7 @@ class TrackMergeService:
             f"Merged track likes: {loser_id} → {winner_id} ({len(conflicts)} conflicts resolved)"
         )
 
-    async def _delete_track(self, track_id: int, uow: "UnitOfWorkProtocol") -> None:
+    async def _delete_track(self, track_id: int, uow: UnitOfWorkProtocol) -> None:
         """Hard delete the loser track."""
         session = uow.get_session()
 

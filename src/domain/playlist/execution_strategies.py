@@ -5,6 +5,8 @@ platform (canonical database vs external API). Enables DRY compliance by using
 the same diff logic with different execution approaches.
 """
 
+from __future__ import annotations
+
 import bisect
 from typing import Any, Protocol
 
@@ -34,7 +36,7 @@ class ExecutionStrategy(Protocol):
     - API strategy: Sequential execution with dependency ordering for external services
     """
 
-    def plan_operations(self, diff: PlaylistDiff) -> "ExecutionPlan":
+    def plan_operations(self, diff: PlaylistDiff) -> ExecutionPlan:
         """Plan how to execute the given diff operations.
 
         Args:

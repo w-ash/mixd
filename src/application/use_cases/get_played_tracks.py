@@ -5,6 +5,8 @@ music service (Spotify, Last.fm), and sorting preferences. Returns tracks with
 play count metadata for further analysis.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 

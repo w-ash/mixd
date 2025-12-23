@@ -1,5 +1,7 @@
 """Repository for synchronization checkpoints."""
 
+from __future__ import annotations
+
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession

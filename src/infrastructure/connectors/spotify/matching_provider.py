@@ -4,6 +4,8 @@ This provider handles communication with the Spotify API and transforms
 Spotify track data into our domain MatchResult objects.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from src.config import get_logger

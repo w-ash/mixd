@@ -4,6 +4,8 @@ These functions contain only business logic with no external dependencies,
 making them easy to unit test without mocking.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from src.domain.entities import Playlist, Track, TrackList

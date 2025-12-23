@@ -1,5 +1,7 @@
 """Application utilities - shared utilities for application services."""
 
+from __future__ import annotations
+
 from src.application.services.progress_manager import (
     AsyncProgressManager,
     get_progress_manager,

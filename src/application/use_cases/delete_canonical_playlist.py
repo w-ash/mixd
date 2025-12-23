@@ -5,6 +5,8 @@ validation of playlist existence, optional warnings for external connections,
 and atomic transaction management to ensure data consistency.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 

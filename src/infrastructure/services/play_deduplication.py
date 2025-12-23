@@ -5,6 +5,8 @@ the same song play gets recorded twice. This module detects and scores these
 duplicates by comparing track metadata and timestamps within a time window.
 """
 
+from __future__ import annotations
+
 import operator
 
 from src.domain.entities import TrackPlay

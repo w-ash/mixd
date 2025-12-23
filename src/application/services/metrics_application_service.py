@@ -5,6 +5,8 @@ fetching missing metrics from external APIs, converting values to standardized
 formats, and persisting results for future use.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from attrs import define

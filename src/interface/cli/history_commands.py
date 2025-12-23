@@ -1,5 +1,7 @@
 """CLI commands for importing and managing play history from music services."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Annotated
 

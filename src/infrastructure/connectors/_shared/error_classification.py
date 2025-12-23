@@ -4,6 +4,8 @@ Provides pluggable error classification that can be customized per service
 while maintaining consistent retry behavior patterns across all connectors.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Protocol
 

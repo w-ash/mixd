@@ -4,6 +4,8 @@ Handles Spotify's comprehensive metadata including behavioral data, technical me
 and sophisticated duration-based filtering.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from typing import Any
 

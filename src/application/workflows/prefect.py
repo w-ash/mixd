@@ -6,6 +6,8 @@ and creating/updating playlists across music platforms. Provides progress tracki
 recovery, and database session management for long-running playlist operations.
 """
 
+from __future__ import annotations
+
 import datetime
 from typing import Any, NotRequired, TypedDict
 

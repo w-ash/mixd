@@ -5,6 +5,8 @@ Handles subscriber management, error isolation, and coordinates with the
 ProgressCoordinator domain service for business rule enforcement.
 """
 
+from __future__ import annotations
+
 import asyncio
 from typing import Any
 from uuid import uuid4

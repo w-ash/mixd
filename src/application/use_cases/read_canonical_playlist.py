@@ -4,6 +4,8 @@ Supports lookup by internal database ID or external service ID (Spotify, etc).
 Includes execution timing and error handling for playlist not found scenarios.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 

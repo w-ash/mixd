@@ -6,7 +6,6 @@ list, backup, delete. Workflow functionality moved to workflow_commands.py.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated
 
 from rich.panel import Panel
@@ -14,6 +13,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
+from src.infrastructure.connectors import run_async_with_connector_executor
 from src.interface.cli.console import get_console
 
 console = get_console()
@@ -32,7 +32,7 @@ def list() -> None:
 
     Shows playlist ID, name, description, and track count in a Rich table.
     """
-    asyncio.run(_list_stored_playlists())
+    run_async_with_connector_executor(_list_stored_playlists())
 
 
 @app.command()
@@ -52,7 +52,7 @@ def backup(
         narada playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
         narada playlist backup spotify 1A2B3C4D5E6F7G8H9I0J1K
     """
-    asyncio.run(_backup_playlist_async(connector, playlist_id))
+    run_async_with_connector_executor(_backup_playlist_async(connector, playlist_id))
 
 
 @app.command()
@@ -69,7 +69,7 @@ def delete(
         narada playlist delete 5
         narada playlist delete 3 --force
     """
-    asyncio.run(_delete_playlist_async(playlist_id, force))
+    run_async_with_connector_executor(_delete_playlist_async(playlist_id, force))
 
 
 async def _list_stored_playlists() -> None:

@@ -43,6 +43,8 @@ logger.info("Starting operation")
 ```
 """
 
+from __future__ import annotations
+
 # Import everything from the submodules
 from .logging import (
     configure_prefect_logging,

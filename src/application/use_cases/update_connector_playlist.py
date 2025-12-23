@@ -4,6 +4,8 @@ Calculates minimal track changes (add/remove/move) to update external service
 playlists while preserving track timestamps and minimizing API calls.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 

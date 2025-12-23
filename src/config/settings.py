@@ -10,6 +10,8 @@ The configuration is organized into logical groups:
 - BatchConfig: Batch processing and progress reporting settings
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

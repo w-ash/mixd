@@ -1,5 +1,7 @@
 """Last.fm API client - Pure API wrapper with retry handling."""
 
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime
 from enum import Enum

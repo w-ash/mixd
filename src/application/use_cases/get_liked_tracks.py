@@ -4,6 +4,8 @@ Fetches tracks that users have marked as liked on music services (Spotify, Last.
 Supports filtering by service, sorting options, and limiting results count.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 

@@ -3,6 +3,8 @@
 Configures asyncio infrastructure for optimal I/O performance with external APIs.
 """
 
+from __future__ import annotations
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import importlib
@@ -28,34 +30,59 @@ from src.infrastructure.connectors.spotify import (
 logger = get_logger(__name__)
 
 
-class _NaradaEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
-    """Custom event loop policy that configures optimal I/O executors for connector operations."""
+def create_executor_for_connectors() -> ThreadPoolExecutor:
+    """Create ThreadPoolExecutor configured for high-concurrency connector operations.
 
-    def new_event_loop(self):
-        """Create a new event loop with properly configured default executor."""
-        loop = super().new_event_loop()
+    Returns:
+        ThreadPoolExecutor with max_workers set to lastfm_concurrency setting
+        (default 200 threads) for optimal I/O-bound API operations.
 
-        # Configure default executor for I/O-heavy operations
-        required_max_workers = settings.api.lastfm_concurrency
-        executor = ThreadPoolExecutor(
-            max_workers=required_max_workers, thread_name_prefix="narada_io"
+    Note:
+        This is the Python 3.14+ recommended approach instead of using
+        global event loop policies.
+    """
+    required_max_workers = settings.api.lastfm_concurrency
+    return ThreadPoolExecutor(
+        max_workers=required_max_workers,
+        thread_name_prefix="narada_io",
+    )
+
+
+def run_async_with_connector_executor(coro):
+    """Run coroutine with custom high-concurrency executor.
+
+    Python 3.14+ recommended pattern replacing deprecated event loop policy.
+    Creates a new event loop with custom executor, runs the coroutine, and
+    cleans up properly.
+
+    Args:
+        coro: Coroutine to execute
+
+    Returns:
+        Result of the coroutine execution
+
+    Example:
+        >>> async def fetch_data():
+        ...     return await api_call()
+        >>> result = run_async_with_connector_executor(fetch_data())
+    """
+    loop = asyncio.new_event_loop()
+    loop.set_default_executor(create_executor_for_connectors())
+
+    try:
+        logger.debug(
+            "Running coroutine with connector executor",
+            executor_max_workers=settings.api.lastfm_concurrency,
         )
-        loop.set_default_executor(executor)
-
-        logger.info(
-            "Configured new event loop with I/O executor",
-            max_workers=required_max_workers,
-            thread_name_prefix="narada_io",
-            executor_id=id(executor),
-        )
-
-        return loop
+        return loop.run_until_complete(coro)
+    finally:
+        # Clean up the event loop
+        loop.close()
 
 
-# Configure I/O infrastructure globally using event loop policy
-# This ensures all event loops created by asyncio.run() have proper executor configuration
-asyncio.set_event_loop_policy(_NaradaEventLoopPolicy())
-logger.info("Configured global asyncio event loop policy for I/O concurrency")
+# Deprecated event loop policy removed - now using explicit executor helper
+# See run_async_with_connector_executor() and create_executor_for_connectors()
+# This change aligns with Python 3.14+ best practices
 
 # Connector registry cache
 _connectors: dict[str, ConnectorConfig] = {}
@@ -135,5 +162,7 @@ __all__ = [
     "SpotifyConnector",
     "convert_spotify_playlist_to_connector",
     "convert_spotify_track_to_connector",
+    "create_executor_for_connectors",
     "discover_connectors",
+    "run_async_with_connector_executor",
 ]

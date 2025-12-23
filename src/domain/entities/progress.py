@@ -5,6 +5,8 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol
@@ -22,7 +24,7 @@ class ProgressEmitter(Protocol):
     Implementations can be real progress managers or null objects for silent operation.
     """
 
-    async def start_operation(self, operation: "ProgressOperation") -> str:
+    async def start_operation(self, operation: ProgressOperation) -> str:
         """Start tracking a new operation.
 
         Args:
@@ -33,7 +35,7 @@ class ProgressEmitter(Protocol):
         """
         ...
 
-    async def emit_progress(self, event: "ProgressEvent") -> None:
+    async def emit_progress(self, event: ProgressEvent) -> None:
         """Emit a progress event for an ongoing operation.
 
         Args:
@@ -42,7 +44,7 @@ class ProgressEmitter(Protocol):
         ...
 
     async def complete_operation(
-        self, operation_id: str, final_status: "OperationStatus"
+        self, operation_id: str, final_status: OperationStatus
     ) -> None:
         """Mark an operation as completed.
 
@@ -60,16 +62,16 @@ class NullProgressEmitter:
     This eliminates the need for None checks throughout the codebase.
     """
 
-    async def start_operation(self, operation: "ProgressOperation") -> str:
+    async def start_operation(self, operation: ProgressOperation) -> str:
         """Silent no-op that returns a dummy operation ID."""
         _ = operation  # Mark as intentionally unused for null implementation
         return f"null-{uuid4().hex[:8]}"
 
-    async def emit_progress(self, event: "ProgressEvent") -> None:
+    async def emit_progress(self, event: ProgressEvent) -> None:
         """Silent no-op for progress events."""
 
     async def complete_operation(
-        self, operation_id: str, final_status: "OperationStatus"
+        self, operation_id: str, final_status: OperationStatus
     ) -> None:
         """Silent no-op for operation completion."""
 
@@ -240,7 +242,7 @@ class ProgressOperation:
 
     def with_status(
         self, new_status: OperationStatus, end_time: datetime | None = None
-    ) -> "ProgressOperation":
+    ) -> ProgressOperation:
         """Create new operation instance with updated status and optional end time."""
         return ProgressOperation(
             operation_id=self.operation_id,
@@ -252,7 +254,7 @@ class ProgressOperation:
             metadata=self.metadata.copy(),
         )
 
-    def with_metadata(self, **new_metadata: Any) -> "ProgressOperation":
+    def with_metadata(self, **new_metadata: Any) -> ProgressOperation:
         """Create new operation instance with additional metadata."""
         updated_metadata = self.metadata.copy()
         updated_metadata.update(new_metadata)

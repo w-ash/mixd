@@ -10,17 +10,16 @@ Key components:
 - Helper utilities: metadata extraction, field processing
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from attrs import define, field
 import pylast
 
 from src.config import get_logger
-from src.domain.entities import Track
-
-if TYPE_CHECKING:
-    from src.domain.entities import ConnectorTrack
+from src.domain.entities import ConnectorTrack, Track
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="lastfm_conversions")
@@ -77,12 +76,12 @@ class LastFMTrackInfo:
     }
 
     @classmethod
-    def empty(cls) -> "LastFMTrackInfo":
+    def empty(cls) -> LastFMTrackInfo:
         """Create an empty track info object for tracks not found."""
         return cls()
 
     @classmethod
-    def from_comprehensive_data(cls, track_data: dict[str, Any]) -> "LastFMTrackInfo":
+    def from_comprehensive_data(cls, track_data: dict[str, Any]) -> LastFMTrackInfo:
         """Create LastFMTrackInfo from comprehensive track data (single API call).
 
         This method uses data from a single track.getInfo API call, avoiding the
@@ -116,7 +115,7 @@ class LastFMTrackInfo:
         )
 
     @classmethod
-    def from_pylast_track_sync(cls, track: pylast.Track) -> "LastFMTrackInfo":
+    def from_pylast_track_sync(cls, track: pylast.Track) -> LastFMTrackInfo:
         """Create LastFMTrackInfo from a pylast Track object (all fields).
 
         WARNING: This method makes 14 individual API calls and is SLOW (~1,400ms).
@@ -203,7 +202,7 @@ def convert_lastfm_to_domain_track(track: Track, lastfm_info: LastFMTrackInfo) -
     return track
 
 
-def convert_lastfm_track_to_connector(lastfm_track_data: dict) -> "ConnectorTrack":
+def convert_lastfm_track_to_connector(lastfm_track_data: dict) -> ConnectorTrack:
     """Convert Last.fm track data to ConnectorTrack domain model.
 
     Args:

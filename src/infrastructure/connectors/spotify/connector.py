@@ -15,6 +15,8 @@ The facade pattern allows the rest of the codebase to use SpotifyConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
+from __future__ import annotations
+
 from typing import Any, ClassVar
 
 from attrs import define, field

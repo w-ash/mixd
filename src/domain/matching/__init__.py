@@ -1,5 +1,7 @@
 """Track matching algorithms and types for cross-service music identification."""
 
+from __future__ import annotations
+
 from .algorithms import (
     calculate_confidence,
     calculate_title_similarity,

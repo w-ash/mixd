@@ -14,6 +14,8 @@ Usage:
     mbid = await connector.get_recording_by_isrc(isrc)
 """
 
+from __future__ import annotations
+
 from src.infrastructure.connectors.musicbrainz.connector import (
     MusicBrainzConnector,
     get_connector_config,

@@ -11,6 +11,8 @@ Unlike pure domain transforms, these functions:
 - Handle complex time window logic with multiple date format parsing
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 

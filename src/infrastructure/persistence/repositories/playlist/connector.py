@@ -1,5 +1,7 @@
 """Connector playlist repository implementation."""
 
+from __future__ import annotations
+
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 

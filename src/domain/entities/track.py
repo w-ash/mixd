@@ -3,6 +3,8 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
@@ -46,13 +48,13 @@ class Track:
     connector_track_identifiers: dict[str, str] = field(factory=dict)
     connector_metadata: dict[str, dict[str, Any]] = field(factory=dict)
 
-    def with_connector_track_id(self, connector: str, sid: str) -> "Track":
+    def with_connector_track_id(self, connector: str, sid: str) -> Track:
         """Create a new track with additional connector identifier."""
         new_ids = self.connector_track_identifiers.copy()
         new_ids[connector] = sid
         return attrs.evolve(self, connector_track_identifiers=new_ids)
 
-    def with_id(self, db_id: int) -> "Track":
+    def with_id(self, db_id: int) -> Track:
         """Set the internal database ID for this track."""
         if not isinstance(db_id, int) or db_id <= 0:
             raise ValueError(
@@ -64,7 +66,7 @@ class Track:
         self,
         connector: str,
         metadata: dict[str, Any],
-    ) -> "Track":
+    ) -> Track:
         """Create a new track with additional connector metadata."""
         new_metadata = self.connector_metadata.copy()
         new_metadata[connector] = {**new_metadata.get(connector, {}), **metadata}
@@ -75,7 +77,7 @@ class Track:
         service: str,
         is_liked: bool,
         timestamp: datetime | None = None,
-    ) -> "Track":
+    ) -> Track:
         """Create a new track with updated like status for the specified service."""
         new_metadata = self.connector_metadata.copy()
         service_meta = new_metadata.get(service, {}).copy()
@@ -111,7 +113,7 @@ class Track:
         """Get a specific attribute from connector metadata."""
         return self.connector_metadata.get(connector, {}).get(attribute, default)
 
-    def has_same_identity_as(self, other: "Track") -> bool:
+    def has_same_identity_as(self, other: Track) -> bool:
         """Compare tracks by external identifiers for identity resolution.
 
         Business rule: tracks with identical external identifiers (ISRC,
@@ -215,14 +217,14 @@ class TrackList:
     tracks: list[Track] = field(factory=list)
     metadata: dict[str, Any] = field(factory=dict)
 
-    def with_tracks(self, tracks: list[Track]) -> "TrackList":
+    def with_tracks(self, tracks: list[Track]) -> TrackList:
         """Create new TrackList with the given tracks."""
         return self.__class__(
             tracks=tracks,
             metadata=self.metadata.copy(),
         )
 
-    def with_metadata(self, key: str, value: Any) -> "TrackList":
+    def with_metadata(self, key: str, value: Any) -> TrackList:
         """Add metadata to the TrackList."""
         new_metadata = self.metadata.copy()
         new_metadata[key] = value
@@ -252,7 +254,7 @@ class TrackList:
         return key in self.metadata
 
     @classmethod
-    def from_playlist(cls, playlist: Any) -> "TrackList":  # Avoiding circular import
+    def from_playlist(cls, playlist: Any) -> TrackList:  # Avoiding circular import
         """Create TrackList from a Playlist."""
         return cls(
             tracks=playlist.tracks,

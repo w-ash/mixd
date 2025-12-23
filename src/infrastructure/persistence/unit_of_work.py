@@ -4,6 +4,8 @@ This module provides the concrete implementation of the UnitOfWork pattern,
 handling transaction management and repository creation using a shared database session.
 """
 
+from __future__ import annotations
+
 from typing import Any, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -4,6 +4,8 @@ Handles CRUD operations for playlists from multiple music services (Spotify, Las
 MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, delete, insert, select, update

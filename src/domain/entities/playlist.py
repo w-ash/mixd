@@ -3,6 +3,8 @@
 Pure playlist representations and related value objects with zero external dependencies.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -94,7 +96,7 @@ class Playlist:
         added_at: datetime | None = None,
         description: str | None = None,
         connector_playlist_identifiers: dict[str, str] | None = None,
-    ) -> "Playlist":
+    ) -> Playlist:
         """Create Playlist from TrackList or list of Tracks with uniform added_at timestamp.
 
         Args:
@@ -122,11 +124,11 @@ class Playlist:
             connector_playlist_identifiers=connector_playlist_identifiers or {},
         )
 
-    def with_entries(self, entries: list[PlaylistEntry]) -> "Playlist":
+    def with_entries(self, entries: list[PlaylistEntry]) -> Playlist:
         """Create new playlist with updated entries."""
         return evolve(self, entries=entries)
 
-    def sort_by_added_at(self, reverse: bool = False) -> "Playlist":
+    def sort_by_added_at(self, reverse: bool = False) -> Playlist:
         """Sort playlist entries by when tracks were added.
 
         Args:
@@ -146,7 +148,7 @@ class Playlist:
         self,
         connector: str,
         external_id: str,
-    ) -> "Playlist":
+    ) -> Playlist:
         """Create a new playlist with additional connector identifier.
 
         Args:
@@ -163,7 +165,7 @@ class Playlist:
         new_ids = self.connector_playlist_identifiers | {connector: external_id}
         return evolve(self, connector_playlist_identifiers=new_ids)
 
-    def with_id(self, db_id: int) -> "Playlist":
+    def with_id(self, db_id: int) -> Playlist:
         """Set the internal database ID for this playlist.
 
         This is the source of truth for playlist identity in our system.
@@ -175,7 +177,7 @@ class Playlist:
 
         return evolve(self, id=db_id)
 
-    def with_metadata(self, metadata: dict[str, Any]) -> "Playlist":
+    def with_metadata(self, metadata: dict[str, Any]) -> Playlist:
         """Create new playlist with updated metadata.
 
         Args:

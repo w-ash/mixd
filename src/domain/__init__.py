@@ -1,5 +1,7 @@
 """Narada domain layer - pure business logic with zero external dependencies."""
 
+from __future__ import annotations
+
 # Export all domain components
 from . import entities, matching, transforms
 

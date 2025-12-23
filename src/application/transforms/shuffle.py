@@ -7,6 +7,8 @@ Unlike pure domain transforms, this can use logging and is designed for
 application-layer orchestration in workflows.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 import random
 

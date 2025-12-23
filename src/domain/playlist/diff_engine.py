@@ -6,6 +6,8 @@ like batch limits and rate limits. Uses database-first track matching to avoid e
 re-identification of tracks that already have known Spotify mappings.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Any, cast
 
@@ -576,15 +578,15 @@ def calculate_playlist_diff(
 
     # Step 2: Calculate operations using functional composition
     remove_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]",
+        list[PlaylistOperation],
         calculate_remove_operations(unmatched_current, current_playlist),
     )
     add_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]",
+        list[PlaylistOperation],
         calculate_add_operations(unmatched_target, target_tracks),
     )
     move_operations: list[PlaylistOperation] = cast(
-        "list[PlaylistOperation]",
+        list[PlaylistOperation],
         calculate_move_operations(matched_tracks, current_playlist, target_tracks),
     )
 
@@ -592,9 +594,9 @@ def calculate_playlist_diff(
     all_operations = remove_operations + add_operations + move_operations
 
     # Step 3: Calculate metadata
-    api_calls: int = cast("int", estimate_api_calls(all_operations))
+    api_calls: int = cast(int, estimate_api_calls(all_operations))
     confidence: float = cast(
-        "float", calculate_confidence_score(matched_tracks, all_operations)
+        float, calculate_confidence_score(matched_tracks, all_operations)
     )
 
     return PlaylistDiff(

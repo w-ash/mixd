@@ -1,5 +1,7 @@
 """Spotify personal data parser for streaming history import."""
 
+from __future__ import annotations
+
 from datetime import datetime
 import json
 from pathlib import Path
@@ -32,7 +34,7 @@ class SpotifyPlayRecord:
     incognito_mode: bool
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "SpotifyPlayRecord":
+    def from_json(cls, data: dict[str, Any]) -> SpotifyPlayRecord:
         """Parse Spotify personal data JSON record."""
         return cls(
             timestamp=datetime.fromisoformat(data["ts"]),

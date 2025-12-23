@@ -1,10 +1,11 @@
 """CLI commands for track operations including merging duplicates."""
 
-import asyncio
+from __future__ import annotations
 
 from rich.table import Table
 import typer
 
+from src.infrastructure.connectors import run_async_with_connector_executor
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.interface.cli.console import get_console
@@ -124,7 +125,7 @@ def merge_tracks(
                 )
 
     try:
-        asyncio.run(_merge_tracks_async())
+        run_async_with_connector_executor(_merge_tracks_async())
     except Exception as e:
         console.print(f"❌ [red]Error during merge: {e}[/red]")
         raise typer.Exit(1) from e
@@ -173,7 +174,7 @@ def show_track(
                 console.print(table)
 
     try:
-        asyncio.run(_show_track_async())
+        run_async_with_connector_executor(_show_track_async())
     except Exception as e:
         console.print(f"❌ [red]Error: {e}[/red]")
         raise typer.Exit(1) from e

@@ -5,6 +5,8 @@ business logic. All business decisions (confidence, thresholds, acceptance)
 remain in the domain layer.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Any
 

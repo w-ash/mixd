@@ -5,40 +5,39 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
+from datetime import datetime
+from typing import Any, Literal, Protocol, Self
 
-if TYPE_CHECKING:
-    # Import domain entities for type annotations
-    from datetime import datetime
-
-    from src.domain.entities import (
-        ConnectorPlaylist,
-        ConnectorTrack,
-        ConnectorTrackPlay,
-        Playlist,
-        SyncCheckpoint,
-        Track,
-        TrackLike,
-        TrackPlay,
-    )
-    from src.domain.matching.types import RawProviderMatch
+from src.domain.entities import (
+    ConnectorPlaylist,
+    ConnectorTrack,
+    ConnectorTrackPlay,
+    Playlist,
+    SyncCheckpoint,
+    Track,
+    TrackLike,
+    TrackPlay,
+)
+from src.domain.matching.types import RawProviderMatch
 
 
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
 
-    def save_track(self, track: "Track") -> Awaitable["Track"]:
+    def save_track(self, track: Track) -> Awaitable[Track]:
         """Save track."""
         ...
 
     def get_by_id(
         self, id_: int, load_relationships: list[str] | None = None
-    ) -> Awaitable["Track"]:
+    ) -> Awaitable[Track]:
         """Get track by ID."""
         ...
 
-    def find_tracks_by_ids(self, track_ids: list[int]) -> Awaitable[dict[int, "Track"]]:
+    def find_tracks_by_ids(self, track_ids: list[int]) -> Awaitable[dict[int, Track]]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
         Args:
@@ -53,11 +52,11 @@ class TrackRepositoryProtocol(Protocol):
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
 
-    def get_playlist_by_id(self, playlist_id: int) -> Awaitable["Playlist"]:
+    def get_playlist_by_id(self, playlist_id: int) -> Awaitable[Playlist]:
         """Get playlist by ID."""
         ...
 
-    def save_playlist(self, playlist: "Playlist") -> Awaitable["Playlist"]:
+    def save_playlist(self, playlist: Playlist) -> Awaitable[Playlist]:
         """Save playlist."""
         ...
 
@@ -68,8 +67,8 @@ class PlaylistRepositoryProtocol(Protocol):
         ...
 
     def update_playlist(
-        self, playlist_id: int, playlist: "Playlist"
-    ) -> Awaitable["Playlist"]:
+        self, playlist_id: int, playlist: Playlist
+    ) -> Awaitable[Playlist]:
         """Update existing playlist."""
         ...
 
@@ -84,7 +83,7 @@ class PlaylistRepositoryProtocol(Protocol):
         """
         ...
 
-    def list_all_playlists(self) -> Awaitable[list["Playlist"]]:
+    def list_all_playlists(self) -> Awaitable[list[Playlist]]:
         """Get all playlists with basic metadata for listing.
 
         Returns playlists with minimal relationship loading for efficient
@@ -101,7 +100,7 @@ class LikeRepositoryProtocol(Protocol):
 
     def get_track_likes(
         self, track_id: int, services: list[str] | None = None
-    ) -> Awaitable[list["TrackLike"]]:
+    ) -> Awaitable[list[TrackLike]]:
         """Get likes for a track across services."""
         ...
 
@@ -111,13 +110,13 @@ class LikeRepositoryProtocol(Protocol):
         service: str,
         is_liked: bool = True,
         last_synced: "datetime | None" = None,
-    ) -> Awaitable["TrackLike"]:
+    ) -> Awaitable[TrackLike]:
         """Save track like."""
         ...
 
     def get_all_liked_tracks(
         self, service: str, is_liked: bool = True, sort_by: str | None = None
-    ) -> Awaitable[list["TrackLike"]]:
+    ) -> Awaitable[list[TrackLike]]:
         """Get all liked tracks for a service.
 
         Args:
@@ -133,7 +132,7 @@ class LikeRepositoryProtocol(Protocol):
         target_service: str,
         is_liked: bool = True,
         since_timestamp: "datetime | None" = None,
-    ) -> Awaitable[list["TrackLike"]]:
+    ) -> Awaitable[list[TrackLike]]:
         """Get tracks liked in source_service but not in target_service."""
         ...
 
@@ -148,8 +147,8 @@ class CheckpointRepositoryProtocol(Protocol):
         ...
 
     def save_sync_checkpoint(
-        self, checkpoint: "SyncCheckpoint"
-    ) -> Awaitable["SyncCheckpoint"]:
+        self, checkpoint: SyncCheckpoint
+    ) -> Awaitable[SyncCheckpoint]:
         """Save sync checkpoint."""
         ...
 
@@ -158,7 +157,7 @@ class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
 
     @property
-    def session(self) -> "Any":
+    def session(self) -> Any:
         """Database session for transaction coordination.
 
         Used by services that need to create nested transactions for batch operations.
@@ -175,7 +174,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def map_track_to_connector(
         self,
-        track: "Track",
+        track: Track,
         connector: str,
         connector_id: str,
         match_method: str,
@@ -183,7 +182,7 @@ class ConnectorRepositoryProtocol(Protocol):
         metadata: dict | None = None,
         confidence_evidence: dict | None = None,
         auto_set_primary: bool = True,
-    ) -> Awaitable["Track"]:
+    ) -> Awaitable[Track]:
         """Map an existing track to a connector.
 
         Args:
@@ -231,7 +230,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def get_connector_metadata(
         self, track_ids: list[int], connector: str, metadata_field: str | None = None
-    ) -> Awaitable[dict[int, "Any"]]:
+    ) -> Awaitable[dict[int, Any]]:
         """Get connector metadata for tracks.
 
         Args:
@@ -246,7 +245,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def find_tracks_by_connectors(
         self, connections: list[tuple[str, str]]
-    ) -> Awaitable[dict[tuple[str, str], "Track"]]:
+    ) -> Awaitable[dict[tuple[str, str], Track]]:
         """Find tracks by connector name and ID in bulk.
 
         Args:
@@ -260,8 +259,8 @@ class ConnectorRepositoryProtocol(Protocol):
     def ingest_external_tracks_bulk(
         self,
         connector: str,
-        tracks: list["ConnectorTrack"],
-    ) -> Awaitable[list["Track"]]:
+        tracks: list[ConnectorTrack],
+    ) -> Awaitable[list[Track]]:
         """Bulk ingest multiple tracks from external connector.
 
         This is the primary method for track ingestion, optimized for bulk operations.
@@ -318,8 +317,8 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
     """Repository interface for connector playlist operations."""
 
     def upsert_model(
-        self, connector_playlist: "ConnectorPlaylist"
-    ) -> Awaitable["ConnectorPlaylist"]:
+        self, connector_playlist: ConnectorPlaylist
+    ) -> Awaitable[ConnectorPlaylist]:
         """Upsert a connector playlist directly from a domain model.
 
         Args:
@@ -368,7 +367,7 @@ class MetricsRepositoryProtocol(Protocol):
         metric_type: str = "play_count",
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
-    ) -> Awaitable[dict[int, "Any"]]:
+    ) -> Awaitable[dict[int, Any]]:
         """Get cached metrics with TTL awareness.
 
         Args:
@@ -386,7 +385,7 @@ class MetricsRepositoryProtocol(Protocol):
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
 
-    def bulk_insert_plays(self, plays: list["TrackPlay"]) -> Awaitable[tuple[int, int]]:
+    def bulk_insert_plays(self, plays: list[TrackPlay]) -> Awaitable[tuple[int, int]]:
         """Bulk insert plays.
 
         Returns:
@@ -396,7 +395,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def get_recent_plays(
         self, limit: int = 100, sort_by: str | None = None
-    ) -> Awaitable[list["TrackPlay"]]:
+    ) -> Awaitable[list[TrackPlay]]:
         """Get recent plays.
 
         Args:
@@ -411,7 +410,7 @@ class PlaysRepositoryProtocol(Protocol):
         metrics: list[str],
         period_start: "datetime | None" = None,
         period_end: "datetime | None" = None,
-    ) -> Awaitable[dict[str, dict[int, "Any"]]]:
+    ) -> Awaitable[dict[str, dict[int, Any]]]:
         """Get aggregated play data for specified tracks and metrics.
 
         Args:
@@ -434,7 +433,7 @@ class ConnectorPlayRepositoryProtocol(Protocol):
     """
 
     def bulk_insert_connector_plays(
-        self, connector_plays: list["ConnectorTrackPlay"]
+        self, connector_plays: list[ConnectorTrackPlay]
     ) -> Awaitable[tuple[int, int]]:
         """Bulk insert connector plays from external API data.
 
@@ -450,7 +449,7 @@ class ConnectorPlayRepositoryProtocol(Protocol):
         self,
         connector: str | None = None,
         limit: int | None = None,
-    ) -> Awaitable[list["ConnectorTrackPlay"]]:
+    ) -> Awaitable[list[ConnectorTrackPlay]]:
         """Get connector plays that haven't been resolved to canonical tracks yet.
 
         Args:
@@ -491,9 +490,9 @@ class TrackIdentityServiceProtocol(Protocol):
         self,
         tracks: list,
         connector: str,
-        connector_instance: "Any",
-        **additional_options: "Any",
-    ) -> Awaitable[dict[int, "RawProviderMatch"]]:
+        connector_instance: Any,
+        **additional_options: Any,
+    ) -> Awaitable[dict[int, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
 
         Args:
@@ -541,7 +540,7 @@ class ServiceConnectorProvider(Protocol):
     operations like getting liked tracks or loving tracks.
     """
 
-    def get_connector(self, service_name: str) -> "Any":
+    def get_connector(self, service_name: str) -> Any:
         """Get connector instance for specified music service.
 
         Args:
@@ -557,8 +556,8 @@ class TrackMergeServiceProtocol(Protocol):
     """Service interface for track merging operations."""
 
     def merge_tracks(
-        self, winner_id: int, loser_id: int, uow: "UnitOfWorkProtocol"
-    ) -> Awaitable["Track"]:
+        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
+    ) -> Awaitable[Track]:
         """Merge two canonical tracks by moving references and soft-deleting loser.
 
         Args:
@@ -640,7 +639,7 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_connector_playlist_repository(
         self,
-    ) -> "ConnectorPlaylistRepositoryProtocol":
+    ) -> ConnectorPlaylistRepositoryProtocol:
         """Get connector playlist repository for playlist-related operations."""
         ...
 

@@ -5,6 +5,8 @@ progress bars, spinners, and status information for long-running operations.
 Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 from typing import Any
@@ -387,7 +389,7 @@ class RichProgressProvider:
         """Get number of currently tracked operations."""
         return len([task for task in self._operation_tasks.values() if task.is_active])
 
-    async def __aenter__(self) -> "RichProgressProvider":
+    async def __aenter__(self) -> RichProgressProvider:
         """Async context manager entry - starts Live Display."""
         await self.start_display()
         return self

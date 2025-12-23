@@ -4,6 +4,8 @@ These protocols define contracts for matching services without depending on
 external implementations, following the dependency inversion principle.
 """
 
+from __future__ import annotations
+
 from typing import Any, Protocol
 
 from .types import MatchResultsById

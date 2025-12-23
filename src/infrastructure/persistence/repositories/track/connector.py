@@ -4,6 +4,8 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any, TypeVar, cast
 
@@ -356,7 +358,7 @@ class TrackConnectorRepository:
                     connector_tracks.append(domain_model)
         else:
             # Use the returned models directly
-            connector_tracks = cast("list[dict[str, Any]]", connector_tracks_result)
+            connector_tracks = cast(list[dict[str, Any]], connector_tracks_result)
 
         # Create connector ID to DB ID mapping
         connector_id_map = {

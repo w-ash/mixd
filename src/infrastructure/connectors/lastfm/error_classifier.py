@@ -1,5 +1,7 @@
 """LastFM-specific error classification for retry behavior."""
 
+from __future__ import annotations
+
 from typing import ClassVar
 
 import pylast

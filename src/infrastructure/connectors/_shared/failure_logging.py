@@ -4,6 +4,8 @@ This module provides consistent WARNING-level logging for match failures across
 all providers, enabling observability and debugging of matching issues.
 """
 
+from __future__ import annotations
+
 from src.config import get_logger
 from src.domain.matching.types import MatchFailure
 

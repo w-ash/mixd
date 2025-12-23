@@ -1,5 +1,7 @@
 """Core domain entities representing music concepts."""
 
+from __future__ import annotations
+
 # Track-related entities
 # Operation-related entities
 from .operations import (

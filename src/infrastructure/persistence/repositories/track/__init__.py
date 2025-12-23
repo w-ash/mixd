@@ -4,6 +4,8 @@ This package provides individual track repository implementations
 following Clean Architecture principles with proper dependency injection.
 """
 
+from __future__ import annotations
+
 # Individual repository imports for Clean Architecture compliance
 from src.infrastructure.persistence.repositories.sync import SyncCheckpointRepository
 from src.infrastructure.persistence.repositories.track.connector import (

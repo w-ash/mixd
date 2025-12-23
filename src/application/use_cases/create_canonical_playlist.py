@@ -5,6 +5,8 @@ creates playlist entity, extracts metrics from connector metadata, and commits
 the transaction. Returns operational metrics for monitoring.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -272,7 +274,7 @@ class CreateCanonicalPlaylistUseCase:
                 raise
 
     async def _extract_track_metrics(
-        self, tracks: list["Track"], uow: UnitOfWorkProtocol
+        self, tracks: list[Track], uow: UnitOfWorkProtocol
     ) -> None:
         """Extract and save metrics from track connector metadata.
 

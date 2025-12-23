@@ -4,6 +4,8 @@ This module defines the contract that all music service providers must implement
 to participate in the track matching system.
 """
 
+from __future__ import annotations
+
 from typing import Any, Protocol
 
 from src.domain.matching.types import ProviderMatchResult

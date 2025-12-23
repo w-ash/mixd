@@ -1,6 +1,7 @@
 """CLI commands for importing, exporting, and syncing liked tracks across services."""
 
-import asyncio
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Annotated
 
@@ -8,6 +9,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
 
+from src.infrastructure.connectors import run_async_with_connector_executor
 from src.application.use_cases.sync_likes import (
     get_sync_checkpoint_status,
     run_lastfm_likes_export,
@@ -22,7 +24,7 @@ console = get_console()
 def _get_lastfm_checkpoint_info() -> str | None:
     """Get Last.fm checkpoint information for display."""
     try:
-        checkpoint_status = asyncio.run(
+        checkpoint_status = run_async_with_connector_executor(
             get_sync_checkpoint_status(service="lastfm", entity_type="likes")
         )
         return checkpoint_status.format_timestamp()
@@ -77,7 +79,7 @@ def import_spotify_cmd(
     """
     # Execute the import
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
-        result = asyncio.run(
+        result = run_async_with_connector_executor(
             run_spotify_likes_import(
                 user_id="default",  # Internal identifier, not exposed to user
                 limit=limit,
@@ -145,7 +147,7 @@ def export_lastfm_cmd(
 
     # Execute the export
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
-        result = asyncio.run(
+        result = run_async_with_connector_executor(
             run_lastfm_likes_export(
                 user_id="default",  # Internal identifier, not exposed to user
                 batch_size=batch_size,
@@ -221,7 +223,7 @@ def _interactive_spotify_import() -> None:
     console.print("\n[green]Starting Spotify likes import...[/green]")
 
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
-        result = asyncio.run(
+        result = run_async_with_connector_executor(
             run_spotify_likes_import(
                 user_id="default",
                 limit=limit,
@@ -282,7 +284,7 @@ def _interactive_lastfm_export() -> None:
     console.print("\n[green]Starting Last.fm likes export...[/green]")
 
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
-        result = asyncio.run(
+        result = run_async_with_connector_executor(
             run_lastfm_likes_export(
                 user_id="default",
                 batch_size=batch_size,

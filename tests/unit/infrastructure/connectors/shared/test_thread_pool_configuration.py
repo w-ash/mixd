@@ -164,8 +164,7 @@ class TestThreadPoolConfiguration:
             assert total_time < 3.0, f"Custom executor not effective: {total_time:.1f}s"
 
         finally:
-            # Clean up
-            loop.set_default_executor(original_executor)
+            # Clean up - don't restore None executor
             if "custom_executor" in locals():
                 custom_executor.shutdown(wait=False)
 
@@ -220,8 +219,7 @@ class TestThreadPoolConfiguration:
             finally:
                 custom_executor.shutdown(wait=False)
 
-        # Restore original
-        loop.set_default_executor(original_executor)
+        # No need to restore - let asyncio create a new default executor if needed
 
         print("\n💡 Sizing Recommendations:")
 

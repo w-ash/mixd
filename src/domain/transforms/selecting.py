@@ -11,6 +11,8 @@ All selection functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
+from __future__ import annotations
+
 import random
 from typing import cast
 
@@ -97,9 +99,9 @@ def select_by_method(count: int, method: str = "first") -> Transform:
         raise ValueError(f"Invalid selection method: {method}")
 
     def transform(t: TrackList) -> TrackList:
-        result = cast("Transform", transform_fn)(t)
+        result = cast(Transform, transform_fn)(t)
         return (
-            cast("TrackList", result)
+            cast(TrackList, result)
             .with_metadata("selection_method", method)
             .with_metadata("original_count", len(t.tracks))
         )

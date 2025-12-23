@@ -5,6 +5,8 @@ Implements clean architecture by providing creation functions for all Last.fm se
 without exposing Last.fm internals to other layers.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol

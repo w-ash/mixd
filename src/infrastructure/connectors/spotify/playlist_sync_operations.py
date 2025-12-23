@@ -3,6 +3,8 @@
 Handles minimal playlist updates (add/remove/move) with canonical URI resolution.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable
@@ -316,7 +318,7 @@ class SpotifyPlaylistSyncOperations:
             try:
                 await self.client.playlist_add_items(
                     playlist_id=playlist_id,
-                    items=[cast("str", op.spotify_uri)],  # Validated non-None
+                    items=[cast(str, op.spotify_uri)],  # Validated non-None
                     position=op.position,
                 )
                 successful += 1

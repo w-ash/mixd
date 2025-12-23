@@ -1,5 +1,7 @@
 """Workflow orchestration system with node-based transformation pipeline."""
 
+from __future__ import annotations
+
 from contextlib import suppress
 
 # Force eager registration of all nodes to ensure registry completeness

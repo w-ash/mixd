@@ -1,5 +1,7 @@
 """Apple Music API error classification for retry behavior."""
 
+from __future__ import annotations
+
 import json
 from typing import Any
 

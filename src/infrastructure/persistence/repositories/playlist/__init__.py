@@ -4,6 +4,8 @@ Provides database operations for playlists from external music services (Spotify
 and internal playlist management, including cross-service mappings.
 """
 
+from __future__ import annotations
+
 # Individual repository imports
 from src.infrastructure.persistence.repositories.playlist.connector import (
     ConnectorPlaylistRepository,

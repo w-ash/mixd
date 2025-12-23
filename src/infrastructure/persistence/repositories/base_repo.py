@@ -1,9 +1,12 @@
 """Repository layer for database operations with SQLAlchemy 2.0 best practices."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 import functools
+import inspect as pyinspect
 import operator
 from typing import Any, NoReturn, Protocol, TypeVar, cast
 
@@ -482,7 +485,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 continue
 
             if has_session_support(self.mapper):
-                domain_model = await cast("Any", self.mapper).to_domain_with_session(
+                domain_model = await cast(Any, self.mapper).to_domain_with_session(
                     db_entity, self.session
                 )
             else:
@@ -571,7 +574,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 return None
 
             if has_session_support(self.mapper):
-                return await cast("Any", self.mapper).to_domain_with_session(
+                return await cast(Any, self.mapper).to_domain_with_session(
                     db_entity, self.session
                 )
             else:
@@ -610,7 +613,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return None
 
         if has_session_support(self.mapper):
-            return await cast("Any", self.mapper).to_domain_with_session(
+            return await cast(Any, self.mapper).to_domain_with_session(
                 db_entity, self.session
             )
         else:
@@ -667,7 +670,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         await self._load_relationships_via_identity_map([updated_entity])
 
         if has_session_support(self.mapper):
-            return await cast("Any", self.mapper).to_domain_with_session(
+            return await cast(Any, self.mapper).to_domain_with_session(
                 updated_entity, self.session
             )
         else:
@@ -751,7 +754,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         """Execute operation within a transaction. Returns operation result."""
         # Start a savepoint (nested transaction)
         async with self.session.begin_nested():
-            if asyncio.iscoroutinefunction(operation):
+            if pyinspect.iscoroutinefunction(operation):
                 # If it's an async function, await it directly
                 return await operation()
 
@@ -763,7 +766,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 return await result
 
             # If it's not a coroutine, it must be T directly
-            return cast("T", result)
+            return cast(T, result)
 
     # -------------------------------------------------------------------------
     # GET OR CREATE PATTERN
@@ -847,7 +850,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 if db_entity is None:
                     _raise_update_retrieval_error()
                 if has_session_support(self.mapper):
-                    return await cast("Any", self.mapper).to_domain_with_session(
+                    return await cast(Any, self.mapper).to_domain_with_session(
                         db_entity, self.session
                     )
                 else:
@@ -877,7 +880,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 if db_entity is None:
                     _raise_create_retrieval_error()
                 if has_session_support(self.mapper):
-                    return await cast("Any", self.mapper).to_domain_with_session(
+                    return await cast(Any, self.mapper).to_domain_with_session(
                         db_entity, self.session
                     )
                 else:

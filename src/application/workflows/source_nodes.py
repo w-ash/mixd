@@ -8,6 +8,8 @@ Functions for retrieving playlists and tracks from multiple sources:
 All functions return standardized track data for playlist creation and analysis.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from src.application.services.connector_playlist_sync_service import (

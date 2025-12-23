@@ -4,6 +4,8 @@ Imports liked tracks from Spotify user libraries and exports them to Last.fm as 
 Supports incremental syncing with checkpoints to resume interrupted operations.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any, Literal
 

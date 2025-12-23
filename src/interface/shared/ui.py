@@ -1,5 +1,7 @@
 """Shared UI utilities for interface layer - works for CLI and future web interface."""
 
+from __future__ import annotations
+
 import json
 from typing import Any
 
@@ -124,7 +126,7 @@ def _display_table_result(
             )
             if track.id and track.id in track_sources:
                 source_data = track_sources[track.id]
-                source_info = source_data.get("playlist_name", "Unknown")
+                source_info = source_data.get("playlist_name", Unknown)
 
             row = [str(i), artist_name, track.title, source_info]
 

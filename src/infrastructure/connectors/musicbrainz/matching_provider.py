@@ -4,6 +4,8 @@ This provider handles communication with the MusicBrainz API and transforms
 MusicBrainz track data into raw provider matches without business logic.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from src.config import get_logger

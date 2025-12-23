@@ -296,6 +296,69 @@ Declarative transformation pipelines.
 
 **Benefits**: Composable operations, visual workflow building, non-technical configuration
 
+### Async Patterns (Python 3.14+)
+Modern asynchronous execution patterns following Python 3.14 best practices.
+
+#### Single Async Operation
+Use `asyncio.run()` for single async operations:
+
+```python
+# ✅ Recommended pattern (Python 3.14+)
+from src.infrastructure.connectors import run_async_with_connector_executor
+
+result = run_async_with_connector_executor(fetch_tracks())
+
+# Alternative using asyncio.run():
+result = asyncio.run(fetch_tracks())
+```
+
+#### Multiple Sequential Async Operations
+Use `asyncio.Runner` for multiple async calls with blocking work in between:
+
+```python
+# ✅ Python 3.14+ pattern with asyncio.Runner
+import asyncio
+
+with asyncio.Runner() as runner:
+    tracks = runner.run(fetch_tracks())
+    # Can do synchronous work here
+    process_tracks(tracks)
+    result = runner.run(save_tracks(tracks))
+
+# ❌ Deprecated (Python 3.13 and earlier)
+loop = asyncio.get_event_loop()
+tracks = loop.run_until_complete(fetch_tracks())
+result = loop.run_until_complete(save_tracks(tracks))
+```
+
+**Benefits**:
+- No deprecated event loop policy management
+- Cleaner code without explicit loop handling
+- Forward compatible with Python 3.16+
+- Proper resource cleanup
+
+#### Debugging Async Operations
+Python 3.14 provides new tools for debugging stuck or misbehaving async code:
+
+```bash
+# List all running async tasks in a process
+python -m asyncio ps <PID>
+
+# Show task hierarchy with call stacks
+python -m asyncio pstree <PID>
+
+# Programmatic access
+from asyncio import capture_call_graph, print_call_graph
+graph = capture_call_graph()
+print_call_graph(graph)
+```
+
+**Use cases**:
+- Debug stuck coroutines
+- Identify task leaks
+- Analyze concurrent task execution
+- Profile async performance bottlenecks
+
 ## Technology Stack
 
 ### Core Technology Decisions

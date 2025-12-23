@@ -1,5 +1,7 @@
 """Track metrics repository for tracking play counts and other metrics."""
 
+from __future__ import annotations
+
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any

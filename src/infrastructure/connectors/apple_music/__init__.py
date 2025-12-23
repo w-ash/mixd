@@ -14,6 +14,8 @@ Usage (future):
     # ... Apple Music operations
 """
 
+from __future__ import annotations
+
 # Currently only error classifier is implemented
 from src.infrastructure.connectors.apple_music.error_classifier import (
     AppleMusicErrorClassifier,

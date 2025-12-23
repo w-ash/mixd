@@ -1,5 +1,7 @@
 """CLI commands for service authentication and configuration setup."""
 
+from __future__ import annotations
+
 import typer
 
 from src.interface.cli.console import get_console

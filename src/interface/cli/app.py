@@ -1,5 +1,7 @@
 """Main CLI application entry point and command routing."""
 
+from __future__ import annotations
+
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
@@ -112,6 +114,8 @@ def _register_commands():
 
     except Exception as e:
         console.print(f"[red]Failed to register commands: {e}[/red]")
+        import traceback
+        console.print("[dim]" + traceback.format_exc() + "[/dim]")
 
 
 def main() -> int:
@@ -119,8 +123,10 @@ def main() -> int:
     try:
         # Let Typer handle command execution
         return app() or 0
-    except Exception:
-        console.print("[red]Unhandled exception occurred[/red]")
+    except Exception as e:
+        console.print(f"[red]Unhandled exception occurred: {e}[/red]")
+        import traceback
+        console.print("[dim]" + traceback.format_exc() + "[/dim]")
         return 1
 
 

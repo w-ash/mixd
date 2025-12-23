@@ -5,6 +5,8 @@ with PlaylistEntry objects (tracks + position metadata), handling bulk operation
 duplicate preservation, and performance optimization across create and update use cases.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from src.config import get_logger, settings

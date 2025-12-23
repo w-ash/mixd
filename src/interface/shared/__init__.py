@@ -7,3 +7,5 @@ Contains reusable patterns for:
 
 Designed to be interface-agnostic - works for both CLI and web.
 """
+
+from __future__ import annotations

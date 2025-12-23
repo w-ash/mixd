@@ -5,6 +5,8 @@ API calls while preserving user context. Extracted from connector implementation
 to maintain clean separation between API clients and business logic.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from attrs import define

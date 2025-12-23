@@ -6,6 +6,8 @@ Contains common functions used across Spotify connectors for:
 - Play filtering rules
 """
 
+from __future__ import annotations
+
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.domain.entities import Artist, Track

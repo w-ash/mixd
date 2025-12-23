@@ -7,6 +7,8 @@ boundaries. All interfaces are implementation-agnostic to support testing and
 different storage backends.
 """
 
+from __future__ import annotations
+
 from .interfaces import (
     CheckpointRepositoryProtocol,
     ConnectorRepositoryProtocol,

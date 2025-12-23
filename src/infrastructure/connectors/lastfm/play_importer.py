@@ -5,6 +5,8 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
+from __future__ import annotations
+
 # Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any

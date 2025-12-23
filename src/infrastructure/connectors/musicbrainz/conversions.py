@@ -13,13 +13,13 @@ The conversion functions are stateless and can be used independently across
 different parts of the MusicBrainz integration.
 """
 
-from typing import TYPE_CHECKING, Any
+from __future__ import annotations
+
+from typing import Any
 
 from src.config import get_logger
 from src.config.constants import MusicBrainzConstants
-
-if TYPE_CHECKING:
-    from src.domain.entities import ConnectorTrack
+from src.domain.entities import ConnectorTrack
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="musicbrainz_conversions")
@@ -119,7 +119,7 @@ def normalize_isrc(isrc: str) -> str | None:
 
 def convert_musicbrainz_track_to_connector(
     recording_data: dict[str, Any],
-) -> "ConnectorTrack":
+) -> ConnectorTrack:
     """Convert MusicBrainz recording data to ConnectorTrack domain model.
 
     Args:

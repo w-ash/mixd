@@ -4,6 +4,8 @@ Provides simple template string processing for playlist names and descriptions
 with minimal overhead and clean separation of concerns.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 

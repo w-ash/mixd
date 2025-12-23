@@ -1,5 +1,7 @@
 """Domain layer playlist operations and utilities."""
 
+from __future__ import annotations
+
 from .diff_engine import (
     PlaylistDiff,
     PlaylistOperation,

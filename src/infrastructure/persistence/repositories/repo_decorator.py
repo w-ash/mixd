@@ -10,9 +10,12 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Callable, Coroutine
 import functools
+import inspect
 import time
 from typing import Any, ParamSpec, TypeGuard, TypeVar
 
@@ -62,7 +65,7 @@ def db_operation(operation_name: str | None = None):
         """Wrap an async repository method with logging, timing and error handling."""
         func_name = operation_name or func.__name__
 
-        if not asyncio.iscoroutinefunction(func):
+        if not inspect.iscoroutinefunction(func):
             raise TypeError(
                 f"db_operation can only be used with async functions, but {func_name} is not async",
             )

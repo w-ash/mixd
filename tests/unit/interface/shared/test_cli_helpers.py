@@ -160,8 +160,8 @@ class TestRunImportWithProgress:
         ) as mock_context, patch(
             "src.interface.shared.cli_helpers.run_import"
         ) as mock_run_import, patch(
-            "src.interface.shared.cli_helpers.asyncio.run"
-        ) as mock_async_run:
+            "src.interface.shared.cli_helpers.run_async_with_connector_executor"
+        ) as mock_run_async:
             # Setup mocks
             mock_progress_manager = MagicMock()
             mock_ctx = MagicMock()
@@ -174,8 +174,8 @@ class TestRunImportWithProgress:
             expected_result = OperationResult(operation_name="test")
             mock_run_import.return_value = expected_result
 
-            # Execute (the function calls asyncio.run internally)
-            mock_async_run.return_value = expected_result
+            # Execute (the function calls run_async_with_connector_executor internally)
+            mock_run_async.return_value = expected_result
 
             result = run_import_with_progress(
                 service="spotify",
@@ -184,8 +184,8 @@ class TestRunImportWithProgress:
                 batch_size=100,
             )
 
-            # Verify asyncio.run was called
-            assert mock_async_run.called
+            # Verify run_async_with_connector_executor was called
+            assert mock_run_async.called
             assert result == expected_result
 
     @pytest.mark.asyncio
@@ -198,8 +198,8 @@ class TestRunImportWithProgress:
         ) as mock_context, patch(
             "src.interface.shared.cli_helpers.run_import"
         ) as mock_run_import, patch(
-            "src.interface.shared.cli_helpers.asyncio.run"
-        ) as mock_async_run:
+            "src.interface.shared.cli_helpers.run_async_with_connector_executor"
+        ) as mock_run_async:
             # Setup mocks
             mock_progress_manager = MagicMock()
             mock_ctx = MagicMock()
@@ -210,7 +210,7 @@ class TestRunImportWithProgress:
 
             expected_result = OperationResult(operation_name="test")
             mock_run_import.return_value = expected_result
-            mock_async_run.return_value = expected_result
+            mock_run_async.return_value = expected_result
 
             # Execute with kwargs
             test_path = Path("/test/file.json")
@@ -221,6 +221,6 @@ class TestRunImportWithProgress:
                 batch_size=200,
             )
 
-            # Verify asyncio.run was called
-            assert mock_async_run.called
+            # Verify run_async_with_connector_executor was called
+            assert mock_run_async.called
             assert result == expected_result

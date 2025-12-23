@@ -1,5 +1,7 @@
 """Base class for importing music listening data from external sources."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, TypedDict
@@ -442,10 +444,10 @@ class BasePlayImporter(ABC):
 
     def _enrich_import_data(
         self,
-        base_data: "ImportResultData",
+        base_data: ImportResultData,
         raw_data: list[Any],
         processed_data: list[Any],
-    ) -> "ImportResultData":
+    ) -> ImportResultData:
         """Enrich import data with service-specific statistics.
 
         Template method for subclasses to add service-specific metrics like

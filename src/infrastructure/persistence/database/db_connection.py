@@ -7,6 +7,8 @@ This module is responsible for:
 - Transaction handling
 """
 
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import os

@@ -3,6 +3,8 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Any, TypedDict
 
@@ -87,9 +89,8 @@ class ConfidenceEvidence:
         }
 
 
-# Type aliases for clarity
+# Type aliases for clarity (defined before use)
 TracksById = dict[int, Any]  # Track type will be imported later
-MatchResultsById = dict[int, "MatchResult"]
 
 
 @define(frozen=True, slots=True)
@@ -110,6 +111,10 @@ class MatchResult:
     match_method: str = ""  # "isrc", "mbid", "artist_title"
     service_data: dict[str, Any] = field(factory=dict)  # Data from external service
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
+
+
+# Type alias for match results by ID (defined after MatchResult class)
+MatchResultsById = dict[int, MatchResult]
 
 
 @define(frozen=True, slots=True)

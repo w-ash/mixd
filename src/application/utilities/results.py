@@ -4,6 +4,8 @@ This module provides standardized result creation for all service operations,
 replacing the duplicate result creation methods scattered across services.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
@@ -134,7 +136,7 @@ class ResultFactory:
             )
         if import_data.error_count > 0:
             result.summary_metrics.add(
-                "errors", import_data.error_count, "Errors", significance=6
+                "errors", import_data.error_count, Errors, significance=6
             )
 
         # Calculate success rate

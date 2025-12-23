@@ -10,6 +10,8 @@ Unlike pure domain transforms, these functions:
 - Depend on external metric enrichment having occurred first
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -75,12 +77,12 @@ def filter_by_metric_range(
         tracklist = t
 
         # Apply filter
-        filter_func = cast("Transform", filter_by_predicate(is_in_range))
+        filter_func = cast(Transform, filter_by_predicate(is_in_range))
         result = filter_func(t)
 
         # Add metadata about the filter operation
         filtered_count = len(result.tracks)
-        return cast("TrackList", result).with_metadata(
+        return cast(TrackList, result).with_metadata(
             "filter_metrics",
             {
                 "metric_name": metric_name,

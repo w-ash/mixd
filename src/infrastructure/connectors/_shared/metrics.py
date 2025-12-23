@@ -14,6 +14,8 @@ through the registration functions. This eliminates static dependencies between
 shared utilities and specific service implementations.
 """
 
+from __future__ import annotations
+
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from src.config import get_logger

@@ -5,6 +5,8 @@ and ensuring they are properly stored/updated in the local database before furth
 This ensures both backup workflows and source nodes work with fresh, correctly positioned data.
 """
 
+from __future__ import annotations
+
 from src.config import get_logger
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.repositories import UnitOfWorkProtocol

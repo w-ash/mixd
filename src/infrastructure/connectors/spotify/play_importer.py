@@ -5,6 +5,8 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
+from __future__ import annotations
+
 # Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import datetime
 from pathlib import Path

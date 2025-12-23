@@ -4,6 +4,8 @@ This module provides composable utilities that make failure handling DRY
 across all providers while maintaining clean architecture principles.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 
 from src.domain.matching.types import (

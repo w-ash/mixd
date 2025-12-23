@@ -9,6 +9,8 @@ The registration pattern maps node IDs (e.g., "source.playlist") to their
 implementations, enabling workflow composition through configuration files.
 """
 
+from __future__ import annotations
+
 from .node_factories import (
     create_destination_node,
     create_enricher_node,

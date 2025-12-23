@@ -14,11 +14,12 @@ These protocols enable modular connector architecture where components can be
 swapped without requiring changes to dependent code.
 """
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from src.domain.entities import ConnectorPlaylist, Playlist, Track
+from collections.abc import Callable
+from typing import Any, Protocol, TypedDict, runtime_checkable
+
+from src.domain.entities import ConnectorPlaylist, Playlist, Track
 
 
 class ConnectorConfig(TypedDict):
@@ -55,7 +56,7 @@ class TrackMetadataConnector(Protocol):
     """
 
     async def get_external_track_data(
-        self, tracks: list["Track"]
+        self, tracks: list[Track]
     ) -> dict[int, dict[str, Any]]:
         """Retrieve complete track data from the external service for multiple tracks.
 
@@ -83,7 +84,7 @@ class PlaylistConnectorProtocol(Protocol):
     including methods for retrieving, creating, and updating playlists.
     """
 
-    async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
+    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch a playlist with its tracks from the service.
 
         Args:
@@ -95,7 +96,7 @@ class PlaylistConnectorProtocol(Protocol):
         ...
 
     async def create_playlist(
-        self, name: str, tracks: list["Track"], description: str | None = None
+        self, name: str, tracks: list[Track], description: str | None = None
     ) -> str:
         """Create a playlist on the service and return its ID.
 
@@ -110,7 +111,7 @@ class PlaylistConnectorProtocol(Protocol):
         ...
 
     async def update_playlist(
-        self, playlist_id: str, playlist: "Playlist", replace: bool = True
+        self, playlist_id: str, playlist: Playlist, replace: bool = True
     ) -> None:
         """Update a playlist on the service.
 

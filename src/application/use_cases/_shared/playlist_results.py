@@ -4,6 +4,8 @@ Replaces tuple-based returns with strongly-typed result objects using Python 3.1
 features for better type safety and maintainability.
 """
 
+from __future__ import annotations
+
 from typing import Any, TypedDict
 
 from attrs import define, field
@@ -123,7 +125,7 @@ class ExternalApiResponse:
         cls,
         api_calls: int,
         metadata: ApiMetadata,
-    ) -> "ExternalApiResponse":
+    ) -> ExternalApiResponse:
         """Create successful response."""
         return cls(
             success=True,
@@ -138,7 +140,7 @@ class ExternalApiResponse:
         cls,
         error: str,
         metadata: ApiMetadata | None = None,
-    ) -> "ExternalApiResponse":
+    ) -> ExternalApiResponse:
         """Create error response."""
         empty_metadata: ApiMetadata = {}  # type: ignore[typeddict-item]
         return cls(
@@ -154,7 +156,7 @@ class ExternalApiResponse:
         cls,
         api_calls: int,
         metadata: ApiMetadata,
-    ) -> "ExternalApiResponse":
+    ) -> ExternalApiResponse:
         """Create partial success response."""
         return cls(
             success=False,

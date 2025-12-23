@@ -14,6 +14,8 @@ Note: This module is private and should only be imported by other modules
 in the application/transforms package.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeIs
 

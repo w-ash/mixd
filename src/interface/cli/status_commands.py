@@ -1,5 +1,7 @@
 """CLI commands for checking service connection status and health."""
 
+from __future__ import annotations
+
 from typing import Annotated
 
 from rich.table import Table

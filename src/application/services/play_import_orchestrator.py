@@ -8,6 +8,8 @@ This service contains generic business logic for the two-phase workflow while ac
 pluggable importer instances from the infrastructure layer.
 """
 
+from __future__ import annotations
+
 from typing import Any, Protocol
 
 from src.config import get_logger

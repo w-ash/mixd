@@ -19,17 +19,17 @@ Example:
     ```
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from attrs import define
 import backoff
 
-if TYPE_CHECKING:
-    from src.domain.entities.playlist import ConnectorPlaylist
-    from src.domain.entities.track import ConnectorTrack
-
 from src.config import get_logger, settings
+from src.domain.entities.playlist import ConnectorPlaylist
+from src.domain.entities.track import ConnectorTrack
 from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,
@@ -209,7 +209,7 @@ class BaseAPIConnector(ABC):
         # Return configured decorator
         return backoff.on_exception(backoff_strategy, Exception, **backoff_config)
 
-    async def get_playlist(self, playlist_id: str) -> "ConnectorPlaylist":
+    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch playlist from service by delegating to service-specific method.
 
         Automatically calls the appropriate method based on connector_name:
@@ -238,7 +238,7 @@ class BaseAPIConnector(ABC):
         )
 
     @abstractmethod
-    def convert_track_to_connector(self, track_data: dict) -> "ConnectorTrack":
+    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert service-specific track data to ConnectorTrack domain model.
 
         Each connector must implement this method to handle conversion from their

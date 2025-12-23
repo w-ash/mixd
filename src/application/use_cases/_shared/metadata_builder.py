@@ -4,6 +4,8 @@ Eliminates duplicate metadata building code using modern Python 3.13+ builder pa
 with method chaining and type safety.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any, Self
 

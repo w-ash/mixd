@@ -16,6 +16,8 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
+from __future__ import annotations
+
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, NoReturn

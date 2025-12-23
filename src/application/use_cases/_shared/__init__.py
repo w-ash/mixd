@@ -1,5 +1,7 @@
 """Shared utilities for use case implementations."""
 
+from __future__ import annotations
+
 from src.application.use_cases._shared.connector_playlist_factories import (
     create_connector_playlist_item_from_track,
     create_connector_playlist_item_with_extras,

@@ -10,3 +10,5 @@ Following Clean Architecture principles:
 - Never imports Infrastructure layer directly
 - Contains no business logic - only presentation logic
 """
+
+from __future__ import annotations
