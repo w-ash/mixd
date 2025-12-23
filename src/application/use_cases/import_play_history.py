@@ -440,7 +440,7 @@ class ImportTracksUseCase:
                     execution_time=0.0,
                 )
                 result.metadata["cancelled"] = True
-                result.summary_metrics.add("status", 0, Cancelled, significance=0)
+                result.summary_metrics.add("status", 0, "Cancelled", significance=0)
                 return result
 
         # Create generic service importer and orchestrator

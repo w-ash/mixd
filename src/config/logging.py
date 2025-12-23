@@ -515,14 +515,14 @@ def enable_unified_console_output(progress_console) -> None:
                 try:
                     # Map Python logging levels to Loguru levels
                     level_mapping = {
-                        logging.DEBUG: DEBUG,
-                        logging.INFO: INFO,
-                        logging.WARNING: WARNING,
-                        logging.ERROR: ERROR,
-                        logging.CRITICAL: CRITICAL,
+                        logging.DEBUG: "DEBUG",
+                        logging.INFO: "INFO",
+                        logging.WARNING: "WARNING",
+                        logging.ERROR: "ERROR",
+                        logging.CRITICAL: "CRITICAL",
                     }
 
-                    loguru_level = level_mapping.get(record.levelno, INFO)
+                    loguru_level = level_mapping.get(record.levelno, "INFO")
 
                     # Forward to Loguru with module context preserved
                     loguru_logger.bind(module=record.name, service="narada").log(

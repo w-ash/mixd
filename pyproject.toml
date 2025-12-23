@@ -114,6 +114,10 @@ ignore = [
     "TRY300",    # Maybe we'll fix these eventually
     "TRY400",    # Use logging.exception (doesn't apply to Loguru)
     "PLW0603",   # Global statements (acceptable for library-style patterns in utilities)
+    "TC001",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
+    "TC002",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
+    "TC003",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
+    "TC006",     # Add quotes to cast() (contradicts PEP 649 - unquoted is correct for Python 3.14)
 ]
 fixable = ["ALL"]
 unfixable = []
@@ -198,7 +202,7 @@ omit = ["tests/*"]
 [tool.basedpyright]
 include = ["src"]
 exclude = ["tests", "**/__pycache__"]
-typeCheckingMode = "strict"
+typeCheckingMode = "recommended"  # More comprehensive than strict (2025 best practice)
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnusedImport = true
@@ -208,9 +212,9 @@ reportUntypedBaseClass = true
 reportUntypedClassDecorator = true
 reportUntypedFunctionDecorator = true
 reportUntypedNamedTuple = true
-# Python 3.13 and 2025 specific type checking features
+# Python 3.14 and 2025 specific type checking features
 reportDeprecated = "warning"
-reportUnnecessaryTypeIgnoreComment = "warning"  
+reportUnnecessaryTypeIgnoreComment = "warning"
 reportImplicitOverride = "warning"
 # BasedPyright specific enhancements (2025)
 reportAny = "warning"

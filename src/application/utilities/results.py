@@ -136,7 +136,7 @@ class ResultFactory:
             )
         if import_data.error_count > 0:
             result.summary_metrics.add(
-                "errors", import_data.error_count, Errors, significance=6
+                "errors", import_data.error_count, "Errors", significance=6
             )
 
         # Calculate success rate

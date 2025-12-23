@@ -147,8 +147,8 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         for db_play in db_plays:
             # Extract fields from raw_metadata
             raw_metadata = db_play.raw_metadata or {}
-            artist_name = raw_metadata.get("artist_name", Unknown)
-            track_name = raw_metadata.get("track_name", Unknown)
+            artist_name = raw_metadata.get("artist_name", "Unknown")
+            track_name = raw_metadata.get("track_name", "Unknown")
             album_name = raw_metadata.get("album_name")
             service_metadata = raw_metadata.get("service_metadata", {})
             api_page = raw_metadata.get("api_page")

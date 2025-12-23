@@ -8,7 +8,6 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
