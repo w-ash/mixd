@@ -42,6 +42,7 @@ class TestPylastInstanceBottleneck:
             mock_network_class.return_value = mock_network
             yield mock_network
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_single_pylast_instance_serialization(
         self, mock_pylast_slow_response
@@ -138,6 +139,7 @@ class TestPylastInstanceBottleneck:
             "serialized": overall_duration > 3.5,
         }
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_multiple_pylast_instances_hypothesis(
         self, mock_pylast_slow_response
@@ -239,6 +241,7 @@ class TestPylastInstanceBottleneck:
             "concurrent": overall_duration < 2.0,
         }
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_instance_comparison(self, mock_pylast_slow_response):
         """Compare single vs multiple instance performance."""

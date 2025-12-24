@@ -51,6 +51,7 @@ class TestThreadLocalFix:
             mock_network_class.side_effect = create_mock_instance
             yield call_log
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_thread_local_clients_created(self, mock_pylast_with_thread_tracking):
         """Test that different threads get different pylast instances."""
@@ -137,6 +138,7 @@ class TestThreadLocalFix:
             "concurrent": concurrent,
         }
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_thread_local_performance_improvement(
         self, mock_pylast_with_thread_tracking

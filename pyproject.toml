@@ -24,7 +24,7 @@ rich = "^14.2.0"
 typer = "^0.19.2"  # Pinned for prefect compatibility (prefect requires <0.20.0)
 attrs = "^25.4.0"
 toolz = "^1.1.0"
-backoff = "^2.2.1"
+tenacity = "^9.1.2"
 prefect = "^3.6.7"
 aiosqlite = "^0.22.0"
 rapidfuzz = "^3.14.3"
@@ -192,7 +192,12 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
-markers = ["integration: marks tests as integration tests"]
+markers = [
+    "integration: marks tests as integration tests",
+    "slow: marks tests as slow (takes >1 second)",
+    "performance: marks tests that validate performance characteristics",
+    "diagnostic: marks tests used for diagnosing issues (not part of regular suite)",
+]
 
 [tool.coverage.run]
 source = ["narada", "src"]

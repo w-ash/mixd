@@ -81,14 +81,48 @@ class LastFMOperations(BaseAPIConnector):
             if track_data:
                 return LastFMTrackInfo.from_comprehensive_data(track_data)
 
+            # Track data is None - track not found (expected behavior)
+            logger.info(
+                "Track not in Last.FM catalog",
+                mbid=mbid,
+                reason="not_found_in_catalog",
+            )
             return LastFMTrackInfo.empty()
 
         except Exception as e:
-            logger.error(
-                f"get_track_info_by_mbid failed for MBID '{mbid}': {e}",
-                error=str(e),
-                error_type=type(e).__name__,
+            # Use error classifier to determine appropriate log level
+            from src.infrastructure.connectors.lastfm.error_classifier import (
+                LastFMErrorClassifier,
             )
+
+            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(e)
+
+            if error_type == "not_found":
+                # Track not found is expected behavior, not an error
+                logger.info(
+                    "Track not in Last.FM catalog",
+                    mbid=mbid,
+                    error_code=error_code,
+                    reason="api_returned_not_found",
+                )
+            elif error_type in ("temporary", "rate_limit"):
+                # Temporary errors are warnings (will be retried)
+                logger.warning(
+                    f"Temporary error fetching track by MBID from Last.FM: '{mbid}': {e}",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    classified_as=error_type,
+                    error_code=error_code,
+                )
+            else:
+                # Permanent errors or unknown errors are real errors
+                logger.error(
+                    f"Error fetching track by MBID from Last.FM: '{mbid}': {e}",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    classified_as=error_type,
+                    error_code=error_code,
+                )
             return LastFMTrackInfo.empty()
 
     async def get_track_info(self, artist: str, title: str) -> LastFMTrackInfo:
@@ -106,20 +140,60 @@ class LastFMOperations(BaseAPIConnector):
             if track_data:
                 return LastFMTrackInfo.from_comprehensive_data(track_data)
 
+            # Track data is None - track not found (expected behavior)
+            logger.info(
+                "Track not in Last.FM catalog",
+                artist=artist,
+                title=title,
+                reason="not_found_in_catalog",
+            )
             return LastFMTrackInfo.empty()
 
         except Exception as e:
-            logger.error(
-                f"get_track_info failed for '{artist} - {title}': {e}",
-                error=str(e),
-                error_type=type(e).__name__,
+            # Use error classifier to determine appropriate log level
+            from src.infrastructure.connectors.lastfm.error_classifier import (
+                LastFMErrorClassifier,
             )
+
+            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(e)
+
+            if error_type == "not_found":
+                # Track not found is expected behavior, not an error
+                logger.info(
+                    "Track not in Last.FM catalog",
+                    artist=artist,
+                    title=title,
+                    error_code=error_code,
+                    reason="api_returned_not_found",
+                )
+            elif error_type in ("temporary", "rate_limit"):
+                # Temporary errors are warnings (will be retried)
+                logger.warning(
+                    f"Temporary Last.FM error (will retry): {e}",
+                    artist=artist,
+                    title=title,
+                    classified_as=error_type,
+                    error_code=error_code,
+                )
+            else:
+                # Permanent errors or unknown errors are real errors
+                logger.error(
+                    f"Last.FM error: {e}",
+                    artist=artist,
+                    title=title,
+                    classified_as=error_type,
+                    error_code=error_code,
+                )
             return LastFMTrackInfo.empty()
 
     async def get_track_info_intelligent(self, track: Track) -> LastFMTrackInfo:
         """Get track info using intelligent matching (MBID first, then artist/title).
 
-        Uses FAST single API call implementation for optimal performance.
+        Tries multiple fallback strategies:
+        1. MBID lookup (if available)
+        2. Artist/title lookup for each artist (multi-artist support)
+
+        Logs each attempt for observability and debugging.
         """
         # Try MBID first if available (check lastfm or musicbrainz metadata)
         mbid = track.get_connector_attribute(
@@ -127,16 +201,71 @@ class LastFMOperations(BaseAPIConnector):
         ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
 
         if mbid:
+            logger.info(
+                "Attempting Last.FM lookup via MBID",
+                mbid=mbid,
+                track_title=track.title,
+                track_id=track.id,
+            )
             lastfm_info = await self.get_track_info_by_mbid(mbid)
             if lastfm_info and lastfm_info.lastfm_title:
+                logger.info(
+                    "Last.FM MBID lookup successful",
+                    mbid=mbid,
+                    found_title=lastfm_info.lastfm_title,
+                    track_id=track.id,
+                )
                 return lastfm_info
+            logger.info(
+                "Last.FM MBID lookup failed, falling back to artist/title",
+                mbid=mbid,
+                track_id=track.id,
+            )
 
-        # Fallback to artist/title matching using optimal method
+        # Fallback to artist/title matching - try all artists in order
         if track.artists and track.title:
-            artist_name = track.artists[0].name
-            result = await self.get_track_info(artist_name, track.title)
-            return result
+            for idx, artist in enumerate(track.artists):
+                artist_name = artist.name
+                logger.info(
+                    "Attempting Last.FM lookup via artist/title",
+                    artist=artist_name,
+                    title=track.title,
+                    artist_index=idx,
+                    total_artists=len(track.artists),
+                    fallback_from_mbid=bool(mbid),
+                    track_id=track.id,
+                )
+                result = await self.get_track_info(artist_name, track.title)
+                if result and result.lastfm_title:
+                    logger.info(
+                        "Last.FM artist/title lookup successful",
+                        artist=artist_name,
+                        artist_index=idx,
+                        found_title=result.lastfm_title,
+                        track_id=track.id,
+                    )
+                    return result
+                logger.info(
+                    "Last.FM lookup failed with artist, trying next",
+                    artist=artist_name,
+                    artist_index=idx,
+                    remaining_artists=len(track.artists) - idx - 1,
+                    track_id=track.id,
+                )
 
+            # All artists failed
+            logger.warning(
+                "Last.FM lookup failed with all artists",
+                tried_artists=[a.name for a in track.artists],
+                title=track.title,
+                track_id=track.id,
+            )
+            return LastFMTrackInfo.empty()
+
+        logger.warning(
+            "Last.FM lookup failed - no MBID or artist/title available",
+            track_id=track.id,
+        )
         return LastFMTrackInfo.empty()
 
     # Batch Operations
