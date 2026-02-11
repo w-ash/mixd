@@ -7,7 +7,7 @@ handling without any business logic or complex orchestration.
 Key components:
 - SpotifyAPIClient: OAuth-authenticated client for individual API calls
 - Authentication management using SpotifyOAuth
-- Basic retry and error handling for API requests
+- Centralized retry policy using tenacity
 - Market-aware API calls with configurable timeouts
 
 The client is stateless and focuses purely on API communication. Complex
@@ -20,21 +20,14 @@ import asyncio
 from typing import Any
 
 from attrs import define, field
-import backoff
 from dotenv import load_dotenv
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, resilient_operation, settings
 from src.config.constants import SpotifyConstants
-from src.infrastructure.connectors._shared.error_classification import (
-    create_backoff_handler,
-    create_giveup_handler,
-    should_giveup_on_error,
-)
-from src.infrastructure.connectors.spotify.error_classifier import (
-    SpotifyErrorClassifier,
-)
+from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
 
 # Load environment variables for Spotify credentials
 load_dotenv()
@@ -65,8 +58,9 @@ async def spotify_api_call(client, method_name: str, *args, **kwargs):
 class SpotifyAPIClient:
     """Pure Spotify API client with OAuth authentication.
 
-    Provides thin wrapper around spotipy with authentication, basic retries,
-    and individual API method calls. No business logic or complex orchestration.
+    Provides thin wrapper around spotipy with authentication, centralized
+    retry policy, and individual API method calls. No business logic or
+    complex orchestration.
 
     Example:
         >>> client = SpotifyAPIClient()
@@ -75,6 +69,7 @@ class SpotifyAPIClient:
     """
 
     client: spotipy.Spotify = field(init=False, repr=False)
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
     @property
     def market(self) -> str:
@@ -104,6 +99,9 @@ class SpotifyAPIClient:
             retries=int(settings.api.spotify_retries or 5),
         )
 
+        # Initialize centralized retry policy
+        self._retry_policy = RetryPolicyFactory.create_spotify_policy()
+
     # Individual Track API Methods
 
     async def get_tracks_bulk(self, track_ids: list[str]) -> dict[str, Any] | None:
@@ -111,22 +109,20 @@ class SpotifyAPIClient:
         try:
             return await self._get_tracks_bulk_with_retries(track_ids)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_tracks_bulk")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_tracks_bulk_with_retries(
         self, track_ids: list[str]
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Fetch tracks with retry policy."""
+        return await self._retry_policy(self._get_tracks_bulk_impl, track_ids)
+
+    async def _get_tracks_bulk_impl(
+        self, track_ids: list[str]
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         if not track_ids or len(track_ids) > SpotifyConstants.TRACKS_BULK_LIMIT:
             logger.warning(
                 f"Invalid track_ids list: {len(track_ids) if track_ids else 0} items"
@@ -138,9 +134,6 @@ class SpotifyAPIClient:
                 self.client, "tracks", track_ids, market=self.market
             )
             return response
-
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
 
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
@@ -154,20 +147,16 @@ class SpotifyAPIClient:
         try:
             return await self._search_by_isrc_with_retries(isrc)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("search_spotify_by_isrc")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _search_by_isrc_with_retries(self, isrc: str) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Search by ISRC with retry policy."""
+        return await self._retry_policy(self._search_by_isrc_impl, isrc)
+
+    async def _search_by_isrc_impl(self, isrc: str) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         logger.debug(f"Searching Spotify for ISRC: {isrc}")
 
         try:
@@ -187,9 +176,6 @@ class SpotifyAPIClient:
 
             return tracks[0]
 
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
-
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
             logger.error(f"ISRC search failed for {isrc}: {e}")
@@ -200,22 +186,20 @@ class SpotifyAPIClient:
         try:
             return await self._search_track_with_retries(artist, title)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("search_spotify_track")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _search_track_with_retries(
         self, artist: str, title: str
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Search track with retry policy."""
+        return await self._retry_policy(self._search_track_impl, artist, title)
+
+    async def _search_track_impl(
+        self, artist: str, title: str
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         query = f"artist:{artist} track:{title}"
         logger.debug(f"Searching Spotify with query: {query}")
 
@@ -232,9 +216,6 @@ class SpotifyAPIClient:
             tracks = results.get("tracks", {}).get("items", []) if results else []
             return tracks[0] if tracks else None
 
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
-
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
             logger.error(f"Track search failed for '{artist} - {title}': {e}")
@@ -247,29 +228,24 @@ class SpotifyAPIClient:
         try:
             return await self._get_playlist_with_retries(playlist_id)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_playlist")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_playlist_with_retries(
         self, playlist_id: str
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Get playlist with retry policy."""
+        return await self._retry_policy(self._get_playlist_impl, playlist_id)
+
+    async def _get_playlist_impl(
+        self, playlist_id: str
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         try:
             return await spotify_api_call(
                 self.client, "playlist", playlist_id, market=self.market
             )
-
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
 
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
@@ -285,22 +261,22 @@ class SpotifyAPIClient:
                 playlist_id, limit, offset
             )
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_playlist_tracks")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_playlist_tracks_with_retries(
         self, playlist_id: str, limit: int = 100, offset: int = 0
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Get playlist tracks with retry policy."""
+        return await self._retry_policy(
+            self._get_playlist_tracks_impl, playlist_id, limit, offset
+        )
+
+    async def _get_playlist_tracks_impl(
+        self, playlist_id: str, limit: int = 100, offset: int = 0
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         try:
             return await spotify_api_call(
                 self.client,
@@ -310,9 +286,6 @@ class SpotifyAPIClient:
                 offset=offset,
                 market=self.market,
             )
-
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
 
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
@@ -329,22 +302,20 @@ class SpotifyAPIClient:
         try:
             return await self._get_next_page_with_retries(current_page)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_next_page")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_next_page_with_retries(
         self, current_page: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Get next page with retry policy."""
+        return await self._retry_policy(self._get_next_page_impl, current_page)
+
+    async def _get_next_page_impl(
+        self, current_page: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(self.client, "next", current_page)
 
     async def create_playlist(
@@ -354,22 +325,22 @@ class SpotifyAPIClient:
         try:
             return await self._create_playlist_with_retries(name, description, public)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("create_spotify_playlist")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _create_playlist_with_retries(
         self, name: str, description: str = "", public: bool = False
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Create playlist with retry policy."""
+        return await self._retry_policy(
+            self._create_playlist_impl, name, description, public
+        )
+
+    async def _create_playlist_impl(
+        self, name: str, description: str = "", public: bool = False
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         try:
             # Get current user ID
             user_info = await spotify_api_call(self.client, "me")
@@ -387,9 +358,6 @@ class SpotifyAPIClient:
                 public=public,
                 description=description,
             )
-
-        # NOTE: spotipy.SpotifyException exceptions are intentionally NOT caught here
-        # They must propagate to the backoff decorator for proper retry logic
 
         except (ValueError, TypeError, AttributeError) as e:
             # Only catch non-retryable programming/parsing errors, not API errors
@@ -416,22 +384,22 @@ class SpotifyAPIClient:
                 playlist_id, items, position
             )
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("add_spotify_playlist_items")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _playlist_add_items_with_retries(
         self, playlist_id: str, items: list[str], position: int | None = None
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Add playlist items with retry policy."""
+        return await self._retry_policy(
+            self._playlist_add_items_impl, playlist_id, items, position
+        )
+
+    async def _playlist_add_items_impl(
+        self, playlist_id: str, items: list[str], position: int | None = None
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(
             self.client,
             "playlist_add_items",
@@ -460,22 +428,25 @@ class SpotifyAPIClient:
                 )
             )
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("remove_specific_spotify_playlist_items")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _playlist_remove_specific_occurrences_of_items_with_retries(
         self, playlist_id: str, items: list[dict], snapshot_id: str | None = None
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Remove playlist items with retry policy."""
+        return await self._retry_policy(
+            self._playlist_remove_specific_occurrences_of_items_impl,
+            playlist_id,
+            items,
+            snapshot_id,
+        )
+
+    async def _playlist_remove_specific_occurrences_of_items_impl(
+        self, playlist_id: str, items: list[dict], snapshot_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(
             self.client,
             "playlist_remove_specific_occurrences_of_items",
@@ -509,18 +480,10 @@ class SpotifyAPIClient:
                 playlist_id, range_start, insert_before, range_length, snapshot_id
             )
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("reorder_spotify_playlist_items")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _playlist_reorder_items_with_retries(
         self,
         playlist_id: str,
@@ -529,7 +492,25 @@ class SpotifyAPIClient:
         range_length: int = 1,
         snapshot_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Reorder playlist items with retry policy."""
+        return await self._retry_policy(
+            self._playlist_reorder_items_impl,
+            playlist_id,
+            range_start,
+            insert_before,
+            range_length,
+            snapshot_id,
+        )
+
+    async def _playlist_reorder_items_impl(
+        self,
+        playlist_id: str,
+        range_start: int,
+        insert_before: int,
+        range_length: int = 1,
+        snapshot_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(
             self.client,
             "playlist_reorder_items",
@@ -555,22 +536,22 @@ class SpotifyAPIClient:
         try:
             return await self._playlist_replace_items_with_retries(playlist_id, items)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("replace_spotify_playlist_items")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _playlist_replace_items_with_retries(
         self, playlist_id: str, items: list[str]
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Replace playlist items with retry policy."""
+        return await self._retry_policy(
+            self._playlist_replace_items_impl, playlist_id, items
+        )
+
+    async def _playlist_replace_items_impl(
+        self, playlist_id: str, items: list[str]
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(
             self.client,
             "playlist_replace_items",
@@ -591,18 +572,18 @@ class SpotifyAPIClient:
         await self._playlist_change_details_with_retries(playlist_id, name, description)
 
     @resilient_operation("update_spotify_playlist_metadata")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _playlist_change_details_with_retries(
         self, playlist_id: str, name: str | None = None, description: str | None = None
     ) -> None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Change playlist details with retry policy."""
+        return await self._retry_policy(
+            self._playlist_change_details_impl, playlist_id, name, description
+        )
+
+    async def _playlist_change_details_impl(
+        self, playlist_id: str, name: str | None = None, description: str | None = None
+    ) -> None:
+        """Pure implementation without retry logic."""
         kwargs = {}
         if name is not None:
             kwargs["name"] = name
@@ -634,22 +615,20 @@ class SpotifyAPIClient:
         try:
             return await self._get_saved_tracks_with_retries(limit, offset)
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_saved_tracks")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_saved_tracks_with_retries(
         self, limit: int = 50, offset: int = 0
     ) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Get saved tracks with retry policy."""
+        return await self._retry_policy(self._get_saved_tracks_impl, limit, offset)
+
+    async def _get_saved_tracks_impl(
+        self, limit: int = 50, offset: int = 0
+    ) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(
             self.client,
             "current_user_saved_tracks",
@@ -667,18 +646,14 @@ class SpotifyAPIClient:
         try:
             return await self._get_current_user_with_retries()
         except spotipy.SpotifyException:
-            # Backoff decorator exhausted retries - return None gracefully
+            # Retry policy exhausted retries - return None gracefully
             return None
 
     @resilient_operation("get_spotify_current_user")
-    @backoff.on_exception(
-        backoff.expo,
-        spotipy.SpotifyException,
-        max_tries=3,
-        giveup=should_giveup_on_error(SpotifyErrorClassifier()),
-        on_backoff=create_backoff_handler(SpotifyErrorClassifier(), "spotify"),
-        on_giveup=create_giveup_handler(SpotifyErrorClassifier(), "spotify"),
-    )
     async def _get_current_user_with_retries(self) -> dict[str, Any] | None:
-        """Internal implementation that allows SpotifyException to propagate to backoff decorator."""
+        """Get current user with retry policy."""
+        return await self._retry_policy(self._get_current_user_impl)
+
+    async def _get_current_user_impl(self) -> dict[str, Any] | None:
+        """Pure implementation without retry logic."""
         return await spotify_api_call(self.client, "me")

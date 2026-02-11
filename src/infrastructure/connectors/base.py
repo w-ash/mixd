@@ -25,7 +25,6 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 from attrs import define
-import backoff
 
 from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist
@@ -33,9 +32,6 @@ from src.domain.entities.track import ConnectorTrack
 from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,
-    create_backoff_handler,
-    create_giveup_handler,
-    should_giveup_on_error,
 )
 from src.infrastructure.connectors._shared.metrics import (
     MetricResolverProtocol,
@@ -155,59 +151,6 @@ class BaseAPIConnector(ABC):
 
         # Get value from modern settings
         return getattr(settings.api, setting_name, default)
-
-    def create_service_aware_retry(
-        self, backoff_strategy=backoff.expo, **backoff_kwargs
-    ):
-        """Create a retry decorator that uses this connector's error classifier.
-
-        Args:
-            backoff_strategy: Backoff strategy function (backoff.expo, backoff.constant, etc.)
-            **backoff_kwargs: Additional arguments passed to backoff decorator
-
-        Returns:
-            Configured backoff decorator with service-specific error handling
-
-        Example:
-            @self.create_service_aware_retry(max_tries=3, base=1.0, max_value=30.0)
-            async def api_method(self):
-                # Method will use service-specific error classification
-                pass
-        """
-        # Set up default backoff parameters using connector config
-        defaults = {
-            "max_tries": int(self.get_connector_config("RETRY_COUNT") or 3) + 1,
-            "jitter": backoff.full_jitter,
-        }
-
-        # Add strategy-specific defaults
-        if backoff_strategy == backoff.expo:
-            defaults.update({
-                "base": float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
-                "max_value": float(
-                    self.get_connector_config("RETRY_MAX_DELAY") or 30.0
-                ),
-            })
-        elif backoff_strategy == backoff.constant:
-            # For constant backoff, use interval instead of base/max_value
-            defaults.update({
-                "interval": float(self.get_connector_config("RETRY_BASE_DELAY") or 1.0),
-            })
-
-        # Merge with provided kwargs, giving precedence to explicit values
-        backoff_config = {**defaults, **backoff_kwargs}
-
-        # Create service-specific handlers (these work for all strategies)
-        backoff_config["giveup"] = should_giveup_on_error(self.error_classifier)
-        backoff_config["on_backoff"] = create_backoff_handler(
-            self.error_classifier, self.connector_name
-        )
-        backoff_config["on_giveup"] = create_giveup_handler(
-            self.error_classifier, self.connector_name
-        )
-
-        # Return configured decorator
-        return backoff.on_exception(backoff_strategy, Exception, **backoff_config)
 
     async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch playlist from service by delegating to service-specific method.

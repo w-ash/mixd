@@ -11,9 +11,6 @@ from __future__ import annotations
 from src.infrastructure.connectors._shared.error_classification import (
     DefaultErrorClassifier,
     ErrorClassifierProtocol,
-    create_backoff_handler,
-    create_giveup_handler,
-    should_giveup_on_error,
 )
 from src.infrastructure.connectors._shared.failure_logging import (
     log_failure_summary,
@@ -48,8 +45,6 @@ __all__ = [
     "MatchProvider",
     "MetricResolverProtocol",
     "create_and_log_failure",
-    "create_backoff_handler",
-    "create_giveup_handler",
     "get_all_connectors_metrics",
     "get_all_field_mappings",
     "get_connector_metrics",
@@ -64,6 +59,5 @@ __all__ = [
     "register_connector_metrics",
     "register_metric_config",
     "register_metric_resolver",
-    "should_giveup_on_error",
     "validate_track_for_method",
 ]

@@ -6,8 +6,8 @@ to comply with MusicBrainz API policies (1 request per second).
 
 Key components:
 - MusicBrainzAPIClient: Authenticated client for individual API calls
+- Centralized retry policy using tenacity
 - Rate limiting with proper backoff to ensure API policy compliance
-- Basic retry and error handling for API requests
 
 The client is stateless and focuses purely on API communication. Complex
 workflows and business logic are handled in separate operation modules.
@@ -21,10 +21,11 @@ import time
 from typing import Any
 
 from attrs import define, field
-import backoff
 import musicbrainzngs
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, resilient_operation
+from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
 
 # Get contextual logger for API client operations
 logger = get_logger(__name__).bind(service="musicbrainz_client")
@@ -39,14 +40,21 @@ musicbrainzngs.set_useragent(app_name, app_version, app_url)
 
 @define(slots=True)
 class MusicBrainzAPIClient:
-    """Pure MusicBrainz API client with rate limiting.
+    """Pure MusicBrainz API client with rate limiting and centralized retry policy.
 
-    Provides thin wrapper around musicbrainzngs with proper rate limiting
-    and individual API method calls. No business logic or complex orchestration.
+    Provides thin wrapper around musicbrainzngs with proper rate limiting,
+    centralized retry policy, and individual API method calls. No business
+    logic or complex orchestration.
     """
 
     _last_request_time: float = field(default=0.0, init=False, repr=False)
     _request_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
+
+    def __attrs_post_init__(self) -> None:
+        """Initialize MusicBrainz client with retry policy."""
+        # Initialize centralized retry policy
+        self._retry_policy = RetryPolicyFactory.create_musicbrainz_policy()
 
     @property
     def connector_name(self) -> str:
@@ -55,10 +63,20 @@ class MusicBrainzAPIClient:
 
     # Individual Recording API Methods
 
-    @resilient_operation("musicbrainz_get_recording_by_isrc")
-    @backoff.on_exception(backoff.expo, Exception, max_tries=3)
     async def get_recording_by_isrc(self, isrc: str) -> str | None:
         """Get recording MBID by ISRC with rate limiting."""
+        try:
+            return await self._get_recording_by_isrc_with_retries(isrc)
+        except Exception:
+            return None
+
+    @resilient_operation("musicbrainz_get_recording_by_isrc")
+    async def _get_recording_by_isrc_with_retries(self, isrc: str) -> str | None:
+        """Get recording by ISRC with retry policy."""
+        return await self._retry_policy(self._get_recording_by_isrc_impl, isrc)
+
+    async def _get_recording_by_isrc_impl(self, isrc: str) -> str | None:
+        """Pure implementation without retry logic."""
         if not isrc:
             return None
 
@@ -84,10 +102,22 @@ class MusicBrainzAPIClient:
             logger.error(f"MusicBrainz ISRC lookup failed for {isrc}: {e}")
             raise
 
-    @resilient_operation("musicbrainz_search_recording")
-    @backoff.on_exception(backoff.expo, Exception, max_tries=3)
     async def search_recording(self, artist: str, title: str) -> dict | None:
         """Search for recording by artist and title."""
+        try:
+            return await self._search_recording_with_retries(artist, title)
+        except Exception:
+            return None
+
+    @resilient_operation("musicbrainz_search_recording")
+    async def _search_recording_with_retries(
+        self, artist: str, title: str
+    ) -> dict | None:
+        """Search recording with retry policy."""
+        return await self._retry_policy(self._search_recording_impl, artist, title)
+
+    async def _search_recording_impl(self, artist: str, title: str) -> dict | None:
+        """Pure implementation without retry logic."""
         if not artist or not title:
             return None
 

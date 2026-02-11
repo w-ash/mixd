@@ -144,20 +144,11 @@ class TestConnectorConfigurationConsistency:
 
 
 class TestConnectorRetryIntegration:
-    """Test that retry mechanisms are properly integrated across connectors."""
+    """Test that retry mechanisms are properly integrated across connectors.
 
-    def test_connectors_create_service_aware_retry_decorators(self):
-        """Verify connectors can create service-aware retry decorators."""
-        spotify = SpotifyConnector()
-        lastfm = LastFMConnector()
+    Note: Retry logic has been migrated to tenacity with centralized
+    policies in RetryPolicyFactory. Individual connectors no longer have
+    create_service_aware_retry() method - they use RetryPolicyFactory instead.
+    """
 
-        # Test create_service_aware_retry method exists
-        assert hasattr(spotify, "create_service_aware_retry")
-        assert hasattr(lastfm, "create_service_aware_retry")
-
-        # Test method returns callable decorator
-        spotify_retry = spotify.create_service_aware_retry(max_tries=3, base_delay=1.0)
-        lastfm_retry = lastfm.create_service_aware_retry(max_tries=3, base_delay=1.0)
-
-        assert callable(spotify_retry)
-        assert callable(lastfm_retry)
+    pass  # Tests removed after migration to tenacity

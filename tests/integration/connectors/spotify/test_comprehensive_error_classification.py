@@ -20,6 +20,7 @@ import spotipy
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 
+@pytest.mark.slow
 @pytest.mark.integration
 class TestComprehensiveErrorClassification:
     """Comprehensive HTTP status code coverage testing with all Spotify API error scenarios."""

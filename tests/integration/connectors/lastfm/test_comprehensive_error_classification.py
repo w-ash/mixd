@@ -20,6 +20,7 @@ import pytest
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 
 
+@pytest.mark.slow
 @pytest.mark.integration
 class TestComprehensiveErrorClassification:
     """Comprehensive error code coverage testing with all LastFM API error scenarios."""
@@ -124,7 +125,7 @@ class TestComprehensiveErrorClassification:
             # Should be fast (no retry delays)
             assert duration < 2.0, f"Permanent error took too long: {duration}s"
 
-    # TEMPORARY ERRORS (5 codes) - Should retry 2-3 times with backoff
+    # TEMPORARY ERRORS (5 codes) - Should retry 2-3 times with exponential backoff
     @pytest.mark.parametrize(
         ("error_code", "description"),
         [
@@ -146,7 +147,7 @@ class TestComprehensiveErrorClassification:
     )
     @pytest.mark.asyncio
     @pytest.mark.skip(
-        reason="Performance: This test takes too long due to real backoff delays - covered by faster tests"
+        reason="Performance: This test takes too long due to real retry delays - covered by faster tests"
     )
     async def test_temporary_error_retry_comprehensive(
         self, lastfm_client, error_code, description
@@ -192,7 +193,7 @@ class TestComprehensiveErrorClassification:
             # Should have some delay from exponential backoff
             assert duration > 0.05, f"Temporary error retry too fast: {duration}s"
 
-    # RATE LIMIT ERRORS - Should retry with backoff
+    # RATE LIMIT ERRORS - Should retry with exponential backoff
     @pytest.mark.parametrize(
         "rate_limit_variant",
         [
@@ -208,7 +209,7 @@ class TestComprehensiveErrorClassification:
     )
     @pytest.mark.asyncio
     @pytest.mark.skip(
-        reason="Performance: This test takes too long due to real backoff delays - covered by faster tests"
+        reason="Performance: This test takes too long due to real retry delays - covered by faster tests"
     )
     async def test_rate_limit_retry_comprehensive(
         self, lastfm_client, rate_limit_variant
@@ -256,7 +257,7 @@ class TestComprehensiveErrorClassification:
                 f"Expected 3 calls for rate limit variant {rate_limit_variant}, got {call_count}"
             )
 
-            # Should have delay from backoff
+            # Should have delay from retry backoff
             assert duration > 0.1, f"Rate limit retry too fast: {duration}s"
 
     # TEXT PATTERN ERRORS - Not found, network, auth patterns
@@ -368,10 +369,10 @@ class TestComprehensiveErrorClassification:
                 f"Expected retry for unknown error, got {call_count} calls"
             )
 
-            # Should have some delay from backoff (relaxed tolerance for CI/fast machines)
+            # Should have some delay from retry backoff (relaxed tolerance for CI/fast machines)
             assert duration > 0.03, f"Unknown error retry too fast: {duration}s"
 
-    # NON-PYLAST EXCEPTIONS - Should not be retried by backoff decorator
+    # NON-PYLAST EXCEPTIONS - Should not be retried by retry policy
     @pytest.mark.asyncio
     async def test_non_pylast_exception_handling(self, lastfm_client):
         """Test that non-pylast exceptions are handled gracefully without retries."""
@@ -399,7 +400,7 @@ class TestComprehensiveErrorClassification:
             # Should return None gracefully (caught by generic exception handler)
             assert result is None
 
-            # Should NOT retry (backoff only handles pylast.WSError)
+            # Should NOT retry (retry policy only handles pylast.WSError)
             assert call_count == 1, (
                 f"Expected 1 call for programming error, got {call_count}"
             )
@@ -410,13 +411,19 @@ class TestComprehensiveErrorClassification:
     # ERROR CLASSIFIER INTEGRATION - Test classifier behavior directly
     @pytest.mark.asyncio
     async def test_error_classifier_integration(self, lastfm_client):
-        """Test that error classifier integration works correctly with backoff decorator."""
+        """Test that error classifier integration works correctly with tenacity retry predicate."""
 
+        from unittest.mock import Mock
+
+        from src.infrastructure.connectors._shared.retry_policies import (
+            create_error_classifier_retry,
+        )
         from src.infrastructure.connectors.lastfm.error_classifier import (
             LastFMErrorClassifier,
         )
 
         classifier = LastFMErrorClassifier()
+        retry_predicate = create_error_classifier_retry(classifier)
 
         # Test classification examples
         test_cases = [
@@ -437,20 +444,20 @@ class TestComprehensiveErrorClassification:
                 f"Expected {expected_type}, got {error_type} for {exception}"
             )
 
-            # Test should_giveup logic matches classification
-            from src.infrastructure.connectors._shared.error_classification import (
-                should_giveup_on_error,
+            # Test retry predicate logic matches classification
+            retry_state = Mock()
+            retry_state.outcome.failed = True
+            retry_state.outcome.exception.return_value = exception
+
+            predicate_should_retry = retry_predicate(retry_state)
+
+            # Predicate should match expected retry behavior
+            assert predicate_should_retry == should_retry, (
+                f"Retry predicate mismatch for {error_type}: predicate={predicate_should_retry}, expected={should_retry}"
             )
 
-            giveup_handler = should_giveup_on_error(classifier)
-            should_giveup = giveup_handler(exception)
 
-            # should_giveup should be opposite of should_retry
-            assert should_giveup != should_retry, (
-                f"Giveup logic mismatch for {error_type}: should_giveup={should_giveup}, should_retry={should_retry}"
-            )
-
-
+@pytest.mark.slow
 @pytest.mark.integration
 class TestErrorClassificationEdgeCases:
     """Test edge cases and boundary conditions in error classification."""
@@ -504,7 +511,7 @@ class TestErrorClassificationEdgeCases:
 
     @pytest.mark.asyncio
     @pytest.mark.skip(
-        reason="Performance: This test takes 60+ seconds due to real exponential backoff delays"
+        reason="Performance: This test takes 60+ seconds due to real exponential retry delays"
     )
     async def test_maximum_retry_exhaustion(self, lastfm_client):
         """Test behavior when maximum retries are exhausted."""
@@ -534,7 +541,7 @@ class TestErrorClassificationEdgeCases:
             # Should have made maximum attempts (typically 3)
             assert call_count >= 3, f"Expected 3+ retry attempts, got {call_count}"
 
-            # Should have taken significant time due to exponential backoff
+            # Should have taken significant time due to exponential retry backoff
             assert duration > 1.0, f"Max retries too fast: {duration}s"
 
     @pytest.mark.asyncio

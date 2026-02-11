@@ -71,6 +71,10 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
             Tuple of (error_type, error_code, error_description)
             error_type: "permanent", "temporary", "rate_limit", "not_found", "unknown"
         """
+        # Handle TimeoutError as temporary (request exceeded timeout limit)
+        if isinstance(exception, TimeoutError):
+            return ("temporary", "TIMEOUT", "Request exceeded timeout limit")
+
         # Handle non-LastFM exceptions
         if not isinstance(exception, pylast.WSError):
             # Delegate to base class text pattern classification
