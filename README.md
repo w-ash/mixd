@@ -1,8 +1,8 @@
 # Narada
 
-**A music metadata hub that connects multiple streaming services**
+**Own your music data. Create playlists using YOUR criteria, not proprietary algorithms.**
 
-Narada connects multiple music services (Spotify, Last.fm, MusicBrainz) to help you sync your listening data, create smart playlists, and manage your music across platforms.
+Streaming services lock your data behind opaque algorithms. Narada gives you control: import listening history, define workflow pipelines with your own logic (e.g., "liked but unplayed 6mo"), sync across services.
 
 ## Features
 
@@ -38,6 +38,35 @@ narada setup
 
 This will guide you through connecting your Spotify and Last.fm accounts.
 
+### Getting Your Data
+
+**Historical Data (Spotify):**
+
+1. Request your extended streaming history from Spotify: [Understanding Your Data](https://support.spotify.com/us/article/understanding-your-data/)
+   - Go to Spotify Privacy Settings → "Extended streaming history"
+   - Request can take up to 30 days
+   - Provides complete listening history in JSON format
+
+2. Import once you receive the data:
+   ```bash
+   narada history import-spotify /path/to/Streaming_History_Audio_*.json
+   ```
+
+**Ongoing Tracking (Last.fm):**
+
+1. Create a Last.fm account: [Last.fm Sign Up](https://www.last.fm/join)
+2. Connect Spotify to Last.fm: [Spotify Settings → Apps → Last.fm](https://www.last.fm/settings/applications)
+3. Let it run for a few weeks to build up play history
+4. Import incrementally:
+   ```bash
+   narada history import-lastfm  # Gets everything since last import
+   ```
+
+**Why this workflow?**
+- Spotify: Complete historical data (one-time import)
+- Last.fm: Ongoing tracking (run imports regularly)
+- Result: Full listening history powering your custom workflows
+
 ### Basic Commands
 
 ```bash
@@ -49,7 +78,7 @@ narada status
 narada setup
 
 # Import music play history
-narada history import-lastfm --mode incremental
+narada history import-lastfm
 narada history import-spotify /path/to/spotify_export.json
 
 # Manage liked tracks across services
@@ -57,8 +86,8 @@ narada likes import-spotify --limit 1000
 narada likes export-lastfm --batch-size 100
 
 # Playlist workflows
-narada playlist run discovery_mix
-narada playlist list
+narada workflow run discovery_mix
+narada workflow list
 ```
 
 
@@ -71,20 +100,25 @@ Narada uses a customizable workflow system to create and transform playlists. Wo
 Narada's workflow system features organized command groups and rich visual feedback:
 
 ```bash
-# Playlist workflow management
-narada playlist               # Interactive workflow menu
-narada playlist list          # List all available workflows
-narada playlist run discovery_mix
+# Workflow execution
+narada workflow               # Interactive workflow browser
+narada workflow list          # List all available workflows
+narada workflow run discovery_mix
 
 # Music history import
 narada history                # Interactive history menu
-narada history import-lastfm --mode incremental
+narada history import-lastfm
 narada history import-spotify /path/to/export.json
 
 # Liked tracks sync across services
 narada likes                  # Interactive likes menu
 narada likes import-spotify --limit 500
 narada likes export-lastfm --batch-size 100
+
+# Playlist data management
+narada playlist list          # List stored playlists in database
+narada playlist backup spotify <playlist_id>
+narada playlist delete <playlist_id>
 ```
 
 #### Features
@@ -163,7 +197,7 @@ The `discovery_mix` workflow creates a playlist of new releases from multiple cu
 Run this workflow with:
 
 ```bash
-narada playlist run discovery_mix
+narada workflow run discovery_mix
 ```
 
 ## Architecture

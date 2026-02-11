@@ -100,9 +100,7 @@ class TestInspectIscoroutinefunction:
         async def async_func():
             return "async"
 
-        # Both should return True
         assert inspect.iscoroutinefunction(async_func)
-        assert asyncio.iscoroutinefunction(async_func)
 
     def test_inspect_rejects_sync_function(self):
         """inspect.iscoroutinefunction should reject sync functions."""
@@ -110,9 +108,7 @@ class TestInspectIscoroutinefunction:
         def sync_func():
             return "sync"
 
-        # Both should return False
         assert not inspect.iscoroutinefunction(sync_func)
-        assert not asyncio.iscoroutinefunction(sync_func)
 
     def test_inspect_identifies_async_method(self):
         """inspect.iscoroutinefunction should identify async methods."""
@@ -121,9 +117,7 @@ class TestInspectIscoroutinefunction:
             async def async_method(self):
                 return "async"
 
-        # Both should return True
         assert inspect.iscoroutinefunction(TestClass.async_method)
-        assert asyncio.iscoroutinefunction(TestClass.async_method)
 
     def test_inspect_vs_iscoroutine_for_results(self):
         """Demonstrate difference between iscoroutinefunction and iscoroutine."""

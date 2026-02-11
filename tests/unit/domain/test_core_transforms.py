@@ -145,6 +145,11 @@ class TestWeightedShuffleSorting:
 
     def test_weighted_shuffle_boundaries(self):
         """Test weighted shuffle at boundary values 0.0 and 1.0."""
+        import random
+
+        # Set seed for reproducibility
+        random.seed(42)
+
         # Arrange: Create tracks in specific order
         tracks = [
             Track(title="First", artists=[Artist(name="Artist1")], id=1),

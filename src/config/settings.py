@@ -90,7 +90,7 @@ class APIConfig(BaseModel):
     lastfm_retry_count_network: int = 5  # Network/temporary errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
     lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
-    lastfm_request_timeout: float = 10.0  # HTTP request timeout in seconds
+    lastfm_request_timeout: float = 30.0  # HTTP request timeout in seconds
     lastfm_connection_timeout: float = 5.0  # Connection establishment timeout
     lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
     lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call

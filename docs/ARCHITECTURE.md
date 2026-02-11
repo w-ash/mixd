@@ -1089,5 +1089,5 @@ This architecture provides a solid foundation for current capabilities while ena
 - **[API.md](API.md)** - Complete CLI command reference
 - **[workflow_guide.md](workflow_guide.md)** - Workflow system documentation
 - **[likes_sync_guide.md](likes_sync_guide.md)** - Likes synchronization between Spotify and Last.fm
-- **[BACKLOG.md](../BACKLOG.md)** - Project roadmap and planned features
+- **[ROADMAP.md](../ROADMAP.md)** - Project roadmap and planned features
 - **[CLAUDE.md](../CLAUDE.md)** - Development commands and style guide

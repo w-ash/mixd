@@ -200,4 +200,4 @@ Typical matching success rates:
 - **[DATABASE.md](DATABASE.md)** - Database schema for tracks, likes, and sync checkpoints
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer guide for extending the likes sync system
 - **[workflow_guide.md](workflow_guide.md)** - Workflow system for advanced playlist operations
-- **[BACKLOG.md](../BACKLOG.md)** - Future enhancements planned for likes synchronization
+- **[ROADMAP.md](../ROADMAP.md)** - Future enhancements planned for likes synchronization

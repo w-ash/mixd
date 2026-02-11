@@ -34,24 +34,29 @@ class TestLastFMAPICallAnalysis:
             mock_settings.credentials.lastfm_secret.get_secret_value.return_value = (
                 "test_secret"
             )
+            mock_settings.credentials.lastfm_username = "test_user"
+            mock_settings.credentials.lastfm_password.get_secret_value.return_value = (
+                "test_password"
+            )
             mock_settings.api.lastfm_request_timeout = 30
+            mock_settings.api.lastfm_rate_limit = 5.0
+            mock_settings.api.lastfm_concurrency = 10
+            mock_settings.api.lastfm_retry_count_rate_limit = 3
 
             with patch("pylast.LastFMNetwork") as mock_network:
                 # Mock the constructor to avoid authentication
                 mock_network.return_value.get_track.return_value = mock_track
 
-                with patch.object(LastFMAPIClient, "__attrs_post_init__"):
-                    client = LastFMAPIClient()
-                    # Manually set required attributes
-                    client.client = mock_network.return_value
+                # Let the client initialize properly (don't patch __attrs_post_init__)
+                client = LastFMAPIClient()
 
-                    start_time = time.time()
-                    result = await client.get_track("Test Artist", "Test Track")
-                    duration = time.time() - start_time
+                start_time = time.time()
+                result = await client.get_track("Test Artist", "Test Track")
+                duration = time.time() - start_time
 
-                    assert result is not None
-                    assert duration < 0.2  # Should be much less than 200ms
-                    print(f"✅ get_track() completed in {duration * 1000:.1f}ms")
+                assert result is not None
+                assert duration < 0.2  # Should be much less than 200ms
+                print(f"✅ get_track() completed in {duration * 1000:.1f}ms")
 
     @pytest.mark.asyncio
     async def test_metadata_extraction_api_call_count(self):

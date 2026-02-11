@@ -19,6 +19,8 @@ from src.application.use_cases.import_play_history import (
 from src.domain.entities import PlayRecord
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 class TestLastfmImportE2E:
     """End-to-end tests for complete LastFM import workflow."""
 
