@@ -4,8 +4,6 @@ Provides high-level functions for the CLI layer to backup playlists without
 exposing infrastructure concerns like database sessions or connector management.
 """
 
-from __future__ import annotations
-
 from src.application.services.connector_playlist_sync_service import (
     ConnectorPlaylistSyncService,
 )

@@ -5,8 +5,6 @@ session management concerns in the infrastructure layer. Application layer
 use cases depend only on domain protocols, not these factory functions.
 """
 
-from __future__ import annotations
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.repositories.interfaces import (

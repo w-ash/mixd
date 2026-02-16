@@ -6,23 +6,19 @@ This module provides common functionality used across all connectors:
 - Matching provider base protocols and utilities
 """
 
-from __future__ import annotations
-
+from src.domain.matching.protocols import MatchProvider
 from src.infrastructure.connectors._shared.error_classification import (
-    DefaultErrorClassifier,
-    ErrorClassifierProtocol,
+    ErrorClassifier,
+    classify_unknown_error,
 )
-from src.infrastructure.connectors._shared.failure_logging import (
-    log_failure_summary,
-    log_match_failure,
-)
-from src.infrastructure.connectors._shared.failure_utils import (
+from src.infrastructure.connectors._shared.failure_handling import (
     create_and_log_failure,
     handle_track_processing_failure,
+    log_failure_summary,
+    log_match_failure,
     merge_results,
     validate_track_for_method,
 )
-from src.infrastructure.connectors._shared.matching_provider_base import MatchProvider
 from src.infrastructure.connectors._shared.metrics import (
     MetricResolverProtocol,
     get_all_connectors_metrics,
@@ -40,10 +36,10 @@ from src.infrastructure.connectors._shared.metrics import (
 # Provider registry imports removed to prevent circular dependencies
 
 __all__ = [
-    "DefaultErrorClassifier",
-    "ErrorClassifierProtocol",
+    "ErrorClassifier",
     "MatchProvider",
     "MetricResolverProtocol",
+    "classify_unknown_error",
     "create_and_log_failure",
     "get_all_connectors_metrics",
     "get_all_field_mappings",

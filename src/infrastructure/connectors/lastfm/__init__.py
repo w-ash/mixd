@@ -15,8 +15,6 @@ Usage:
     track_info = await connector.get_track_info(artist, title)
 """
 
-from __future__ import annotations
-
 from src.infrastructure.connectors.lastfm.connector import (
     LastFMConnector,
     LastFmMetricResolver,

@@ -4,8 +4,6 @@ Modern Typer implementation with progressive discovery, Rich UI, and clean separ
 of concerns. Follows [tool] [noun] [verb] command patterns for consistency.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -15,9 +13,9 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.infrastructure.connectors import run_async_with_connector_executor
+from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console, progress_coordination_context
-from src.interface.shared.ui import display_operation_result
+from src.interface.cli.ui import display_operation_result
 
 console = get_console()
 
@@ -202,7 +200,7 @@ def _execute_workflow(
 
                 return await execute_workflow(workflow_def, progress_manager)
 
-        _, result = run_async_with_connector_executor(_run_with_progress())
+        _, result = run_async(_run_with_progress())
 
         if not quiet:
             track_count = (

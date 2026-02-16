@@ -2,7 +2,7 @@
 
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.track import Artist, Track
-from src.interface.shared.ui import _format_metric_value
+from src.interface.cli.ui import _format_metric_value
 
 
 class TestMetricValueFormatting:
@@ -69,9 +69,7 @@ class TestOperationResultDisplay:
 
     def test_result_preserves_execution_time_as_field(self):
         """Test that execution_time remains a direct field, not a metric."""
-        result = OperationResult(
-            operation_name="Timed Operation", execution_time=2.5
-        )
+        result = OperationResult(operation_name="Timed Operation", execution_time=2.5)
 
         assert result.execution_time == 2.5
         # Execution time is NOT in summary metrics

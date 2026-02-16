@@ -3,8 +3,6 @@
 Handles minimal playlist updates (add/remove/move) with canonical URI resolution.
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable
@@ -139,7 +137,7 @@ class SpotifyPlaylistSyncOperations:
                 try:
                     track_id = int(op.spotify_uri.split(":", 1)[1])
                     canonical_ids.add(track_id)
-                except (ValueError, IndexError):
+                except ValueError, IndexError:
                     logger.warning("Invalid canonical URI", uri=op.spotify_uri)
 
         if not canonical_ids:
@@ -187,7 +185,7 @@ class SpotifyPlaylistSyncOperations:
                     )
                     stats["resolved"] += 1
 
-                except (ValueError, IndexError):
+                except ValueError, IndexError:
                     continue
 
             elif op.spotify_uri.startswith("spotify:track:"):

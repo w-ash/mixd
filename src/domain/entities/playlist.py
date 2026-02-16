@@ -3,8 +3,6 @@
 Pure playlist representations and related value objects with zero external dependencies.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -112,6 +110,7 @@ class Playlist:
         # Handle both TrackList and list[Track] for convenience
         if isinstance(tracklist, list):
             from src.domain.entities.track import TrackList as TL
+
             tracklist = TL(tracks=tracklist)
 
         added_at = added_at or datetime.now(UTC)
@@ -236,5 +235,3 @@ class ConnectorPlaylist:
     def track_ids(self) -> list[str]:
         """Get all track IDs in this playlist."""
         return [item.connector_track_identifier for item in self.items]
-
-

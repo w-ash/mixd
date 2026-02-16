@@ -123,7 +123,9 @@ class TestFormatDestinationResult:
         temp = Playlist.from_tracklist(
             name="Test Playlist", tracklist=tracks, description="Test Description"
         )
-        playlist = Playlist(id=1, name=temp.name, entries=temp.entries, description=temp.description)
+        playlist = Playlist(
+            id=1, name=temp.name, entries=temp.entries, description=temp.description
+        )
         stats = {"new_tracks": 2, "updated_tracks": 0}
 
         result = format_destination_result(
@@ -170,7 +172,9 @@ class TestUpdatePlaylistTracksOperation:
         existing_tracks = [
             Track(id=99, title="Old Track", artists=[Artist(name="Old Artist")])
         ]
-        temp = Playlist.from_tracklist(name="Existing Playlist", tracklist=existing_tracks)
+        temp = Playlist.from_tracklist(
+            name="Existing Playlist", tracklist=existing_tracks
+        )
         existing_playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
 
         updated = update_playlist_tracks_operation(
@@ -185,7 +189,9 @@ class TestUpdatePlaylistTracksOperation:
         existing_tracks = [
             Track(id=99, title="Old Track", artists=[Artist(name="Old Artist")])
         ]
-        temp = Playlist.from_tracklist(name="Existing Playlist", tracklist=existing_tracks)
+        temp = Playlist.from_tracklist(
+            name="Existing Playlist", tracklist=existing_tracks
+        )
         existing_playlist = Playlist(id=1, name=temp.name, entries=temp.entries)
 
         updated = update_playlist_tracks_operation(

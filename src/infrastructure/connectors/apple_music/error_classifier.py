@@ -1,9 +1,7 @@
 """Apple Music API error classification for retry behavior."""
 
-from __future__ import annotations
-
 import json
-from typing import Any
+from typing import Any, override
 
 from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classification import (
@@ -18,11 +16,13 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
     adding only Apple Music-specific error parsing and pattern detection.
     """
 
+    @override
     @property
     def service_name(self) -> str:
         """Return service name for logging."""
         return "apple_music"
 
+    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Apple Music API errors for proper retry behavior.
 

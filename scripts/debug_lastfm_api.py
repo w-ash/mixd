@@ -242,7 +242,7 @@ async def debug_recent_tracks_api():
 
         # Write to debug output file
         debug_file = Path(__file__).parent / "lastfm_api_debug_output.json"
-        with open(debug_file, "w", encoding="utf-8") as f:
+        with Path(debug_file).open("w", encoding="utf-8") as f:
             json.dump(sample_data, f, indent=2, default=str)
 
         print(f"✅ Sample data exported to: {debug_file}")

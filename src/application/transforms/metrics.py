@@ -10,8 +10,6 @@ Unlike pure domain transforms, these functions:
 - Depend on external metric enrichment having occurred first
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, cast
 

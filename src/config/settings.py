@@ -10,8 +10,6 @@ The configuration is organized into logical groups:
 - BatchConfig: Batch processing and progress reporting settings
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 
@@ -138,9 +136,7 @@ class ImportConfig(BaseModel):
 
     # Import directory configuration
     imports_dir: Path = Path("data/imports")  # Directory for pending import files
-    imported_dir: Path = Path(
-        "data/imports/imported"
-    )  # Archive for processed files
+    imported_dir: Path = Path("data/imports/imported")  # Archive for processed files
 
     # Play filtering thresholds
     play_threshold_ms: int = 240000  # 4 minutes fallback threshold
@@ -302,7 +298,6 @@ settings = Settings()
 
 # Create data directory if it doesn't exist
 settings.data_dir.mkdir(exist_ok=True)
-
 
 # =============================================================================
 # MODERN SETTINGS API

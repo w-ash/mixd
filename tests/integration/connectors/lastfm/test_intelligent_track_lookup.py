@@ -9,12 +9,10 @@ Tests verify:
 All tests use mocked Last.FM API calls to avoid network dependencies.
 """
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 import pylast
+import pytest
 
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
@@ -57,9 +55,7 @@ def multi_artist_track():
 
 
 @pytest.mark.asyncio
-async def test_mbid_lookup_succeeds_no_fallback_needed(
-    lastfm_operations, sample_track
-):
+async def test_mbid_lookup_succeeds_no_fallback_needed(lastfm_operations, sample_track):
     """Test MBID lookup succeeds on first try, no artist/title fallback needed.
 
     Given: Track with valid MBID
@@ -139,9 +135,7 @@ async def test_mbid_fails_fallback_to_artist_title_succeeds(
 
 
 @pytest.mark.asyncio
-async def test_no_mbid_goes_straight_to_artist_title(
-    lastfm_operations, sample_track
-):
+async def test_no_mbid_goes_straight_to_artist_title(lastfm_operations, sample_track):
     """Test track with no MBID goes straight to artist/title lookup.
 
     Given: Track with no MBID, valid artist/title
@@ -175,9 +169,7 @@ async def test_no_mbid_goes_straight_to_artist_title(
 
 
 @pytest.mark.asyncio
-async def test_both_mbid_and_artist_title_fail(
-    lastfm_operations, sample_track
-):
+async def test_both_mbid_and_artist_title_fail(lastfm_operations, sample_track):
     """Test both MBID and artist/title lookups fail, returns empty.
 
     Given: Track with non-existent MBID and artist/title
@@ -194,9 +186,7 @@ async def test_both_mbid_and_artist_title_fail(
     lastfm_operations.client.get_track_info_comprehensive_by_mbid = AsyncMock(
         return_value=None
     )
-    lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
-        return_value=None
-    )
+    lastfm_operations.client.get_track_info_comprehensive = AsyncMock(return_value=None)
 
     # Execute
     result = await lastfm_operations.get_track_info_intelligent(track_with_mbid)
@@ -291,9 +281,7 @@ async def test_multi_artist_second_artist_succeeds(
 
 
 @pytest.mark.asyncio
-async def test_multi_artist_all_fail(
-    lastfm_operations, multi_artist_track
-):
+async def test_multi_artist_all_fail(lastfm_operations, multi_artist_track):
     """Test multi-artist track where all artists fail.
 
     Given: Track with 3 artists, none match on Last.FM
@@ -323,9 +311,7 @@ async def test_multi_artist_all_fail(
 
 
 @pytest.mark.asyncio
-async def test_single_artist_no_multi_artist_fallback(
-    lastfm_operations, sample_track
-):
+async def test_single_artist_no_multi_artist_fallback(lastfm_operations, sample_track):
     """Test single-artist track that doesn't match (no multi-artist fallback).
 
     Given: Track with 1 artist that doesn't match
@@ -420,9 +406,7 @@ async def test_connection_error_propagates_when_no_fallback(
 
 
 @pytest.mark.asyncio
-async def test_not_found_error_tries_next_artist(
-    lastfm_operations, multi_artist_track
-):
+async def test_not_found_error_tries_next_artist(lastfm_operations, multi_artist_track):
     """Test track-not-found doesn't stop iteration, tries next artist.
 
     Given: Multi-artist track, first artist returns None (not found)

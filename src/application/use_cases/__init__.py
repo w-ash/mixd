@@ -1,7 +1,5 @@
 """Application use cases - orchestrate business operations."""
 
-from __future__ import annotations
-
 from .import_play_history import run_import
 from .sync_likes import (
     ExportLastFmLikesCommand,

@@ -34,7 +34,6 @@ from src.config import settings
 
 batch_size = settings.api.lastfm_batch_size
 
-
 # Logging
 from src.config import get_logger
 
@@ -42,8 +41,6 @@ logger = get_logger(__name__)
 logger.info("Starting operation")
 ```
 """
-
-from __future__ import annotations
 
 # Import everything from the submodules
 from .logging import (

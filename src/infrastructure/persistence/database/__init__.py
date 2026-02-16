@@ -22,8 +22,6 @@ Usage:
     await init_db()  # Creates schema if needed
 """
 
-from __future__ import annotations
-
 # Import database models
 from src.infrastructure.persistence.database.db_connection import (
     engine,

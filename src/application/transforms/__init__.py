@@ -10,8 +10,6 @@ Modules:
 - shuffle: Weighted shuffle blending original and random orderings
 """
 
-from __future__ import annotations
-
 from .metrics import filter_by_metric_range, sort_by_external_metrics
 from .play_history import (
     filter_by_play_history,

@@ -1,7 +1,5 @@
 """Core track repository implementation for basic track operations."""
 
-from __future__ import annotations
-
 from typing import ClassVar
 
 from sqlalchemy import Select

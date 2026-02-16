@@ -5,8 +5,6 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
-from __future__ import annotations
-
 from collections.abc import Awaitable
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
@@ -62,7 +60,7 @@ class PlaylistRepositoryProtocol(Protocol):
 
     def get_playlist_by_connector(
         self, connector: str, connector_id: str, raise_if_not_found: bool = True
-    ) -> Awaitable["Playlist | None"]:
+    ) -> Awaitable[Playlist | None]:
         """Get playlist by connector ID."""
         ...
 
@@ -109,7 +107,7 @@ class LikeRepositoryProtocol(Protocol):
         track_id: int,
         service: str,
         is_liked: bool = True,
-        last_synced: "datetime | None" = None,
+        last_synced: datetime | None = None,
     ) -> Awaitable[TrackLike]:
         """Save track like."""
         ...
@@ -131,7 +129,7 @@ class LikeRepositoryProtocol(Protocol):
         source_service: str,
         target_service: str,
         is_liked: bool = True,
-        since_timestamp: "datetime | None" = None,
+        since_timestamp: datetime | None = None,
     ) -> Awaitable[list[TrackLike]]:
         """Get tracks liked in source_service but not in target_service."""
         ...
@@ -142,7 +140,7 @@ class CheckpointRepositoryProtocol(Protocol):
 
     def get_sync_checkpoint(
         self, user_id: str, service: str, entity_type: Literal["likes", "plays"]
-    ) -> Awaitable["SyncCheckpoint | None"]:
+    ) -> Awaitable[SyncCheckpoint | None]:
         """Get sync checkpoint."""
         ...
 
@@ -168,7 +166,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def find_track_by_connector(
         self, connector: str, connector_id: str
-    ) -> Awaitable["Track | None"]:
+    ) -> Awaitable[Track | None]:
         """Find track by connector ID."""
         ...
 
@@ -202,7 +200,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def get_metadata_timestamps(
         self, track_ids: list[int], connector: str
-    ) -> Awaitable[dict[int, "datetime"]]:
+    ) -> Awaitable[dict[int, datetime]]:
         """Get most recent metadata collection timestamps for tracks.
 
         Args:
@@ -331,7 +329,7 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
 
     def get_by_connector_id(
         self, connector: str, connector_id: str
-    ) -> Awaitable["ConnectorPlaylist | None"]:
+    ) -> Awaitable[ConnectorPlaylist | None]:
         """Get connector playlist by connector and external ID.
 
         Args:
@@ -408,8 +406,8 @@ class PlaysRepositoryProtocol(Protocol):
         self,
         track_ids: list[int],
         metrics: list[str],
-        period_start: "datetime | None" = None,
-        period_end: "datetime | None" = None,
+        period_start: datetime | None = None,
+        period_end: datetime | None = None,
     ) -> Awaitable[dict[str, dict[int, Any]]]:
         """Get aggregated play data for specified tracks and metrics.
 

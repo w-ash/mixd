@@ -12,9 +12,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.application.services.connector_playlist_processing_service import (
-    ConnectorPlaylistProcessingService,
-)
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistUseCase,
@@ -164,7 +161,9 @@ class TestSpotifyAddedAtPreservation:
             "this proves connector_metadata was populated"
         )
         # Compare by replacing tzinfo to handle naive vs aware datetime differences
-        assert playlist_track_records[0].added_at.replace(tzinfo=UTC) == expected_track_a, (
+        assert (
+            playlist_track_records[0].added_at.replace(tzinfo=UTC) == expected_track_a
+        ), (
             f"Track A added_at mismatch: "
             f"expected {expected_track_a}, "
             f"got {playlist_track_records[0].added_at}"
@@ -174,7 +173,9 @@ class TestSpotifyAddedAtPreservation:
         assert playlist_track_records[1].added_at is not None, (
             "Track B added_at should not be NULL"
         )
-        assert playlist_track_records[1].added_at.replace(tzinfo=UTC) == expected_track_b, (
+        assert (
+            playlist_track_records[1].added_at.replace(tzinfo=UTC) == expected_track_b
+        ), (
             f"Track B added_at mismatch: "
             f"expected {expected_track_b}, "
             f"got {playlist_track_records[1].added_at}"
@@ -184,7 +185,9 @@ class TestSpotifyAddedAtPreservation:
         assert playlist_track_records[2].added_at is not None, (
             "Track C added_at should not be NULL"
         )
-        assert playlist_track_records[2].added_at.replace(tzinfo=UTC) == expected_track_c, (
+        assert (
+            playlist_track_records[2].added_at.replace(tzinfo=UTC) == expected_track_c
+        ), (
             f"Track C added_at mismatch: "
             f"expected {expected_track_c}, "
             f"got {playlist_track_records[2].added_at}"

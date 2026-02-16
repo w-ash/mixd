@@ -1,7 +1,5 @@
 """Application utilities - shared utilities for application services."""
 
-from __future__ import annotations
-
 from src.application.services.progress_manager import (
     AsyncProgressManager,
     get_progress_manager,
@@ -19,6 +17,8 @@ from src.domain.entities.progress import (
 )
 
 from .batch_results import (
+    BatchItemResult,
+    BatchItemStatus,
     BatchResult,
 )
 from .results import (
@@ -30,6 +30,8 @@ from .results import (
 __all__ = [
     # New progress system
     "AsyncProgressManager",
+    "BatchItemResult",
+    "BatchItemStatus",
     "BatchResult",
     "ImportResultData",
     "OperationStatus",

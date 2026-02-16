@@ -5,8 +5,6 @@ service requests to appropriate connector factories without the application laye
 needing to know about specific connectors.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol

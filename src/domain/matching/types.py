@@ -3,8 +3,6 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import Any, TypedDict
 

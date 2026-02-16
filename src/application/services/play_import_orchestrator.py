@@ -8,8 +8,6 @@ This service contains generic business logic for the two-phase workflow while ac
 pluggable importer instances from the infrastructure layer.
 """
 
-from __future__ import annotations
-
 from typing import Any, Protocol
 
 from src.config import get_logger
@@ -81,7 +79,11 @@ class PlayImportOrchestrator:
 
         # Extract success rate from combined result summary metrics
         success_rate_metric = next(
-            (m for m in combined_result.summary_metrics.metrics if m.name == "success_rate"),
+            (
+                m
+                for m in combined_result.summary_metrics.metrics
+                if m.name == "success_rate"
+            ),
             None,
         )
         success_rate_str = (
@@ -90,7 +92,11 @@ class PlayImportOrchestrator:
 
         # Extract resolved plays from resolution result
         resolved_count = next(
-            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "resolved"),
+            (
+                m.value
+                for m in resolution_result.summary_metrics.metrics
+                if m.name == "resolved"
+            ),
             0,
         )
 
@@ -172,9 +178,7 @@ class PlayImportOrchestrator:
             "resolved", resolved, "Track Plays Resolved", significance=1
         )
         if filtered > 0:
-            result.summary_metrics.add(
-                "filtered", filtered, "Filtered", significance=2
-            )
+            result.summary_metrics.add("filtered", filtered, "Filtered", significance=2)
         if errors > 0:
             result.summary_metrics.add("errors", errors, "Errors", significance=3)
 
@@ -214,11 +218,17 @@ class PlayImportOrchestrator:
         )
 
         # Add metadata
-        result.metadata.update({"total_plays": 0, "resolved_plays": 0, "error_count": 0})
+        result.metadata.update({
+            "total_plays": 0,
+            "resolved_plays": 0,
+            "error_count": 0,
+        })
 
         # Add summary metrics showing zeros
         result.summary_metrics.add("total", 0, "Total Plays", significance=0)
-        result.summary_metrics.add("resolved", 0, "Track Plays Resolved", significance=1)
+        result.summary_metrics.add(
+            "resolved", 0, "Track Plays Resolved", significance=1
+        )
 
         return result
 
@@ -233,47 +243,90 @@ class PlayImportOrchestrator:
         """
         result = OperationResult(
             operation_name="Two-Phase Play Import",
-            execution_time=ingestion_result.execution_time + resolution_result.execution_time,
+            execution_time=ingestion_result.execution_time
+            + resolution_result.execution_time,
         )
 
         # Combine metadata from both phases
         result.metadata["ingestion_phase"] = {
             "batch_id": ingestion_result.metadata.get("batch_id"),
-            "checkpoint_timestamp": ingestion_result.metadata.get("checkpoint_timestamp"),
+            "checkpoint_timestamp": ingestion_result.metadata.get(
+                "checkpoint_timestamp"
+            ),
         }
         result.metadata["resolution_phase"] = resolution_result.metadata.copy()
 
         # Extract values from ingestion result summary metrics
         ingestion_imported = next(
-            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "imported"), 0
+            (
+                m.value
+                for m in ingestion_result.summary_metrics.metrics
+                if m.name == "imported"
+            ),
+            0,
         )
         ingestion_duplicates = next(
-            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "duplicates"), 0
+            (
+                m.value
+                for m in ingestion_result.summary_metrics.metrics
+                if m.name == "duplicates"
+            ),
+            0,
         )
         ingestion_errors = next(
-            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "errors"), 0
+            (
+                m.value
+                for m in ingestion_result.summary_metrics.metrics
+                if m.name == "errors"
+            ),
+            0,
         )
         raw_plays = next(
-            (m.value for m in ingestion_result.summary_metrics.metrics if m.name == "raw_plays"), 0
+            (
+                m.value
+                for m in ingestion_result.summary_metrics.metrics
+                if m.name == "raw_plays"
+            ),
+            0,
         )
 
         # Extract values from resolution result summary metrics
         resolved = next(
-            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "resolved"), 0
+            (
+                m.value
+                for m in resolution_result.summary_metrics.metrics
+                if m.name == "resolved"
+            ),
+            0,
         )
         resolution_filtered = next(
-            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "filtered"), 0
+            (
+                m.value
+                for m in resolution_result.summary_metrics.metrics
+                if m.name == "filtered"
+            ),
+            0,
         )
         resolution_errors = next(
-            (m.value for m in resolution_result.summary_metrics.metrics if m.name == "errors"), 0
+            (
+                m.value
+                for m in resolution_result.summary_metrics.metrics
+                if m.name == "errors"
+            ),
+            0,
         )
 
         total_errors = int(ingestion_errors + resolution_errors)
 
         # Add combined summary metrics
-        result.summary_metrics.add("raw_plays", int(raw_plays), "Raw Plays Found", significance=0)
         result.summary_metrics.add(
-            "connector_plays", int(ingestion_imported), "Connector Plays Ingested", significance=1
+            "raw_plays", int(raw_plays), "Raw Plays Found", significance=0
+        )
+        result.summary_metrics.add(
+            "connector_plays",
+            int(ingestion_imported),
+            "Connector Plays Ingested",
+            significance=1,
         )
         result.summary_metrics.add(
             "track_plays", int(resolved), "Track Plays Created", significance=2
@@ -298,7 +351,11 @@ class PlayImportOrchestrator:
         if attempted > 0:
             success_rate = (resolved / attempted) * 100
             result.summary_metrics.add(
-                "success_rate", success_rate, "Success Rate", format="percent", significance=6
+                "success_rate",
+                success_rate,
+                "Success Rate",
+                format="percent",
+                significance=6,
             )
 
         return result

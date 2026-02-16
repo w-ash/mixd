@@ -4,8 +4,8 @@ Tests attrs validators used for command class field validation, ensuring
 fail-fast behavior at construction time.
 """
 
-import pytest
 from attrs import define, field
+import pytest
 
 from src.application.use_cases._shared.command_validators import (
     and_,
@@ -192,7 +192,9 @@ class TestTracklistHasTracksOrMetadata:
                 validator=tracklist_has_tracks_or_metadata("connector_playlist")
             )
 
-        with pytest.raises(ValueError, match="must have tracks or 'connector_playlist' in metadata"):
+        with pytest.raises(
+            ValueError, match="must have tracks or 'connector_playlist' in metadata"
+        ):
             TestCommand(tracklist=TrackList(tracks=[]))
 
     def test_rejects_non_tracklist_type(self):
@@ -288,7 +290,11 @@ class TestIntegrationScenarios:
             connector_filter: str | None = field(default=None)
             sort_by: str | None = field(
                 default=None,
-                validator=optional_in_choices(["liked_at_desc", "liked_at_asc", "title_asc"]),
+                validator=optional_in_choices([
+                    "liked_at_desc",
+                    "liked_at_asc",
+                    "title_asc",
+                ]),
             )
 
         # Valid command

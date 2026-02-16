@@ -13,8 +13,6 @@ Modules:
 - playlist_operations: Pure playlist transformation operations
 """
 
-from __future__ import annotations
-
 from .combining import concatenate, interleave
 from .core import Transform, create_pipeline, optional_tracklist_transform
 from .filtering import (

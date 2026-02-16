@@ -26,22 +26,16 @@ Example:
     ```
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import AsyncIterator, Callable
 import contextlib
 import time
-from typing import Any, TypeVar
+from typing import Any
 import uuid
 
 from attrs import define, field
 
 from src.config import get_logger
-
-# Type variables for generic processing
-TItem = TypeVar("TItem")  # Input item type (Track, etc.)
-TResult = TypeVar("TResult")  # Result type (metadata dict, etc.)
 
 logger = get_logger(__name__).bind(service="rate_limited_batch_processor")
 
@@ -101,7 +95,7 @@ class RateLimitedBatchProcessor:
             rate_delay_ms=round(self.rate_delay * 1000, 1),
         )
 
-    async def process_batch(
+    async def process_batch[TItem](
         self,
         items: list[TItem],
         process_func: Callable[[TItem], Any],
@@ -132,7 +126,9 @@ class RateLimitedBatchProcessor:
         # Queue all initial work items
         for item in items:
             work_item = WorkItem(
-                item_id=str(uuid.uuid7()),  # Time-ordered UUID for better tracking  # type: ignore[attr-defined]
+                item_id=str(
+                    uuid.uuid7()
+                ),  # Time-ordered UUID for better tracking  # type: ignore[attr-defined]
                 item=item,
             )
             await self.work_queue.put(work_item)

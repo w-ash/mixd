@@ -7,9 +7,10 @@ boundaries within a Unit of Work context.
 Critical for verifying the selectinload optimization doesn't break DDD patterns.
 """
 
-import pytest
 from datetime import UTC, datetime
 from uuid import uuid4
+
+import pytest
 
 from src.domain.entities import Artist, Track
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -140,9 +141,7 @@ class TestBulkUoWPatterns:
                 assert retrieved.connector_track_identifiers
 
     @pytest.mark.asyncio
-    async def test_multiple_bulk_operations_in_uow(
-        self, db_session, test_data_tracker
-    ):
+    async def test_multiple_bulk_operations_in_uow(self, db_session, test_data_tracker):
         """Verify multiple bulk operations in same UoW maintain consistency."""
         uow = get_unit_of_work(db_session)
 
@@ -196,9 +195,7 @@ class TestBulkUoWPatterns:
             await uow.commit()
 
     @pytest.mark.asyncio
-    async def test_bulk_upsert_with_existing_data(
-        self, db_session, test_data_tracker
-    ):
+    async def test_bulk_upsert_with_existing_data(self, db_session, test_data_tracker):
         """Verify bulk_upsert handles mix of new and existing entities in UoW."""
         uow = get_unit_of_work(db_session)
 

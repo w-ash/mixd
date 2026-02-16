@@ -16,11 +16,9 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from __future__ import annotations
-
 import asyncio
 from datetime import UTC, datetime
-from typing import Any, NoReturn
+from typing import Any, Never
 
 from attrs import define, field
 
@@ -221,7 +219,7 @@ class SpotifyOperations:
     ) -> str:
         """Create a new Spotify playlist with tracks using batch processing."""
 
-        def _raise_playlist_creation_error() -> NoReturn:
+        def _raise_playlist_creation_error() -> Never:
             raise ValueError("Failed to create playlist, received None")
 
         try:
@@ -459,7 +457,7 @@ class SpotifyOperations:
             ValueError: If playlist not found
         """
 
-        def _raise_playlist_not_found_error(playlist_id: str) -> NoReturn:
+        def _raise_playlist_not_found_error(playlist_id: str) -> Never:
             raise ValueError(f"Playlist {playlist_id} not found")
 
         logger.debug(f"Fetching Spotify playlist details for {playlist_id}")

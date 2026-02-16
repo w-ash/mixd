@@ -13,8 +13,6 @@ The client is stateless and focuses purely on API communication. Complex
 workflows and business logic are handled in separate operation modules.
 """
 
-from __future__ import annotations
-
 import asyncio
 from importlib.metadata import metadata
 import time

@@ -10,8 +10,8 @@ Example:
     def with_id(self, db_id: int) -> Track:
 """
 
-import re
 from pathlib import Path
+import re
 import sys
 
 
@@ -29,7 +29,7 @@ def remove_quoted_return_types(content: str) -> tuple[str, int]:
     pattern = r'(\s+->\s*)"([A-Z][A-Za-z0-9_]+)"(\s*:)'
 
     def replacer(match):
-        return f'{match.group(1)}{match.group(2)}{match.group(3)}'
+        return f"{match.group(1)}{match.group(2)}{match.group(3)}"
 
     new_content, count = re.subn(pattern, replacer, content)
     return new_content, count
@@ -85,11 +85,13 @@ def main():
         print("\nNo quoted return types found!")
         return
 
-    print(f"\nTotal: {total_changes} quoted return types in {len(files_to_modify)} files")
+    print(
+        f"\nTotal: {total_changes} quoted return types in {len(files_to_modify)} files"
+    )
 
     # Ask for confirmation
     response = input("\nProceed with modifications? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Aborted.")
         return
 

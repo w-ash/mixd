@@ -15,9 +15,7 @@ The facade pattern allows the rest of the codebase to use SpotifyConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
-from __future__ import annotations
-
-from typing import Any, ClassVar
+from typing import Any, ClassVar, override
 
 from attrs import define, field
 
@@ -67,11 +65,13 @@ class SpotifyConnector(BaseAPIConnector):
     _client: SpotifyAPIClient = field(init=False, repr=False)
     _operations: SpotifyOperations = field(init=False, repr=False)
 
+    @override
     @property
     def connector_name(self) -> str:
         """The name of this connector."""
         return "spotify"
 
+    @override
     @property
     def error_classifier(self):
         """Get Spotify-specific error classifier."""
@@ -201,6 +201,7 @@ class SpotifyConnector(BaseAPIConnector):
         """Get basic Spotify playlist metadata."""
         return await self._operations.get_playlist_details(playlist_id)
 
+    @override
     def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert Spotify track data to ConnectorTrack domain model."""
         from .conversions import convert_spotify_track_to_connector

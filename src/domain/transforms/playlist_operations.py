@@ -11,8 +11,6 @@ All playlist operations follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 
 from attrs import evolve

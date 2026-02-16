@@ -13,7 +13,7 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.connectors._shared.base_matching_provider import (
+from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
 )
 
@@ -95,8 +95,12 @@ class TestBaseMatchingProviderTrackPartitioning:
         """Tracks with ISRC should be partitioned to ISRC group."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
-            Track(title="Song 2", isrc="USRC22222222", artists=[Artist(name="Artist 2")]).with_id(2),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
+            Track(
+                title="Song 2", isrc="USRC22222222", artists=[Artist(name="Artist 2")]
+            ).with_id(2),
         ]
 
         isrc_tracks, artist_title_tracks, unprocessable_tracks = (
@@ -146,10 +150,18 @@ class TestBaseMatchingProviderTrackPartitioning:
         """Mixed tracks should be partitioned to appropriate groups."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),  # ISRC
-            Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(2),  # Artist/title
-            Track(title="", artists=[Artist(name="Artist 3")]).with_id(3),  # Unprocessable (no title)
-            Track(title="Song 4", isrc="USRC44444444", artists=[Artist(name="Artist 4")]).with_id(4),  # ISRC
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),  # ISRC
+            Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(
+                2
+            ),  # Artist/title
+            Track(title="", artists=[Artist(name="Artist 3")]).with_id(
+                3
+            ),  # Unprocessable (no title)
+            Track(
+                title="Song 4", isrc="USRC44444444", artists=[Artist(name="Artist 4")]
+            ).with_id(4),  # ISRC
         ]
 
         isrc_tracks, artist_title_tracks, unprocessable_tracks = (
@@ -205,7 +217,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Template method should call _match_by_isrc for tracks with ISRC."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
         ]
 
         await provider.fetch_raw_matches_for_tracks(tracks)
@@ -235,7 +249,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Tracks matched by ISRC should not be sent to artist/title method."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
             Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(2),
         ]
 
@@ -265,7 +281,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Results from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
             Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(2),
         ]
 
@@ -298,7 +316,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Failures from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
             Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(2),
         ]
 
@@ -377,7 +397,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Artist/title method should not be called if all tracks matched by ISRC."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
         ]
 
         # Configure ISRC to match
@@ -399,7 +421,9 @@ class TestBaseMatchingProviderTemplateMethod:
         """Template method should return ProviderMatchResult."""
         provider = ConcreteProvider()
         tracks = [
-            Track(title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]).with_id(1),
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
         ]
 
         provider.isrc_results = {
@@ -423,7 +447,9 @@ class TestBaseMatchingProviderValidation:
     def test_has_isrc_returns_true_for_track_with_isrc(self):
         """Track with ISRC should pass ISRC validation."""
         provider = ConcreteProvider()
-        track = Track(title="Song", isrc="USRC11111111", artists=[Artist(name="Artist")])
+        track = Track(
+            title="Song", isrc="USRC11111111", artists=[Artist(name="Artist")]
+        )
 
         assert provider._has_isrc(track) is True
 

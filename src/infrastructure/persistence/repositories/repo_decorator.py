@@ -10,14 +10,12 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Coroutine
 import functools
 import inspect
 import time
-from typing import Any, ParamSpec, TypeGuard, TypeVar
+from typing import Any, TypeGuard
 
 from sqlalchemy.exc import (
     DatabaseError,
@@ -30,10 +28,6 @@ from sqlalchemy.exc import (
 )
 
 from src.config import get_logger
-
-# Type variables for generic function signatures
-P = ParamSpec("P")
-T = TypeVar("T")
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -59,7 +53,7 @@ def db_operation(operation_name: str | None = None):
             ...
     """
 
-    def decorator(
+    def decorator[**P, T](
         func: Callable[P, Coroutine[Any, Any, T]],
     ) -> Callable[P, Coroutine[Any, Any, T]]:
         """Wrap an async repository method with logging, timing and error handling."""

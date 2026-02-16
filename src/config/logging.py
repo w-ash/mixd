@@ -55,8 +55,6 @@ Quick Start:
     ```
 """
 
-from __future__ import annotations
-
 import contextlib
 from functools import wraps
 import logging

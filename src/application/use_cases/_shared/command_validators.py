@@ -8,8 +8,9 @@ Example usage:
     from attrs import define, field
     from src.application.use_cases._shared.command_validators import (
         non_empty_string,
-        positive_int_in_range
+        positive_int_in_range,
     )
+
 
     @define(frozen=True, slots=True)
     class CreatePlaylistCommand:
@@ -17,8 +18,6 @@ Example usage:
         limit: int = field(validator=positive_int_in_range(1, 10000))
     ```
 """
-
-from __future__ import annotations
 
 from typing import Any
 
@@ -40,9 +39,7 @@ def non_empty_string(instance: Any, attribute: Attribute, value: str) -> None:
         ValueError: If the string is empty or contains only whitespace
     """
     if not value or not value.strip():
-        raise ValueError(
-            f"{attribute.name} must be a non-empty string, got: {value!r}"
-        )
+        raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")
 
 
 def non_empty_list(instance: Any, attribute: Attribute, value: list) -> None:
@@ -57,14 +54,11 @@ def non_empty_list(instance: Any, attribute: Attribute, value: list) -> None:
         ValueError: If the list is empty
     """
     if not value:
-        raise ValueError(
-            f"{attribute.name} must be a non-empty list"
-        )
+        raise ValueError(f"{attribute.name} must be a non-empty list")
 
 
 def positive_int_in_range(
-    min_value: int = 1,
-    max_value: int = BusinessLimits.MAX_USER_LIMIT
+    min_value: int = 1, max_value: int = BusinessLimits.MAX_USER_LIMIT
 ) -> Any:
     """Creates a validator for positive integers within a specific range.
 
@@ -82,6 +76,7 @@ def positive_int_in_range(
             limit: int = field(validator=positive_int_in_range(1, 10000))
         ```
     """
+
     def validator(instance: Any, attribute: Attribute, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError(
@@ -92,10 +87,13 @@ def positive_int_in_range(
                 f"{attribute.name} must be between {min_value} and {max_value}, "
                 f"got {value}"
             )
+
     return validator
 
 
-def optional_positive_int(instance: Any, attribute: Attribute, value: int | None) -> None:
+def optional_positive_int(
+    instance: Any, attribute: Attribute, value: int | None
+) -> None:
     """Validates that an optional integer is positive when provided.
 
     Args:
@@ -130,17 +128,17 @@ def optional_in_choices(choices: list[str]) -> Any:
             )
         ```
     """
+
     def validator(instance: Any, attribute: Attribute, value: str | None) -> None:
         if value is not None and value not in choices:
             raise ValueError(
                 f"{attribute.name} must be one of {choices}, got {value!r}"
             )
+
     return validator
 
 
-def tracklist_has_tracks_or_metadata(
-    metadata_key: str = "connector_playlist"
-) -> Any:
+def tracklist_has_tracks_or_metadata(metadata_key: str = "connector_playlist") -> Any:
     """Creates a validator that ensures TrackList has tracks or specific metadata.
 
     This is useful for commands that accept either explicit tracks or metadata
@@ -161,6 +159,7 @@ def tracklist_has_tracks_or_metadata(
             )
         ```
     """
+
     def validator(instance: Any, attribute: Attribute, value: Any) -> None:
         # Import here to avoid circular dependency
         from src.domain.entities.track import TrackList
@@ -177,11 +176,12 @@ def tracklist_has_tracks_or_metadata(
             raise ValueError(
                 f"{attribute.name} must have tracks or '{metadata_key}' in metadata"
             )
+
     return validator
 
 
 def api_batch_size_validator(
-    max_batch_size_setting: str = "api.spotify_large_batch_size"
+    max_batch_size_setting: str = "api.spotify_large_batch_size",
 ) -> Any:
     """Creates a validator for API batch size that checks against settings.
 
@@ -191,6 +191,7 @@ def api_batch_size_validator(
     Returns:
         Validator function for attrs field
     """
+
     def validator(instance: Any, attribute: Attribute, value: int) -> None:
         from src.config import settings
 
@@ -205,6 +206,7 @@ def api_batch_size_validator(
                 f"{attribute.name} cannot exceed {max_value} (from settings.{max_batch_size_setting}), "
                 f"got {value}"
             )
+
     return validator
 
 
@@ -224,10 +226,9 @@ def and_(*validators: Any) -> Any:
         ```python
         @define
         class Command:
-            id: str = field(validator=and_(
-                attrs.validators.instance_of(str),
-                non_empty_string
-            ))
+            id: str = field(
+                validator=and_(attrs.validators.instance_of(str), non_empty_string)
+            )
         ```
     """
     return attrs.validators.and_(*validators)

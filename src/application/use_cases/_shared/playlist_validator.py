@@ -4,8 +4,6 @@ Provides reusable validation logic for playlist update operations with typed
 results using Python 3.13+ patterns.
 """
 
-from __future__ import annotations
-
 from typing import Any, TypeIs
 
 from attrs import define, field
@@ -28,7 +26,9 @@ class ConnectorPlaylistValidationResult:
     metadata: dict[str, Any] = field(factory=dict)
 
     @classmethod
-    def success(cls, metadata: dict[str, Any] | None = None) -> ConnectorPlaylistValidationResult:
+    def success(
+        cls, metadata: dict[str, Any] | None = None
+    ) -> ConnectorPlaylistValidationResult:
         """Create successful validation result."""
         return cls(valid=True, metadata=metadata or {})
 

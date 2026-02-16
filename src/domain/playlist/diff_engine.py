@@ -6,8 +6,6 @@ like batch limits and rate limits. Uses database-first track matching to avoid e
 re-identification of tracks that already have known Spotify mappings.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import Any, cast
 

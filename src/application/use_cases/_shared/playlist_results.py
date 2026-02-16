@@ -4,8 +4,6 @@ Replaces tuple-based returns with strongly-typed result objects using Python 3.1
 features for better type safety and maintainability.
 """
 
-from __future__ import annotations
-
 from typing import Any, TypedDict
 
 from attrs import define, field

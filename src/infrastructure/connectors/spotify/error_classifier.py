@@ -1,8 +1,8 @@
 """Spotify-specific error classification for retry behavior."""
 
-from __future__ import annotations
-
 import spotipy
+
+from typing import override
 
 from src.infrastructure.connectors._shared.error_classification import (
     HTTPErrorClassifier,
@@ -16,11 +16,13 @@ class SpotifyErrorClassifier(HTTPErrorClassifier):
     adding only Spotify-specific exception handling and error detail parsing.
     """
 
+    @override
     @property
     def service_name(self) -> str:
         """Return service name for logging."""
         return "spotify"
 
+    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Spotify API errors for proper retry behavior.
 

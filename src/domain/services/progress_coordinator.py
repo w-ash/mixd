@@ -5,8 +5,6 @@ and derived metric calculations. Ensures progress monotonicity, prevents event
 flooding, and maintains operation state consistency.
 """
 
-from __future__ import annotations
-
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any

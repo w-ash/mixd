@@ -11,8 +11,6 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
-from __future__ import annotations
-
 from typing import Any, Protocol
 
 from src.domain.entities.track import Track, TrackList

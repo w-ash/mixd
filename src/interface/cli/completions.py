@@ -1,7 +1,5 @@
 """CLI autocompletion functions - Interface Layer."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -30,7 +28,7 @@ def complete_workflow_names(incomplete: str) -> list[str]:
                 workflow_id = definition.get("id", json_file.stem)
                 if workflow_id.startswith(incomplete):
                     workflow_names.append(workflow_id)
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 continue
 
         return sorted(workflow_names)

@@ -14,8 +14,6 @@ These protocols enable modular connector architecture where components can be
 swapped without requiring changes to dependent code.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, Protocol, TypedDict, runtime_checkable
 

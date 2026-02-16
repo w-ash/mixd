@@ -7,8 +7,6 @@ This module is responsible for:
 - Transaction handling
 """
 
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import os
@@ -341,7 +339,6 @@ from src.infrastructure.persistence.database.db_models import (  # noqa: E402
 # Create aliases for public API
 engine = get_engine()
 session_factory = get_session_factory()
-
 
 __all__ = [
     "DBConnectorTrack",

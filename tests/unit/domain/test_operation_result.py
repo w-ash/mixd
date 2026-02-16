@@ -20,7 +20,9 @@ class TestOperationResultWithSummaryMetrics:
         """Test operation result with multiple summary metrics."""
         result = OperationResult(operation_name="Likes Import")
         result.summary_metrics.add("imported", 97, "Likes Imported", significance=1)
-        result.summary_metrics.add("already_liked", 53, "Already Liked ✅", significance=2)
+        result.summary_metrics.add(
+            "already_liked", 53, "Already Liked ✅", significance=2
+        )
         result.summary_metrics.add("candidates", 150, "Candidates", significance=3)
 
         sorted_metrics = result.summary_metrics.sorted()
@@ -32,7 +34,9 @@ class TestOperationResultWithSummaryMetrics:
     def test_operation_result_with_percent_summary_metric(self):
         """Test operation result with percentage summary metric."""
         result = OperationResult(operation_name="Export")
-        result.summary_metrics.add("success_rate", 94.5, "Success Rate", format="percent")
+        result.summary_metrics.add(
+            "success_rate", 94.5, "Success Rate", format="percent"
+        )
 
         metric = result.summary_metrics.metrics[0]
         assert metric.format == "percent"

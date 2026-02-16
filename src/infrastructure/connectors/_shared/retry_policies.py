@@ -15,9 +15,7 @@ The retry system preserves all current behavior while enabling:
 - Error-type-specific retry behavior
 """
 
-from __future__ import annotations
-
-from typing import Callable
+from collections.abc import Callable
 
 from tenacity import (
     AsyncRetrying,
@@ -31,11 +29,10 @@ from tenacity import (
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.error_classification import (
-    ErrorClassifierProtocol,
+    ErrorClassifier,
 )
 
 logger = get_logger(__name__).bind(service="retry_policies")
-
 
 # -------------------------------------------------------------------------
 # UTILITY FUNCTIONS
@@ -55,8 +52,7 @@ def _format_duration(seconds: float | None) -> str:
 
 
 def _extract_classified_error(
-    retry_state: RetryCallState,
-    classifier: ErrorClassifierProtocol
+    retry_state: RetryCallState, classifier: ErrorClassifier
 ) -> tuple[Exception, str, str, str] | None:
     """Extract and classify error from retry state.
 
@@ -94,9 +90,7 @@ def _extract_classified_error(
 # -------------------------------------------------------------------------
 
 
-def create_error_classifier_retry(
-    classifier: ErrorClassifierProtocol
-):
+def create_error_classifier_retry(classifier: ErrorClassifier):
     """Create retry predicate using error classifier.
 
     This function creates a tenacity retry predicate that integrates our
@@ -141,8 +135,7 @@ def create_error_classifier_retry(
 
 
 def create_tenacity_backoff_handler(
-    classifier: ErrorClassifierProtocol,
-    service_name: str
+    classifier: ErrorClassifier, service_name: str
 ) -> Callable[[RetryCallState], None]:
     """Create tenacity before_sleep callback with error classification.
 
@@ -203,8 +196,7 @@ def create_tenacity_backoff_handler(
 
 
 def create_tenacity_giveup_handler(
-    classifier: ErrorClassifierProtocol,
-    service_name: str
+    classifier: ErrorClassifier, service_name: str
 ) -> Callable[[RetryCallState], None]:
     """Create tenacity after callback for final failure logging.
 
@@ -378,9 +370,13 @@ class RetryPolicyFactory:
             wait=wait_exponential(
                 multiplier=settings.api.lastfm_retry_base_delay,
                 max=settings.api.lastfm_retry_max_delay,
-            ) + wait_random(0, 1),
+            )
+            + wait_random(0, 1),
             retry=(
-                (retry_if_exception_type(pylast.WSError) | retry_if_exception_type(TimeoutError))
+                (
+                    retry_if_exception_type(pylast.WSError)
+                    | retry_if_exception_type(TimeoutError)
+                )
                 & create_error_classifier_retry(classifier)
             ),
             before_sleep=create_tenacity_backoff_handler(classifier, "lastfm"),

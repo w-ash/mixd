@@ -25,10 +25,12 @@ def get_insertion_line(content: str) -> int:
         tree = ast.parse(content)
 
         # Check if there's a module docstring
-        if (tree.body and
-            isinstance(tree.body[0], ast.Expr) and
-            isinstance(tree.body[0].value, ast.Constant) and
-            isinstance(tree.body[0].value.value, str)):
+        if (
+            tree.body
+            and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)
+            and isinstance(tree.body[0].value.value, str)
+        ):
             # Insert after the docstring
             docstring_node = tree.body[0]
             return docstring_node.end_lineno  # Line after docstring ends
@@ -67,9 +69,9 @@ def add_future_annotations(file_path: Path, dry_run: bool = False) -> bool:
     else:
         # Insert after docstring
         new_lines = (
-            lines[:insertion_line] +
-            ["\n", "from __future__ import annotations\n"] +
-            lines[insertion_line:]
+            lines[:insertion_line]
+            + ["\n", "from __future__ import annotations\n"]
+            + lines[insertion_line:]
         )
 
     new_content = "".join(new_lines)
@@ -102,7 +104,9 @@ def main():
             print(f"Would modify: {py_file.relative_to(src_dir.parent)}")
 
     if not to_modify:
-        print("\nNo files need modification. All files already have future annotations!")
+        print(
+            "\nNo files need modification. All files already have future annotations!"
+        )
         return
 
     print(f"\n{len(to_modify)} files would be modified")
@@ -110,7 +114,7 @@ def main():
 
     # Ask for confirmation
     response = input("\nProceed with modifications? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Aborted.")
         return
 

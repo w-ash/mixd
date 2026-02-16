@@ -1,9 +1,7 @@
 """Track repository for play operations."""
 
-from __future__ import annotations
-
 from datetime import datetime
-from typing import Any
+from typing import Any, override
 
 from attrs import define
 from sqlalchemy import select
@@ -26,11 +24,13 @@ logger = get_logger(__name__)
 class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
     """Maps between DBTrackPlay and TrackPlay domain models."""
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Return relationships to eagerly load for track plays."""
         return []  # Don't eagerly load track by default for performance
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBTrackPlay) -> TrackPlay:
         """Convert database play to domain model."""
@@ -53,6 +53,7 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
             import_batch_id=db_model.import_batch_id,
         )
 
+    @override
     @staticmethod
     def to_db(domain_model: TrackPlay) -> DBTrackPlay:
         """Convert domain play to database model."""
@@ -424,7 +425,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 subquery = (
                     select(
                         self.model_class,
-                        func.row_number()
+                        func
+                        .row_number()
                         .over(
                             partition_by=self.model_class.track_id,
                             order_by=self.model_class.played_at.desc(),

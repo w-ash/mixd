@@ -4,8 +4,6 @@ Contains classes for recording play events, sync progress, and operation results
 from music services like Spotify and Last.fm.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -452,7 +450,7 @@ class OperationResult:
     metrics: dict[str, dict[int, Any]] = field(
         factory=dict,
     )  # Per-track operational metrics: metric_name -> {track_id -> value}
-    tracklist: "TrackList | None" = field(
+    tracklist: TrackList | None = field(
         default=None
     )  # Optional tracklist with metadata
 

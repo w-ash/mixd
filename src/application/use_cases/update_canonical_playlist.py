@@ -5,8 +5,6 @@ music services. Supports both append mode (add tracks to end) and differential
 mode (calculate minimal changes to transform current playlist into target state).
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -57,7 +55,9 @@ class UpdateCanonicalPlaylistCommand:
     """
 
     playlist_id: str = field(validator=non_empty_string)
-    new_tracklist: TrackList = field(validator=tracklist_has_tracks_or_metadata("connector_playlist"))
+    new_tracklist: TrackList = field(
+        validator=tracklist_has_tracks_or_metadata("connector_playlist")
+    )
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
@@ -161,10 +161,8 @@ class UpdateCanonicalPlaylistUseCase:
                     )
 
                     processing_service = ConnectorPlaylistProcessingService()
-                    source_data = (
-                        await processing_service.process_connector_playlist(
-                            command.new_tracklist.metadata["connector_playlist"], uow
-                        )
+                    source_data = await processing_service.process_connector_playlist(
+                        command.new_tracklist.metadata["connector_playlist"], uow
                     )
 
                 # Convert source_data to Playlist if it's a TrackList
@@ -203,9 +201,7 @@ class UpdateCanonicalPlaylistUseCase:
                         )
                 else:
                     # Overwrite mode: use diff engine with preservation
-                    diff = calculate_playlist_diff(
-                        current_playlist, processed_playlist
-                    )
+                    diff = calculate_playlist_diff(current_playlist, processed_playlist)
 
                     if not diff.has_changes:
                         logger.info("No changes detected, playlist already up to date")
@@ -344,7 +340,9 @@ class UpdateCanonicalPlaylistUseCase:
             entry.track.id: entry for entry in target_playlist.entries if entry.track.id
         }
         track_to_current_entry = {
-            entry.track.id: entry for entry in current_playlist.entries if entry.track.id
+            entry.track.id: entry
+            for entry in current_playlist.entries
+            if entry.track.id
         }
 
         updated_entries = []
@@ -375,7 +373,10 @@ class UpdateCanonicalPlaylistUseCase:
 
         # Ensure updated playlist has ID set for save_playlist to detect update operation
         import attrs
-        updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
+        updated_playlist_with_id = attrs.evolve(
+            updated_playlist, id=current_playlist.id
+        )
 
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)
@@ -423,7 +424,10 @@ class UpdateCanonicalPlaylistUseCase:
 
             # Ensure updated playlist has ID set for save_playlist to detect update operation
             import attrs
-            updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
+            updated_playlist_with_id = attrs.evolve(
+                updated_playlist, id=current_playlist.id
+            )
 
             playlist_repo = uow.get_playlist_repository()
             return await playlist_repo.save_playlist(updated_playlist_with_id)
@@ -492,7 +496,10 @@ class UpdateCanonicalPlaylistUseCase:
 
         # Ensure updated playlist has ID set for save_playlist to detect update operation
         import attrs
-        updated_playlist_with_id = attrs.evolve(updated_playlist, id=current_playlist.id)
+
+        updated_playlist_with_id = attrs.evolve(
+            updated_playlist, id=current_playlist.id
+        )
 
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)

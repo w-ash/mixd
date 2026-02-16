@@ -4,9 +4,7 @@ This provider handles communication with the MusicBrainz API and transforms
 MusicBrainz track data into raw provider matches without business logic.
 """
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -15,12 +13,12 @@ from src.domain.matching.types import (
     MatchFailureReason,
     RawProviderMatch,
 )
-from src.infrastructure.connectors._shared.base_matching_provider import (
-    BaseMatchingProvider,
-)
-from src.infrastructure.connectors._shared.failure_utils import (
+from src.infrastructure.connectors._shared.failure_handling import (
     create_and_log_failure,
     handle_track_processing_failure,
+)
+from src.infrastructure.connectors._shared.matching_provider import (
+    BaseMatchingProvider,
 )
 
 logger = get_logger(__name__)
@@ -37,11 +35,13 @@ class MusicBrainzProvider(BaseMatchingProvider):
         """
         self.connector_instance = connector_instance
 
+    @override
     @property
     def service_name(self) -> str:
         """Service identifier."""
         return "musicbrainz"
 
+    @override
     async def _match_by_isrc(
         self, tracks: list[Track]
     ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
@@ -122,6 +122,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
         return matches, failures
 
+    @override
     async def _match_by_artist_title(
         self, tracks: list[Track]
     ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:

@@ -6,8 +6,6 @@ such as HTTP status codes, API format specifications, and business rule limits.
 For user-configurable values, see settings.py instead.
 """
 
-from __future__ import annotations
-
 
 class HTTPStatus:
     """Standard HTTP status codes used across connector error handling."""

@@ -1,0 +1,50 @@
+"""Async-to-sync bridge for CLI commands.
+
+Provides the sync wrapper that Typer command handlers use to call async
+use cases. FastAPI's web interface won't need this — it's natively async.
+"""
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+from src.config import get_logger, settings
+
+logger = get_logger(__name__)
+
+
+def create_executor_for_connectors() -> ThreadPoolExecutor:
+    """Create ThreadPoolExecutor configured for high-concurrency connector operations.
+
+    Returns:
+        ThreadPoolExecutor with max_workers set to lastfm_concurrency setting
+        for optimal I/O-bound API operations.
+    """
+    return ThreadPoolExecutor(
+        max_workers=settings.api.lastfm_concurrency,
+        thread_name_prefix="narada_io",
+    )
+
+
+def run_async(coro):
+    """Run coroutine with custom high-concurrency executor.
+
+    Uses ``asyncio.run()`` (Python 3.14+ pattern) with a pre-configured
+    thread pool executor for connector I/O operations.
+
+    Args:
+        coro: Coroutine to execute
+
+    Returns:
+        Result of the coroutine execution
+    """
+
+    async def _run_with_executor():
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(create_executor_for_connectors())
+        logger.debug(
+            "Running coroutine with connector executor",
+            executor_max_workers=settings.api.lastfm_concurrency,
+        )
+        return await coro
+
+    return asyncio.run(_run_with_executor())

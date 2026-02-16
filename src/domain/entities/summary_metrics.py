@@ -8,8 +8,6 @@ These are distinct from:
 - OperationResult.metrics: Per-track operational metrics (e.g., similarity scores per track)
 """
 
-from __future__ import annotations
-
 from typing import Literal
 
 from attrs import define, field

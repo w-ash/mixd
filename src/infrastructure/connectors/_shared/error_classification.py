@@ -4,8 +4,6 @@ Provides pluggable error classification that can be customized per service
 while maintaining consistent retry behavior patterns across all connectors.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Protocol
 
@@ -15,7 +13,7 @@ from src.config.constants import HTTPStatus as HTTPStatusCode
 logger = get_logger(__name__).bind(service="connectors")
 
 
-class ErrorClassifierProtocol(Protocol):
+class ErrorClassifier(Protocol):
     """Protocol for service-specific error classifiers."""
 
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
@@ -28,16 +26,7 @@ class ErrorClassifierProtocol(Protocol):
         ...
 
 
-class BaseErrorClassifier(ABC):
-    """Base error classifier with common patterns."""
-
-    @abstractmethod
-    def classify_error(self, exception: Exception) -> tuple[str, str, str]:
-        """Classify error for retry behavior."""
-        ...
-
-
-class HTTPErrorClassifier(BaseErrorClassifier):
+class HTTPErrorClassifier(ABC):
     """Base classifier with shared HTTP status code and text pattern logic.
 
     This class provides common classification logic for HTTP-based APIs
@@ -235,9 +224,9 @@ class HTTPErrorClassifier(BaseErrorClassifier):
         return None
 
 
-class DefaultErrorClassifier(BaseErrorClassifier):
-    """Default error classifier for services without specific patterns."""
+def classify_unknown_error(exception: Exception) -> tuple[str, str, str]:
+    """Classify generic exceptions as unknown errors.
 
-    def classify_error(self, exception: Exception) -> tuple[str, str, str]:
-        """Classify generic exceptions as unknown errors."""
-        return ("unknown", "N/A", str(exception))
+    Used as fallback for connectors without a custom error classifier.
+    """
+    return ("unknown", "N/A", str(exception))

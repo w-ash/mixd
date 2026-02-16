@@ -5,8 +5,6 @@ service (Spotify, Apple Music), then optimistically syncs the result to the inte
 database. Manages transaction boundaries and provides detailed operation results.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 

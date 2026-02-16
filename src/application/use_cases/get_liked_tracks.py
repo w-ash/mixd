@@ -4,8 +4,6 @@ Fetches tracks that users have marked as liked on music services (Spotify, Last.
 Supports filtering by service, sorting options, and limiting results count.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,12 +37,17 @@ class GetLikedTracksCommand:
         default=10000,
         validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
     )
-    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    connector_filter: str | None = (
+        None  # Optional service filter ("spotify", "lastfm", etc.)
+    )
     sort_by: str | None = field(
         default=None,
-        validator=optional_in_choices(
-            ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
-        ),
+        validator=optional_in_choices([
+            "liked_at_desc",
+            "liked_at_asc",
+            "title_asc",
+            "random",
+        ]),
     )
     timestamp: datetime = field(factory=utc_now_factory)
 

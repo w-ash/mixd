@@ -1,25 +1,23 @@
 """CLI commands for importing and managing play history from music services."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Annotated
 
-from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
 
 from src.application.services.batch_file_import_service import BatchFileImportService
 from src.config import settings
-from src.interface.cli.console import get_console
-from src.interface.shared.cli_helpers import (
+from src.interface.cli.cli_helpers import (
     parse_date_string,
     prompt_batch_size,
     run_import_with_progress,
     validate_date_range,
     validate_file_path,
 )
-from src.interface.shared.ui import display_operation_result
+from src.interface.cli.console import get_console
+from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
+from src.interface.cli.ui import display_operation_result
 
 console = get_console()
 
@@ -207,37 +205,24 @@ def _import_all_spotify_files(batch_size: int | None) -> None:
 
 def _show_interactive_history_menu() -> None:
     """Display interactive history management menu."""
-    console.print(
-        Panel.fit(
-            "📊 Import your music play history",
-            title="[bold blue]Narada History[/bold blue]",
-            border_style="blue",
-        )
+    run_interactive_menu(
+        title="Narada History",
+        subtitle="📊 Import your music play history",
+        options=[
+            MenuOption(
+                key="1",
+                aliases=["lastfm"],
+                label="[bold]Last.fm[/bold] - Import scrobbled play history from your Last.fm account",
+                handler=_interactive_lastfm_import,
+            ),
+            MenuOption(
+                key="2",
+                aliases=["spotify"],
+                label="[bold]Spotify File[/bold] - Import from Spotify data export JSON files",
+                handler=_interactive_spotify_import,
+            ),
+        ],
     )
-
-    console.print("\n📥 [bold]Available Import Sources[/bold]:")
-    console.print(
-        "  [cyan]1[/cyan]. [bold]Last.fm[/bold] - Import scrobbled play history from your Last.fm account"
-    )
-    console.print(
-        "  [cyan]2[/cyan]. [bold]Spotify File[/bold] - Import from Spotify data export JSON files"
-    )
-
-    choice = Prompt.ask(
-        "Select import source [1-2] or type 'lastfm'/'spotify'",
-        choices=["1", "2", "lastfm", "spotify", "q", "quit", "exit", "cancel"],
-        default="",
-        show_choices=False,
-    ).strip()
-
-    if choice in ("", "q", "quit", "exit", "cancel"):
-        return
-
-    # Handle selection
-    if choice in ("1", "lastfm"):
-        _interactive_lastfm_import()
-    elif choice in ("2", "spotify"):
-        _interactive_spotify_import()
 
 
 def _interactive_lastfm_import() -> None:

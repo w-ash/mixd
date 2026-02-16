@@ -5,11 +5,9 @@ event-driven system. Provides the same functionality as DatabaseBatchProcessor
 but with better progress tracking and user feedback.
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from attrs import define, field
 
@@ -25,10 +23,6 @@ from src.domain.entities.progress import (
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="enhanced_database_batch_processor")
-
-# Define type variables for generic operations
-T = TypeVar("T")
-R = TypeVar("R")
 
 
 @define(slots=True)

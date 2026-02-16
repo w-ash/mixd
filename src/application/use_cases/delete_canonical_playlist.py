@@ -5,10 +5,8 @@ validation of playlist existence, optional warnings for external connections,
 and atomic transaction management to ensure data consistency.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
-from typing import Any, NoReturn
+from typing import Any, Never
 
 from attrs import define, field
 
@@ -101,10 +99,10 @@ class DeleteCanonicalPlaylistUseCase:
         """
         start_time = datetime.now(UTC)
 
-        def _raise_no_id_error() -> NoReturn:
+        def _raise_no_id_error() -> Never:
             raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
 
-        def _raise_deletion_failed_error(playlist_id: int) -> NoReturn:
+        def _raise_deletion_failed_error(playlist_id: int) -> Never:
             raise ValueError(
                 f"Failed to delete playlist {playlist_id} - it may not exist"
             )

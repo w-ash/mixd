@@ -6,15 +6,15 @@ the SAME object instances from the identity map but with relationships populated
 This is the foundational behavior that makes the bulk_upsert optimization safe.
 """
 
-import pytest
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.domain.entities import Artist, Track
-from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
 class TestIdentityMapBehavior:

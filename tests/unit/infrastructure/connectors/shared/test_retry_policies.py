@@ -6,9 +6,9 @@ Tests focus on critical behavior preservation from backoff migration:
 - Callback invocation (before_sleep and retry_error_callback)
 """
 
-import asyncio
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
 
@@ -25,7 +25,9 @@ class TestRetryPolicyFactory:
         # Network errors should NOT be retried (fails exception type filter)
         network_error = Mock()
         network_error.outcome.failed = True
-        network_error.outcome.exception.return_value = ConnectionError("Network timeout")
+        network_error.outcome.exception.return_value = ConnectionError(
+            "Network timeout"
+        )
 
         assert policy.retry(network_error) is False
 
@@ -52,7 +54,9 @@ class TestRetryPolicyFactory:
         # Other network errors should NOT be retried (fails exception type filter)
         connection_error = Mock()
         connection_error.outcome.failed = True
-        connection_error.outcome.exception.return_value = ConnectionError("Connection failed")
+        connection_error.outcome.exception.return_value = ConnectionError(
+            "Connection failed"
+        )
 
         assert policy.retry(connection_error) is False
 
@@ -102,8 +106,8 @@ class TestRetryPolicyFactory:
         Regression test for the issue where callbacks weren't firing because
         we were using 'after' instead of 'retry_error_callback'.
         """
+
         import pylast
-        from unittest.mock import patch, MagicMock
 
         # Track callback invocations
         before_sleep_calls = []

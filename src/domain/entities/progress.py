@@ -5,8 +5,6 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol

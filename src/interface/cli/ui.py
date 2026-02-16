@@ -1,7 +1,5 @@
 """Shared UI utilities for interface layer - works for CLI and future web interface."""
 
-from __future__ import annotations
-
 import json
 from typing import Any
 
@@ -30,7 +28,11 @@ def _format_metric_value(value: float, format: SummaryMetricFormat) -> str:
         case "duration":
             return f"{value:.1f}s"
         case "count" | _:
-            return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
+            return (
+                str(int(value))
+                if isinstance(value, float) and value.is_integer()
+                else str(value)
+            )
 
 
 def _is_play_import_operation(result: OperationResult) -> bool:

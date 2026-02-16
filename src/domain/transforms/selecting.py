@@ -11,8 +11,6 @@ All selection functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
-from __future__ import annotations
-
 import random
 from typing import cast
 

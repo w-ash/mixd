@@ -15,7 +15,7 @@ The facade pattern allows the rest of the codebase to use MusicBrainzConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
-from __future__ import annotations
+from typing import override
 
 from attrs import define, field
 
@@ -43,6 +43,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         """Initialize MusicBrainz client."""
         self._client = MusicBrainzAPIClient()
 
+    @override
     @property
     def connector_name(self) -> str:
         """Service identifier for this connector."""
@@ -90,6 +91,7 @@ class MusicBrainzConnector(BaseAPIConnector):
 
         return results
 
+    @override
     def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert MusicBrainz recording data to ConnectorTrack domain model."""
         from .conversions import convert_musicbrainz_track_to_connector

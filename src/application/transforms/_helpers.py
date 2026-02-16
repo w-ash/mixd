@@ -14,8 +14,6 @@ Note: This module is private and should only be imported by other modules
 in the application/transforms package.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeIs
 
@@ -23,7 +21,6 @@ from src.config import get_logger
 from src.domain.entities.track import TrackList
 
 logger = get_logger(__name__)
-
 
 # === Type Guards ===
 
@@ -190,8 +187,10 @@ def parse_datetime_safe(value: Any) -> datetime | None:
         try:
             timestamp = float(value)
             return datetime.fromtimestamp(timestamp, tz=UTC)
-        except (ValueError, TypeError):
-            logger.debug("Failed to parse datetime value", value=value, type=type(value))
+        except ValueError, TypeError:
+            logger.debug(
+                "Failed to parse datetime value", value=value, type=type(value)
+            )
             return None
 
     # Not a datetime or string

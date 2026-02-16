@@ -5,8 +5,6 @@ API calls while preserving user context. Extracted from connector implementation
 to maintain clean separation between API clients and business logic.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from attrs import define
@@ -123,8 +121,9 @@ class PlaylistOperationService:
         moves_with_position = [op for op in move_ops if op.old_position is not None]
         sorted_moves = sorted(
             moves_with_position,
-            key=lambda op: op.old_position
-            or 0,  # Guaranteed non-None, but satisfy type checker
+            key=lambda op: (
+                op.old_position or 0
+            ),  # Guaranteed non-None, but satisfy type checker
         )
 
         if not sorted_moves:

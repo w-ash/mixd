@@ -1,17 +1,10 @@
-"""Service connectors for external music platforms and APIs.
+"""Service connectors for external music platforms and APIs."""
 
-Configures asyncio infrastructure for optimal I/O performance with external APIs.
-"""
-
-from __future__ import annotations
-
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import importlib
 import pkgutil
 import sys
 
-from src.config import get_logger, settings
+from src.config import get_logger
 
 # Import main connector classes for re-export
 from src.infrastructure.connectors.lastfm import (
@@ -29,61 +22,6 @@ from src.infrastructure.connectors.spotify import (
 
 logger = get_logger(__name__)
 
-
-def create_executor_for_connectors() -> ThreadPoolExecutor:
-    """Create ThreadPoolExecutor configured for high-concurrency connector operations.
-
-    Returns:
-        ThreadPoolExecutor with max_workers set to lastfm_concurrency setting
-        (default 200 threads) for optimal I/O-bound API operations.
-
-    Note:
-        This is the Python 3.14+ recommended approach instead of using
-        global event loop policies.
-    """
-    required_max_workers = settings.api.lastfm_concurrency
-    return ThreadPoolExecutor(
-        max_workers=required_max_workers,
-        thread_name_prefix="narada_io",
-    )
-
-
-def run_async_with_connector_executor(coro):
-    """Run coroutine with custom high-concurrency executor.
-
-    Python 3.14+ recommended pattern replacing deprecated event loop policy.
-    Creates a new event loop with custom executor, runs the coroutine, and
-    cleans up properly.
-
-    Args:
-        coro: Coroutine to execute
-
-    Returns:
-        Result of the coroutine execution
-
-    Example:
-        >>> async def fetch_data():
-        ...     return await api_call()
-        >>> result = run_async_with_connector_executor(fetch_data())
-    """
-    loop = asyncio.new_event_loop()
-    loop.set_default_executor(create_executor_for_connectors())
-
-    try:
-        logger.debug(
-            "Running coroutine with connector executor",
-            executor_max_workers=settings.api.lastfm_concurrency,
-        )
-        return loop.run_until_complete(coro)
-    finally:
-        # Clean up the event loop
-        loop.close()
-
-
-# Deprecated event loop policy removed - now using explicit executor helper
-# See run_async_with_connector_executor() and create_executor_for_connectors()
-# This change aligns with Python 3.14+ best practices
-
 # Connector registry cache
 _connectors: dict[str, ConnectorConfig] = {}
 
@@ -98,7 +36,7 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
     Returns:
         dict[str, ConnectorConfig]: Dictionary mapping connector names to their configurations
     """
-    global _connectors, _CONNECTORS_CACHE, CONNECTORS
+    global _connectors, _CONNECTORS_CACHE
 
     # Return cached registry if already populated
     if _CONNECTORS_CACHE is not None:
@@ -141,20 +79,14 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
 
     # Cache the results for subsequent calls
     _CONNECTORS_CACHE = _connectors.copy()  # pyright: ignore[reportConstantRedefinition]
-    CONNECTORS = _CONNECTORS_CACHE  # Legacy compatibility  # pyright: ignore[reportConstantRedefinition]
     return _CONNECTORS_CACHE
 
 
 # Lazy-initialized connector registry (initialized on first access)
 _CONNECTORS_CACHE: dict[str, ConnectorConfig] | None = None
 
-# Legacy export - initialized by discover_connectors()
-CONNECTORS: dict[str, ConnectorConfig] | None = None
-
-
 # Define public API with explicit exports
 __all__ = [
-    "CONNECTORS",
     "LastFMConnector",
     "LastFMTrackInfo",
     "LastFmMetricResolver",
@@ -162,7 +94,5 @@ __all__ = [
     "SpotifyConnector",
     "convert_spotify_playlist_to_connector",
     "convert_spotify_track_to_connector",
-    "create_executor_for_connectors",
     "discover_connectors",
-    "run_async_with_connector_executor",
 ]

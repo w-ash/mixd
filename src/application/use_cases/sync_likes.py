@@ -4,13 +4,12 @@ Imports liked tracks from Spotify user libraries and exports them to Last.fm as 
 Supports incremental syncing with checkpoints to resume interrupted operations.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from attrs import define
 
+from src.application.utilities.batch_results import BatchItemResult, BatchItemStatus
 from src.config import get_logger, settings
 from src.domain.entities import (
     OperationResult,
@@ -21,7 +20,6 @@ from src.domain.entities import (
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
-
 
 # -------------------------------------------------------------------------
 # SHARED CHECKPOINT & LIKE MANAGERS
@@ -230,9 +228,7 @@ class ImportSpotifyLikesUseCase:
 
             # Update checkpoint periodically
             if batches % 10 == 0 or not cursor:
-                await CheckpointManager.update(
-                    checkpoint, uow, batch_time, cursor
-                )
+                await CheckpointManager.update(checkpoint, uow, batch_time, cursor)
 
             if not cursor:
                 logger.info("Completed import of all Spotify likes")
@@ -244,7 +240,9 @@ class ImportSpotifyLikesUseCase:
         total = imported + already_synced
 
         # Add summary metrics with display order
-        result.summary_metrics.add("imported", imported, "Likes Imported", significance=1)
+        result.summary_metrics.add(
+            "imported", imported, "Likes Imported", significance=1
+        )
         result.summary_metrics.add(
             "already_liked", already_synced, "Already Liked ✅", significance=2
         )
@@ -254,7 +252,11 @@ class ImportSpotifyLikesUseCase:
         if total > 0:
             success_rate = (imported / total) * 100
             result.summary_metrics.add(
-                "success_rate", success_rate, "Success Rate", format="percent", significance=4
+                "success_rate",
+                success_rate,
+                "Success Rate",
+                format="percent",
+                significance=4,
             )
 
         return result
@@ -346,10 +348,10 @@ class ExportLastFmLikesUseCase:
             results = await self._process_batch(tracks_to_export, lastfm, uow)
 
             for result in results:
-                match result["status"]:
-                    case "exported":
+                match result.status:
+                    case BatchItemStatus.EXPORTED:
                         exported += 1
-                    case "skipped":
+                    case BatchItemStatus.SKIPPED:
                         filtered += 1
                     case _:
                         errors += 1
@@ -376,45 +378,53 @@ class ExportLastFmLikesUseCase:
             )
         if errors > 0:
             result.summary_metrics.add("errors", errors, "Errors", significance=4)
-        result.summary_metrics.add("candidates", total_candidates, "Candidates", significance=5)
+        result.summary_metrics.add(
+            "candidates", total_candidates, "Candidates", significance=5
+        )
 
         # Calculate and add success rate
         if attempted > 0:
             success_rate = (exported / attempted) * 100
             result.summary_metrics.add(
-                "success_rate", success_rate, "Success Rate", format="percent", significance=6
+                "success_rate",
+                success_rate,
+                "Success Rate",
+                format="percent",
+                significance=6,
             )
 
         return result
 
     async def _process_batch(
         self, tracks: list[Track], connector: Any, uow: UnitOfWorkProtocol
-    ) -> list[dict]:
+    ) -> list[BatchItemResult]:
         """Process track batch through Last.fm API."""
-        results = []
+        results: list[BatchItemResult] = []
         for track in tracks:
             try:
                 result = await self._love_track(track, connector, uow)
                 results.append(result)
             except Exception as e:
                 logger.exception(f"Error processing track {track.id}")
-                results.append({
-                    "track_id": track.id,
-                    "status": "error",
-                    "error": str(e),
-                })
+                results.append(
+                    BatchItemResult(
+                        status=BatchItemStatus.ERROR,
+                        track_id=track.id,
+                        error=str(e),
+                    )
+                )
         return results
 
     async def _love_track(
         self, track: Track, connector: Any, uow: UnitOfWorkProtocol
-    ) -> dict:
+    ) -> BatchItemResult:
         """Love track on Last.fm and record result."""
         if not track.artists:
-            return {
-                "track_id": track.id,
-                "status": "error",
-                "error": "No artists found",
-            }
+            return BatchItemResult(
+                status=BatchItemStatus.ERROR,
+                track_id=track.id,
+                error="No artists found",
+            )
 
         try:
             success = await connector.love_track(
@@ -424,19 +434,22 @@ class ExportLastFmLikesUseCase:
             if success:
                 if track.id:
                     await LikeManager.save_likes(track.id, uow, ["lastfm"])
-                return {"track_id": track.id, "status": "exported"}
+                return BatchItemResult(
+                    status=BatchItemStatus.EXPORTED,
+                    track_id=track.id,
+                )
             else:
-                return {
-                    "track_id": track.id,
-                    "status": "skipped",
-                    "reason": "API returned False",
-                }
+                return BatchItemResult(
+                    status=BatchItemStatus.SKIPPED,
+                    track_id=track.id,
+                    metadata={"reason": "API returned False"},
+                )
         except Exception as e:
-            return {
-                "track_id": track.id,
-                "status": "error",
-                "error": str(e),
-            }
+            return BatchItemResult(
+                status=BatchItemStatus.ERROR,
+                track_id=track.id,
+                error=str(e),
+            )
 
     @staticmethod
     def _get_connector(uow: UnitOfWorkProtocol, service: str) -> Any:

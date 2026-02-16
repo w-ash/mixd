@@ -112,15 +112,23 @@ class TestLastfmImportE2E:
                 # Assert - Verify successful import
                 # Extract error count from summary metrics
                 error_metric = next(
-                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
-                    0
+                    (
+                        m.value
+                        for m in result.operation_result.summary_metrics.metrics
+                        if m.name == "errors"
+                    ),
+                    0,
                 )
                 assert error_metric == 0
 
                 # Extract track plays count from summary metrics
                 track_plays_metric = next(
-                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
-                    None
+                    (
+                        m.value
+                        for m in result.operation_result.summary_metrics.metrics
+                        if m.name == "track_plays"
+                    ),
+                    None,
                 )
                 assert track_plays_metric is not None
                 assert track_plays_metric >= 0
@@ -163,15 +171,23 @@ class TestLastfmImportE2E:
             # Assert - Should return error result, not raise exception
             # Extract error count from summary metrics
             error_metric = next(
-                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
-                0
+                (
+                    m.value
+                    for m in result.operation_result.summary_metrics.metrics
+                    if m.name == "errors"
+                ),
+                0,
             )
             assert error_metric > 0
 
             # Extract track plays count from summary metrics
             track_plays_metric = next(
-                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
-                0
+                (
+                    m.value
+                    for m in result.operation_result.summary_metrics.metrics
+                    if m.name == "track_plays"
+                ),
+                0,
             )
             assert track_plays_metric == 0
 
@@ -214,22 +230,34 @@ class TestLastfmImportE2E:
             # Assert - Should handle empty data gracefully
             # Extract error count from summary metrics
             error_metric = next(
-                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
-                0
+                (
+                    m.value
+                    for m in result.operation_result.summary_metrics.metrics
+                    if m.name == "errors"
+                ),
+                0,
             )
             assert error_metric == 0
 
             # Extract track plays count from summary metrics
             track_plays_metric = next(
-                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "track_plays"),
-                0
+                (
+                    m.value
+                    for m in result.operation_result.summary_metrics.metrics
+                    if m.name == "track_plays"
+                ),
+                0,
             )
             assert track_plays_metric == 0
 
             # Extract raw plays count from summary metrics
             raw_plays_metric = next(
-                (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "raw_plays"),
-                0
+                (
+                    m.value
+                    for m in result.operation_result.summary_metrics.metrics
+                    if m.name == "raw_plays"
+                ),
+                0,
             )
             assert raw_plays_metric == 0
 
@@ -315,8 +343,12 @@ class TestLastfmImportE2E:
                 # Assert - Import succeeded
                 # Extract error count from summary metrics
                 error_metric = next(
-                    (m.value for m in result.operation_result.summary_metrics.metrics if m.name == "errors"),
-                    0
+                    (
+                        m.value
+                        for m in result.operation_result.summary_metrics.metrics
+                        if m.name == "errors"
+                    ),
+                    0,
                 )
                 assert error_metric == 0
 
@@ -334,7 +366,11 @@ class TestLastfmImportE2E:
                 )
                 # Extract error count from incremental result
                 incremental_error_metric = next(
-                    (m.value for m in incremental_result.operation_result.summary_metrics.metrics if m.name == "errors"),
-                    0
+                    (
+                        m.value
+                        for m in incremental_result.operation_result.summary_metrics.metrics
+                        if m.name == "errors"
+                    ),
+                    0,
                 )
                 assert incremental_error_metric == 0

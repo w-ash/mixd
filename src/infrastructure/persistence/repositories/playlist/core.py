@@ -4,8 +4,6 @@ Handles CRUD operations for playlists from multiple music services (Spotify, Las
 MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, delete, insert, select, update
@@ -76,7 +74,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
         return (
-            self.select()
+            self
+            .select()
             .join(DBPlaylistMapping)
             .join(
                 DBConnectorPlaylist,
@@ -292,16 +291,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # 5. Create new records only for genuinely new memberships
 
         # Get all existing playlist track records
-        stmt = (
-            select(DBPlaylistTrack)
-            .where(DBPlaylistTrack.playlist_id == playlist_id)
-        )
+        stmt = select(DBPlaylistTrack).where(DBPlaylistTrack.playlist_id == playlist_id)
         result = await self.session.scalars(stmt)
         existing_records = list(result.all())
 
         # Build consumption pool: track_id → list of available records
         # This allows handling duplicate tracks (same track_id, multiple records)
         from collections import defaultdict
+
         available_records = defaultdict(list)
         for record in existing_records:
             available_records[record.track_id].append(record)
@@ -843,7 +840,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Build query with minimal relationship loading for efficiency
         stmt = (
-            self.select()
+            self
+            .select()
             .options(
                 # Load only playlist mappings for connector info, skip heavy track loading
                 selectinload(DBPlaylist.mappings)

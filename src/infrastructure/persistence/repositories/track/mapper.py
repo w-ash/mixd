@@ -1,7 +1,5 @@
 """Track mappers for converting between domain and database models."""
 
-from __future__ import annotations
-
 from typing import Any, override
 
 from attrs import define
@@ -23,8 +21,8 @@ logger = get_logger(__name__)
 class TrackMapper(BaseModelMapper[DBTrack, Track]):
     """Bidirectional mapper between DB and domain models for Track."""
 
-    @staticmethod
     @override
+    @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
         """Convert database track to domain model."""
         return await TrackMapper._to_domain_with_session(db_model, None, None)
@@ -242,8 +240,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             logger.debug(f"Error getting connector track: {e}")
             return None
 
-    @staticmethod
     @override
+    @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
         """Convert domain track to database model."""
         # Create the main track entity
@@ -280,8 +278,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         return names
 
-    @staticmethod
     @override
+    @staticmethod
     def get_default_relationships() -> list[Any]:
         """Get default relationships using SQLAlchemy 2.1 best practices."""
         from sqlalchemy.orm import selectinload

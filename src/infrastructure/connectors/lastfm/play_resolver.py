@@ -4,8 +4,6 @@ Handles Last.fm's available metadata including MusicBrainz IDs, track URLs,
 and Last.fm ecosystem integration data.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any
 

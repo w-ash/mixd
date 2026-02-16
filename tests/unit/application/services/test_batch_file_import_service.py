@@ -25,7 +25,9 @@ def mock_executor():
     """Mock import executor that returns success results."""
 
     def executor(service: str, mode: str, **kwargs):
-        return OperationResult(operation_name=f"Import {kwargs.get('file_path', 'test')}")
+        return OperationResult(
+            operation_name=f"Import {kwargs.get('file_path', 'test')}"
+        )
 
     return executor
 

@@ -1,7 +1,5 @@
 """Spotify personal data parser for streaming history import."""
 
-from __future__ import annotations
-
 from datetime import datetime
 import json
 from pathlib import Path

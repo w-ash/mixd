@@ -1,7 +1,5 @@
 """Repository for synchronization checkpoints."""
 
-from __future__ import annotations
-
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +14,6 @@ from src.infrastructure.persistence.repositories.base_repo import (
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
-
 
 # Use SimpleMapperFactory to eliminate boilerplate - this replaces ~30 lines of repetitive code
 SyncCheckpointMapper = SimpleMapperFactory.create(

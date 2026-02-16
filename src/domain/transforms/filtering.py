@@ -11,8 +11,6 @@ All filters follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -69,7 +67,8 @@ def filter_duplicates() -> Transform:
         result = t.with_tracks(unique_tracks)
         # Add metadata for reporting
         return (
-            result.with_metadata("duplicates_removed", duplicates_removed)
+            result
+            .with_metadata("duplicates_removed", duplicates_removed)
             .with_metadata("original_count", original_count)
             .with_metadata("tracks_without_ids", tracks_without_ids)
         )

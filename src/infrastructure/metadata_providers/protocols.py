@@ -4,8 +4,6 @@ This module defines the contract for fetching fresh metadata from external servi
 when the external track IDs are already known. This is separate from identity resolution.
 """
 
-from __future__ import annotations
-
 from typing import Any, Protocol
 
 

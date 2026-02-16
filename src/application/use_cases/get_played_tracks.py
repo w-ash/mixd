@@ -5,8 +5,6 @@ music service (Spotify, Last.fm), and sorting preferences. Returns tracks with
 play count metadata for further analysis.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -43,19 +41,19 @@ class GetPlayedTracksCommand:
         validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
     )
     days_back: int | None = field(default=None, validator=optional_positive_int)
-    connector_filter: str | None = None  # Optional service filter ("spotify", "lastfm", etc.)
+    connector_filter: str | None = (
+        None  # Optional service filter ("spotify", "lastfm", etc.)
+    )
     sort_by: str | None = field(
         default=None,
-        validator=optional_in_choices(
-            [
-                "played_at_desc",
-                "total_plays_desc",
-                "last_played_desc",
-                "first_played_asc",
-                "title_asc",
-                "random",
-            ]
-        ),
+        validator=optional_in_choices([
+            "played_at_desc",
+            "total_plays_desc",
+            "last_played_desc",
+            "first_played_asc",
+            "title_asc",
+            "random",
+        ]),
     )
     timestamp: datetime = field(factory=utc_now_factory)
 

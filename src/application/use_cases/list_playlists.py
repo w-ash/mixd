@@ -4,8 +4,6 @@ Application layer that coordinates domain operations through dependency injectio
 and UnitOfWork pattern, without direct infrastructure dependencies.
 """
 
-from __future__ import annotations
-
 from attrs import define
 
 from src.domain.entities import Playlist

@@ -1,7 +1,5 @@
 """Repository layer for database operations with SQLAlchemy 2.0."""
 
-from __future__ import annotations
-
 # Re-export core components
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,

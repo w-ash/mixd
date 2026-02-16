@@ -13,8 +13,8 @@ Key components:
 The client is stateless and focuses purely on API communication. Complex
 workflows and business logic are handled in separate operation modules.
 """
-
-from __future__ import annotations
+# TODO(v0.6+): Replace spotipy with direct httpx calls for async-native HTTP,
+# eliminating the sync-to-async bridging overhead.
 
 import asyncio
 from typing import Any
@@ -238,9 +238,7 @@ class SpotifyAPIClient:
         """Get playlist with retry policy."""
         return await self._retry_policy(self._get_playlist_impl, playlist_id)
 
-    async def _get_playlist_impl(
-        self, playlist_id: str
-    ) -> dict[str, Any] | None:
+    async def _get_playlist_impl(self, playlist_id: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
         try:
             return await spotify_api_call(

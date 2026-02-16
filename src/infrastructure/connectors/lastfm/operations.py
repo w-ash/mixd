@@ -15,15 +15,13 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from __future__ import annotations
-
-from typing import Any, NamedTuple
+from typing import Any
 
 from attrs import define, field
 
 from src.config import get_logger
-from src.domain.entities.track import ConnectorTrack
 from src.domain.entities import PlayRecord, Track, create_lastfm_play_record
+from src.domain.entities.track import ConnectorTrack
 from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
@@ -35,7 +33,8 @@ from src.infrastructure.connectors.lastfm.conversions import (
 logger = get_logger(__name__).bind(service="lastfm_operations")
 
 
-class TrackProcessingResult(NamedTuple):
+@define(frozen=True, slots=True)
+class TrackProcessingResult:
     """Result from processing a track with Last.fm metadata.
 
     Contains the track ID and extracted metadata dictionary from Last.fm API calls.
@@ -95,7 +94,9 @@ class LastFMOperations(BaseAPIConnector):
                 LastFMErrorClassifier,
             )
 
-            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(e)
+            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(
+                e
+            )
 
             if error_type == "not_found":
                 # Track not found is expected behavior, not an error
@@ -155,7 +156,9 @@ class LastFMOperations(BaseAPIConnector):
                 LastFMErrorClassifier,
             )
 
-            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(e)
+            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(
+                e
+            )
 
             if error_type == "not_found":
                 # Track not found is expected behavior, not an error

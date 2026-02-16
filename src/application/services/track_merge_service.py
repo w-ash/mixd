@@ -4,8 +4,6 @@ Service that moves foreign key references and hard-deletes duplicate tracks.
 Cascading deletes automatically handle cleanup of related records.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 from attrs import define

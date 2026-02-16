@@ -5,8 +5,6 @@ for progress tracking commands. Integrates with Typer's Rich markup support
 and maintains consistent formatting across the entire CLI application.
 """
 
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 import contextlib
 from typing import Any

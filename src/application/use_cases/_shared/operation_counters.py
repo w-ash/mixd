@@ -4,8 +4,6 @@ Provides helper functions for analyzing playlist diff operations and
 calculating operation statistics (adds, removes, moves).
 """
 
-from __future__ import annotations
-
 from src.application.use_cases._shared.playlist_results import OperationCounts
 from src.domain.playlist import PlaylistOperationType
 

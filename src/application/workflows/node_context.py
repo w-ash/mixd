@@ -5,8 +5,6 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from attrs import define

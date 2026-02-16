@@ -5,8 +5,6 @@ error handling, and transaction management. Supports LastFM recent/incremental/f
 history imports and Spotify JSON file processing.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -171,7 +169,9 @@ class ImportTracksUseCase:
                 execution_time_ms = int((time.time() - start_time) * 1000)
 
                 # Extract imported count from summary metrics
-                imported_count = self._get_metric_value(operation_result, "track_plays", 0)
+                imported_count = self._get_metric_value(
+                    operation_result, "track_plays", 0
+                )
 
                 logger.info(
                     f"Successfully completed {command.service} {command.mode} import: "

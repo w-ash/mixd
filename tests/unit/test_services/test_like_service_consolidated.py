@@ -177,20 +177,28 @@ class TestOperationResultForLikeOperations:
         result.summary_metrics.add("imported", 50, "Likes Imported", significance=1)
         result.summary_metrics.add("filtered", 5, "Filtered", significance=2)
         result.summary_metrics.add("errors", 2, "Errors", significance=3)
-        result.summary_metrics.add("already_liked", 100, "Already Liked", significance=4)
+        result.summary_metrics.add(
+            "already_liked", 100, "Already Liked", significance=4
+        )
         result.summary_metrics.add("candidates", 57, "Candidates", significance=5)
 
         # Calculate success rate
         total = 57
         success_rate = (50 / total) * 100
         result.summary_metrics.add(
-            "success_rate", success_rate, "Success Rate", format="percent", significance=6
+            "success_rate",
+            success_rate,
+            "Success Rate",
+            format="percent",
+            significance=6,
         )
 
         assert result.operation_name == "Test Import"
 
         # Verify metrics are present
-        imported = next(m for m in result.summary_metrics.metrics if m.name == "imported")
+        imported = next(
+            m for m in result.summary_metrics.metrics if m.name == "imported"
+        )
         assert imported.value == 50
 
         already_liked = next(
@@ -216,13 +224,19 @@ class TestOperationResultForLikeOperations:
         total = 29
         success_rate = (25 / total) * 100
         result.summary_metrics.add(
-            "success_rate", success_rate, "Success Rate", format="percent", significance=6
+            "success_rate",
+            success_rate,
+            "Success Rate",
+            format="percent",
+            significance=6,
         )
 
         assert result.operation_name == "Test Export"
 
         # Verify metrics are present
-        exported = next(m for m in result.summary_metrics.metrics if m.name == "exported")
+        exported = next(
+            m for m in result.summary_metrics.metrics if m.name == "exported"
+        )
         assert exported.value == 25
 
         already_liked = next(

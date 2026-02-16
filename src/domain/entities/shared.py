@@ -3,8 +3,6 @@
 Pure utility functions with zero external dependencies.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 

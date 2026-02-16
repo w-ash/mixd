@@ -168,19 +168,19 @@ async def _extract_track_details(
     track.username = username
     try:
         details["user_playcount"] = await asyncio.to_thread(track.get_userplaycount)
-    except (pylast.WSError, TypeError):
+    except pylast.WSError, TypeError:
         details["user_playcount"] = None
 
     # Try to get global playcount
     try:
         details["global_playcount"] = await asyncio.to_thread(track.get_playcount)
-    except (pylast.WSError, TypeError):
+    except pylast.WSError, TypeError:
         details["global_playcount"] = None
 
     # Try to get listeners count
     try:
         details["listeners"] = await asyncio.to_thread(track.get_listener_count)
-    except (pylast.WSError, TypeError, AttributeError):
+    except pylast.WSError, TypeError, AttributeError:
         details["listeners"] = None
 
     # Try to get album information
@@ -192,21 +192,21 @@ async def _extract_track_details(
                 "url": album.get_url(),
                 "mbid": album.get_mbid(),
             }
-    except (pylast.WSError, AttributeError):
+    except pylast.WSError, AttributeError:
         details["album"] = None
 
     # Try to get tags
     try:
         tags = await asyncio.to_thread(track.get_top_tags, limit=10)
         details["tags"] = [{"name": tag.item.name, "count": tag.weight} for tag in tags]
-    except (pylast.WSError, AttributeError):
+    except pylast.WSError, AttributeError:
         details["tags"] = []
 
     # Try to get wiki content
     try:
         wiki = await asyncio.to_thread(track.get_wiki_content)
         details["wiki"] = wiki
-    except (pylast.WSError, AttributeError):
+    except pylast.WSError, AttributeError:
         details["wiki"] = None
 
     return details

@@ -13,8 +13,6 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +23,7 @@ from src.domain.entities import (
     ConnectorTrack,
     Track,
 )
+from src.infrastructure.connectors._shared.isrc import normalize_isrc
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="spotify_conversions")
@@ -81,10 +80,12 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
         "explicit": spotify_track.get("explicit", False),
     }
 
-    # Extract ISRC if available
+    # Extract and normalize ISRC if available
     isrc = None
     if "external_ids" in spotify_track:
-        isrc = spotify_track["external_ids"].get("isrc")
+        raw_isrc = spotify_track["external_ids"].get("isrc")
+        if raw_isrc:
+            isrc = normalize_isrc(raw_isrc)
 
     return ConnectorTrack(
         connector_name="spotify",

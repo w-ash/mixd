@@ -1,9 +1,7 @@
 """Playlist repository mappers for domain-persistence conversions."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any, override
 
 from attrs import define
 from sqlalchemy import Select
@@ -35,19 +33,18 @@ from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 # Create module logger
 logger = get_logger(__name__)
 
-# Type variables for generic operations
-P = TypeVar("P", bound=Playlist)
-
 
 @define(frozen=True, slots=True)
 class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
     """Bidirectional mapper between domain and persistence models."""
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get default relationships to load for this model."""
         return ["mappings", "tracks"]
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBPlaylist) -> Playlist:
         """Convert persistence model to domain entity using a consistent async-safe approach."""
@@ -182,6 +179,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             connector_playlist_identifiers=connector_playlist_identifiers,
         )
 
+    @override
     @staticmethod
     def to_db(domain_model: Playlist) -> DBPlaylist:
         """Convert domain entity to persistence values."""
@@ -196,6 +194,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
 class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlaylist]):
     """Maps between DBConnectorPlaylist and ConnectorPlaylist domain model."""
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBConnectorPlaylist) -> ConnectorPlaylist:
         """Convert DB connector playlist to domain model."""
@@ -230,6 +229,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
             last_updated=db_model.last_updated,
         )
 
+    @override
     @staticmethod
     def to_db(domain_model: ConnectorPlaylist) -> DBConnectorPlaylist:
         """Convert domain model to DB connector playlist."""
@@ -261,6 +261,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
             last_updated=domain_model.last_updated,
         )
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get default relationships to load for connector playlists."""
@@ -271,6 +272,7 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
 class PlaylistMappingMapper(BaseModelMapper[DBPlaylistMapping, dict[str, Any]]):
     """Maps between DBPlaylistMapping and dictionary representation."""
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBPlaylistMapping) -> dict[str, Any]:
         """Convert DB mapping to dictionary."""
@@ -285,6 +287,7 @@ class PlaylistMappingMapper(BaseModelMapper[DBPlaylistMapping, dict[str, Any]]):
             "last_synced": db_model.last_synced,
         }
 
+    @override
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBPlaylistMapping:
         """Convert dictionary to DB mapping."""
@@ -295,6 +298,7 @@ class PlaylistMappingMapper(BaseModelMapper[DBPlaylistMapping, dict[str, Any]]):
             last_synced=domain_model.get("last_synced", datetime.now(UTC)),
         )
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get default relationships to load for playlist mappings."""

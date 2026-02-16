@@ -1,7 +1,6 @@
-"""Batch processing result aggregation and protocols.
+"""Batch processing result aggregation.
 
-Provides BatchResult class for aggregating success rates and outcomes across batch operations,
-plus common protocols used by batch processing systems.
+Provides BatchResult class for aggregating success rates and outcomes across batch operations.
 
 For actual batch processing, use the specialized processors:
 - DatabaseBatchProcessor: Database operations with transaction safety
@@ -9,46 +8,38 @@ For actual batch processing, use the specialized processors:
 - SimpleBatchProcessor: Basic chunking operations
 """
 
-from __future__ import annotations
-
-from typing import Any, Protocol
+from enum import Enum
+from typing import Any
 
 from attrs import define, field
 
-# Removed RepositoryProvider import - was unused after refactor
+
+class BatchItemStatus(Enum):
+    """Status of an individual item within a batch operation."""
+
+    IMPORTED = "imported"
+    PROCESSED = "processed"
+    SYNCED = "synced"
+    EXPORTED = "exported"
+    ERROR = "error"
+    SKIPPED = "skipped"
 
 
-# Protocols for dependency injection
-class ConfigProvider(Protocol):
-    """Supplies batch sizes and API rate limits from app configuration."""
+@define(frozen=True, slots=True)
+class BatchItemResult:
+    """Result of processing a single item in a batch.
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Gets configuration value by key.
+    Attributes:
+        status: Outcome of the processing attempt.
+        track_id: ID of the track that was processed.
+        error: Error message if status is ERROR.
+        metadata: Additional result data (e.g., reason for skipping).
+    """
 
-        Args:
-            key: Configuration key to look up.
-            default: Value to return if key is not found.
-
-        Returns:
-            The configuration value or default if not found.
-        """
-        ...
-
-
-class Logger(Protocol):
-    """Records batch processing progress and errors for debugging."""
-
-    def info(self, message: str, **kwargs: Any) -> None:
-        """Log informational message."""
-        ...
-
-    def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
-        ...
-
-    def exception(self, message: str, **kwargs: Any) -> None:
-        """Log error with exception details."""
-        ...
+    status: BatchItemStatus
+    track_id: int | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(factory=dict)
 
 
 @define(frozen=True, slots=True)
@@ -61,26 +52,33 @@ class BatchResult:
     Attributes:
         total_items: Total number of items submitted for processing.
         processed_count: Number of items that were processed (success or failure).
-        batch_results: Detailed results from each batch, containing status and data.
+        batch_results: Detailed results from each batch.
     """
 
     total_items: int
     processed_count: int
-    batch_results: list[list[dict]] = field(factory=list)
+    batch_results: list[list[BatchItemResult]] = field(factory=list)
 
     @property
     def success_count(self) -> int:
-        """Items successfully imported, processed, or synced."""
-        return (
-            self.get_status_count("imported")
-            + self.get_status_count("processed")
-            + self.get_status_count("synced")
+        """Items successfully imported, processed, synced, or exported."""
+        success_statuses = {
+            BatchItemStatus.IMPORTED,
+            BatchItemStatus.PROCESSED,
+            BatchItemStatus.SYNCED,
+            BatchItemStatus.EXPORTED,
+        }
+        return sum(
+            1
+            for batch in self.batch_results
+            for result in batch
+            if result.status in success_statuses
         )
 
     @property
     def error_count(self) -> int:
         """Items that failed due to API errors or data issues."""
-        return self.get_status_count("error")
+        return self.count_by_status(BatchItemStatus.ERROR)
 
     @property
     def success_rate(self) -> float:
@@ -89,18 +87,11 @@ class BatchResult:
             return 0.0
         return round((self.success_count / self.processed_count) * 100, 2)
 
-    def get_status_count(self, status: str) -> int:
-        """Counts items with specific status across all batches."""
-        count = 0
-        for batch in self.batch_results:
-            for result in batch:
-                if result.get("status") == status:
-                    count += 1
-        return count
-
-
-# BatchProcessor classes have been separated by use case:
-#
-# DatabaseBatchProcessor: Database operations with transaction safety
-# ImportBatchProcessor: File/import operations with memory management
-# SimpleBatchProcessor: Basic chunking operations
+    def count_by_status(self, status: BatchItemStatus) -> int:
+        """Count items with specific status across all batches."""
+        return sum(
+            1
+            for batch in self.batch_results
+            for result in batch
+            if result.status == status
+        )

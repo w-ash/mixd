@@ -19,8 +19,6 @@ Example:
     ```
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
@@ -30,8 +28,8 @@ from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import ConnectorTrack
 from src.infrastructure.connectors._shared.error_classification import (
-    DefaultErrorClassifier,
-    ErrorClassifierProtocol,
+    ErrorClassifier,
+    classify_unknown_error,
 )
 from src.infrastructure.connectors._shared.metrics import (
     MetricResolverProtocol,
@@ -116,9 +114,9 @@ class BaseAPIConnector(ABC):
         """Service identifier for this connector (e.g., 'spotify', 'lastfm')."""
 
     @property
-    def error_classifier(self) -> ErrorClassifierProtocol:
+    def error_classifier(self) -> ErrorClassifier:
         """Get error classifier for this connector. Override for service-specific classification."""
-        return DefaultErrorClassifier()
+        return _DefaultClassifier()
 
     def get_connector_config(self, key: str, default=None):
         """Load configuration value from modern settings structure.
@@ -199,6 +197,13 @@ class BaseAPIConnector(ABC):
                 from .conversions import convert_spotify_track_to_connector
                 return convert_spotify_track_to_connector(track_data)
         """
+
+
+class _DefaultClassifier:
+    """Fallback error classifier for connectors without a custom one."""
+
+    def classify_error(self, exception: Exception) -> tuple[str, str, str]:
+        return classify_unknown_error(exception)
 
 
 def register_metrics(

@@ -6,8 +6,6 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 - User input prompts
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -16,10 +14,10 @@ from rich.prompt import Prompt
 import typer
 
 from src.application.services.progress_manager import AsyncProgressManagerAdapter
-from src.infrastructure.connectors import run_async_with_connector_executor
 from src.application.use_cases.import_play_history import run_import
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console, progress_coordination_context
 
 console = get_console()
@@ -143,4 +141,4 @@ def run_import_with_progress(
                 **import_params,
             )
 
-    return run_async_with_connector_executor(_execute_with_progress())
+    return run_async(_execute_with_progress())

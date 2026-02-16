@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from src.interface.shared.cli_helpers import (
+from src.interface.cli.cli_helpers import (
     parse_date_string,
     prompt_batch_size,
     run_import_with_progress,
@@ -99,21 +99,21 @@ class TestValidateDateRange:
 class TestPromptBatchSize:
     """Test batch size prompting."""
 
-    @patch("src.interface.shared.cli_helpers.Prompt.ask")
+    @patch("src.interface.cli.cli_helpers.Prompt.ask")
     def test_prompt_with_valid_integer_returns_int(self, mock_ask):
         """User input of valid integer returns int."""
         mock_ask.return_value = "100"
         result = prompt_batch_size()
         assert result == 100
 
-    @patch("src.interface.shared.cli_helpers.Prompt.ask")
+    @patch("src.interface.cli.cli_helpers.Prompt.ask")
     def test_prompt_with_empty_returns_none(self, mock_ask):
         """User input of empty string returns None (default)."""
         mock_ask.return_value = ""
         result = prompt_batch_size()
         assert result is None
 
-    @patch("src.interface.shared.cli_helpers.Prompt.ask")
+    @patch("src.interface.cli.cli_helpers.Prompt.ask")
     def test_prompt_uses_correct_message(self, mock_ask):
         """Prompt message is descriptive."""
         mock_ask.return_value = ""
@@ -155,13 +155,13 @@ class TestRunImportWithProgress:
     async def test_run_import_executes_with_progress_context(self):
         """Import executes within progress coordination context."""
         # Mock the entire import pipeline
-        with patch(
-            "src.interface.shared.cli_helpers.progress_coordination_context"
-        ) as mock_context, patch(
-            "src.interface.shared.cli_helpers.run_import"
-        ) as mock_run_import, patch(
-            "src.interface.shared.cli_helpers.run_async_with_connector_executor"
-        ) as mock_run_async:
+        with (
+            patch(
+                "src.interface.cli.cli_helpers.progress_coordination_context"
+            ) as mock_context,
+            patch("src.interface.cli.cli_helpers.run_import") as mock_run_import,
+            patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
+        ):
             # Setup mocks
             mock_progress_manager = MagicMock()
             mock_ctx = MagicMock()
@@ -174,7 +174,7 @@ class TestRunImportWithProgress:
             expected_result = OperationResult(operation_name="test")
             mock_run_import.return_value = expected_result
 
-            # Execute (the function calls run_async_with_connector_executor internally)
+            # Execute (the function calls run_async internally)
             mock_run_async.return_value = expected_result
 
             result = run_import_with_progress(
@@ -184,7 +184,7 @@ class TestRunImportWithProgress:
                 batch_size=100,
             )
 
-            # Verify run_async_with_connector_executor was called
+            # Verify run_async was called
             assert mock_run_async.called
             assert result == expected_result
 
@@ -193,13 +193,13 @@ class TestRunImportWithProgress:
         """Import passes additional kwargs to run_import use case."""
         from pathlib import Path
 
-        with patch(
-            "src.interface.shared.cli_helpers.progress_coordination_context"
-        ) as mock_context, patch(
-            "src.interface.shared.cli_helpers.run_import"
-        ) as mock_run_import, patch(
-            "src.interface.shared.cli_helpers.run_async_with_connector_executor"
-        ) as mock_run_async:
+        with (
+            patch(
+                "src.interface.cli.cli_helpers.progress_coordination_context"
+            ) as mock_context,
+            patch("src.interface.cli.cli_helpers.run_import") as mock_run_import,
+            patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
+        ):
             # Setup mocks
             mock_progress_manager = MagicMock()
             mock_ctx = MagicMock()
@@ -221,6 +221,6 @@ class TestRunImportWithProgress:
                 batch_size=200,
             )
 
-            # Verify run_async_with_connector_executor was called
+            # Verify run_async was called
             assert mock_run_async.called
             assert result == expected_result

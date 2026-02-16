@@ -21,6 +21,7 @@ class TestDbOperationDecorator:
 
     def test_decorator_accepts_async_function(self):
         """Decorator should accept async functions without error."""
+
         # This should NOT raise TypeError
         @db_operation("test_operation")
         async def valid_async_function():

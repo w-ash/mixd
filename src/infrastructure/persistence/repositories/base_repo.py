@@ -1,14 +1,12 @@
 """Repository layer for database operations with SQLAlchemy 2.0 best practices."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 import functools
 import inspect as pyinspect
 import operator
-from typing import Any, NoReturn, Protocol, TypeVar, cast
+from typing import Any, Never, Protocol, TypeIs, cast, override
 
 from attrs import define
 from sqlalchemy import Select, delete, func, insert, inspect, select, update
@@ -22,10 +20,6 @@ from src.config import get_logger
 # Import needed for relationship chains in eager loading
 from src.infrastructure.persistence.database.db_models import DatabaseModel
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
-
-# Type variables with proper constraints
-TDBModel = TypeVar("TDBModel", bound=DatabaseModel)
-TDomainModel = TypeVar("TDomainModel")
 
 logger = get_logger(__name__)
 
@@ -91,11 +85,27 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
         ...
 
 
-def has_session_support(mapper: Any) -> bool:
-    """Modern Python 3.13 type guard for session-aware mappers.
+class SessionAwareMapper[TDBModel, TDomainModel](Protocol):
+    """Protocol for mappers that support session-aware domain conversion.
 
-    Uses hasattr() for runtime detection but provides type safety.
-    This is the recommended approach for optional protocol methods in 2025.
+    Some mappers (e.g., TrackMapper) need a session to auto-heal missing
+    relationships during mapping. This protocol enables type-safe narrowing
+    via TypeIs instead of cast(Any, ...).
+    """
+
+    @staticmethod
+    async def to_domain_with_session(
+        db_model: TDBModel, session: AsyncSession | None = None
+    ) -> TDomainModel: ...
+
+
+def has_session_support[TDBModel, TDomainModel](
+    mapper: ModelMapper[TDBModel, TDomainModel],
+) -> TypeIs[SessionAwareMapper[TDBModel, TDomainModel]]:
+    """Type guard for session-aware mappers.
+
+    Narrows mapper type so the caller can safely call to_domain_with_session()
+    without cast(Any, ...).
     """
     return hasattr(mapper, "to_domain_with_session")
 
@@ -188,11 +198,13 @@ class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
         class GeneratedMapper(BaseModelMapper[TDBModel, TDomainModel]):
             """Auto-generated mapper for simple 1:1 field mappings."""
 
+            @override
             @staticmethod
             def get_default_relationships() -> list[str]:
                 """Simple mappers typically don't need relationships loaded."""
                 return []
 
+            @override
             @staticmethod
             async def to_domain(db_model: TDBModel) -> TDomainModel:
                 """Convert database model to domain model using attrs field mapping."""
@@ -215,6 +227,7 @@ class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
                         f"Domain class {domain_class} must use attrs.define"
                     )
 
+            @override
             @staticmethod
             def to_db(domain_model: TDomainModel) -> TDBModel:
                 """Convert domain model to database model using attrs field mapping."""
@@ -485,7 +498,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 continue
 
             if has_session_support(self.mapper):
-                domain_model = await cast(Any, self.mapper).to_domain_with_session(
+                domain_model = await self.mapper.to_domain_with_session(
                     db_entity, self.session
                 )
             else:
@@ -574,9 +587,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 return None
 
             if has_session_support(self.mapper):
-                return await cast(Any, self.mapper).to_domain_with_session(
-                    db_entity, self.session
-                )
+                return await self.mapper.to_domain_with_session(db_entity, self.session)
             else:
                 return await self.mapper.to_domain(db_entity)
 
@@ -613,9 +624,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return None
 
         if has_session_support(self.mapper):
-            return await cast(Any, self.mapper).to_domain_with_session(
-                db_entity, self.session
-            )
+            return await self.mapper.to_domain_with_session(db_entity, self.session)
         else:
             return await self.mapper.to_domain(db_entity)
 
@@ -670,7 +679,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         await self._load_relationships_via_identity_map([updated_entity])
 
         if has_session_support(self.mapper):
-            return await cast(Any, self.mapper).to_domain_with_session(
+            return await self.mapper.to_domain_with_session(
                 updated_entity, self.session
             )
         else:
@@ -791,10 +800,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if create_attrs:
             insert_values.update(create_attrs)
 
-        def _raise_update_retrieval_error() -> NoReturn:
+        def _raise_update_retrieval_error() -> Never:
             raise ValueError("Failed to retrieve entity after update")
 
-        def _raise_create_retrieval_error() -> NoReturn:
+        def _raise_create_retrieval_error() -> Never:
             raise ValueError("Failed to retrieve entity after create")
 
         # Add timestamps
@@ -850,7 +859,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 if db_entity is None:
                     _raise_update_retrieval_error()
                 if has_session_support(self.mapper):
-                    return await cast(Any, self.mapper).to_domain_with_session(
+                    return await self.mapper.to_domain_with_session(
                         db_entity, self.session
                     )
                 else:
@@ -880,7 +889,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 if db_entity is None:
                     _raise_create_retrieval_error()
                 if has_session_support(self.mapper):
-                    return await cast(Any, self.mapper).to_domain_with_session(
+                    return await self.mapper.to_domain_with_session(
                         db_entity, self.session
                     )
                 else:

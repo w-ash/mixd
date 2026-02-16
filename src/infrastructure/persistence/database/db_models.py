@@ -11,8 +11,6 @@ All entities use hard deletes for simplicity and performance.
 Data recovery relies on external API re-import and database backups.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -389,7 +387,7 @@ class DBConnectorPlay(BaseEntity):
     import_batch_id: Mapped[str | None] = mapped_column(String(64))
 
     # Relationships (only to resolved track, if any)
-    resolved_track: Mapped["DBTrack | None"] = relationship(
+    resolved_track: Mapped[DBTrack | None] = relationship(
         back_populates="connector_plays",
         passive_deletes=True,
     )

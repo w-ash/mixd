@@ -4,8 +4,6 @@ These functions contain no external dependencies and implement the core business
 for determining how well tracks match across different music services.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from rapidfuzz import fuzz

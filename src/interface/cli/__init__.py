@@ -6,5 +6,3 @@ Command-line interface following Clean Architecture principles:
 - Handles user interaction and result display
 - No business logic - delegates to use cases
 """
-
-from __future__ import annotations

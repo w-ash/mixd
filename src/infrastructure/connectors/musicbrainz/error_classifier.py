@@ -10,7 +10,7 @@ Key patterns:
 - 500-504: Server errors (temporary)
 """
 
-from __future__ import annotations
+from typing import override
 
 from src.infrastructure.connectors._shared.error_classification import (
     HTTPErrorClassifier,
@@ -39,11 +39,13 @@ class MusicBrainzErrorClassifier(HTTPErrorClassifier):
         ...     pass
     """
 
+    @override
     @property
     def service_name(self) -> str:
         """Return service name for logging."""
         return "musicbrainz"
 
+    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify MusicBrainz API errors.
 

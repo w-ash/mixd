@@ -7,7 +7,6 @@ Modern test fixtures providing:
 - Proper resource cleanup and test isolation
 """
 
-import asyncio
 from collections.abc import AsyncGenerator
 import os
 import pathlib
@@ -23,7 +22,6 @@ from src.infrastructure.persistence.database.db_connection import (
     reset_engine_cache,
 )
 from src.infrastructure.persistence.database.db_models import init_db
-
 
 # Python 3.14+: Event loop policy system is deprecated
 # pytest-asyncio handles event loop management internally without custom policy fixtures

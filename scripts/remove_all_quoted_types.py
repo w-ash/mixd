@@ -8,8 +8,8 @@ This includes:
 - Parameter types: param: "Type"
 """
 
-import re
 from pathlib import Path
+import re
 import sys
 
 
@@ -27,19 +27,19 @@ def remove_all_quoted_types(content: str) -> tuple[str, int]:
     # Pattern 1: Quoted types in generic brackets: Awaitable["Type"], list["Type"], etc.
     # Matches: ["TypeName"] inside brackets
     pattern1 = r'\["([A-Z][A-Za-z0-9_]+)"\]'
-    content, count1 = re.subn(pattern1, r'[\1]', content)
+    content, count1 = re.subn(pattern1, r"[\1]", content)
     total_changes += count1
 
     # Pattern 2: Quoted types in function parameters: param: "Type"
     # Matches: : "TypeName" (colon space quote)
     pattern2 = r'(:\s*)"([A-Z][A-Za-z0-9_]+)"'
-    content, count2 = re.subn(pattern2, r'\1\2', content)
+    content, count2 = re.subn(pattern2, r"\1\2", content)
     total_changes += count2
 
     # Pattern 3: Quoted types in dict/other generics: dict[str, "Type"]
     # Matches: , "TypeName" inside brackets
     pattern3 = r'(,\s*)"([A-Z][A-Za-z0-9_]+)"(\s*[\]\),])'
-    content, count3 = re.subn(pattern3, r'\1\2\3', content)
+    content, count3 = re.subn(pattern3, r"\1\2\3", content)
     total_changes += count3
 
     return content, total_changes
@@ -99,7 +99,7 @@ def main():
 
     # Ask for confirmation
     response = input("\nProceed with modifications? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Aborted.")
         return
 

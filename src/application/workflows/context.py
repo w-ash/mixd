@@ -4,8 +4,6 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from attrs import define

@@ -5,8 +5,6 @@ Handles subscriber management, error isolation, and coordinates with the
 ProgressCoordinator domain service for business rule enforcement.
 """
 
-from __future__ import annotations
-
 import asyncio
 from typing import Any
 from uuid import uuid4
@@ -273,8 +271,11 @@ class AsyncProgressManager:
                 task.cancel()
 
         # Wait for tasks to complete cancellation
-        if self._event_tasks:
-            await asyncio.gather(*self._event_tasks, return_exceptions=True)
+        for task in self._event_tasks:
+            try:
+                await task
+            except asyncio.CancelledError, Exception:
+                pass
 
         # Clear subscribers
         async with self._subscriber_lock:
@@ -304,25 +305,15 @@ class AsyncProgressManager:
         if not active_subscribers:
             return
 
-        # Create notification tasks for all subscribers
-        notification_tasks = []
-        for registration in active_subscribers:
-            task = asyncio.create_task(
-                self._safe_notify_subscriber(registration, notification_type, *args),
-                name=f"notify_{registration.subscriber_id}_{notification_type}",
-            )
-            notification_tasks.append(task)
-
-        # Track tasks and run them concurrently
-        self._event_tasks.update(notification_tasks)
-
-        try:
-            # Run all notifications concurrently
-            await asyncio.gather(*notification_tasks, return_exceptions=True)
-        finally:
-            # Clean up completed tasks
-            for task in notification_tasks:
-                self._event_tasks.discard(task)
+        # Run all notifications concurrently with structured concurrency
+        async with asyncio.TaskGroup() as tg:
+            for registration in active_subscribers:
+                tg.create_task(
+                    self._safe_notify_subscriber(
+                        registration, notification_type, *args
+                    ),
+                    name=f"notify_{registration.subscriber_id}_{notification_type}",
+                )
 
     async def _safe_notify_subscriber(
         self, registration: SubscriberRegistration, notification_type: str, *args: Any

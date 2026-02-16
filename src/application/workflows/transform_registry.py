@@ -16,8 +16,6 @@ Each strategy focuses on a single responsibility and adheres to a consistent
 interface, making the system extensible through new strategy implementations.
 """
 
-from __future__ import annotations
-
 from src.application.transforms import (
     filter_by_metric_range,
     filter_by_play_history,

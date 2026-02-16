@@ -7,7 +7,6 @@ losing track identity and causing incorrect behavior with duplicates.
 Once bugs are fixed, these tests should pass.
 """
 
-
 import pytest
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -27,7 +26,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
     """Tests proving that playlist updates destroy track record identity."""
 
     @pytest.mark.asyncio
-    async def test_dbplaylisttrack_records_follow_tracks_not_positions(self, db_session):
+    async def test_dbplaylisttrack_records_follow_tracks_not_positions(
+        self, db_session
+    ):
         """CRITICAL BUG: DBPlaylistTrack records should follow TRACK IDENTITY, not POSITION.
 
         EXPECTED BEHAVIOR:
@@ -89,9 +90,15 @@ class TestPlaylistUpdateRecordIdentityBugs:
         }
 
         print("\nOriginal records:")
-        print(f"  Track A (track_id={track_a_id}): record_id={original_record_ids[track_a_id]}, position=0")
-        print(f"  Track B (track_id={track_b_id}): record_id={original_record_ids[track_b_id]}, position=1")
-        print(f"  Track C (track_id={track_c_id}): record_id={original_record_ids[track_c_id]}, position=2")
+        print(
+            f"  Track A (track_id={track_a_id}): record_id={original_record_ids[track_a_id]}, position=0"
+        )
+        print(
+            f"  Track B (track_id={track_b_id}): record_id={original_record_ids[track_b_id]}, position=1"
+        )
+        print(
+            f"  Track C (track_id={track_c_id}): record_id={original_record_ids[track_c_id]}, position=2"
+        )
 
         # Step 3: Reorder to [Track B, Track C, Track A]
         async with uow:
@@ -128,14 +135,18 @@ class TestPlaylistUpdateRecordIdentityBugs:
         assert len(updated_records) == 3
 
         print("\nUpdated records:")
-        print(f"  Position 0: track_id={updated_records[0].track_id}, record_id={updated_records[0].id}")
-        print(f"  Position 1: track_id={updated_records[1].track_id}, record_id={updated_records[1].id}")
-        print(f"  Position 2: track_id={updated_records[2].track_id}, record_id={updated_records[2].id}")
+        print(
+            f"  Position 0: track_id={updated_records[0].track_id}, record_id={updated_records[0].id}"
+        )
+        print(
+            f"  Position 1: track_id={updated_records[1].track_id}, record_id={updated_records[1].id}"
+        )
+        print(
+            f"  Position 2: track_id={updated_records[2].track_id}, record_id={updated_records[2].id}"
+        )
 
         # Build map: track_id → new DB record ID
-        updated_record_ids = {
-            record.track_id: record.id for record in updated_records
-        }
+        updated_record_ids = {record.track_id: record.id for record in updated_records}
 
         # CRITICAL ASSERTIONS: Each track should keep its ORIGINAL record ID
         # This proves records follow tracks, not positions
@@ -165,7 +176,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         assert updated_records[2].track_id == track_a_id  # Track A at position 2
 
     @pytest.mark.asyncio
-    async def test_duplicate_tracks_create_separate_dbplaylisttrack_records(self, db_session):
+    async def test_duplicate_tracks_create_separate_dbplaylisttrack_records(
+        self, db_session
+    ):
         """Test that duplicates (same track appearing twice) work correctly.
 
         SCENARIO: Create playlist, then update to add duplicate of existing track
@@ -179,7 +192,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         PROOF: Update existing playlist to add duplicate, verify 3 distinct DB records exist.
         """
         # Step 1: Create initial playlist [Track A, Track B]
-        track_a = Track(title="Track A", artists=[Artist(name="Artist A")], album="Album 1")
+        track_a = Track(
+            title="Track A", artists=[Artist(name="Artist A")], album="Album 1"
+        )
         track_b = Track(title="Track B", artists=[Artist(name="Artist B")])
 
         uow = get_unit_of_work(db_session)
@@ -293,7 +308,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         )
 
     @pytest.mark.asyncio
-    async def test_removing_track_doesnt_affect_remaining_track_records(self, db_session):
+    async def test_removing_track_doesnt_affect_remaining_track_records(
+        self, db_session
+    ):
         """CRITICAL BUG: Removing Track B from [A,B,C] should NOT change Track A or Track C's DB records.
 
         EXPECTED BEHAVIOR:
@@ -346,8 +363,12 @@ class TestPlaylistUpdateRecordIdentityBugs:
         original_track_c_record_id = initial_records[2].id
 
         print("\nBefore removal:")
-        print(f"  Track A (track_id={track_a_id}): record_id={original_track_a_record_id}")
-        print(f"  Track C (track_id={track_c_id}): record_id={original_track_c_record_id}")
+        print(
+            f"  Track A (track_id={track_a_id}): record_id={original_track_a_record_id}"
+        )
+        print(
+            f"  Track C (track_id={track_c_id}): record_id={original_track_c_record_id}"
+        )
 
         # Remove Track B: [A,B,C] → [A,C]
         async with uow:
@@ -383,8 +404,12 @@ class TestPlaylistUpdateRecordIdentityBugs:
         assert len(final_records) == 2, "Should have 2 records after removing Track B"
 
         print("\nAfter removal:")
-        print(f"  Position 0: track_id={final_records[0].track_id}, record_id={final_records[0].id}")
-        print(f"  Position 1: track_id={final_records[1].track_id}, record_id={final_records[1].id}")
+        print(
+            f"  Position 0: track_id={final_records[0].track_id}, record_id={final_records[0].id}"
+        )
+        print(
+            f"  Position 1: track_id={final_records[1].track_id}, record_id={final_records[1].id}"
+        )
 
         # CRITICAL: Track A and Track C should keep their ORIGINAL record IDs
         assert final_records[0].track_id == track_a_id

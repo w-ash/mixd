@@ -55,6 +55,10 @@ Filter and sort playlists based on listening history and play patterns.
 Dynamic playlist names/descriptions using template parameters ({track_count}, {date}, {time}).
 - Template-Based Naming | Parameter Substitution | Create/Update Node Support
 
+### v0.2.7: Advanced Workflow Features + DRY Consolidation
+Workflow transformer nodes, Python 3.14 modernization, and web interface readiness.
+- Data Source Nodes | Transformer Nodes | Module Consolidation | Interface Layer Restructuring | Use Case Runner
+
 ---
 
 ## Infrastructure Readiness Matrix
@@ -63,7 +67,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 
 | Capability | v0.2.7 (CLI) | v0.5.0 (Web UI) | v1.0.0 (Multi-User <10) |
 |------------|--------------|-----------------|-------------------------|
-| **Testing** | ✅ 827 tests, <1min | ✅ + E2E (Chromium only) | ✅ Same as v0.5.0 |
+| **Testing** | ✅ 867 tests, <1min | ✅ + E2E (Chromium only) | ✅ Same as v0.5.0 |
 | **CI/CD** | ⚠️ Manual | ✅ GitHub Actions (pytest, ruff) | ✅ Same as v0.5.0 |
 | **Deployment** | ✅ Poetry install | ✅ Docker + Fly.io | ✅ Same as v0.5.0 |
 | **Observability** | ✅ Loguru JSON logs | ✅ Same as v0.2.7 | ✅ + Email alerts (optional) |
@@ -108,6 +112,19 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - **Performance Safeguards**: ✅ Maximum 10,000 tracks per source, configurable limits to prevent overwhelming workflows
         - **Built-in Filtering**: ✅ Basic filters (date ranges, service filters, play count thresholds) to keep initial trackists manageable
         - **Discovery Enablement**: ✅ Unlock workflow patterns like "tracks I loved but haven't heard recently" without playlist management overhead
+
+- [x] **DRY Consolidation & Web Interface Readiness**
+    - Status: ✅ Completed (2026-02-16)
+    - Effort: L
+    - What: Eliminate module duplication, modernize to Python 3.14 idioms, restructure interface layer so FastAPI can reuse all application logic
+    - Why: Codebase had accumulated overlapping abstractions, dead code, and CLI-coupled interface logic blocking v0.5.0 web UI
+    - Dependencies: None
+    - Notes:
+        - **Python 3.14 Modernization**: `@override` decorators, `TypeIs` mapper guards, error classifier hierarchy simplification
+        - **Dead Code Removal**: Deleted empty modules (conversions.py, setup_commands.py, status_commands.py), removed orphan protocols
+        - **Module Consolidation**: Merged failure handling files, matching provider files, extracted shared ISRC utilities
+        - **Interface Restructuring**: Moved CLI-specific code out of shared/, extracted interactive menu pattern, moved async executor to CLI layer
+        - **Web Readiness**: Created `application/runner.py` with `execute_use_case[TResult]()` — both CLI and FastAPI share this runner
 
 - [ ] **Advanced Transformer Workflow nodes**
     - Status: 🔄 In Progress (~40% complete)

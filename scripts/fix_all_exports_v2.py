@@ -5,11 +5,8 @@ This script fixes the issue where remove_all_quoted_types.py inadvertently
 removed quotes from __all__ export lists, breaking Python syntax.
 """
 
-from __future__ import annotations
-
-import ast
-import re
 from pathlib import Path
+import re
 
 
 def fix_all_exports_in_file(file_path: Path) -> bool:
@@ -21,7 +18,7 @@ def fix_all_exports_in_file(file_path: Path) -> bool:
 
     # Find __all__ assignment using regex to locate it
     # Pattern: __all__ = [ ... ]
-    pattern = r'(__all__\s*=\s*\[)(.*?)(\])'
+    pattern = r"(__all__\s*=\s*\[)(.*?)(\])"
 
     def fix_all_list(match):
         prefix = match.group(1)  # '__all__ = ['
@@ -61,29 +58,21 @@ def fix_all_exports_in_file(file_path: Path) -> bool:
                 continue
 
             # Check if properly quoted (starts and ends with quote, no quotes in middle)
-            if (item.startswith('"') and item.endswith('"')):
+            if (item.startswith('"') and item.endswith('"')) or (
+                item.startswith("'") and item.endswith("'")
+            ):
                 # Check if there are additional quotes in the middle (malformed)
                 inner_content = item[1:-1]  # Remove outer quotes
                 if '"' in inner_content or "'" in inner_content:
                     # Malformed - has quotes inside
-                    clean_item = item.replace('"', '').replace("'", "")
-                    fixed_items.append(f'"{clean_item}"')
-                else:
-                    # Properly quoted
-                    fixed_items.append(item)
-            elif (item.startswith("'") and item.endswith("'")):
-                # Check if there are additional quotes in the middle (malformed)
-                inner_content = item[1:-1]  # Remove outer quotes
-                if '"' in inner_content or "'" in inner_content:
-                    # Malformed - has quotes inside
-                    clean_item = item.replace('"', '').replace("'", "")
+                    clean_item = item.replace('"', "").replace("'", "")
                     fixed_items.append(f'"{clean_item}"')
                 else:
                     # Properly quoted
                     fixed_items.append(item)
             elif item.startswith('"') or item.startswith("'"):
                 # Starts with quote but doesn't end properly
-                clean_item = item.replace('"', '').replace("'", "")
+                clean_item = item.replace('"', "").replace("'", "")
                 fixed_items.append(f'"{clean_item}"')
             else:
                 # Not quoted at all - add quotes

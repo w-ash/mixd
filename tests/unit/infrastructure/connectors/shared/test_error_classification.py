@@ -8,7 +8,9 @@ the error classifier retry predicate correctly integrates with error classificat
 
 import pytest
 
-from src.infrastructure.connectors._shared.retry_policies import create_error_classifier_retry
+from src.infrastructure.connectors._shared.retry_policies import (
+    create_error_classifier_retry,
+)
 from src.infrastructure.connectors.lastfm.error_classifier import LastFMErrorClassifier
 
 
@@ -121,7 +123,9 @@ class TestErrorClassificationRetryLogic:
         retry_state = Mock()
         retry_state.outcome.failed = True
         retry_state.outcome.exception.return_value = pylast.WSError(
-            "LastFm", "10", "Invalid API key"  # permanent error
+            "LastFm",
+            "10",
+            "Invalid API key",  # permanent error
         )
 
         # Should not retry permanent errors

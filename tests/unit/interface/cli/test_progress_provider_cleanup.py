@@ -3,8 +3,6 @@
 TDD test to ensure cleanup tasks don't leak when display is stopped.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest
@@ -76,7 +74,9 @@ class TestRichProgressProviderCleanup:
             )
             await provider.on_operation_started(operation)
 
-            await provider.on_operation_completed(f"test-op-{i}", OperationStatus.COMPLETED)
+            await provider.on_operation_completed(
+                f"test-op-{i}", OperationStatus.COMPLETED
+            )
 
         # Stop display immediately
         await provider.stop_display()

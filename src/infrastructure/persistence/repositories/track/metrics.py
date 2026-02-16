@@ -1,10 +1,8 @@
 """Track metrics repository for tracking play counts and other metrics."""
 
-from __future__ import annotations
-
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, override
 
 from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +29,7 @@ _METRICS_TASK = None
 class TrackMetricMapper(BaseModelMapper[DBTrackMetric, dict[str, Any]]):
     """Mapper for track metrics to simple dictionaries."""
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBTrackMetric) -> dict[str, Any]:
         """Convert DB metric to dictionary representation."""
@@ -46,6 +45,7 @@ class TrackMetricMapper(BaseModelMapper[DBTrackMetric, dict[str, Any]]):
             "collected_at": db_model.collected_at,
         }
 
+    @override
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBTrackMetric:
         """Convert dictionary to DB model."""
@@ -57,6 +57,7 @@ class TrackMetricMapper(BaseModelMapper[DBTrackMetric, dict[str, Any]]):
             collected_at=domain_model.get("collected_at", datetime.now(UTC)),
         )
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get default relationships to load.

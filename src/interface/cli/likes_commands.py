@@ -1,22 +1,20 @@
 """CLI commands for importing, exporting, and syncing liked tracks across services."""
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Annotated
 
-from rich.panel import Panel
 from rich.prompt import Prompt
 import typer
 
-from src.infrastructure.connectors import run_async_with_connector_executor
 from src.application.use_cases.sync_likes import (
     get_sync_checkpoint_status,
     run_lastfm_likes_export,
     run_spotify_likes_import,
 )
+from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console
-from src.interface.shared.ui import display_operation_result
+from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
+from src.interface.cli.ui import display_operation_result
 
 console = get_console()
 
@@ -24,7 +22,7 @@ console = get_console()
 def _get_lastfm_checkpoint_info() -> str | None:
     """Get Last.fm checkpoint information for display."""
     try:
-        checkpoint_status = run_async_with_connector_executor(
+        checkpoint_status = run_async(
             get_sync_checkpoint_status(service="lastfm", entity_type="likes")
         )
         return checkpoint_status.format_timestamp()
@@ -79,7 +77,7 @@ def import_spotify_cmd(
     """
     # Execute the import
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
-        result = run_async_with_connector_executor(
+        result = run_async(
             run_spotify_likes_import(
                 user_id="default",  # Internal identifier, not exposed to user
                 limit=limit,
@@ -147,7 +145,7 @@ def export_lastfm_cmd(
 
     # Execute the export
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
-        result = run_async_with_connector_executor(
+        result = run_async(
             run_lastfm_likes_export(
                 user_id="default",  # Internal identifier, not exposed to user
                 batch_size=batch_size,
@@ -163,44 +161,33 @@ def export_lastfm_cmd(
 
 def _show_interactive_likes_menu() -> None:
     """Display interactive likes management menu."""
-    console.print(
-        Panel.fit(
-            "💚 Manage your liked tracks across services",
-            title="[bold blue]Narada Likes[/bold blue]",
-            border_style="blue",
-        )
+
+    def _show_checkpoint_info() -> None:
+        checkpoint_info = _get_lastfm_checkpoint_info()
+        if checkpoint_info:
+            console.print(f"\nLast export: {checkpoint_info}")
+        else:
+            console.print("\n[dim]No previous Last.fm export found[/dim]")
+
+    run_interactive_menu(
+        title="Narada Likes",
+        subtitle="💚 Manage your liked tracks across services",
+        options=[
+            MenuOption(
+                key="1",
+                aliases=["import"],
+                label="[bold]Import from Spotify[/bold] - Bring your Spotify liked tracks into your library",
+                handler=_interactive_spotify_import,
+            ),
+            MenuOption(
+                key="2",
+                aliases=["export"],
+                label="[bold]Export to Last.fm[/bold] - Mark your liked tracks as loved on Last.fm",
+                handler=_interactive_lastfm_export,
+            ),
+        ],
+        pre_menu=_show_checkpoint_info,
     )
-
-    # Show Last.fm checkpoint info if available
-    checkpoint_info = _get_lastfm_checkpoint_info()
-    if checkpoint_info:
-        console.print(f"\nLast export: {checkpoint_info}")
-    else:
-        console.print("\n[dim]No previous Last.fm export found[/dim]")
-
-    console.print("\n🔄 [bold]Available Operations[/bold]:")
-    console.print(
-        "  [cyan]1[/cyan]. [bold]Import from Spotify[/bold] - Bring your Spotify liked tracks into your library"
-    )
-    console.print(
-        "  [cyan]2[/cyan]. [bold]Export to Last.fm[/bold] - Mark your liked tracks as loved on Last.fm"
-    )
-
-    choice = Prompt.ask(
-        "Select operation [1-2] or type 'import'/'export'",
-        choices=["1", "2", "import", "export", "q", "quit", "exit", "cancel"],
-        default="",
-        show_choices=False,
-    ).strip()
-
-    if choice in ("", "q", "quit", "exit", "cancel"):
-        return
-
-    # Handle selection
-    if choice in ("1", "import"):
-        _interactive_spotify_import()
-    elif choice in ("2", "export"):
-        _interactive_lastfm_export()
 
 
 def _interactive_spotify_import() -> None:
@@ -223,7 +210,7 @@ def _interactive_spotify_import() -> None:
     console.print("\n[green]Starting Spotify likes import...[/green]")
 
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
-        result = run_async_with_connector_executor(
+        result = run_async(
             run_spotify_likes_import(
                 user_id="default",
                 limit=limit,
@@ -284,7 +271,7 @@ def _interactive_lastfm_export() -> None:
     console.print("\n[green]Starting Last.fm likes export...[/green]")
 
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
-        result = run_async_with_connector_executor(
+        result = run_async(
             run_lastfm_likes_export(
                 user_id="default",
                 batch_size=batch_size,

@@ -11,8 +11,6 @@ Unlike pure domain transforms, these functions:
 - Handle complex time window logic with multiple date format parsing
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
@@ -32,7 +30,6 @@ logger = get_logger(__name__)
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
-
 
 # === Time Range Predicates ===
 

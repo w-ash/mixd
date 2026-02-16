@@ -1,7 +1,5 @@
 """Repository for connector play operations."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 from sqlalchemy import select, update

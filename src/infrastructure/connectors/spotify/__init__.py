@@ -16,8 +16,6 @@ Usage:
     await connector.create_playlist(...)
 """
 
-from __future__ import annotations
-
 from src.infrastructure.connectors.spotify.connector import (
     SpotifyConnector,
     get_connector_config,

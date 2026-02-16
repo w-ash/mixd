@@ -5,8 +5,6 @@ creates playlist entity, extracts metrics from connector metadata, and commits
 the transaction. Returns operational metrics for monitoring.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,7 +43,9 @@ class CreateCanonicalPlaylistCommand:
     """
 
     name: str = field(validator=non_empty_string)
-    tracklist: TrackList = field(validator=tracklist_has_tracks_or_metadata("connector_playlist"))
+    tracklist: TrackList = field(
+        validator=tracklist_has_tracks_or_metadata("connector_playlist")
+    )
     description: str | None = None
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
@@ -134,10 +134,8 @@ class CreateCanonicalPlaylistUseCase:
                     )
 
                     processing_service = ConnectorPlaylistProcessingService()
-                    source_data = (
-                        await processing_service.process_connector_playlist(
-                            command.tracklist.metadata["connector_playlist"], uow
-                        )
+                    source_data = await processing_service.process_connector_playlist(
+                        command.tracklist.metadata["connector_playlist"], uow
                     )
 
                 # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
@@ -162,15 +160,17 @@ class CreateCanonicalPlaylistUseCase:
                             persisted_entries.append(entry)
 
                     # Build final playlist with persisted entries
-                    connector_playlist_identifiers = source_data.connector_playlist_identifiers.copy()
+                    connector_playlist_identifiers = (
+                        source_data.connector_playlist_identifiers.copy()
+                    )
                     if (
                         command.metadata
                         and "connector" in command.metadata
                         and "connector_id" in command.metadata
                     ):
-                        connector_playlist_identifiers[command.metadata["connector"]] = (
-                            command.metadata["connector_id"]
-                        )
+                        connector_playlist_identifiers[
+                            command.metadata["connector"]
+                        ] = command.metadata["connector_id"]
                         logger.info(
                             "Creating canonical playlist with connector mapping",
                             connector=command.metadata["connector"],
@@ -204,9 +204,9 @@ class CreateCanonicalPlaylistUseCase:
                         and "connector" in command.metadata
                         and "connector_id" in command.metadata
                     ):
-                        connector_playlist_identifiers[command.metadata["connector"]] = (
-                            command.metadata["connector_id"]
-                        )
+                        connector_playlist_identifiers[
+                            command.metadata["connector"]
+                        ] = command.metadata["connector_id"]
                         logger.info(
                             "Creating canonical playlist with connector mapping",
                             connector=command.metadata["connector"],
@@ -214,13 +214,15 @@ class CreateCanonicalPlaylistUseCase:
                         )
 
                     from src.domain.entities.track import TrackList
+
                     tracklist_with_persisted = TrackList(tracks=persisted_tracks)
                     playlist = Playlist.from_tracklist(
                         name=command.name,
                         tracklist=tracklist_with_persisted,
                         added_at=command.timestamp,
                         description=command.description,
-                        connector_playlist_identifiers=connector_playlist_identifiers or {},
+                        connector_playlist_identifiers=connector_playlist_identifiers
+                        or {},
                     )
                     # Add metadata if provided
                     if command.metadata:

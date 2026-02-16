@@ -4,10 +4,8 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
-from typing import Any, TypeVar, cast
+from typing import Any, cast, override
 
 from attrs import define
 from sqlalchemy import select, update
@@ -29,13 +27,13 @@ from src.infrastructure.persistence.repositories.track.core import TrackReposito
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 logger = get_logger(__name__)
-T = TypeVar("T")
 
 
 @define(frozen=True, slots=True)
 class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
     """Converts external service track data between database and domain formats."""
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBConnectorTrack) -> dict[str, Any]:
         """Convert database connector track to dictionary format.
@@ -63,6 +61,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
             "last_updated": db_model.last_updated,
         }
 
+    @override
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBConnectorTrack:
         """Convert dictionary to database connector track.
@@ -86,6 +85,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
             last_updated=domain_model.get("last_updated", datetime.now(UTC)),
         )
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get related entities to load when querying connector tracks."""
@@ -96,6 +96,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
 class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
     """Converts track-to-service mapping data between database and domain formats."""
 
+    @override
     @staticmethod
     async def to_domain(db_model: DBTrackMapping) -> dict[str, Any]:
         """Convert database mapping to dictionary format.
@@ -119,6 +120,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
             "is_primary": db_model.is_primary,
         }
 
+    @override
     @staticmethod
     def to_db(domain_model: dict[str, Any]) -> DBTrackMapping:
         """Convert dictionary to database mapping.
@@ -140,6 +142,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
             ),  # Default to non-primary, let explicit logic handle primary setting
         )
 
+    @override
     @staticmethod
     def get_default_relationships() -> list[str]:
         """Get related entities to load when querying track mappings."""

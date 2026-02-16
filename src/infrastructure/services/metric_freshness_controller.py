@@ -4,8 +4,6 @@ Determines which tracks need updated metrics from external services (Last.fm, Sp
 by comparing last-updated timestamps against configurable age limits.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 
 from src.config import get_logger, settings

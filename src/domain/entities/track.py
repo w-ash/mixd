@@ -3,8 +3,6 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 

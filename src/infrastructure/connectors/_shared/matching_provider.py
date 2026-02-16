@@ -5,8 +5,6 @@ business logic. All business decisions (confidence, thresholds, acceptance)
 remain in the domain layer.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -18,8 +16,10 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.infrastructure.connectors._shared.failure_logging import log_failure_summary
-from src.infrastructure.connectors._shared.failure_utils import create_and_log_failure
+from src.infrastructure.connectors._shared.failure_handling import (
+    create_and_log_failure,
+    log_failure_summary,
+)
 
 logger = get_logger(__name__)
 

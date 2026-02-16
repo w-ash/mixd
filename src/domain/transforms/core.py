@@ -12,8 +12,6 @@ Transformations follow functional programming principles:
 - Purity: No side effects or external dependencies
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from functools import wraps
 
@@ -24,7 +22,6 @@ from src.domain.entities.track import TrackList
 # Type variables for generic transformations
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
-
 
 # === Transform Decorators ===
 

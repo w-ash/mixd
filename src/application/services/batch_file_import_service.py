@@ -5,8 +5,6 @@ archiving and error aggregation. Follows hexagonal architecture by keeping file
 operations in the application layer and delegating actual import to use cases.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -130,7 +128,11 @@ class BatchFileImportService:
         if not pending_files:
             logger.info(f"No files found matching pattern: {pattern}")
             return BatchImportResult(
-                total_files=0, successful=0, failed=0, failed_files=[], archived_files=[]
+                total_files=0,
+                successful=0,
+                failed=0,
+                failed_files=[],
+                archived_files=[],
             )
 
         logger.info(f"Found {len(pending_files)} files to import")

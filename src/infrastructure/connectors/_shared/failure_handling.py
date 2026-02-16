@@ -1,19 +1,66 @@
-"""Utilities to eliminate duplication in provider failure handling.
+"""Failure handling utilities for match providers.
 
-This module provides composable utilities that make failure handling DRY
-across all providers while maintaining clean architecture principles.
+Provides structured logging and composable utilities for failure handling
+across all matching providers while maintaining clean architecture principles.
 """
-
-from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.config import get_logger
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
     ProviderMatchResult,
 )
-from src.infrastructure.connectors._shared.failure_logging import log_match_failure
+
+logger = get_logger(__name__)
+
+
+def log_match_failure(failure: MatchFailure) -> None:
+    """Log a match failure with structured WARNING-level logging.
+
+    Args:
+        failure: Structured failure information to log
+    """
+    message = f"{failure.service} {failure.method} match failed for track {failure.track_id}: {failure.details}"
+
+    log_context = {
+        "track_id": failure.track_id,
+        "service": failure.service,
+        "method": failure.method,
+        "reason": failure.reason.value,
+    }
+
+    if failure.exception_type:
+        message += (
+            f" (reason: {failure.reason.value}, exception: {failure.exception_type})"
+        )
+        log_context["exception_type"] = failure.exception_type
+    else:
+        message += f" (reason: {failure.reason.value})"
+
+    logger.warning(message, **log_context)
+
+
+def log_failure_summary(service: str, match_count: int, failure_count: int) -> None:
+    """Log a summary of provider results.
+
+    Args:
+        service: Name of the service provider
+        match_count: Number of successful matches
+        failure_count: Number of failed attempts
+    """
+    total_attempts = match_count + failure_count
+    success_rate = (match_count / total_attempts * 100) if total_attempts > 0 else 0
+
+    logger.info(
+        f"Provider {service} completed: {match_count} matches, {failure_count} failures",
+        service=service,
+        match_count=match_count,
+        failure_count=failure_count,
+        total_attempts=total_attempts,
+        success_rate=round(success_rate, 1),
+    )
 
 
 def create_and_log_failure(

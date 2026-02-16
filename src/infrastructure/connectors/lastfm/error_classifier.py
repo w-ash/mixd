@@ -1,8 +1,6 @@
 """LastFM-specific error classification for retry behavior."""
 
-from __future__ import annotations
-
-from typing import ClassVar
+from typing import ClassVar, override
 
 import pylast
 
@@ -19,6 +17,7 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
     HTTPErrorClassifier's text pattern matching for generic errors.
     """
 
+    @override
     @property
     def service_name(self) -> str:
         """Return service name for logging."""
@@ -57,6 +56,7 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
         "20": "Not Enough Content - There is not enough content to play this station",
     }
 
+    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Last.fm API errors for proper retry behavior.
 

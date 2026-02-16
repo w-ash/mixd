@@ -1,7 +1,5 @@
 """Base class for importing music listening data from external sources."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, TypedDict

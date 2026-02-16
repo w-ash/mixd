@@ -5,12 +5,10 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
-from __future__ import annotations
-
 # Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol
 
@@ -123,6 +121,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
             uow=uow,
         )
 
+    @override
     async def _fetch_data(
         self,
         progress_emitter: ProgressEmitter | None = None,
@@ -180,6 +179,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         logger.info(f"Parsed {len(raw_records)} records from Spotify file: {file_path}")
         return raw_records
 
+    @override
     async def _process_data(
         self,
         raw_data: list[Any],
@@ -248,6 +248,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         return connector_plays
 
+    @override
     async def _save_data(
         self, data: list[Any], uow: UnitOfWorkProtocol | None = None
     ) -> tuple[int, int]:
@@ -258,6 +259,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         # Use base class method to eliminate duplication
         return await self._save_connector_plays_via_uow(data, uow)
 
+    @override
     async def _handle_checkpoints(
         self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs
     ) -> None:

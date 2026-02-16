@@ -1,11 +1,11 @@
 """Last.fm API client - Pure API wrapper with centralized retry policy."""
-
-from __future__ import annotations
+# TODO(v0.6+): Replace pylast with direct httpx calls for async-native HTTP,
+# eliminating the sync-to-async bridging overhead.
 
 import asyncio
 from datetime import datetime
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any
 
 from attrs import define, field
 import pylast
@@ -15,9 +15,6 @@ from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
 
 logger = get_logger(__name__).bind(service="lastfm_client")
-
-T = TypeVar("T")
-
 
 # -------------------------------------------------------------------------
 # XML PARSER TYPE
@@ -109,7 +106,7 @@ class LastFMAPIClient:
                 if child_elements and child_elements[0].firstChild:
                     text = child_elements[0].firstChild.nodeValue.strip()
                     return text or None
-        except (AttributeError, IndexError):
+        except AttributeError, IndexError:
             return None
         return None
 
@@ -168,9 +165,7 @@ class LastFMAPIClient:
         """Get track with retry policy."""
         return await self._retry_policy(self._get_track_impl, artist, title)
 
-    async def _get_track_impl(
-        self, artist: str, title: str
-    ) -> pylast.Track | None:
+    async def _get_track_impl(self, artist: str, title: str) -> pylast.Track | None:
         """Pure implementation without retry logic."""
         if not self.is_configured or self.client is None:
             return None
@@ -244,7 +239,9 @@ class LastFMAPIClient:
         try:
             return await self._get_track_info_comprehensive_by_mbid_with_retries(mbid)
         except (pylast.WSError, TimeoutError) as e:
-            logger.warning(f"Failed to get comprehensive track info by MBID after retries: {e}")
+            logger.warning(
+                f"Failed to get comprehensive track info by MBID after retries: {e}"
+            )
             return None
 
     async def _get_track_info_comprehensive_by_mbid_with_retries(
@@ -349,8 +346,8 @@ class LastFMAPIClient:
                             track_info["lastfm_album_mbid"] = (
                                 self._extract_minidom_text(album, "mbid")
                             )
-                            track_info["lastfm_album_url"] = (
-                                self._extract_minidom_text(album, "url")
+                            track_info["lastfm_album_url"] = self._extract_minidom_text(
+                                album, "url"
                             )
 
                         # User data
@@ -358,9 +355,7 @@ class LastFMAPIClient:
                             track_info["lastfm_user_playcount"] = (
                                 self._extract_minidom_int(elem, "userplaycount")
                             )
-                            userloved = self._extract_minidom_text(
-                                elem, "userloved"
-                            )
+                            userloved = self._extract_minidom_text(elem, "userloved")
                             track_info["lastfm_user_loved"] = userloved == "1"
 
                 return track_info
@@ -586,9 +581,9 @@ class LastFMAPIClient:
             "album_name": lambda t: t.get_album() and t.get_album().get_name(),
             "album_mbid": lambda t: t.get_album() and t.get_album().get_mbid(),
             "album_url": lambda t: t.get_album() and t.get_album().get_url(),
-            "user_playcount": lambda t: int(t.get_userplaycount() or 0)
-            if t.username
-            else None,
+            "user_playcount": lambda t: (
+                int(t.get_userplaycount() or 0) if t.username else None
+            ),
             "user_loved": lambda t: bool(t.get_userloved()) if t.username else False,
             "global_playcount": lambda t: int(t.get_playcount() or 0),
             "listeners": lambda t: int(t.get_listener_count() or 0),
@@ -599,7 +594,7 @@ class LastFMAPIClient:
                 value = extractor(track)
                 if value is not None:
                     metadata[f"lastfm_{field_name}"] = value
-            except (AttributeError, TypeError, ValueError):
+            except AttributeError, TypeError, ValueError:
                 # Skip fields that can't be extracted
                 continue
 

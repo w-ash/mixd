@@ -5,11 +5,9 @@ progress bars, spinners, and status information for long-running operations.
 Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
-from typing import Any
+from typing import Any, override
 
 from attrs import define
 from rich.live import Live
@@ -37,6 +35,7 @@ logger = get_logger(__name__).bind(service="rich_progress_provider")
 class ETAColumn(ProgressColumn):
     """Custom progress column that shows ETA from event metadata."""
 
+    @override
     def render(self, task: Any) -> str:
         """Render ETA from task description or metadata."""
         if hasattr(task, "fields") and "eta_seconds" in task.fields:
@@ -53,6 +52,7 @@ class ETAColumn(ProgressColumn):
 class RateColumn(ProgressColumn):
     """Custom progress column that shows processing rate from event metadata."""
 
+    @override
     def render(self, task: Any) -> str:
         """Render processing rate from task metadata."""
         if hasattr(task, "fields") and "items_per_second" in task.fields:
@@ -126,7 +126,9 @@ class RichProgressProvider:
         )
 
         self._operation_tasks: dict[str, OperationTask] = {}
-        self._cleanup_tasks: set[asyncio.Task] = set()  # Track cleanup tasks for proper cancellation
+        self._cleanup_tasks: set[asyncio.Task] = (
+            set()
+        )  # Track cleanup tasks for proper cancellation
         self._progress_started = False
         self._lock = asyncio.Lock()
 
@@ -155,13 +157,17 @@ class RichProgressProvider:
             if self._progress_started:
                 # Cancel all pending cleanup tasks
                 cleanup_count = len(self._cleanup_tasks)
-                for task in self._cleanup_tasks:
+                tasks_snapshot = list(self._cleanup_tasks)
+                for task in tasks_snapshot:
                     if not task.done():
                         task.cancel()
 
-                # Wait for all cleanup tasks to be cancelled
-                if self._cleanup_tasks:
-                    await asyncio.gather(*self._cleanup_tasks, return_exceptions=True)
+                # Wait for all cleanup tasks to finish cancellation
+                for task in tasks_snapshot:
+                    try:
+                        await task
+                    except asyncio.CancelledError, Exception:
+                        pass
 
                 self._cleanup_tasks.clear()
 

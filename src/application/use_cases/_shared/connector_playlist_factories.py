@@ -4,8 +4,6 @@ Provides reusable factory functions for creating ConnectorPlaylistItem instances
 from tracks, eliminating duplication across use cases.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 

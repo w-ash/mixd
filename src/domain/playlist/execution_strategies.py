@@ -5,8 +5,6 @@ platform (canonical database vs external API). Enables DRY compliance by using
 the same diff logic with different execution approaches.
 """
 
-from __future__ import annotations
-
 import bisect
 from typing import Any, Protocol
 

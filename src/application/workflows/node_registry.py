@@ -6,8 +6,6 @@ node registration and discovery. It serves as the connection point between
 workflow definitions and node implementations.
 """
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Literal, NotRequired, TypedDict

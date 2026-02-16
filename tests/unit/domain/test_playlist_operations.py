@@ -56,7 +56,10 @@ class TestPlaylistEntity:
             name="Test Playlist",
             tracklist=tracks,
             description="Description",
-            connector_playlist_identifiers={"spotify": "spotify_123", "apple_music": "am_456"},
+            connector_playlist_identifiers={
+                "spotify": "spotify_123",
+                "apple_music": "am_456",
+            },
         )
 
         assert playlist.name == "Test Playlist"
@@ -76,8 +79,12 @@ class TestPlaylistEntity:
         original_tracks = [Track(title="Song 1", artists=[Artist(name="Artist 1")])]
         new_tracks = [Track(title="Song 2", artists=[Artist(name="Artist 2")])]
 
-        playlist = Playlist.from_tracklist(name="Test Playlist", tracklist=original_tracks)
-        new_entries = [PlaylistEntry(track=t, added_at=datetime.now(UTC)) for t in new_tracks]
+        playlist = Playlist.from_tracklist(
+            name="Test Playlist", tracklist=original_tracks
+        )
+        new_entries = [
+            PlaylistEntry(track=t, added_at=datetime.now(UTC)) for t in new_tracks
+        ]
         updated_playlist = playlist.with_entries(new_entries)
 
         assert updated_playlist.tracks == new_tracks
@@ -255,9 +262,7 @@ class TestPlaylistEntryEntity:
         """Test creating a playlist entry."""
         test_track = Track(id=123, title="Test", artists=[Artist(name="Test Artist")])
         entry = PlaylistEntry(
-            track=test_track,
-            added_at=datetime.now(UTC),
-            added_by="user123"
+            track=test_track, added_at=datetime.now(UTC), added_by="user123"
         )
 
         assert entry.track.id == 123

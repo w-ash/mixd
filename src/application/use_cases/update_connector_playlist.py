@@ -4,8 +4,6 @@ Calculates minimal track changes (add/remove/move) to update external service
 playlists while preserving track timestamps and minimizing API calls.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Any
 
@@ -630,13 +628,14 @@ class UpdateConnectorPlaylistUseCase:
             )
 
             # Post-execution validation: verify operations actually applied
-            operation_success, partial_success = (
-                await self._validate_playlist_post_execution(
-                    connector,
-                    command.playlist_id,
-                    final_snapshot_id,
-                    len(sequenced_operations),
-                )
+            (
+                operation_success,
+                partial_success,
+            ) = await self._validate_playlist_post_execution(
+                connector,
+                command.playlist_id,
+                final_snapshot_id,
+                len(sequenced_operations),
             )
 
             # Build detailed response metadata using builder pattern

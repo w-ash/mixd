@@ -10,8 +10,6 @@ Key components:
 - Helper utilities: metadata extraction, field processing
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -67,9 +65,9 @@ class LastFMTrackInfo:
         "lastfm_album_name": lambda t: t.get_album() and t.get_album().get_name(),
         "lastfm_album_mbid": lambda t: t.get_album() and t.get_album().get_mbid(),
         "lastfm_album_url": lambda t: t.get_album() and t.get_album().get_url(),
-        "lastfm_user_playcount": lambda t: int(t.get_userplaycount() or 0)
-        if t.username
-        else None,
+        "lastfm_user_playcount": lambda t: (
+            int(t.get_userplaycount() or 0) if t.username else None
+        ),
         "lastfm_user_loved": lambda t: bool(t.get_userloved()) if t.username else False,
         "lastfm_global_playcount": lambda t: int(t.get_playcount() or 0),
         "lastfm_listeners": lambda t: int(t.get_listener_count() or 0),

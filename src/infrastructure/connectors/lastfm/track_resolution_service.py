@@ -8,8 +8,6 @@ This service resolves Last.fm play data to canonical tracks using:
 Follows the exact same proven pattern as Spotify resolution but adapted for Last.fm metadata.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 
 from src.config import get_logger

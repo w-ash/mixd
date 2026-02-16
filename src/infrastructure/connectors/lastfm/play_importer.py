@@ -5,11 +5,9 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
-from __future__ import annotations
-
 # Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import Any, override
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol
 from src.config import get_logger, settings
@@ -153,6 +151,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             },
         )
 
+    @override
     async def _fetch_data(
         self,
         progress_emitter: ProgressEmitter | None = None,
@@ -604,6 +603,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             # Don't fail the import for checkpoint errors, just log them
             logger.warning(f"Failed to save checkpoint for day {completed_date}: {e}")
 
+    @override
     async def _process_data(
         self,
         raw_data: list[Any],
@@ -642,6 +642,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         return connector_plays
 
+    @override
     async def _save_data(
         self, data: list[Any], uow: UnitOfWorkProtocol | None = None
     ) -> tuple[int, int]:
@@ -685,6 +686,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             f"Reset Last.fm checkpoint for full history import: user={resolved_username}"
         )
 
+    @override
     async def _handle_checkpoints(
         self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs
     ) -> None:

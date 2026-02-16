@@ -5,8 +5,6 @@ fetching missing metrics from external APIs, converting values to standardized
 formats, and persisting results for future use.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from attrs import define
@@ -162,7 +160,7 @@ class MetricsApplicationService:
                             converted_value,
                         ))
                         cached_values[track_id] = value
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         logger.warning(
                             f"Cannot convert {value} to numeric type for {metric_name}"
                         )
@@ -278,67 +276,57 @@ class MetricsApplicationService:
 
         # Phase 2: Concurrent API operations (with fresh database sessions)
         if missing_tracks_per_metric:
+            # Collect results from concurrent metric resolution
+            metric_results: list[tuple[str, dict[int, Any]]] = []
 
             async def resolve_single_metric_no_db(
                 metric_name: str, field_value: str
-            ) -> tuple[str, dict[int, Any]]:
-                missing_ids = missing_tracks_per_metric.get(metric_name, [])
-                if not missing_ids:
-                    return metric_name, {}
+            ) -> None:
+                """Resolve a single metric and append to shared results list."""
+                try:
+                    missing_ids = missing_tracks_per_metric.get(metric_name, [])
+                    if not missing_ids:
+                        return
 
-                # Create fresh UOW for concurrent database operations using proper session context
-                from src.infrastructure.persistence.database.db_connection import (
-                    get_session,
-                )
-                from src.infrastructure.persistence.repositories.factories import (
-                    get_unit_of_work,
-                )
-
-                async with get_session() as fresh_session:
-                    fresh_uow = get_unit_of_work(fresh_session)
-
-                    # Fetch fresh metadata with dedicated database session
-                    fresh_values = await self._resolve_metrics_no_db(
-                        track_ids=missing_ids,
-                        metric_name=metric_name,
-                        connector=connector,
-                        field_name=field_value,
-                        uow=fresh_uow,
-                        connector_instance=connector_instance,
+                    # Create fresh UOW for concurrent database operations
+                    from src.infrastructure.persistence.database.db_connection import (
+                        get_session,
                     )
-                    return metric_name, fresh_values
+                    from src.infrastructure.persistence.repositories.factories import (
+                        get_unit_of_work,
+                    )
 
-            # Execute all API calls concurrently
-            tasks = [
-                asyncio.create_task(
-                    resolve_single_metric_no_db(metric_name, field_value)
-                )
-                for metric_name, field_value in field_map.items()
-                if metric_name in missing_tracks_per_metric
+                    async with get_session() as fresh_session:
+                        fresh_uow = get_unit_of_work(fresh_session)
+                        fresh_values = await self._resolve_metrics_no_db(
+                            track_ids=missing_ids,
+                            metric_name=metric_name,
+                            connector=connector,
+                            field_name=field_value,
+                            uow=fresh_uow,
+                            connector_instance=connector_instance,
+                        )
+                        metric_results.append((metric_name, fresh_values))
+                except Exception as exc:
+                    logger.error(f"Error resolving metric {metric_name}: {exc}")
+
+            # Execute all API calls concurrently with structured concurrency
+            metrics_to_resolve = [
+                (mn, fv)
+                for mn, fv in field_map.items()
+                if mn in missing_tracks_per_metric
             ]
 
-            if tasks:
-                metric_results = await asyncio.gather(*tasks, return_exceptions=True)
+            if metrics_to_resolve:
+                async with asyncio.TaskGroup() as tg:
+                    for metric_name, field_value in metrics_to_resolve:
+                        tg.create_task(
+                            resolve_single_metric_no_db(metric_name, field_value)
+                        )
 
                 # Collect fresh data for bulk save
                 all_metrics_to_save = []
-                for metric_result in metric_results:
-                    if isinstance(metric_result, Exception):
-                        logger.error(f"Error resolving metric: {metric_result}")
-                        continue
-
-                    # Type narrowing: we know it's not an Exception at this point
-                    if not isinstance(metric_result, tuple):
-                        logger.error(f"Invalid metric result format: {metric_result}")
-                        continue
-
-                    try:
-                        metric_name, fresh_values = metric_result
-                    except ValueError as e:
-                        logger.error(
-                            f"Cannot unpack metric result {metric_result}: {e}"
-                        )
-                        continue
+                for metric_name, fresh_values in metric_results:
                     for track_id, value in fresh_values.items():
                         if value is not None:
                             try:
@@ -365,7 +353,7 @@ class MetricsApplicationService:
                                     fresh_ids_per_metric[metric_name] = set()
                                 fresh_ids_per_metric[metric_name].add(track_id)
 
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 logger.warning(
                                     f"Cannot convert {value} for {metric_name}"
                                 )
@@ -452,7 +440,7 @@ class MetricsApplicationService:
                         metric_name,
                         float_value,
                     ))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     logger.warning(f"Cannot convert {value} to float for {metric_name}")
 
         # Batch save all metrics using unified BatchProcessor

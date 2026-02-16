@@ -15,10 +15,8 @@ The facade pattern allows the rest of the codebase to use LastFMConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, override
 
 from attrs import define, field
 
@@ -60,16 +58,19 @@ class LastFMConnector(BaseAPIConnector):
         )
         self._operations = LastFMOperations(self._client)
 
+    @override
     @property
     def connector_name(self) -> str:
         """Service identifier for this connector."""
         return "lastfm"
 
+    @override
     @property
     def error_classifier(self):
         """Get Last.fm-specific error classifier."""
         return LastFMErrorClassifier()
 
+    @override
     def get_connector_config(self, key: str, default=None):
         """Load Last.fm configuration, extending base class with service-specific settings."""
         base_config = super().get_connector_config(key, default)
@@ -120,6 +121,7 @@ class LastFMConnector(BaseAPIConnector):
         """Create a Last.fm play record from a track."""
         return await self._operations.create_play_record_from_track(track, timestamp)
 
+    @override
     def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector

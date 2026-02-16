@@ -151,4 +151,4 @@ class TestConnectorRetryIntegration:
     create_service_aware_retry() method - they use RetryPolicyFactory instead.
     """
 
-    pass  # Tests removed after migration to tenacity
+    # Tests removed after migration to tenacity

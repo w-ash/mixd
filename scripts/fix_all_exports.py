@@ -5,8 +5,8 @@ The previous script removed quotes from __all__ exports, but these
 must remain strings. This script adds them back.
 """
 
-import re
 from pathlib import Path
+import re
 import sys
 
 
@@ -40,13 +40,13 @@ def fix_all_list(content: str) -> tuple[str, int]:
         fixed = re.sub(
             r'(?<!["\'])([A-Za-z_][A-Za-z0-9_]*)(?!["\'])',
             quote_identifier,
-            all_content
+            all_content,
         )
 
-        return f'__all__ = [{fixed}]'
+        return f"__all__ = [{fixed}]"
 
     # Match __all__ = [...]
-    pattern = r'__all__\s*=\s*\[(.*?)\]'
+    pattern = r"__all__\s*=\s*\[(.*?)\]"
     new_content = re.sub(pattern, replace_unquoted_in_all, content, flags=re.DOTALL)
 
     return new_content, changes
@@ -106,7 +106,7 @@ def main():
 
     # Ask for confirmation
     response = input("\nProceed with modifications? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Aborted.")
         return
 

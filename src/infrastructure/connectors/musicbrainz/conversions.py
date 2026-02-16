@@ -13,13 +13,13 @@ The conversion functions are stateless and can be used independently across
 different parts of the MusicBrainz integration.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from src.config import get_logger
-from src.config.constants import MusicBrainzConstants
 from src.domain.entities import ConnectorTrack
+from src.infrastructure.connectors._shared.isrc import (
+    normalize_isrc,
+)
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="musicbrainz_conversions")
@@ -85,36 +85,6 @@ def extract_recording_metadata(recording_data: dict[str, Any]) -> dict[str, Any]
             metadata["musicbrainz_isrc"] = isrcs[0]  # Use first ISRC
 
     return metadata
-
-
-def validate_isrc_format(isrc: str) -> bool:
-    """Validate ISRC format (12 characters: CC-XXX-YY-NNNNN)."""
-    if not isrc or len(isrc) != MusicBrainzConstants.ISRC_LENGTH:
-        return False
-
-    # Check basic format (allowing with or without hyphens)
-    cleaned_isrc = isrc.replace("-", "")
-    if len(cleaned_isrc) != MusicBrainzConstants.ISRC_LENGTH:
-        return False
-
-    # Check if it's alphanumeric
-    return cleaned_isrc.isalnum()
-
-
-def normalize_isrc(isrc: str) -> str | None:
-    """Normalize ISRC to standard format (remove hyphens, uppercase)."""
-    if not isrc:
-        return None
-
-    # Remove hyphens and convert to uppercase
-    normalized = isrc.replace("-", "").upper()
-
-    # Validate format
-    if not validate_isrc_format(normalized):
-        logger.warning(f"Invalid ISRC format: {isrc}")
-        return None
-
-    return normalized
 
 
 def convert_musicbrainz_track_to_connector(
