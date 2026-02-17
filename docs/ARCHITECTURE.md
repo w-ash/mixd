@@ -41,18 +41,14 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 #### Interface Layer (`src/interface/`)
 - **Purpose**: Primary adapters that provide entry points to the application
-- **Contents**: CLI commands, shared UI components, future web controllers
+- **Contents**: CLI commands, UI components, future FastAPI web controllers
 - **Structure**:
-  - `cli/` - 7 Typer command groups (playlist, workflow, history, likes, track, setup, status)
-  - `shared/` - Shared UI components (ui.py for console utilities)
-- **Examples**: Typer CLI commands for playlist management, track operations, sync commands
-- **Responsibilities**: 
-  - **User interaction handling**: Parse user input, format output, manage user sessions
-  - **Command orchestration**: Translate user commands into application use cases
-  - **Progress reporting**: Provide real-time feedback and error messages
-  - **Input validation**: Basic validation before delegating to use cases
-- **Benefits**: Multiple interfaces can reuse same application logic, clean separation of UI concerns
-- **Key Principle**: Only calls application use cases, never accesses domain or infrastructure directly
+  - `cli/` - 5 Typer command groups (playlist, workflow, history, likes, track) plus:
+    - `async_runner.py` - sync-to-async bridge for CLI (FastAPI won't need this)
+    - `interactive_menu.py` - reusable Rich menu pattern
+    - `ui.py`, `cli_helpers.py` - Rich/Typer utilities (CLI-specific, not shared)
+    - `progress_provider.py` - Rich progress display with Live coordination
+- **Key Principle**: Only calls application use cases via `execute_use_case()` runner, never accesses domain or infrastructure directly. All CLI-specific code stays in `cli/` — no `shared/` directory to avoid coupling future web interface to Rich/Typer.
 
 #### Domain Layer (`src/domain/`)
 - **Purpose**: Pure business logic with zero external dependencies
@@ -89,14 +85,9 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `progress_manager.py` - Progress tracking and UI coordination
     - `track_merge_service.py` - Canonical track merging operations
   - `transforms/` - Application-level transforms (metrics, shuffle, play_history, _helpers)
-  - `utilities/` - Batch processing utilities (batch_results, conversions, enhanced_database_batch_processor, results)
+  - `utilities/` - Batch processing utilities (batch_results, enhanced_database_batch_processor, results)
   - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
-- **Responsibilities**: 
-  - **Orchestrates business processes**: Coordinates the steps involved in complex operations (fetching, comparing, filtering, saving)
-  - **Controls transaction boundaries**: Decides when transactions begin, commit, or rollback based on business logic
-  - **Uses repositories as tools**: Asks repositories to fetch, save, or update domain models without knowing implementation details
-  - **Coordinates complex operations**: Application services handle multi-step processes that span multiple repositories
-- **Benefits**: Testable business logic, clear boundaries, reusable components, separation of simple operations from complex coordination
+  - `runner.py` - Generic `execute_use_case[TResult]()` — session/UoW lifecycle for both CLI and FastAPI
 - **Key Principle**: Uses repositories like contract-based tools, owns transaction control logic
 
 #### Infrastructure Layer (`src/infrastructure/`)
@@ -135,61 +126,23 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 
 ### Application Layer Orchestration
 
-The application layer serves as the conductor of business operations, coordinating complex processes without performing low-level work itself. Here's how it operates:
+The application layer coordinates business processes without performing low-level work. It owns transaction boundaries (commit/rollback based on business rules), uses repositories as contract-based tools, and remains decoupled from database details, API specifics, and framework dependencies.
 
-#### Orchestration Responsibilities
-- **Process Coordination**: Knows the steps involved in complex operations (sync tracks, update playlists, import data)
-- **Repository Coordination**: Uses repository interfaces as contract-based tools to fetch, save, and update domain models
-- **Business Flow Control**: Makes decisions about what operations to perform based on business rules
-- **Error Handling**: Decides how to handle failures and when to retry operations
+#### Use Case Runner Pattern
 
-#### Transaction Boundary Management
-The application layer owns transaction control logic:
+The `execute_use_case[TResult]()` function in `application/runner.py` is the single entry point for all use case execution. It handles session creation, UoW wiring, and cleanup:
 
 ```python
-class ImportTracksUseCase:
-    async def execute(self, command: ImportTracksCommand, uow: UnitOfWorkProtocol):
-        async with uow:
-            # Get service importer based on command
-            importer = self._get_service_importer(command.service)
-            
-            # Orchestrate the import process
-            raw_plays = await importer.fetch_play_history(command)
-            enriched_plays = await self._enrich_play_data(raw_plays)
-            validated_plays = self._validate_play_data(enriched_plays)
-            
-            # Application decides transaction outcome based on business rules
-            if self._import_validation_passes(validated_plays):
-                result = await importer.save_plays(validated_plays, uow)
-                await uow.commit()  # Business logic determines success
-                return ImportTracksResult(
-                    operation_result=result,
-                    service=command.service,
-                    mode=command.mode
-                )
-            else:
-                await uow.rollback()  # Business logic determines failure
-                return ImportTracksResult(
-                    operation_result=OperationResult(success=False),
-                    service=command.service,
-                    mode=command.mode
-                )
+# Both CLI and FastAPI use the same runner
+result = await execute_use_case(
+    lambda uow: ImportTracksUseCase(uow).execute(command)
+)
+
+# CLI wraps this in run_async() for sync Typer commands
+# FastAPI calls execute_use_case() directly (natively async)
 ```
 
-**Key Principles:**
-- **Application Decides**: When to begin, commit, or rollback transactions based on business logic
-- **Infrastructure Implements**: Technical details of how transactions work (database connections, session management)
-- **Domain Validates**: Business rules and data integrity without knowing about transactions
-- **Repositories as Tools**: Application tells repositories what to do, not how to do it
-
-#### Separation from Technical Concerns
-The application layer remains decoupled from:
-- Database implementation details (SQL, NoSQL, file system)
-- External API specifics (REST, GraphQL, authentication methods)
-- Session management (connection pooling, transaction isolation levels)
-- Framework dependencies (web frameworks, CLI libraries)
-
-This separation enables the application layer to focus purely on business logic and process orchestration.
+This eliminates session/UoW boilerplate duplication across interfaces.
 
 ## Key Architectural Patterns
 
@@ -297,67 +250,33 @@ Declarative transformation pipelines.
 **Benefits**: Composable operations, visual workflow building, non-technical configuration
 
 ### Async Patterns (Python 3.14+)
-Modern asynchronous execution patterns following Python 3.14 best practices.
 
-#### Single Async Operation
-Use `asyncio.run()` for single async operations:
-
+#### Use Case Runner (CLI + FastAPI shared entry point)
 ```python
-# ✅ Recommended pattern (Python 3.14+)
-from src.infrastructure.connectors import run_async_with_connector_executor
+# application/runner.py — both interfaces use this
+from src.application.runner import execute_use_case
 
-result = run_async_with_connector_executor(fetch_tracks())
+result = await execute_use_case(
+    lambda uow: SyncLikesUseCase(uow).execute(command)
+)
+```
 
-# Alternative using asyncio.run():
-result = asyncio.run(fetch_tracks())
+#### CLI Sync-to-Async Bridge
+```python
+# interface/cli/async_runner.py — CLI-only, FastAPI is natively async
+from src.interface.cli.async_runner import run_async
+
+run_async(execute_use_case(...))  # Uses asyncio.run() + ThreadPoolExecutor
 ```
 
 #### Multiple Sequential Async Operations
-Use `asyncio.Runner` for multiple async calls with blocking work in between:
-
 ```python
 # ✅ Python 3.14+ pattern with asyncio.Runner
-import asyncio
-
 with asyncio.Runner() as runner:
     tracks = runner.run(fetch_tracks())
-    # Can do synchronous work here
     process_tracks(tracks)
     result = runner.run(save_tracks(tracks))
-
-# ❌ Deprecated (Python 3.13 and earlier)
-loop = asyncio.get_event_loop()
-tracks = loop.run_until_complete(fetch_tracks())
-result = loop.run_until_complete(save_tracks(tracks))
 ```
-
-**Benefits**:
-- No deprecated event loop policy management
-- Cleaner code without explicit loop handling
-- Forward compatible with Python 3.16+
-- Proper resource cleanup
-
-#### Debugging Async Operations
-Python 3.14 provides new tools for debugging stuck or misbehaving async code:
-
-```bash
-# List all running async tasks in a process
-python -m asyncio ps <PID>
-
-# Show task hierarchy with call stacks
-python -m asyncio pstree <PID>
-
-# Programmatic access
-from asyncio import capture_call_graph, print_call_graph
-graph = capture_call_graph()
-print_call_graph(graph)
-```
-
-**Use cases**:
-- Debug stuck coroutines
-- Identify task leaks
-- Analyze concurrent task execution
-- Profile async performance bottlenecks
 
 ## Technology Stack
 
@@ -396,7 +315,7 @@ print_call_graph(graph)
 | **pylast** | Last.fm API integration | Comprehensive API coverage, stable interface |
 | **musicbrainzngs** | MusicBrainz integration | Official client, proper rate limiting |
 | **httpx** | HTTP client | Async-first, modern API, excellent performance |
-| **backoff** | Retry logic | Declarative retry patterns, exponential backoff |
+| **tenacity** | Retry logic | Declarative retry patterns, exponential backoff, async-native |
 | **aiolimiter** | Rate limiting | Async rate limiting for API compliance, leaky bucket algorithm |
 | **rapidfuzz** | String matching | High-performance fuzzy matching for track resolution |
 | **toolz** | Functional utilities | Functional composition, efficient data processing |
@@ -831,81 +750,12 @@ Narada follows modern clean architecture principles with strict adherence to dep
 - ✅ **Prefect 3.0 integration** leverages built-in dependency management
 - ✅ **Type hints and protocols** for interface clarity without runtime overhead
 
-### Layer Compliance Verification
+### Layer Compliance Rules
 
-#### Application Layer Independence
-The application layer maintains strict independence from infrastructure concerns while controlling transaction boundaries:
-
-```python
-# ✅ Correct: Application orchestrates with UnitOfWork pattern
-class ImportSpotifyLikesUseCase:
-    async def execute(self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol):
-        async with uow:
-            track_repo = uow.get_track_repository()
-            
-            # Orchestrate business process
-            spotify_likes = await self._fetch_spotify_liked_tracks(command.limit)
-            enriched_tracks = await self._enrich_track_metadata(spotify_likes)
-            validated_tracks = self._validate_track_data(enriched_tracks)
-            
-            # Application decides transaction outcome
-            if self._import_validation_passes(validated_tracks):
-                await track_repo.save_batch(validated_tracks)
-                await uow.commit()  # Business logic controls commit
-                return ImportSpotifyLikesResult(success=True, tracks=validated_tracks)
-            else:
-                await uow.rollback()  # Business logic controls rollback
-                return ImportSpotifyLikesResult(success=False, errors=self._get_validation_errors())
-
-# ❌ Avoided: Direct infrastructure imports in application layer
-# from src.infrastructure.connectors.spotify import SpotifyConnector
-# from src.infrastructure.persistence.database.db_connection import get_session
-```
-
-#### Transaction Boundary Control
-The application layer owns transaction decisions while infrastructure handles implementation:
-
-```python
-# ✅ Application controls transaction lifecycle
-class UpdateCanonicalPlaylistUseCase:
-    async def execute(self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol):
-        async with uow:
-            playlist_repo = uow.get_playlist_repository()
-            track_repo = uow.get_track_repository()
-            
-            # Business orchestration
-            current_playlist = await playlist_repo.get_by_id(command.playlist_id)
-            track_updates = await self._prepare_track_updates(command.track_changes)
-            validated_changes = self._validate_playlist_update_rules(track_updates)
-            
-            # Business rule validation
-            if self._update_validation_passes(validated_changes):
-                await playlist_repo.update_playlist(command.playlist_id, validated_changes)
-                await uow.commit()  # Application decides success
-                return UpdatePlaylistResult(success=True, playlist=current_playlist)
-            else:
-                await uow.rollback()  # Application decides failure
-                return UpdatePlaylistResult(success=False, errors=self._get_validation_errors())
-
-# ❌ Avoided: Infrastructure controlling transactions
-# async with get_session() as session:  # Infrastructure decision
-#     repo = PlaylistRepository(session)
-#     # Session auto-commits/rollbacks based on exceptions, not business logic
-```
-
-#### Clean Dependency Flow
-Dependencies flow inward following clean architecture principles:
-
-```
-Interface → Application → Domain ← Infrastructure
-(CLI)      (Use Cases)   (Logic)   (Repositories)
-```
-
-**Benefits Achieved**:
-- Fast unit tests (domain logic isolated)
-- Easy service integration (connector providers)
-- Clear boundaries (no circular dependencies)
-- Maintainable codebase (single responsibility)
+- Application layer never imports from `src.infrastructure` directly — uses `UnitOfWorkProtocol` and repository protocols
+- Interface layer never accesses repositories — calls `execute_use_case()` which handles session/UoW
+- Domain layer never imports from infrastructure (except `TYPE_CHECKING` for circular import cases)
+- Infrastructure implements domain protocols, never exposes SQLAlchemy models to application
 
 ### Workflow System Architecture
 
@@ -963,14 +813,27 @@ Each music service connector is completely self-contained in its own folder:
 
 ```
 src/infrastructure/connectors/spotify/
-├── client.py           # API client (auth, requests)
-├── connector.py        # Main service interface
-├── factory.py          # Creates all Spotify services
-├── operations.py       # Core operations (get playlists, etc)
-├── matching_provider.py # Track matching logic
-├── conversions.py      # External ↔ Domain model conversion
-├── error_classifier.py # Service-specific error handling
-└── utilities.py        # Spotify-specific helpers
+├── client.py              # API client (auth, requests)
+├── connector.py           # Main service interface
+├── factory.py             # Creates all Spotify services
+├── operations.py          # Core operations (get playlists, etc)
+├── matching_provider.py   # Track matching logic
+├── conversions.py         # External ↔ Domain model conversion
+├── error_classifier.py    # Service-specific error handling
+├── play_importer.py       # Play history import
+├── play_resolver.py       # Play record resolution
+├── personal_data.py       # GDPR export parsing
+├── playlist_sync_operations.py # Playlist sync logic
+└── utilities.py           # Spotify-specific helpers
+
+src/infrastructure/connectors/_shared/
+├── error_classification.py  # ErrorClassifier protocol + HTTPErrorClassifier base
+├── failure_handling.py      # Match failure logging and utilities
+├── isrc.py                  # Shared ISRC normalization/validation
+├── matching_provider.py     # BaseMatchingProvider ABC (template method)
+├── metrics.py               # Metric resolver registry
+├── rate_limited_batch_processor.py
+└── retry_policies.py        # Tenacity retry configuration
 ```
 
 **To add YouTube Music:**
@@ -982,7 +845,7 @@ src/infrastructure/connectors/spotify/
 **Benefits**: Self-contained design means zero changes to other services when adding new ones.
 
 #### Other Extensions
-- **Web Interface**: FastAPI backend with React frontend using existing use cases
+- **Web Interface** (v0.5.0): FastAPI backend using `execute_use_case()` runner + React frontend. Interface layer already restructured — CLI-specific code isolated in `interface/cli/`, `application/runner.py` ready for `Depends()` injection.
 - **Advanced Analytics**: Machine learning on comprehensive listening data
 - **Collaborative Features**: Multi-user support with existing architecture
 
@@ -992,95 +855,14 @@ src/infrastructure/connectors/spotify/
 - **Memory Usage**: Streaming operations and lazy loading for large datasets
 - **Performance**: Async-first design enables concurrent operations
 
-## Security Considerations
+## Cross-Cutting Concerns
 
-### Authentication
-- **OAuth 2.0**: Secure token-based authentication with automatic refresh
-- **API Keys**: Secure storage and rotation for service credentials
-- **Local Storage**: Encrypted storage for sensitive configuration
-
-### Data Privacy
-- **Local First**: All data stored locally, no external data transmission
-- **Consent**: Explicit user consent for all data operations
-- **Minimal Data**: Only necessary data collected and stored
-
-### Error Handling
-- **Graceful Degradation**: Partial failures don't break entire operations
-- **Retry Logic**: Exponential backoff for transient failures
-- **Validation**: Input validation at system boundaries
-
-## Monitoring and Observability
-
-### Logging Strategy
-- **Structured Logging**: JSON format with consistent fields
-- **Context Propagation**: Track operations across system boundaries
-- **Performance Metrics**: Timing and throughput for optimization
-
-### Progress Tracking
-- **Real-time Feedback**: Progress bars and status updates
-- **Operation Metrics**: Success/failure rates, timing data
-- **User Feedback**: Clear error messages with suggested actions
-
-### Health Monitoring
-- **Service Status**: Connection health for external services
-- **Data Quality**: Validation and consistency checks
-- **Performance**: Query performance and resource usage
-
-## Testing Architecture
-
-### Domain Testing
-- **Pure Unit Tests**: No external dependencies, fast execution
-- **Property-Based Testing**: Algorithmic correctness validation
-- **Example**: Track matching confidence calculations
-
-### Application Testing
-- **Use Case Testing**: Business logic validation with mocked dependencies
-- **Integration Testing**: Component interaction verification
-- **Example**: Playlist import workflows
-
-### Infrastructure Testing
-- **API Integration**: Real external service testing
-- **Database Testing**: Repository implementation validation
-- **Example**: Spotify API error handling
-
-## Deployment Architecture
-
-### Local Development
-- **Poetry**: Dependency management and virtual environments
-- **Pre-commit**: Automated code quality checks
-- **SQLite**: Zero-configuration database
-
-### Production Deployment
-- **Single Binary**: Self-contained executable
-- **Configuration**: Environment-based configuration
-- **Data**: Portable SQLite database
-
-### Future Deployment Options
-- **Docker**: Containerized deployment for consistency
-- **Cloud**: FastAPI service deployment for web interface
-- **Desktop**: Native app packaging for broader distribution
-
-## Migration and Evolution
-
-### Backward Compatibility
-- **Database Migrations**: Alembic for schema evolution with SQLAlchemy 2.0 integration
-  - Migration files in `alembic/versions/`
-  - Auto-generation from SQLAlchemy model changes
-  - Forward and rollback migration support
-- **API Versioning**: Maintain compatibility during changes
-- **Configuration**: Graceful handling of configuration changes
-
-### Technology Evolution
-- **Modular Design**: Easy technology replacement
-- **Interface Abstraction**: Clean boundaries for technology changes
-- **Testing**: Comprehensive test coverage for safe refactoring
-
-### Future Architecture
-- **Microservices**: Clean Architecture enables service decomposition
-- **Event-Driven**: Natural evolution from current command patterns
-- **Distributed**: Workflow engine supports distributed execution
-
-This architecture provides a solid foundation for current capabilities while enabling future growth and evolution without fundamental rewrites.
+- **Logging**: Loguru with JSON structured logging, context propagation via `get_logger(__name__).bind()`
+- **Error Handling**: Tenacity retry with exponential backoff, `ErrorClassifier` protocol per connector
+- **Progress**: Rich Live display with coordinated console logging via `RichProgressProvider`
+- **Testing**: 867 tests (<1min fast suite), `db_session` fixture with isolated temp databases
+- **Database Migrations**: Alembic with SQLAlchemy 2.0 auto-generation
+- **Security**: OAuth 2.0 for service APIs, local-first data storage, env vars for secrets
 
 ## Related Documentation
 

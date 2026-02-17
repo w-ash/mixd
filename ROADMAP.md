@@ -441,6 +441,11 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 **Architecture**: Clean Architecture compliance - web layer is pure interface, zero business logic. All operations delegate to existing use cases.
 
+**Foundation already in place** (from v0.2.7 DRY Consolidation):
+- `application/runner.py` — `execute_use_case[TResult]()` handles session/UoW lifecycle; FastAPI routes call this via `Depends`
+- CLI-specific code (async executor, Rich/Typer helpers, interactive menus) isolated in `interface/cli/`, no leakage into application layer
+- `interface/shared/` eliminated — nothing in `interface/` assumes CLI anymore
+
 #### FastAPI Service Foundation Epics
 
 - [ ] **FastAPI Application Setup**
@@ -462,7 +467,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Follows "thin routes, fat services" - routers delegate to use cases
         - **Core Infrastructure**:
             - Pydantic v2 schemas for all request/response models
-            - Dependency injection for use cases (follows existing UnitOfWork pattern)
+            - Dependency injection via `execute_use_case()` runner (✅ already built in v0.2.7)
             - Error handling middleware with consistent HTTP responses
             - CORS configuration for local development
             - Automatic OpenAPI/Swagger documentation
