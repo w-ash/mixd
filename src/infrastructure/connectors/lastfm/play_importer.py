@@ -47,7 +47,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             lastfm_connector: Last.fm API connector (optional, will create if None)
         """
         # Initialize base class with None since we only do connector ingestion
-        super().__init__(None)  # type: ignore[arg-type]
+        super().__init__(None)
         self.operation_name = "Last.fm Connector Play Import"
         self.lastfm_connector = lastfm_connector or LastFMConnector()
 
@@ -222,12 +222,13 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             logger.debug(
                 f"Checkpoint resolution: found={checkpoint is not None}, user={resolved_username}"
             )
-            return checkpoint
         except Exception as e:
             logger.warning(f"Checkpoint resolution failed: {e}")
             if require_username:
                 raise
             return None
+        else:
+            return checkpoint
 
     def _determine_date_range(
         self,
@@ -382,7 +383,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
                 f"Day {current_date}: is_first_day={current_date == start_date}, is_last_day={current_date == end_date}"
             )
 
-            day_records = await self._fetch_day_with_auto_scaling(
+            day_records = await self._fetch_day_records(
                 username=username,
                 day_start=effective_start,
                 day_end=effective_end,
@@ -440,134 +441,23 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         return all_play_records
 
-    async def _fetch_day_with_auto_scaling(
+    async def _fetch_day_records(
         self,
         username: str,
         day_start: datetime,
         day_end: datetime,
         current_date: date,
     ) -> list[PlayRecord]:
-        """Fetch a single day with automatic sub-chunking for power users.
-
-        Strategy:
-        1. Try to fetch the full day (200 track limit)
-        2. If we get exactly 200 tracks, the user might have more - sub-chunk the day
-        3. Otherwise, the day is complete
-        """
+        """Fetch all plays for a single calendar day using pagination."""
         logger.debug(f"Fetching day {current_date}: start={day_start}, end={day_end}")
-        # First attempt: fetch the full day
-        logger.debug(f"Day {current_date}: making API call with limit=200")
-        day_records = await self.lastfm_connector.get_recent_tracks(
+        records = await self.lastfm_connector.get_recent_tracks(
             username=username,
-            limit=200,
+            limit=LastFMConstants.FULL_HISTORY_LIMIT,  # pagination handles it
             from_time=day_start,
             to_time=day_end,
         )
-
-        logger.debug(f"Day {current_date}: API returned {len(day_records)} records")
-
-        # Normal case: day complete in one request
-        if len(day_records) < LastFMConstants.RECENT_TRACKS_MAX_LIMIT:
-            logger.debug(
-                f"Day {current_date}: complete in single request ({len(day_records)} < 200)"
-            )
-            return day_records
-
-        # Power user case: need sub-chunking
-        logger.info(f"Day {current_date} has 200+ plays, using sub-chunking...")
-        logger.debug(
-            f"Day {current_date}: got exactly 200 records, triggering sub-chunking"
-        )
-        return await self._sub_chunk_day(
-            username=username,
-            day_start=day_start,
-            day_end=day_end,
-            current_date=current_date,
-        )
-
-    async def _sub_chunk_day(
-        self,
-        username: str,
-        day_start: datetime,
-        day_end: datetime,
-        current_date: date,
-    ) -> list[PlayRecord]:
-        """Sub-chunk a day into smaller time windows for power users.
-
-        Uses progressively smaller windows: 6h -> 4h -> 1h -> sliding windows
-        """
-        logger.debug(
-            f"Sub-chunking day {current_date}: start={day_start}, end={day_end}"
-        )
-
-        all_day_records = []
-
-        # Try 6-hour chunks first
-        chunk_hours = 6
-        current_time = day_end  # Work backwards
-        chunk_count = 0
-
-        logger.debug(
-            f"Day {current_date}: starting sub-chunking with {chunk_hours}h chunks, working backwards from {current_time}"
-        )
-
-        while current_time > day_start:
-            chunk_count += 1
-            chunk_start = max(day_start, current_time - timedelta(hours=chunk_hours))
-
-            logger.debug(
-                f"Day {current_date}: sub-chunk {chunk_count} ({chunk_hours}h): {chunk_start} to {current_time}"
-            )
-
-            chunk_records = await self.lastfm_connector.get_recent_tracks(
-                username=username,
-                limit=200,
-                from_time=chunk_start,
-                to_time=current_time,
-            )
-
-            logger.debug(
-                f"Day {current_date}: sub-chunk {chunk_count} returned {len(chunk_records)} records"
-            )
-            all_day_records.extend(chunk_records)
-
-            # If we got exactly 200 again, we might need smaller chunks
-            if (
-                len(chunk_records) == LastFMConstants.RECENT_TRACKS_MAX_LIMIT
-                and chunk_hours > 1
-            ):
-                new_chunk_hours = max(1, chunk_hours // 2)
-                logger.info(
-                    f"Day {current_date}: {chunk_hours}h chunk full, reducing to {new_chunk_hours}h chunks"
-                )
-                logger.debug(
-                    f"Day {current_date}: chunk size reduction {chunk_hours}h -> {new_chunk_hours}h"
-                )
-                chunk_hours = new_chunk_hours
-
-            prev_time = current_time
-            current_time = chunk_start
-            logger.debug(
-                f"Day {current_date}: sub-chunk iteration: moved from {prev_time} to {current_time}"
-            )
-
-        logger.info(
-            f"Day {current_date}: sub-chunked into {len(all_day_records)} total records using {chunk_count} chunks"
-        )
-        logger.debug(
-            f"Day {current_date}: sub-chunking complete, final chunk size was {chunk_hours}h"
-        )
-
-        # Validate no duplicate timestamps in sub-chunked results
-        if all_day_records:
-            timestamps = [r.played_at for r in all_day_records]
-            unique_timestamps = set(timestamps)
-            if len(timestamps) != len(unique_timestamps):
-                logger.warning(
-                    f"Day {current_date}: found {len(timestamps) - len(unique_timestamps)} duplicate timestamps in sub-chunked results"
-                )
-
-        return all_day_records
+        logger.info(f"Day {current_date}: {len(records)} plays")
+        return records
 
     async def _save_day_checkpoint(
         self,

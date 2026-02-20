@@ -1,10 +1,11 @@
 """Repository for connector play operations."""
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
-from toolz import partition_all
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, ensure_utc
@@ -15,6 +16,11 @@ from src.infrastructure.persistence.repositories.repo_decorator import db_operat
 logger = get_logger(__name__)
 
 
+def _chunked[T](items: list[T], size: int) -> list[list[T]]:
+    """Split items into fixed-size chunks. Typed alternative to toolz.partition_all."""
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrackPlay]):
     """Repository for connector play operations.
 
@@ -22,8 +28,12 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     Uses proper domain entities with mapping to database models.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session."""
+    def __init__(self, session: AsyncSession) -> None:  # pyright: ignore[reportMissingSuperCall]
+        """Initialize repository with session.
+
+        Does not call super().__init__() because BaseRepository requires a mapper
+        that this repository intentionally omits — all mapping is done inline.
+        """
         self.session = session
         self.model_class = DBConnectorPlay
 
@@ -213,7 +223,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
             )
         )
 
-        result = await self.session.execute(stmt)
+        result = cast(CursorResult[Any], await self.session.execute(stmt))
         updated_count = result.rowcount
 
         logger.info(
@@ -236,22 +246,18 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         # Batch plays to avoid SQLite expression tree limit
         batch_size = 200
 
-        for batch_tuple in partition_all(batch_size, plays):
-            batch = list(batch_tuple)  # toolz preserves original types
-
+        for batch in _chunked(plays, batch_size):
             # Build conditions for this batch
             conditions = []
             for play in batch:
-                # Type checker has inference issues with partition_all, but runtime types are correct
-                play_typed: ConnectorTrackPlay = play  # type: ignore[assignment]
                 condition = (
-                    (self.model_class.connector_name == play_typed.connector_name)  # type: ignore[attr-defined]
+                    (self.model_class.connector_name == play.connector_name)
                     & (
                         self.model_class.connector_track_identifier
-                        == play_typed.connector_track_identifier
-                    )  # type: ignore[attr-defined]
-                    & (self.model_class.played_at == play_typed.played_at)  # type: ignore[attr-defined]
-                    & (self.model_class.ms_played == play_typed.ms_played)  # type: ignore[attr-defined]
+                        == play.connector_track_identifier
+                    )
+                    & (self.model_class.played_at == play.played_at)
+                    & (self.model_class.ms_played == play.ms_played)
                 )
                 conditions.append(condition)
 

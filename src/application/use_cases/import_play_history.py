@@ -343,11 +343,12 @@ class ImportTracksUseCase:
             logger.info(
                 f"Recent play two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
-            return result
 
         except Exception as e:
             logger.error(f"Recent play import failed: {e}")
             raise
+        else:
+            return result
 
     async def _run_lastfm_incremental(
         self,
@@ -390,11 +391,12 @@ class ImportTracksUseCase:
             logger.info(
                 f"Incremental two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
-            return result
 
         except Exception as e:
             logger.error(f"Incremental import failed: {e}")
             raise
+        else:
+            return result
 
     async def _run_lastfm_full_history(
         self,
@@ -460,11 +462,12 @@ class ImportTracksUseCase:
             logger.info(
                 f"Full history two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
-            return result
 
         except Exception as e:
             logger.error(f"Full history import failed: {e}")
             raise
+        else:
+            return result
 
     async def _run_spotify_file(
         self,
@@ -508,11 +511,12 @@ class ImportTracksUseCase:
             logger.info(
                 f"File two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
             )
-            return result
 
         except Exception as e:
             logger.error(f"File import failed: {e}")
             raise
+        else:
+            return result
 
 
 async def run_import(

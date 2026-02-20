@@ -26,6 +26,7 @@ Usage:
 from src.infrastructure.persistence.database.db_connection import (
     engine,
     get_session,
+    init_db,
     session_factory,
 )
 from src.infrastructure.persistence.database.db_models import (
@@ -39,7 +40,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
     DBTrackMetric,
     DBTrackPlay,
-    init_db,
 )
 
 # Define explicit public API

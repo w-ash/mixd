@@ -25,7 +25,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(instance, attribute, value):
+def _validate_tracklist_has_tracks(_instance, attribute, value):
     """Validates that TrackList contains tracks."""
     if not value.tracks:
         raise ValueError(f"{attribute.name} must contain tracks")
@@ -170,8 +170,6 @@ class CreateConnectorPlaylistUseCase:
                 execution_time_ms=execution_time,
             )
 
-            return result
-
         except Exception as e:
             logger.error(
                 "Connector playlist creation failed",
@@ -180,6 +178,8 @@ class CreateConnectorPlaylistUseCase:
                 playlist_name=command.playlist_name,
             )
             raise
+        else:
+            return result
 
     async def _create_external_playlist(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
@@ -247,13 +247,6 @@ class CreateConnectorPlaylistUseCase:
                 tracks_count=len(command.tracklist.tracks),
             )
 
-            return {
-                "success": True,
-                "playlist_id": external_playlist_id,
-                "metadata": external_metadata,
-                "errors": [],
-            }
-
         except Exception as e:
             logger.error(
                 "External playlist creation failed",
@@ -266,6 +259,13 @@ class CreateConnectorPlaylistUseCase:
                 "playlist_id": None,
                 "metadata": {},
                 "errors": [str(e)],
+            }
+        else:
+            return {
+                "success": True,
+                "playlist_id": external_playlist_id,
+                "metadata": external_metadata,
+                "errors": [],
             }
 
     async def _create_internal_playlist_optimistic(
@@ -355,8 +355,6 @@ class CreateConnectorPlaylistUseCase:
                     tracks_persisted=len(persisted_tracks),
                 )
 
-                return saved_playlist
-
             except Exception as e:
                 # Rollback on any failure
                 await uow.rollback()
@@ -367,6 +365,8 @@ class CreateConnectorPlaylistUseCase:
                     error=str(e),
                 )
                 raise
+            else:
+                return saved_playlist
 
     async def _create_connector_playlist_entry(
         self,

@@ -51,8 +51,13 @@ class MusicBrainzAPIClient:
 
     def __attrs_post_init__(self) -> None:
         """Initialize MusicBrainz client with retry policy."""
-        # Initialize centralized retry policy
-        self._retry_policy = RetryPolicyFactory.create_musicbrainz_policy()
+        from src.infrastructure.connectors.musicbrainz.error_classifier import (
+            MusicBrainzErrorClassifier,
+        )
+
+        self._retry_policy = RetryPolicyFactory.create_musicbrainz_policy(
+            classifier=MusicBrainzErrorClassifier(),
+        )
 
     @property
     def connector_name(self) -> str:
@@ -129,13 +134,14 @@ class MusicBrainzAPIClient:
             )
 
             recordings = result.get("recording-list", [])
-            if recordings:
-                return recordings[0]
-            return None
 
         except Exception as e:
             logger.error(f"MusicBrainz search failed for '{artist} - {title}': {e}")
             raise
+        else:
+            if recordings:
+                return recordings[0]
+            return None
 
     # Rate Limiting
 
@@ -155,7 +161,8 @@ class MusicBrainzAPIClient:
             try:
                 result = await asyncio.to_thread(func, *args, **kwargs)
                 self._last_request_time = time.time()
-                return result
             except Exception:
                 self._last_request_time = time.time()  # Update even on error
                 raise
+            else:
+                return result

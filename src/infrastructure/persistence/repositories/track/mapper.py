@@ -1,5 +1,6 @@
 """Track mappers for converting between domain and database models."""
 
+from collections.abc import Awaitable, Callable
 from typing import Any, override
 
 from attrs import define
@@ -16,6 +17,61 @@ from src.infrastructure.persistence.repositories.base_repo import BaseModelMappe
 
 logger = get_logger(__name__)
 
+# Callback type: promotes a connector mapping to primary status
+# Args: (track_id, connector_name, connector_track_db_id) -> success
+PromotePrimaryMappingFn = Callable[[int, str, int], Awaitable[bool]]
+
+
+def _make_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
+    """Create a callback that promotes a connector mapping to primary via SQL.
+
+    This factory keeps write logic out of TrackMapper's transformation methods.
+    The returned closure executes two UPDATE statements (demote all → promote one),
+    matching TrackConnectorRepository.set_primary_mapping.
+
+    Args:
+        session: Active async session for executing UPDATEs.
+
+    Returns:
+        Async callback: (track_id, connector_name, connector_track_db_id) -> success.
+    """
+
+    async def _promote(
+        track_id: int, connector_name: str, connector_track_db_id: int
+    ) -> bool:
+        from sqlalchemy import update
+
+        try:
+            # Step 1: Demote all mappings for this track+connector to non-primary
+            await session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_name == connector_name,
+                )
+                .values(is_primary=False)
+            )
+
+            # Step 2: Promote the specified mapping to primary
+            result = await session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_track_id == connector_track_db_id,
+                )
+                .values(is_primary=True)
+            )
+        except Exception as e:
+            logger.error(
+                f"Promote primary mapping failed: track_id={track_id}, "
+                f"connector={connector_name}, connector_track_db_id={connector_track_db_id}: {e}"
+            )
+            return False
+        else:
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    return _promote
+
 
 @define(frozen=True, slots=True)
 class TrackMapper(BaseModelMapper[DBTrack, Track]):
@@ -25,22 +81,35 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     async def to_domain(db_model: DBTrack) -> Track:
         """Convert database track to domain model."""
-        return await TrackMapper._to_domain_with_session(db_model, None, None)
+        return await TrackMapper._to_domain_with_session(db_model)
 
     @staticmethod
     async def to_domain_with_session(
         db_model: DBTrack, session: AsyncSession | None = None
     ) -> Track:
         """Convert database track to domain model with session for auto-healing."""
-        return await TrackMapper._to_domain_with_session(db_model, session, None)
+        promote_primary_fn = _make_promote_primary_fn(session) if session is not None else None
+        return await TrackMapper._to_domain_with_session(
+            db_model, promote_primary_fn=promote_primary_fn
+        )
 
     @staticmethod
     async def _to_domain_with_session(
         db_model: DBTrack,
-        session: AsyncSession | None = None,
         connector_filter: set[str] | None = None,
+        promote_primary_fn: PromotePrimaryMappingFn | None = None,
     ) -> Track:
-        """Convert database track to domain model."""
+        """Convert database track to domain model.
+
+        Args:
+            db_model: Database track entity to convert.
+            connector_filter: Optional set of connector names to include.
+            promote_primary_fn: Optional callback to promote a fallback connector
+                mapping to primary status. Signature:
+                (track_id, connector_name, connector_track_db_id) -> success.
+                When provided and a connector has no primary mapping, the mapper
+                delegates the write to the caller via this callback.
+        """
         if not db_model:
             return None
 
@@ -97,7 +166,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # Second pass: fill in any missing connectors with non-primary mappings (fallback)
         # Also auto-heal by promoting the best non-primary to primary
         connectors_needing_primary = set()
-        fallback_mappings = {}
+        fallback_mappings: dict[str, DBTrackMapping] = {}
 
         for mapping in active_mappings:
             if not mapping.is_primary:
@@ -116,25 +185,20 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                             conn_track.raw_metadata or {}
                         )
 
-                        # Track this for auto-healing
+                        # Track for primary promotion
                         connectors_needing_primary.add(connector_name)
                         fallback_mappings[connector_name] = mapping
 
-        # Auto-heal: promote fallback mappings to primary
-        if (
-            connectors_needing_primary
-            and hasattr(db_model, "id")
-            and session is not None
-        ):
-            await TrackMapper._auto_heal_primary_mappings(
-                db_model.id, fallback_mappings, session
+        # Promote fallback mappings to primary via caller-provided callback
+        if connectors_needing_primary and hasattr(db_model, "id") and promote_primary_fn:
+            await TrackMapper._promote_fallback_to_primary(
+                db_model.id, fallback_mappings, promote_primary_fn
             )
         elif connectors_needing_primary:
-            # Track has non-primary mappings but can't be auto-healed
             logger.warning(
-                f"Track {db_model.id} has non-primary mappings that cannot be auto-healed: "
-                f"connectors={list(connectors_needing_primary)}, "
-                f"session_available={session is not None}"
+                f"Track {db_model.id} has no primary connector mapping(s): "
+                f"connectors={list(connectors_needing_primary)} — "
+                f"pass a session to to_domain_with_session() to enable auto-promotion"
             )
 
         # Process likes into connector metadata
@@ -163,64 +227,58 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         )
 
     @staticmethod
-    async def _auto_heal_primary_mappings(
-        track_id: int, fallback_mappings: dict[str, Any], session: AsyncSession
+    async def _promote_fallback_to_primary(
+        track_id: int,
+        fallback_mappings: dict[str, DBTrackMapping],
+        promote_primary_fn: PromotePrimaryMappingFn,
     ) -> None:
-        """Auto-heal missing primary mappings by promoting the best non-primary mapping.
+        """Promote fallback connector mappings to primary status.
 
-        This corrects data inconsistency where a track has connector mappings but
-        none are marked as primary, which can happen due to migration issues,
-        partial failures, or data corruption.
+        For each connector that had no primary mapping, delegates the actual
+        DB write to the caller-provided callback. This keeps the mapper
+        read-only while enabling opportunistic self-correction.
 
         Args:
-            track_id: The track ID needing primary mapping healing
-            fallback_mappings: Dict mapping connector_name to the mapping being used as fallback
+            track_id: The track whose mappings need promotion.
+            fallback_mappings: Connector name → the fallback mapping currently in use.
+            promote_primary_fn: Callback that performs the DB write:
+                (track_id, connector_name, connector_track_db_id) -> success.
         """
-        # Start auto-healing process (removed debug clutter)
         try:
-            from src.infrastructure.persistence.repositories.track.connector import (
-                TrackConnectorRepository,
-            )
-
-            connector_repo = TrackConnectorRepository(session)
-            healed_count = 0
+            promoted_count = 0
 
             for connector_name, mapping in fallback_mappings.items():
-                # Get the connector track to find the database ID
                 conn_track = await TrackMapper._get_connector_track(mapping)
                 if conn_track and conn_track.id:
-                    # Promote this mapping to primary using the DB connector track ID
-                    success = await connector_repo.set_primary_mapping(
-                        track_id, conn_track.id, connector_name
-                    )
+                    success = await promote_primary_fn(track_id, connector_name, conn_track.id)
                     if success:
-                        healed_count += 1
+                        promoted_count += 1
                         logger.info(
-                            f"Auto-healed primary mapping: track_id={track_id}, "
+                            f"Promoted connector mapping to primary: track_id={track_id}, "
                             f"connector={connector_name}, "
                             f"connector_track_db_id={conn_track.id}, "
                             f"external_id={conn_track.connector_track_identifier}"
                         )
                     else:
                         logger.warning(
-                            f"Failed to auto-heal primary mapping: track_id={track_id}, "
+                            f"Failed to promote connector mapping to primary: track_id={track_id}, "
                             f"connector={connector_name}, "
                             f"connector_track_db_id={conn_track.id}"
                         )
                 else:
                     logger.warning(
-                        f"Could not get connector track for auto-healing: track_id={track_id}, "
+                        f"Cannot promote — connector track unavailable: track_id={track_id}, "
                         f"connector={connector_name}"
                     )
 
-            if healed_count > 0:
+            if promoted_count > 0:
                 logger.info(
-                    f"Auto-healed {healed_count} primary mappings for track {track_id}"
+                    f"Promoted {promoted_count} connector mapping(s) to primary for track {track_id}"
                 )
 
         except Exception as e:
-            logger.error(f"Auto-healing failed for track {track_id}: {e}")
-            # Don't re-raise - auto-healing is best-effort and shouldn't break the main flow
+            logger.error(f"Connector mapping promotion failed for track {track_id}: {e}")
+            # Don't re-raise — promotion is best-effort and shouldn't interrupt the read path
 
     @staticmethod
     async def _get_connector_track(mapping: DBTrackMapping) -> DBConnectorTrack | None:
@@ -235,9 +293,10 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             # Simple fallback for non-AsyncAttrs models
             elif hasattr(mapping, "connector_track"):
                 return mapping.connector_track
-            return None
         except Exception as e:
             logger.debug(f"Error getting connector track: {e}")
+            return None
+        else:
             return None
 
     @override

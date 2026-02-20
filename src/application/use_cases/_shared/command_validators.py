@@ -19,7 +19,7 @@ Example usage:
     ```
 """
 
-from typing import Any
+from typing import Any, cast
 
 import attrs
 from attrs import Attribute
@@ -27,7 +27,7 @@ from attrs import Attribute
 from src.config.constants import BusinessLimits
 
 
-def non_empty_string(instance: Any, attribute: Attribute, value: str) -> None:
+def non_empty_string(_instance: Any, attribute: Attribute, value: str) -> None:
     """Validates that a string field is non-empty after stripping whitespace.
 
     Args:
@@ -42,7 +42,7 @@ def non_empty_string(instance: Any, attribute: Attribute, value: str) -> None:
         raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")
 
 
-def non_empty_list(instance: Any, attribute: Attribute, value: list) -> None:
+def non_empty_list(_instance: Any, attribute: Attribute, value: list) -> None:
     """Validates that a list field is non-empty.
 
     Args:
@@ -77,7 +77,7 @@ def positive_int_in_range(
         ```
     """
 
-    def validator(instance: Any, attribute: Attribute, value: int) -> None:
+    def validator(_instance: Any, attribute: Attribute, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError(
                 f"{attribute.name} must be an integer, got {type(value).__name__}"
@@ -92,7 +92,7 @@ def positive_int_in_range(
 
 
 def optional_positive_int(
-    instance: Any, attribute: Attribute, value: int | None
+    _instance: Any, attribute: Attribute, value: int | None
 ) -> None:
     """Validates that an optional integer is positive when provided.
 
@@ -129,7 +129,7 @@ def optional_in_choices(choices: list[str]) -> Any:
         ```
     """
 
-    def validator(instance: Any, attribute: Attribute, value: str | None) -> None:
+    def validator(_instance: Any, attribute: Attribute, value: str | None) -> None:
         if value is not None and value not in choices:
             raise ValueError(
                 f"{attribute.name} must be one of {choices}, got {value!r}"
@@ -160,7 +160,7 @@ def tracklist_has_tracks_or_metadata(metadata_key: str = "connector_playlist") -
         ```
     """
 
-    def validator(instance: Any, attribute: Attribute, value: Any) -> None:
+    def validator(_instance: Any, attribute: Attribute, value: Any) -> None:
         # Import here to avoid circular dependency
         from src.domain.entities.track import TrackList
 
@@ -192,7 +192,7 @@ def api_batch_size_validator(
         Validator function for attrs field
     """
 
-    def validator(instance: Any, attribute: Attribute, value: int) -> None:
+    def validator(_instance: Any, attribute: Attribute, value: int) -> None:
         from src.config import settings
 
         # Navigate settings using dot notation
@@ -201,9 +201,10 @@ def api_batch_size_validator(
         for part in setting_parts:
             max_value = getattr(max_value, part)
 
-        if value > max_value:
+        max_int = cast(int, max_value)  # settings values for batch sizes are ints
+        if value > max_int:
             raise ValueError(
-                f"{attribute.name} cannot exceed {max_value} (from settings.{max_batch_size_setting}), "
+                f"{attribute.name} cannot exceed {max_int} (from settings.{max_batch_size_setting}), "
                 f"got {value}"
             )
 

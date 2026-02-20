@@ -124,8 +124,6 @@ class ReadCanonicalPlaylistUseCase:
                         execution_time_ms=execution_time,
                     )
 
-                return result
-
             except Exception as e:
                 logger.error(
                     "Canonical playlist read failed",
@@ -133,6 +131,8 @@ class ReadCanonicalPlaylistUseCase:
                     playlist_id=command.playlist_id,
                 )
                 raise
+            else:
+                return result
 
     async def _get_playlist(
         self, command: ReadCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
@@ -154,7 +154,6 @@ class ReadCanonicalPlaylistUseCase:
         try:
             # Try to get by internal ID first
             playlist = await playlist_repo.get_playlist_by_id(int(command.playlist_id))
-            return playlist
         except ValueError:
             # If not an integer, try as connector ID
             connector_name = (
@@ -164,4 +163,6 @@ class ReadCanonicalPlaylistUseCase:
             playlist = await playlist_repo.get_playlist_by_connector(
                 connector_name, command.playlist_id, raise_if_not_found=False
             )
+            return playlist
+        else:
             return playlist

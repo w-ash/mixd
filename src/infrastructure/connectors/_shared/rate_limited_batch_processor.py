@@ -127,8 +127,8 @@ class RateLimitedBatchProcessor:
         for item in items:
             work_item = WorkItem(
                 item_id=str(
-                    uuid.uuid7()
-                ),  # Time-ordered UUID for better tracking  # type: ignore[attr-defined]
+                    uuid.uuid7()  # pyright: ignore[reportAttributeAccessIssue]
+                ),  # Time-ordered UUID for better tracking
                 item=item,
             )
             await self.work_queue.put(work_item)

@@ -9,6 +9,7 @@ from typing import Any, cast, override
 
 from attrs import define
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -772,11 +773,11 @@ class TrackConnectorRepository:
 
                 timestamps[track_id] = collected_at
 
-            return timestamps
-
         except Exception as e:
             logger.error(f"Failed to get metadata timestamps: {e}")
             return {}
+        else:
+            return timestamps
 
     @db_operation("ensure_primary_mapping")
     async def ensure_primary_mapping(
@@ -838,13 +839,16 @@ class TrackConnectorRepository:
             )
 
             # Step 2: Set the specified mapping as primary
-            result = await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_track_id == connector_track_id,
-                )
-                .values(is_primary=True)
+            result = cast(
+                CursorResult[Any],
+                await self.session.execute(
+                    update(DBTrackMapping)
+                    .where(
+                        DBTrackMapping.track_id == track_id,
+                        DBTrackMapping.connector_track_id == connector_track_id,
+                    )
+                    .values(is_primary=True)
+                ),
             )
 
             success = result.rowcount > 0
@@ -861,11 +865,11 @@ class TrackConnectorRepository:
                     f"connector={connector_name}"
                 )
 
-            return success
-
         except Exception as e:
             logger.error(
                 f"Error setting primary mapping for track_id={track_id}, "
                 f"connector_track_id={connector_track_id}, connector={connector_name}: {e}"
             )
             return False
+        else:
+            return success

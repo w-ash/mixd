@@ -59,7 +59,6 @@ class TestLastFMFastImplementation:
             with patch.object(LastFMAPIClient, "__attrs_post_init__"):
                 client = LastFMAPIClient()
                 client.lastfm_username = "testuser"
-                client.lastfm_password_hash = "testhash"  # noqa: S105 # Mock password hash for unit test, not a real credential
 
                 # Mock the comprehensive API call
                 api_call_count = 0
@@ -216,23 +215,13 @@ class TestLastFMFastImplementation:
             f"   From {old_duration * 1000:.0f}ms → {new_duration * 1000:.0f}ms per track"
         )
 
-    def test_backwards_compatibility(self):
-        """Test that old method still exists for backwards compatibility."""
+    def test_api_interface(self):
+        """Test that the API surface is correct after pylast removal."""
 
-        print("\n🔄 Testing backwards compatibility...")
+        # Verify pylast-era method is fully removed (clean break)
+        assert not hasattr(LastFMTrackInfo, "from_pylast_track_sync")
+        assert not hasattr(LastFMTrackInfo, "EXTRACTORS")
 
-        # Verify old method still exists
-        assert hasattr(LastFMTrackInfo, "from_pylast_track_sync")
-
-        # Verify it has deprecation warning in docstring
-        old_method = LastFMTrackInfo.from_pylast_track_sync
-        assert "WARNING" in old_method.__doc__
-        assert "SLOW" in old_method.__doc__
-        assert "from_comprehensive_data" in old_method.__doc__
-
-        # Verify new method exists
+        # Verify the fast implementation exists
         assert hasattr(LastFMTrackInfo, "from_comprehensive_data")
-
-        print("✅ Backwards compatibility maintained")
-        print("   - Old method: from_pylast_track_sync() (with deprecation warning)")
-        print("   - New method: from_comprehensive_data() (fast implementation)")
+        assert hasattr(LastFMTrackInfo, "empty")

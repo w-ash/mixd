@@ -19,9 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.persistence.database.db_connection import (
     get_session_factory,
+    init_db,
     reset_engine_cache,
 )
-from src.infrastructure.persistence.database.db_models import init_db
 
 # Python 3.14+: Event loop policy system is deprecated
 # pytest-asyncio handles event loop management internally without custom policy fixtures

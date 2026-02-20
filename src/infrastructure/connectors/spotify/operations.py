@@ -245,11 +245,11 @@ class SpotifyOperations:
                     playlist_id, spotify_track_uris
                 )
 
-            return playlist_id
-
         except Exception as e:
             logger.error(f"Error creating playlist '{name}': {e}")
             raise
+        else:
+            return playlist_id
 
     async def update_playlist_content(
         self,
@@ -400,11 +400,11 @@ class SpotifyOperations:
             if saved_tracks.get("next") and saved_tracks["items"]:
                 next_cursor = str(offset + len(saved_tracks["items"]))
 
-            return connector_tracks, next_cursor
-
         except Exception as e:
             logger.error(f"Error fetching liked tracks: {e}")
             raise
+        else:
+            return connector_tracks, next_cursor
 
     # Playlist Metadata Operations
 

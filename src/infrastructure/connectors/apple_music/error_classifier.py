@@ -16,13 +16,12 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
     adding only Apple Music-specific error parsing and pattern detection.
     """
 
-    @override
     @property
+    @override
     def service_name(self) -> str:
         """Return service name for logging."""
         return "apple_music"
 
-    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Apple Music API errors for proper retry behavior.
 
@@ -153,8 +152,8 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
                 except json.JSONDecodeError:
                     pass  # JSON parsing failed, continue with text parsing
 
-            return details
-
         except Exception:
             # If parsing fails, return empty dict
             return {}
+        else:
+            return details

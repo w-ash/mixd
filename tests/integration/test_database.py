@@ -30,15 +30,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger, setup_loguru_logger
 from src.infrastructure.persistence.database.db_connection import (
+    init_db,
+    session_factory,
+)
+from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
     DBPlaylistMapping,
     DBPlaylistTrack,
     DBTrack,
     DBTrackMapping,
     DBTrackPlay,
-    session_factory,
 )
-from src.infrastructure.persistence.database.db_models import init_db
 
 logger = get_logger(__name__)
 

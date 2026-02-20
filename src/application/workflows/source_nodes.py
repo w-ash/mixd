@@ -126,9 +126,18 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
 
         async with session as db_session:
             uow = get_unit_of_work(db_session)
-            connector_playlist = await sync_service.sync_connector_playlist(
-                connector, playlist_id, uow
-            )
+            try:
+                connector_playlist = await sync_service.sync_connector_playlist(
+                    connector, playlist_id, uow
+                )
+            except Exception as e:
+                logger.opt(exception=True).error(
+                    f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
+                    connector=connector,
+                    playlist_id=playlist_id,
+                    error_type=type(e).__name__,
+                )
+                raise
 
         if not connector_playlist or not connector_playlist.items:
             logger.warning(f"Playlist empty or not found: {playlist_id}")

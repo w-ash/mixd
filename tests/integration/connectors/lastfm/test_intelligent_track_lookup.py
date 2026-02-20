@@ -11,10 +11,10 @@ All tests use mocked Last.FM API calls to avoid network dependencies.
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pylast
 import pytest
 
 from src.domain.entities import Artist, Track
+from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
 
 
@@ -357,7 +357,7 @@ async def test_connection_error_falls_back_to_artist_title(
 
     # Mock MBID lookup raises connection error (caught by try/except in operations.py)
     lastfm_operations.client.get_track_info_comprehensive_by_mbid = AsyncMock(
-        side_effect=pylast.WSError("lastfm", "11", "Service Offline - Try again later")
+        side_effect=LastFMAPIError(11, "Service Offline - Try again later")
     )
 
     # Mock artist/title fallback succeeds
@@ -394,7 +394,7 @@ async def test_connection_error_propagates_when_no_fallback(
     """
     # Mock artist/title lookup raises connection error
     lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
-        side_effect=pylast.WSError("lastfm", "11", "Service Offline - Try again later")
+        side_effect=LastFMAPIError(11, "Service Offline - Try again later")
     )
 
     # Execute - error caught by try/except in get_track_info()

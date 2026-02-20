@@ -15,8 +15,6 @@ python = ">=3.13,<3.15"
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.46"}
 alembic = "^1.18.1"
 httpx = "^0.28.1"
-spotipy = "^2.25.2"
-pylast = "^7.0.1"
 musicbrainzngs = "^0.7.1"
 loguru = "^0.7.3"
 python-dotenv = "^1.2.1"
@@ -85,12 +83,8 @@ select = [
     "ASYNC", # Common async/await issues
     "FLY",   # String formatting issues
     "ARG",   # Function argument validation
-    "TD003", # Mark TODOs with an assignee
-    "PYI",   # Stub file linting
     "FURB",  # Refurb - modernize Python code patterns
     "LOG",   # Logging best practices
-    "FA",    # Future annotations (Python 3.13 ready)
-    "PERF",  # Performance anti-patterns
     "TRY",   # Exception handling best practices
     "PL",    # Pylint (additional logic checks)
     "PTH",   # Use pathlib for path operations
@@ -111,7 +105,6 @@ ignore = [
     "PLR0913",   # Too many arguments (data processing functions need arguments)
     "PLR0917",   # Too many positional arguments (same as above)
     "PLR0911",   # Too many return statements (complex logic needs returns)
-    "TRY300",    # Maybe we'll fix these eventually
     "TRY400",    # Use logging.exception (doesn't apply to Loguru)
     "PLW0603",   # Global statements (acceptable for library-style patterns in utilities)
     "TC001",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
@@ -225,6 +218,11 @@ reportImplicitOverride = "warning"
 reportAny = "warning"
 reportUnknownParameterType = "warning"
 reportUnknownVariableType = "warning"
+# Intentional patterns that "recommended" mode would flag as errors:
+# - bare list/dict generics are valid in Python 3.14 (equivalent to list[Any])
+reportMissingTypeArgument = "none"
+# - attrs @define classes initialize fields via __attrs_post_init__ (not __init__)
+reportUninitializedInstanceVariable = "none"
 # Python 3.14 typing features
 enableTypeIgnoreComments = true
 pythonVersion = "3.14"

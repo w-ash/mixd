@@ -95,8 +95,6 @@ def db_operation(operation_name: str | None = None):
                     **context,
                 )
 
-                return result
-
             except NoResultFound as e:
                 # Handle "not found" as expected case with debug logging
                 exec_time = (time.perf_counter() - start_time) * 1000
@@ -192,6 +190,8 @@ def db_operation(operation_name: str | None = None):
                     **context,
                 )
                 raise
+            else:
+                return result
 
         return wrapper
 

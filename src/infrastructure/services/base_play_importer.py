@@ -235,8 +235,6 @@ class BasePlayImporter(ABC):
                 batch_id=batch_id,
             )
 
-            return result
-
         except Exception as e:
             # Standardized error handling with full exception details
             error_msg = f"{self.operation_name} failed: {e}"
@@ -252,6 +250,8 @@ class BasePlayImporter(ABC):
                 operation_id, OperationStatus.FAILED
             )
             return self._create_error_result(error_msg, batch_id)
+        else:
+            return result
 
     @abstractmethod
     async def _fetch_data(
@@ -388,7 +388,6 @@ class BasePlayImporter(ABC):
             if duplicate_count > 0:
                 logger.info(f"🔄 Filtered {duplicate_count} duplicate plays")
 
-            return (inserted_count, duplicate_count)
         except Exception as e:
             logger.error(
                 f"bulk_insert_plays failed with exception: {e}",
@@ -397,6 +396,8 @@ class BasePlayImporter(ABC):
                 error_str=str(e),
             )
             raise
+        else:
+            return (inserted_count, duplicate_count)
 
     def _create_success_result(
         self,

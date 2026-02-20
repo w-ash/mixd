@@ -33,7 +33,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(instance, attribute, value):
+def _validate_tracklist_has_tracks(_instance, attribute, value):
     """Validates that TrackList contains tracks."""
     if not value.tracks:
         raise ValueError(f"{attribute.name} must contain tracks")
@@ -235,7 +235,6 @@ class UpdateConnectorPlaylistUseCase:
                     existing_id=existing.id,
                     existing_items=len(existing.items) if existing.items else 0,
                 )
-            return existing
         except Exception as e:
             logger.warning(
                 "Failed to retrieve existing connector playlist record",
@@ -243,6 +242,8 @@ class UpdateConnectorPlaylistUseCase:
                 error_type=type(e).__name__,
             )
             return None
+        else:
+            return existing
 
     def _build_connector_playlist_entity(
         self,
@@ -475,8 +476,6 @@ class UpdateConnectorPlaylistUseCase:
                     dry_run=command.dry_run,
                 )
 
-                return result
-
             except Exception as e:
                 logger.error(
                     "Connector playlist update failed",
@@ -485,6 +484,8 @@ class UpdateConnectorPlaylistUseCase:
                     connector=command.connector,
                 )
                 raise
+            else:
+                return result
 
     async def _get_current_playlist(
         self, playlist_id: str, connector: str, uow: UnitOfWorkProtocol

@@ -119,8 +119,10 @@ def create_error_classifier_retry(classifier: ErrorClassifier):
     """
     from tenacity.retry import retry_if_exception
 
-    def should_retry_exception(exc: Exception) -> bool:
+    def should_retry_exception(exc: BaseException) -> bool:
         """Check if exception should be retried based on error classification."""
+        if not isinstance(exc, Exception):
+            return False  # Never retry KeyboardInterrupt, SystemExit, etc.
         error_type, _, _ = classifier.classify_error(exc)
         # Retry on temporary, rate_limit, unknown
         # Give up on permanent and not_found errors
@@ -283,85 +285,73 @@ class RetryPolicyFactory:
     """
 
     @staticmethod
-    def create_spotify_policy() -> AsyncRetrying:
+    def create_spotify_policy(
+        classifier: ErrorClassifier,
+        service_error_types: tuple[type[BaseException], ...] = (),
+    ) -> AsyncRetrying:
         """Create Spotify retry policy (preserves current behavior).
 
         Configuration:
             - max_tries: 3 attempts
             - wait: Exponential backoff (0.5s base, 30s max)
-            - retry: Only SpotifyException, based on error classification
+            - retry: httpx HTTP and network errors, based on error classification
             - reraise: True (let caller handle final exception)
 
-        Retries on:
-            - SpotifyException with temporary errors (500-504)
-            - SpotifyException with rate_limit errors (429)
-            - SpotifyException with unknown errors
-
-        Fails fast on:
-            - SpotifyException with permanent errors (400, 401, 403)
-            - SpotifyException with not_found errors (404)
-            - All non-SpotifyException errors (network errors, etc.)
+        Args:
+            classifier: Spotify-specific error classifier instance.
+            service_error_types: Additional exception types to retry on
+                (beyond httpx errors).
 
         Returns:
             Configured AsyncRetrying instance for Spotify API calls
         """
-        # Lazy import to avoid circular dependency
-        import spotipy
+        import httpx
 
-        from src.infrastructure.connectors.spotify.error_classifier import (
-            SpotifyErrorClassifier,
-        )
+        retry_predicate = retry_if_exception_type(
+            httpx.HTTPStatusError
+        ) | retry_if_exception_type(httpx.RequestError)
+        if service_error_types:
+            retry_predicate |= retry_if_exception_type(service_error_types)
 
-        classifier = SpotifyErrorClassifier()
-
-        # Only retry SpotifyException AND pass error classification check
         return AsyncRetrying(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, max=30) + wait_random(0, 1),
-            retry=(
-                retry_if_exception_type(spotipy.SpotifyException)
-                & create_error_classifier_retry(classifier)
-            ),
+            retry=retry_predicate & create_error_classifier_retry(classifier),
             before_sleep=create_tenacity_backoff_handler(classifier, "spotify"),
             after=create_tenacity_giveup_handler(classifier, "spotify"),
             reraise=True,
         )
 
     @staticmethod
-    def create_lastfm_policy() -> AsyncRetrying:
+    def create_lastfm_policy(
+        classifier: ErrorClassifier,
+        service_error_types: tuple[type[BaseException], ...] = (),
+    ) -> AsyncRetrying:
         """Create Last.FM retry policy (settings-based, preserves behavior).
 
         Configuration:
             - max_tries: settings.api.lastfm_retry_count_rate_limit
             - max_time: settings.api.lastfm_retry_max_delay
             - wait: Exponential backoff (settings-based multiplier and max)
-            - retry: Only pylast.WSError, based on error classification
+            - retry: service_error_types + httpx exceptions, based on error classification
             - reraise: True
 
-        The policy uses both attempt-based and time-based stop conditions,
-        whichever is reached first. This preserves the original backoff
-        behavior while leveraging tenacity's composable stop conditions.
-
-        Retries on:
-            - pylast.WSError with temporary/rate_limit/unknown errors
-
-        Fails fast on:
-            - pylast.WSError with permanent/not_found errors
-            - All non-WSError exceptions (network errors, etc.)
+        Args:
+            classifier: Last.fm-specific error classifier instance.
+            service_error_types: Additional exception types to retry on
+                (e.g., LastFMAPIError).
 
         Returns:
             Configured AsyncRetrying instance for Last.FM API calls
         """
-        # Lazy import to avoid circular dependency
-        import pylast
+        import httpx
 
-        from src.infrastructure.connectors.lastfm.error_classifier import (
-            LastFMErrorClassifier,
-        )
+        retry_predicate = retry_if_exception_type(
+            httpx.HTTPStatusError
+        ) | retry_if_exception_type(httpx.RequestError)
+        if service_error_types:
+            retry_predicate |= retry_if_exception_type(service_error_types)
 
-        classifier = LastFMErrorClassifier()
-
-        # Only retry pylast.WSError or TimeoutError AND pass error classification check
         return AsyncRetrying(
             stop=(
                 stop_after_attempt(settings.api.lastfm_retry_count_rate_limit)
@@ -372,20 +362,17 @@ class RetryPolicyFactory:
                 max=settings.api.lastfm_retry_max_delay,
             )
             + wait_random(0, 1),
-            retry=(
-                (
-                    retry_if_exception_type(pylast.WSError)
-                    | retry_if_exception_type(TimeoutError)
-                )
-                & create_error_classifier_retry(classifier)
-            ),
+            retry=retry_predicate & create_error_classifier_retry(classifier),
             before_sleep=create_tenacity_backoff_handler(classifier, "lastfm"),
             after=create_tenacity_giveup_handler(classifier, "lastfm"),
             reraise=True,
         )
 
     @staticmethod
-    def create_musicbrainz_policy() -> AsyncRetrying:
+    def create_musicbrainz_policy(
+        classifier: ErrorClassifier,
+        service_error_types: tuple[type[BaseException], ...] = (),
+    ) -> AsyncRetrying:
         """Create MusicBrainz retry policy.
 
         Configuration:
@@ -394,29 +381,21 @@ class RetryPolicyFactory:
             - retry: All exceptions, based on error classification
             - reraise: True
 
-        This policy adds proper error classification to MusicBrainz, which
-        previously used a bare backoff decorator catching all exceptions.
-        The new MusicBrainzErrorClassifier provides HTTP status-based
-        classification with special handling for 503 rate limiting.
-
-        Note: MusicBrainz doesn't have service-specific exception types,
-        so we retry all Exception types (matching original backoff behavior).
+        Args:
+            classifier: MusicBrainz-specific error classifier instance.
+            service_error_types: Additional exception types to retry on.
 
         Returns:
             Configured AsyncRetrying instance for MusicBrainz API calls
         """
-        # Import here to avoid circular dependency
-        from src.infrastructure.connectors.musicbrainz.error_classifier import (
-            MusicBrainzErrorClassifier,
-        )
+        base_retry = create_error_classifier_retry(classifier)
+        if service_error_types:
+            base_retry = retry_if_exception_type(service_error_types) & base_retry
 
-        classifier = MusicBrainzErrorClassifier()
-
-        # MusicBrainz retries all exceptions (matches original @backoff.on_exception(Exception))
         return AsyncRetrying(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=1.0, max=30) + wait_random(0, 1),
-            retry=create_error_classifier_retry(classifier),
+            retry=base_retry,
             before_sleep=create_tenacity_backoff_handler(classifier, "musicbrainz"),
             after=create_tenacity_giveup_handler(classifier, "musicbrainz"),
             reraise=True,

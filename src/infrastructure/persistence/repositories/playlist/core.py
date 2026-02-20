@@ -862,4 +862,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         logger.info("Retrieved playlists for listing", count=len(playlists))
         return playlists
 
+    @db_operation("update_playlist")
+    async def update_playlist(self, playlist_id: int, playlist: Playlist) -> Playlist:
+        """Update an existing playlist by ID.
+
+        Args:
+            playlist_id: Internal database ID of the playlist to update.
+            playlist: Playlist entity with updated data.
+
+        Returns:
+            Updated playlist with all relationships loaded.
+        """
+        return await self.save_playlist(playlist.with_id(playlist_id))
+
     # _soft_delete_playlist_relations method removed - CASCADE handles related record deletion

@@ -20,13 +20,13 @@ from src.infrastructure.connectors.spotify import (
     convert_spotify_track_to_connector,
 )
 
-logger = get_logger(__name__)
+logger = get_logger(__name__)  # noqa: RUF067
 
 # Connector registry cache
-_connectors: dict[str, ConnectorConfig] = {}
+_connectors: dict[str, ConnectorConfig] = {}  # noqa: RUF067
 
 
-def discover_connectors() -> dict[str, ConnectorConfig]:
+def discover_connectors() -> dict[str, ConnectorConfig]:  # noqa: RUF067
     """Discover and register connector configurations.
 
     Dynamically loads connector modules from the integrations package
@@ -83,7 +83,7 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
 
 
 # Lazy-initialized connector registry (initialized on first access)
-_CONNECTORS_CACHE: dict[str, ConnectorConfig] | None = None
+_CONNECTORS_CACHE: dict[str, ConnectorConfig] | None = None  # noqa: RUF067
 
 # Define public API with explicit exports
 __all__ = [

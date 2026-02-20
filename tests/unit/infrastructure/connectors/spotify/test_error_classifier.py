@@ -1,22 +1,27 @@
 """Unit tests for SpotifyErrorClassifier.
 
-This test suite provides comprehensive coverage of the error classification logic
-in src/infrastructure/connectors/spotify/error_classifier.py without requiring
-actual API calls or network connectivity.
-
-Tests focus on the pure classification logic for all error types:
+Tests focus on the pure classification logic using httpx exceptions:
 - HTTP status code mapping (4xx → permanent, 5xx → temporary, 429 → rate_limit, 404 → not_found)
 - Text pattern recognition (rate limit, auth, not found, service issues)
-- Non-Spotify exception handling (network errors, etc.)
+- httpx.RequestError handling (network errors → temporary)
 - Edge cases and unknown errors
 """
 
+import httpx
 import pytest
-import spotipy
 
 from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
 )
+
+
+def make_http_error(status_code: int, message: str = "") -> httpx.HTTPStatusError:
+    """Create an httpx.HTTPStatusError with the given status code."""
+    request = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(
+        message or f"HTTP {status_code}", request=request, response=response
+    )
 
 
 class TestSpotifyErrorClassifier:
@@ -47,10 +52,7 @@ class TestSpotifyErrorClassifier:
         self, classifier, status_code, expected_type, expected_description_part
     ):
         """Test that 4xx HTTP status codes are classified as permanent errors."""
-        exception = spotipy.SpotifyException(
-            status_code, -1, f"HTTP {status_code} error"
-        )
-        exception.http_status = status_code
+        exception = make_http_error(status_code)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -60,8 +62,7 @@ class TestSpotifyErrorClassifier:
 
     def test_not_found_status_code_specific(self, classifier):
         """Test that 404 HTTP status code is specifically classified as not_found."""
-        exception = spotipy.SpotifyException(404, -1, "Not Found")
-        exception.http_status = 404
+        exception = make_http_error(404, "Not Found")
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -71,8 +72,7 @@ class TestSpotifyErrorClassifier:
 
     def test_rate_limit_status_code_specific(self, classifier):
         """Test that 429 HTTP status code is specifically classified as rate_limit."""
-        exception = spotipy.SpotifyException(429, -1, "Too Many Requests")
-        exception.http_status = 429
+        exception = make_http_error(429, "Too Many Requests")
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -98,10 +98,7 @@ class TestSpotifyErrorClassifier:
         self, classifier, status_code, expected_type, expected_description_part
     ):
         """Test that 5xx HTTP status codes are classified as temporary errors."""
-        exception = spotipy.SpotifyException(
-            status_code, -1, f"HTTP {status_code} error"
-        )
-        exception.http_status = status_code
+        exception = make_http_error(status_code)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -109,7 +106,7 @@ class TestSpotifyErrorClassifier:
         assert error_code == str(status_code)
         assert expected_description_part.lower() in error_description.lower()
 
-    # TEXT PATTERN CLASSIFICATION TESTS
+    # TEXT PATTERN CLASSIFICATION TESTS (via non-httpx exceptions)
 
     @pytest.mark.parametrize(
         "error_message",
@@ -123,8 +120,7 @@ class TestSpotifyErrorClassifier:
     )
     def test_rate_limit_text_patterns(self, classifier, error_message):
         """Test that rate limit text patterns are classified correctly."""
-        # Create exception without http_status to test text-based classification
-        exception = spotipy.SpotifyException(-1, -1, error_message)
+        exception = Exception(error_message)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -145,7 +141,7 @@ class TestSpotifyErrorClassifier:
     )
     def test_authentication_text_patterns(self, classifier, error_message):
         """Test that authentication error text patterns are classified as permanent."""
-        exception = spotipy.SpotifyException(-1, -1, error_message)
+        exception = Exception(error_message)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -168,7 +164,7 @@ class TestSpotifyErrorClassifier:
     )
     def test_not_found_text_patterns(self, classifier, error_message):
         """Test that not found text patterns are classified correctly."""
-        exception = spotipy.SpotifyException(-1, -1, error_message)
+        exception = Exception(error_message)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -189,7 +185,7 @@ class TestSpotifyErrorClassifier:
     )
     def test_temporary_service_text_patterns(self, classifier, error_message):
         """Test that temporary service error text patterns are classified correctly."""
-        exception = spotipy.SpotifyException(-1, -1, error_message)
+        exception = Exception(error_message)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -200,35 +196,30 @@ class TestSpotifyErrorClassifier:
             or "unavailable" in error_description.lower()
         )
 
-    # NON-SPOTIFY EXCEPTION TESTS
+    # httpx.RequestError TESTS (network errors)
 
     @pytest.mark.parametrize(
-        ("exception_type", "exception_message"),
+        "error_message",
         [
-            (ConnectionError, "Connection failed to Spotify API"),
-            (TimeoutError, "Request timeout after 30 seconds"),
-            (OSError, "Network is unreachable"),
-            (Exception, "DNS resolution failed for api.spotify.com"),
-            (Exception, "SSL certificate verification failed"),
+            "Connection failed to Spotify API",
+            "Request timeout after 30 seconds",
+            "Network is unreachable",
+            "DNS resolution failed for api.spotify.com",
+            "SSL certificate verification failed",
         ],
     )
-    def test_network_errors_temporary_classification(
-        self, classifier, exception_type, exception_message
-    ):
-        """Test that network errors are classified as temporary."""
-        exception = exception_type(exception_message)
+    def test_httpx_request_errors_temporary(self, classifier, error_message):
+        """Test that httpx.RequestError instances are classified as temporary network errors."""
+        request = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
+        exception = httpx.ConnectError(error_message, request=request)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
         assert error_type == "temporary"
         assert error_code == "network"
-        assert (
-            "network" in error_description.lower()
-            or "connection" in error_description.lower()
-        )
 
-    def test_non_network_non_spotify_exception_unknown(self, classifier):
-        """Test that unknown non-Spotify exceptions are classified as unknown."""
+    def test_non_network_exception_unknown(self, classifier):
+        """Test that unknown non-httpx exceptions are classified as unknown."""
         exception = ValueError("Unexpected value error")
 
         error_type, error_code, error_description = classifier.classify_error(exception)
@@ -237,127 +228,26 @@ class TestSpotifyErrorClassifier:
         assert error_code == "N/A"
         assert error_description == str(exception)
 
-    # SPOTIFY ERROR DETAILS PARSING TESTS
-
-    def test_parse_spotify_oauth_error_details(self, classifier):
-        """Test parsing of OAuth error details from Spotify error messages."""
-        error_msg = (
-            "error: invalid_grant, error_description: Authorization code expired"
-        )
-        exception = spotipy.SpotifyException(400, -1, error_msg)
-
-        details = classifier._parse_spotify_error_details(exception)
-
-        assert details.get("error") == "invalid_grant"
-        assert "Authorization code expired" in details.get("error_description", "")
-
-    def test_parse_spotify_simple_error_details(self, classifier):
-        """Test parsing simple error patterns from Spotify error messages."""
-        error_msg = "HTTP 401: error: invalid_token"
-        exception = spotipy.SpotifyException(401, -1, error_msg)
-
-        details = classifier._parse_spotify_error_details(exception)
-
-        assert details.get("error") == "invalid_token"
-
-    def test_parse_spotify_error_details_malformed(self, classifier):
-        """Test graceful handling of malformed Spotify error messages."""
-        error_msg = "Some random error message without proper formatting"
-        exception = spotipy.SpotifyException(500, -1, error_msg)
-
-        details = classifier._parse_spotify_error_details(exception)
-
-        # Should return empty dict for unparseable messages
-        assert details == {}
-
-    def test_parse_spotify_error_details_exception_safety(self, classifier):
-        """Test that error details parsing doesn't raise exceptions."""
-
-        # Create a mock exception that might cause parsing errors
-        class ProblematicException(spotipy.SpotifyException):
-            def __str__(self):
-                raise RuntimeError("String conversion failed")
-
-        exception = ProblematicException(500, -1, "test")
-
-        # Should not raise an exception, should return empty dict
-        details = classifier._parse_spotify_error_details(exception)
-        assert details == {}
-
     # EDGE CASES AND UNKNOWN ERRORS
-
-    def test_spotify_exception_without_http_status_unknown(self, classifier):
-        """Test SpotifyException without http_status falls back to text classification."""
-        exception = spotipy.SpotifyException(-1, -1, "Mysterious Spotify error")
-
-        error_type, _error_code, error_description = classifier.classify_error(
-            exception
-        )
-
-        assert error_type == "unknown"
-        assert "Mysterious Spotify error" in error_description
-
-    def test_spotify_exception_with_none_http_status(self, classifier):
-        """Test SpotifyException with None http_status."""
-        exception = spotipy.SpotifyException(-1, -1, "Error with None status")
-        exception.http_status = None
-
-        error_type, _error_code, error_description = classifier.classify_error(
-            exception
-        )
-
-        assert error_type == "unknown"
-        assert "Error with None status" in error_description
 
     def test_unknown_http_status_code(self, classifier):
         """Test handling of unknown HTTP status codes."""
-        exception = spotipy.SpotifyException(999, -1, "Unknown HTTP status")
-        exception.http_status = 999
+        exception = make_http_error(999, "Unknown HTTP status")
 
-        error_type, error_code, _error_description = classifier.classify_error(
-            exception
-        )
+        error_type, error_code, _error_description = classifier.classify_error(exception)
 
         assert error_type == "unknown"
-        assert (
-            error_code == "999"
-        )  # Uses HTTP status as error code even for unknown statuses
-
-    # INTEGRATION WITH ERROR DETAILS PARSING
-
-    def test_error_classification_with_parsed_details(self, classifier):
-        """Test that error classification uses parsed error details when available."""
-        error_msg = "HTTP 401: error: expired_token, error_description: The access token has expired"
-        exception = spotipy.SpotifyException(401, -1, error_msg)
-        exception.http_status = 401
-
-        error_type, error_code, error_description = classifier.classify_error(exception)
-
-        assert error_type == "permanent"
-        assert error_code == "401"  # Uses HTTP status as error code
-        assert "unauthorized" in error_description.lower()
-        # Note: The parsed error_description is used but overridden by status code description
+        assert error_code == "999"
 
     def test_error_code_fallback_logic(self, classifier):
         """Test the error code fallback logic in classification."""
-        # Test with parsed error details
-        error_msg = "HTTP 500: error: internal_server_error"
-        exception = spotipy.SpotifyException(500, -1, error_msg)
-        exception.http_status = 500
-
-        error_type, error_code, _error_description = classifier.classify_error(
-            exception
-        )
+        # 500 → temporary
+        exception = make_http_error(500, "Internal Server Error")
+        error_type, error_code, _ = classifier.classify_error(exception)
 
         assert error_type == "temporary"
-        assert error_code == "500"  # Uses HTTP status as error code
+        assert error_code == "500"
 
-        # Test without HTTP status - text pattern classification should still work
-        # "internal_server_error" contains "server error" pattern → temporary
-        exception2 = spotipy.SpotifyException(-1, -1, error_msg)
-        error_type2, error_code2, _error_description2 = classifier.classify_error(
-            exception2
-        )
-
-        assert error_type2 == "temporary"  # Text pattern detects "server error"
-        assert error_code2 == "text"  # Uses text pattern classification
+    def test_service_name(self, classifier):
+        """Test that service name is correctly reported."""
+        assert classifier.service_name == "spotify"

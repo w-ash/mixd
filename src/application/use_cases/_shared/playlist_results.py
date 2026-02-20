@@ -4,7 +4,7 @@ Replaces tuple-based returns with strongly-typed result objects using Python 3.1
 features for better type safety and maintainability.
 """
 
-from typing import Any, TypedDict
+from typing import Any, Self, TypedDict
 
 from attrs import define, field
 
@@ -102,7 +102,7 @@ class AppendOperationResult:
 
 def _empty_api_metadata() -> ApiMetadata:
     """Factory for empty ApiMetadata."""
-    return {}  # type: ignore[return-value]
+    return ApiMetadata()
 
 
 @define(frozen=True, slots=True)
@@ -123,7 +123,7 @@ class ExternalApiResponse:
         cls,
         api_calls: int,
         metadata: ApiMetadata,
-    ) -> ExternalApiResponse:
+    ) -> Self:
         """Create successful response."""
         return cls(
             success=True,
@@ -138,9 +138,9 @@ class ExternalApiResponse:
         cls,
         error: str,
         metadata: ApiMetadata | None = None,
-    ) -> ExternalApiResponse:
+    ) -> Self:
         """Create error response."""
-        empty_metadata: ApiMetadata = {}  # type: ignore[typeddict-item]
+        empty_metadata = ApiMetadata()
         return cls(
             success=False,
             api_calls_made=0,
@@ -154,7 +154,7 @@ class ExternalApiResponse:
         cls,
         api_calls: int,
         metadata: ApiMetadata,
-    ) -> ExternalApiResponse:
+    ) -> Self:
         """Create partial success response."""
         return cls(
             success=False,

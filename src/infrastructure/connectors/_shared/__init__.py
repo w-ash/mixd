@@ -20,6 +20,7 @@ from src.infrastructure.connectors._shared.failure_handling import (
     validate_track_for_method,
 )
 from src.infrastructure.connectors._shared.metrics import (
+    MetricResolveFn,
     MetricResolverProtocol,
     get_all_connectors_metrics,
     get_all_field_mappings,
@@ -38,6 +39,7 @@ from src.infrastructure.connectors._shared.metrics import (
 __all__ = [
     "ErrorClassifier",
     "MatchProvider",
+    "MetricResolveFn",
     "MetricResolverProtocol",
     "classify_unknown_error",
     "create_and_log_failure",

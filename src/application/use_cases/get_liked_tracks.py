@@ -131,8 +131,6 @@ class GetLikedTracksUseCase:
                     execution_time_ms=execution_time,
                 )
 
-                return result
-
             except Exception as e:
                 logger.error(
                     "Liked tracks retrieval failed",
@@ -140,6 +138,8 @@ class GetLikedTracksUseCase:
                     connector_filter=command.connector_filter,
                 )
                 raise
+            else:
+                return result
 
     async def _get_liked_tracks(
         self, command: GetLikedTracksCommand, uow: UnitOfWorkProtocol

@@ -6,7 +6,7 @@ from typing import Any, override
 from attrs import define
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from toolz import groupby, partition_all
+from toolz import groupby
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
@@ -18,6 +18,11 @@ from src.infrastructure.persistence.repositories.base_repo import (
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
+
+
+def _chunked[T](items: list[T], size: int) -> list[list[T]]:
+    """Split items into fixed-size chunks. Typed alternative to toolz.partition_all."""
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 @define(frozen=True, slots=True)
@@ -159,19 +164,15 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             200  # Well under SQLite's 1000 limit, allows for other query complexity
         )
 
-        for batch_tuple in partition_all(batch_size, plays):
-            # partition_all returns tuples, convert to list for iteration
-            batch = list(batch_tuple)
+        for batch in _chunked(plays, batch_size):
             # Build conditions for this batch
             conditions = []
             for play in batch:
-                # Type checker has inference issues with partition_all, but runtime types are correct
-                play_typed: TrackPlay = play  # type: ignore[assignment]
                 condition = (
-                    (self.model_class.track_id == play_typed.track_id)
-                    & (self.model_class.service == play_typed.service)
-                    & (self.model_class.played_at == play_typed.played_at)
-                    & (self.model_class.ms_played == play_typed.ms_played)
+                    (self.model_class.track_id == play.track_id)
+                    & (self.model_class.service == play.service)
+                    & (self.model_class.played_at == play.played_at)
+                    & (self.model_class.ms_played == play.ms_played)
                 )
                 conditions.append(condition)
 

@@ -39,13 +39,12 @@ class MusicBrainzErrorClassifier(HTTPErrorClassifier):
         ...     pass
     """
 
-    @override
     @property
+    @override
     def service_name(self) -> str:
         """Return service name for logging."""
         return "musicbrainz"
 
-    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify MusicBrainz API errors.
 

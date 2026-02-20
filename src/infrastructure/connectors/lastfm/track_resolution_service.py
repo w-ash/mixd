@@ -363,13 +363,14 @@ class LastfmTrackResolutionService:
             logger.debug(
                 f"Created canonical track: {artist_name} - {track_name} (confidence: {match_result.confidence})"
             )
-            return canonical_track
 
         except Exception as e:
             logger.error(
                 f"Failed to create canonical track for {artist_name} - {track_name}: {e}"
             )
             return None
+        else:
+            return canonical_track
 
     async def _attempt_spotify_discovery(
         self,

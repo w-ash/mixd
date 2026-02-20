@@ -6,6 +6,7 @@ ProgressCoordinator domain service for business rule enforcement.
 """
 
 import asyncio
+import contextlib
 from typing import Any
 from uuid import uuid4
 
@@ -166,8 +167,6 @@ class AsyncProgressManager:
             # Notify subscribers
             await self._notify_subscribers("operation_started", running_operation)
 
-            return running_operation.operation_id
-
         except ValueError as e:
             self._logger.error(
                 "Failed to start operation",
@@ -175,6 +174,8 @@ class AsyncProgressManager:
                 error=str(e),
             )
             raise
+        else:
+            return running_operation.operation_id
 
     async def complete_operation(
         self, operation_id: str, final_status: OperationStatus
@@ -272,10 +273,8 @@ class AsyncProgressManager:
 
         # Wait for tasks to complete cancellation
         for task in self._event_tasks:
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except asyncio.CancelledError, Exception:
-                pass
 
         # Clear subscribers
         async with self._subscriber_lock:

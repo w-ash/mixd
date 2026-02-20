@@ -4,7 +4,7 @@ Pure playlist representations and related value objects with zero external depen
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Self
 
 from attrs import define, evolve, field, validators
 
@@ -94,7 +94,7 @@ class Playlist:
         added_at: datetime | None = None,
         description: str | None = None,
         connector_playlist_identifiers: dict[str, str] | None = None,
-    ) -> Playlist:
+    ) -> Self:
         """Create Playlist from TrackList or list of Tracks with uniform added_at timestamp.
 
         Args:
@@ -109,9 +109,9 @@ class Playlist:
         """
         # Handle both TrackList and list[Track] for convenience
         if isinstance(tracklist, list):
-            from src.domain.entities.track import TrackList as TL
+            from src.domain.entities.track import TrackList
 
-            tracklist = TL(tracks=tracklist)
+            tracklist = TrackList(tracks=tracklist)
 
         added_at = added_at or datetime.now(UTC)
         return cls(
@@ -123,11 +123,11 @@ class Playlist:
             connector_playlist_identifiers=connector_playlist_identifiers or {},
         )
 
-    def with_entries(self, entries: list[PlaylistEntry]) -> Playlist:
+    def with_entries(self, entries: list[PlaylistEntry]) -> Self:
         """Create new playlist with updated entries."""
         return evolve(self, entries=entries)
 
-    def sort_by_added_at(self, reverse: bool = False) -> Playlist:
+    def sort_by_added_at(self, reverse: bool = False) -> Self:
         """Sort playlist entries by when tracks were added.
 
         Args:
@@ -138,7 +138,7 @@ class Playlist:
         """
         sorted_entries = sorted(
             self.entries,
-            key=lambda e: e.added_at or datetime.min,
+            key=lambda e: e.added_at or datetime.min.replace(tzinfo=UTC),
             reverse=reverse,
         )
         return self.with_entries(sorted_entries)
@@ -147,7 +147,7 @@ class Playlist:
         self,
         connector: str,
         external_id: str,
-    ) -> Playlist:
+    ) -> Self:
         """Create a new playlist with additional connector identifier.
 
         Args:
@@ -164,7 +164,7 @@ class Playlist:
         new_ids = self.connector_playlist_identifiers | {connector: external_id}
         return evolve(self, connector_playlist_identifiers=new_ids)
 
-    def with_id(self, db_id: int) -> Playlist:
+    def with_id(self, db_id: int) -> Self:
         """Set the internal database ID for this playlist.
 
         This is the source of truth for playlist identity in our system.
@@ -176,7 +176,7 @@ class Playlist:
 
         return evolve(self, id=db_id)
 
-    def with_metadata(self, metadata: dict[str, Any]) -> Playlist:
+    def with_metadata(self, metadata: dict[str, Any]) -> Self:
         """Create new playlist with updated metadata.
 
         Args:

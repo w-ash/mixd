@@ -6,15 +6,13 @@ are used across the Last.fm connector architecture.
 
 Key components:
 - LastFMTrackInfo: Immutable container for Last.fm track metadata
-- Conversion functions: pylast objects → domain models
+- Conversion functions: Last.fm API dicts → domain models
 - Helper utilities: metadata extraction, field processing
 """
 
-from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any, Self
 
 from attrs import define, field
-import pylast
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrack, Track
@@ -53,37 +51,16 @@ class LastFMTrackInfo:
     lastfm_listeners: int | None = field(default=None)
     lastfm_user_loved: bool = field(default=False)
 
-    # Field extraction mapping for pylast Track objects
-    EXTRACTORS: ClassVar[dict[str, Callable]] = {
-        "lastfm_title": lambda t: t.get_title(),
-        "lastfm_mbid": lambda t: t.get_mbid(),
-        "lastfm_url": lambda t: t.get_url(),
-        "lastfm_duration": lambda t: t.get_duration(),
-        "lastfm_artist_name": lambda t: t.get_artist() and t.get_artist().get_name(),
-        "lastfm_artist_mbid": lambda t: t.get_artist() and t.get_artist().get_mbid(),
-        "lastfm_artist_url": lambda t: t.get_artist() and t.get_artist().get_url(),
-        "lastfm_album_name": lambda t: t.get_album() and t.get_album().get_name(),
-        "lastfm_album_mbid": lambda t: t.get_album() and t.get_album().get_mbid(),
-        "lastfm_album_url": lambda t: t.get_album() and t.get_album().get_url(),
-        "lastfm_user_playcount": lambda t: (
-            int(t.get_userplaycount() or 0) if t.username else None
-        ),
-        "lastfm_user_loved": lambda t: bool(t.get_userloved()) if t.username else False,
-        "lastfm_global_playcount": lambda t: int(t.get_playcount() or 0),
-        "lastfm_listeners": lambda t: int(t.get_listener_count() or 0),
-    }
-
     @classmethod
-    def empty(cls) -> LastFMTrackInfo:
+    def empty(cls) -> Self:
         """Create an empty track info object for tracks not found."""
         return cls()
 
     @classmethod
-    def from_comprehensive_data(cls, track_data: dict[str, Any]) -> LastFMTrackInfo:
+    def from_comprehensive_data(cls, track_data: dict[str, Any]) -> Self:
         """Create LastFMTrackInfo from comprehensive track data (single API call).
 
-        This method uses data from a single track.getInfo API call, avoiding the
-        14 individual API calls that from_pylast_track_sync() makes.
+        This method uses data from a single track.getInfo API call.
 
         Args:
             track_data: Dict containing all track metadata from single API response
@@ -111,72 +88,6 @@ class LastFMTrackInfo:
             lastfm_listeners=track_data.get("lastfm_listeners"),
             lastfm_user_loved=track_data.get("lastfm_user_loved", False),
         )
-
-    @classmethod
-    def from_pylast_track_sync(cls, track: pylast.Track) -> LastFMTrackInfo:
-        """Create LastFMTrackInfo from a pylast Track object (all fields).
-
-        WARNING: This method makes 14 individual API calls and is SLOW (~1,400ms).
-        Use from_comprehensive_data() instead for better performance (~100ms).
-        """
-        info = {}
-        extraction_errors = []
-        track_not_found = False
-
-        # Extract all fields synchronously - track fetch already rate limited
-        for field_name, extractor in cls.EXTRACTORS.items():
-            try:
-                value = extractor(track)
-
-                if value is not None:
-                    info[field_name] = value
-
-            except pylast.WSError as e:
-                # Check if this is a "Track not found" error (code 6)
-                if (
-                    hasattr(e, "status")
-                    and e.status == "6"
-                    and "Track not found" in str(e)
-                ):
-                    track_not_found = True
-                    # Stop processing immediately - no point trying other fields
-                    break
-                else:
-                    # Log other WSErrors as they might indicate API issues
-                    logger.debug(f"WSError extracting metadata field {field_name}: {e}")
-                    extraction_errors.append(f"{field_name}: {e}")
-                continue
-
-            except (AttributeError, TypeError, ValueError) as e:
-                # These might indicate API changes or data format issues
-                logger.debug(
-                    f"Field format error for {field_name}: {type(e).__name__}({e})"
-                )
-                extraction_errors.append(f"{field_name}: {type(e).__name__}({e})")
-                continue
-
-        # If track was not found, log once at warning level with clear context
-        if track_not_found:
-            artist_name = (
-                getattr(track, "artist", "Unknown Artist")
-                if hasattr(track, "artist")
-                else "Unknown Artist"
-            )
-            track_title = (
-                getattr(track, "title", "Unknown Track")
-                if hasattr(track, "title")
-                else "Unknown Track"
-            )
-            logger.warning(
-                f"Track not found on Last.fm: '{artist_name} - {track_title}'"
-            )
-            return cls.empty()
-
-        # Log extraction errors only for non-"track not found" cases
-        if extraction_errors:
-            logger.debug(f"Extraction errors: {extraction_errors}")
-
-        return cls(**info)
 
 
 def convert_lastfm_to_domain_track(track: Track, lastfm_info: LastFMTrackInfo) -> Track:

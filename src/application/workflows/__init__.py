@@ -20,7 +20,7 @@ from .node_registry import get_node, node, registry
 from .prefect import run_workflow
 
 
-def validate_registry():
+def validate_registry():  # noqa: RUF067
     """Validate registry integrity against critical node list."""
     critical_paths = [
         "source.playlist",
@@ -54,7 +54,7 @@ def validate_registry():
 
 
 # Validate at module load time to catch issues early
-with suppress(Exception):
+with suppress(Exception):  # noqa: RUF067
     # Would need to inject logger via dependency injection for Clean Architecture
     # For now, silently ignore registry validation failures to avoid circular dependency
     success, message = validate_registry()

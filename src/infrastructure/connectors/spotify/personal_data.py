@@ -3,7 +3,7 @@
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from attrs import define
 
@@ -32,7 +32,7 @@ class SpotifyPlayRecord:
     incognito_mode: bool
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> SpotifyPlayRecord:
+    def from_json(cls, data: dict[str, Any]) -> Self:
         """Parse Spotify personal data JSON record."""
         return cls(
             timestamp=datetime.fromisoformat(data["ts"]),

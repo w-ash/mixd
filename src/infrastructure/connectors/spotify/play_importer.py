@@ -39,7 +39,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
     def __init__(self) -> None:
         """Initialize Spotify play importer for connector-only ingestion pattern."""
         # Initialize base class with None since we only do connector ingestion
-        super().__init__(None)  # type: ignore[arg-type]
+        super().__init__(None)
         self.operation_name = "Spotify Connector Play Import"
 
         # Note: Batch processing handled by base class methods with event-driven progress

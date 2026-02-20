@@ -89,6 +89,16 @@ class UpdateCanonicalPlaylistResult:
     errors: list[str] = field(factory=list)
 
     @property
+    def tracks_added(self) -> int:
+        """Number of tracks added (from operation_counts)."""
+        return self.operation_counts.added
+
+    @property
+    def tracks_removed(self) -> int:
+        """Number of tracks removed (from operation_counts)."""
+        return self.operation_counts.removed
+
+    @property
     def operation_summary(self) -> dict[str, Any]:
         """Returns operation statistics as a dictionary."""
         return {
@@ -259,8 +269,6 @@ class UpdateCanonicalPlaylistUseCase:
                     dry_run=command.dry_run,
                 )
 
-                return result
-
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -270,6 +278,8 @@ class UpdateCanonicalPlaylistUseCase:
                     playlist_id=command.playlist_id,
                 )
                 raise
+            else:
+                return result
 
     async def _get_current_playlist(
         self, playlist_id: str, uow: UnitOfWorkProtocol
@@ -290,11 +300,12 @@ class UpdateCanonicalPlaylistUseCase:
 
         try:
             playlist = await playlist_repo.get_playlist_by_id(int(playlist_id))
-            return playlist
         except ValueError:
             raise ValueError(
                 f"Invalid playlist ID '{playlist_id}' - must be a canonical playlist ID"
             ) from None
+        else:
+            return playlist
 
     async def _execute_operations(
         self,

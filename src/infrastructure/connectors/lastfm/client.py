@@ -1,31 +1,61 @@
-"""Last.fm API client - Pure API wrapper with centralized retry policy."""
-# TODO(v0.6+): Replace pylast with direct httpx calls for async-native HTTP,
-# eliminating the sync-to-async bridging overhead.
+"""Last.fm API client - Pure API wrapper using native httpx with JSON responses.
+
+Provides a thin async wrapper around the Last.fm Web Services API using
+httpx.AsyncClient directly. All requests use JSON format (format=json param),
+eliminating the XML parsing required by the previous pylast-based implementation.
+
+Key components:
+- LastFMAPIClient: API key + session-authenticated client
+- Session key auth via auth.getMobileSession for write operations
+- Centralized retry policy using tenacity
+"""
 
 import asyncio
 from datetime import datetime
-from enum import Enum
+import hashlib
 from typing import Any
 
 from attrs import define, field
-import pylast
+import httpx
+from pydantic import ValidationError
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
+from src.config.constants import LastFMConstants
+from src.infrastructure.connectors._shared.http_client import (
+    log_error_response_body,
+    make_lastfm_client,
+)
 from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
+from src.infrastructure.connectors.lastfm.models import (
+    LastFMAPIError,
+    LastFMRecentTracksPage,
+    LastFMTrackEntry,
+)
 
 logger = get_logger(__name__).bind(service="lastfm_client")
 
+
 # -------------------------------------------------------------------------
-# XML PARSER TYPE
+# SIGNATURE HELPER
 # -------------------------------------------------------------------------
 
 
-class ParserType(Enum):
-    """XML parser type for extraction methods."""
+def _sign_params(params: dict[str, str], api_secret: str) -> str:
+    """Compute Last.fm API signature.
 
-    ELEMENT_TREE = "element_tree"
-    MINIDOM = "minidom"
+    Algorithm: md5(sorted_key_value_pairs_concatenated + api_secret)
+    The "format" parameter is excluded per Last.fm API specification.
+
+    Args:
+        params: Request parameters (without "format" and "api_sig")
+        api_secret: Last.fm API secret key
+
+    Returns:
+        Hex-encoded MD5 signature string
+    """
+    sorted_pairs = "".join(k + v for k, v in sorted(params.items()))
+    return hashlib.md5((sorted_pairs + api_secret).encode()).hexdigest()  # noqa: S324 — Last.fm API signature scheme requires MD5
 
 
 # -------------------------------------------------------------------------
@@ -35,17 +65,25 @@ class ParserType(Enum):
 
 @define(slots=True)
 class LastFMAPIClient:
-    """Last.fm API client with authentication and centralized retry policy."""
+    """Last.fm API client using native httpx with JSON format.
+
+    Reads track info, recent tracks, and love tracks via the Last.fm Web Services.
+    Authenticated write operations use a session key obtained via auth.getMobileSession.
+
+    Example:
+        >>> client = LastFMAPIClient()
+        >>> info = await client.get_track_info_comprehensive("Radiohead", "Creep")
+    """
 
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
-    client: pylast.LastFMNetwork | None = field(default=None, init=False, repr=False)
-    lastfm_password_hash: str | None = field(default=None, init=False, repr=False)
+    _session_key: str | None = field(default=None, init=False, repr=False)
+    _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Initialize Last.fm client with authentication and retry policy."""
+        """Resolve credentials from settings and initialize retry policy."""
         self.api_key = self.api_key or settings.credentials.lastfm_key
         self.api_secret = self.api_secret or (
             settings.credentials.lastfm_secret.get_secret_value()
@@ -58,139 +96,165 @@ class LastFMAPIClient:
 
         if not self.api_key:
             logger.warning("Last.fm API key not provided")
-            # Still initialize retry policy even if client isn't configured
-            self._retry_policy = RetryPolicyFactory.create_lastfm_policy()
-            return
 
-        client_args = {
-            "api_key": self.api_key,
-            "api_secret": self.api_secret,
-            "username": self.lastfm_username,
-        }
-
-        # Add password for write operations
-        lastfm_password = (
-            settings.credentials.lastfm_password.get_secret_value()
-            if settings.credentials.lastfm_password
-            else None
+        from src.infrastructure.connectors.lastfm.error_classifier import (
+            LastFMErrorClassifier,
         )
-        if self.api_secret and self.lastfm_username and lastfm_password:
-            self.lastfm_password_hash = pylast.md5(lastfm_password)
-            client_args["password_hash"] = self.lastfm_password_hash
 
-        self.client = pylast.LastFMNetwork(**client_args)
-
-        # Initialize centralized retry policy
-        self._retry_policy = RetryPolicyFactory.create_lastfm_policy()
+        self._retry_policy = RetryPolicyFactory.create_lastfm_policy(
+            classifier=LastFMErrorClassifier(),
+            service_error_types=(LastFMAPIError,),
+        )
 
     @property
     def is_configured(self) -> bool:
-        """Check if client is properly configured."""
-        return self.client is not None
+        """Check if client is properly configured with an API key."""
+        return self.api_key is not None
 
     # -------------------------------------------------------------------------
-    # XML EXTRACTION HELPERS
+    # CORE REQUEST BUILDER
     # -------------------------------------------------------------------------
 
-    def _extract_text(
-        self, element, tag_name: str, parser: ParserType = ParserType.ELEMENT_TREE
-    ) -> str | None:
-        """Extract text from XML element (ElementTree or minidom)."""
-        try:
-            if parser == ParserType.ELEMENT_TREE:
-                child = element.find(tag_name)
-                if child is not None and child.text and child.text.strip():
-                    return child.text.strip()
-            else:  # MINIDOM
-                child_elements = element.getElementsByTagName(tag_name)
-                if child_elements and child_elements[0].firstChild:
-                    text = child_elements[0].firstChild.nodeValue.strip()
-                    return text or None
-        except AttributeError, IndexError:
-            return None
-        return None
+    async def _api_request(
+        self,
+        method: str,
+        params: dict[str, str] | None = None,
+        authenticated: bool = False,
+    ) -> dict[str, Any]:
+        """Make a Last.fm API call and return parsed JSON response.
 
-    def _extract_int(
-        self, element, tag_name: str, parser: ParserType = ParserType.ELEMENT_TREE
-    ) -> int | None:
-        """Extract integer from XML element."""
-        text = self._extract_text(element, tag_name, parser)
-        return int(text) if text and text.isdigit() else None
+        Read-only methods use GET with params in the URL query string, matching
+        the Last.fm API documentation. Authenticated write operations use POST
+        with a form-encoded body and an api_sig covering all parameters.
 
-    # Legacy method names for compatibility
-    def _extract_minidom_text(self, element, tag_name: str) -> str | None:
-        return self._extract_text(element, tag_name, ParserType.MINIDOM)
+        Args:
+            method: Last.fm API method (e.g. "track.getInfo", "track.love")
+            params: Additional parameters for the request
+            authenticated: If True, use POST with session key and api_sig
 
-    def _extract_minidom_int(self, element, tag_name: str) -> int | None:
-        return self._extract_int(element, tag_name, ParserType.MINIDOM)
+        Returns:
+            Parsed JSON response dict
+
+        Raises:
+            LastFMAPIError: If the API returns {"error": N, ...} in the body
+            httpx.HTTPStatusError: On 4xx/5xx HTTP responses
+            httpx.RequestError: On network/connection failures
+        """
+        base_params: dict[str, str] = {
+            "method": method,
+            "api_key": self.api_key or "",
+            "format": "json",
+            **(params or {}),
+        }
+
+        async with make_lastfm_client() as client:
+            if authenticated:
+                sk = await self._get_session_key()
+                base_params["sk"] = sk
+                # api_sig excludes "format" per Last.fm API spec
+                sig_params = {k: v for k, v in base_params.items() if k != "format"}
+                base_params["api_sig"] = _sign_params(sig_params, self.api_secret or "")
+                try:
+                    response = await client.post("/", data=base_params)
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    log_error_response_body(e, method)
+                    raise
+            else:
+                # Read-only methods: GET with params in query string
+                # Last.fm API documentation specifies GET for all read operations
+                try:
+                    response = await client.get("/", params=base_params)
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    log_error_response_body(e, method)
+                    raise
+
+            # Last.fm returns errors as HTTP 200 with {"error": N, "message": "..."}
+            data = response.json()
+
+        if "error" in data:
+            raise LastFMAPIError(data["error"], data.get("message", ""))
+
+        return data
 
     # -------------------------------------------------------------------------
-    # API METHODS
+    # SESSION KEY (WRITE AUTH)
     # -------------------------------------------------------------------------
 
-    async def get_track_by_mbid(self, mbid: str) -> pylast.Track | None:
-        """Get track by MusicBrainz ID."""
-        try:
-            return await self._get_track_by_mbid_with_retries(mbid)
-        except (pylast.WSError, TimeoutError) as e:
-            logger.warning(f"Failed to get track by MBID after retries: {e}")
-            return None
+    async def _get_session_key(self) -> str:
+        """Return a valid Last.fm session key, obtaining one if not yet cached.
 
-    async def _get_track_by_mbid_with_retries(self, mbid: str) -> pylast.Track | None:
-        """Get track by MBID with retry policy."""
-        return await self._retry_policy(self._get_track_by_mbid_impl, mbid)
+        Session keys are valid indefinitely. Once obtained, they are cached
+        in memory for the lifetime of the client instance.
 
-    async def _get_track_by_mbid_impl(self, mbid: str) -> pylast.Track | None:
-        """Pure implementation without retry logic."""
-        if not self.is_configured or self.client is None:
-            return None
+        Raises:
+            RuntimeError: If credentials for auth are not configured.
+            LastFMAPIError: If session key acquisition fails.
+        """
+        async with self._session_lock:
+            if self._session_key is not None:
+                return self._session_key
 
-        result = await asyncio.wait_for(
-            asyncio.to_thread(self.client.get_track_by_mbid, mbid),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-        return result
+            if not (self.api_key and self.api_secret and self.lastfm_username):
+                raise RuntimeError(
+                    "Last.fm write operations require api_key, api_secret, and username"
+                )
 
-    async def get_track(self, artist: str, title: str) -> pylast.Track | None:
-        """Get track by artist and title."""
-        try:
-            return await self._get_track_with_retries(artist, title)
-        except (pylast.WSError, TimeoutError) as e:
-            logger.warning(f"Failed to get track after retries: {e}")
-            return None
+            lastfm_password = (
+                settings.credentials.lastfm_password.get_secret_value()
+                if settings.credentials.lastfm_password
+                else None
+            )
+            if not lastfm_password:
+                raise RuntimeError(
+                    "Last.fm write operations require a password in credentials"
+                )
 
-    async def _get_track_with_retries(
-        self, artist: str, title: str
-    ) -> pylast.Track | None:
-        """Get track with retry policy."""
-        return await self._retry_policy(self._get_track_impl, artist, title)
+            # auth.getMobileSession signature: Last.fm mobile auth uses md5(username + md5(password))
+            password_hash = hashlib.md5(lastfm_password.encode()).hexdigest()  # noqa: S324 — Last.fm API signature scheme requires MD5
+            auth_token = hashlib.md5(  # noqa: S324 — Last.fm API signature scheme requires MD5
+                (self.lastfm_username + password_hash).encode()
+            ).hexdigest()
 
-    async def _get_track_impl(self, artist: str, title: str) -> pylast.Track | None:
-        """Pure implementation without retry logic."""
-        if not self.is_configured or self.client is None:
-            return None
-
-        def get_track_blocking():
-            client_args = {
-                "api_key": settings.credentials.lastfm_key,
-                "api_secret": settings.credentials.lastfm_secret.get_secret_value(),
+            auth_params: dict[str, str] = {
+                "method": "auth.getMobileSession",
+                "username": self.lastfm_username,
+                "authToken": auth_token,
+                "api_key": self.api_key,
             }
-            fresh_client = pylast.LastFMNetwork(**client_args)
-            return fresh_client.get_track(artist, title)
+            api_sig = _sign_params(auth_params, self.api_secret)
+            auth_params["api_sig"] = api_sig
+            auth_params["format"] = "json"
 
-        result = await asyncio.wait_for(
-            asyncio.to_thread(get_track_blocking),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-        return result
+            async with make_lastfm_client() as client:
+                response = await client.post("/", data=auth_params)
+                response.raise_for_status()
+                data = response.json()
+
+            if "error" in data:
+                raise LastFMAPIError(data["error"], data.get("message", ""))
+
+            self._session_key = data["session"]["key"]
+            logger.debug("Last.fm session key obtained successfully")
+            if self._session_key is None:
+                raise RuntimeError("Session key not available after authentication")
+            return self._session_key
+
+    # -------------------------------------------------------------------------
+    # TRACK INFO API METHODS
+    # -------------------------------------------------------------------------
 
     async def get_track_info_comprehensive(
         self, artist: str, title: str
     ) -> dict[str, Any] | None:
-        """Get comprehensive track info in single API call."""
+        """Get comprehensive track info in a single API call.
+
+        Returns a dict with lastfm_* prefixed keys matching LastFMTrackInfo fields.
+        """
         try:
             return await self._get_track_info_comprehensive_with_retries(artist, title)
-        except (pylast.WSError, TimeoutError) as e:
+        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
             logger.warning(f"Failed to get comprehensive track info after retries: {e}")
             return None
 
@@ -206,39 +270,23 @@ class LastFMAPIClient:
         self, artist: str, title: str
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        if not self.is_configured or self.client is None:
+        if not self.is_configured:
             return None
 
-        def get_track_info_raw():
-            client_args = {
-                "api_key": settings.credentials.lastfm_key,
-                "api_secret": settings.credentials.lastfm_secret.get_secret_value(),
-            }
-            if self.lastfm_username:
-                client_args["username"] = self.lastfm_username
-                if self.lastfm_password_hash:
-                    client_args["password_hash"] = self.lastfm_password_hash
+        params: dict[str, str] = {"artist": artist, "track": title, "autocorrect": "1"}
+        if self.lastfm_username:
+            params["username"] = self.lastfm_username
 
-            fresh_client = pylast.LastFMNetwork(**client_args)
-            return fresh_client.get_track(artist, title)
-
-        track = await asyncio.wait_for(
-            asyncio.to_thread(get_track_info_raw),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-
-        if not track:
-            return None
-
-        return await self._get_comprehensive_track_data(track)
+        data = await self._api_request("track.getInfo", params)
+        return _parse_track_info(data, has_user_data=bool(self.lastfm_username))
 
     async def get_track_info_comprehensive_by_mbid(
         self, mbid: str
     ) -> dict[str, Any] | None:
-        """Get comprehensive track info by MBID."""
+        """Get comprehensive track info by MusicBrainz ID."""
         try:
             return await self._get_track_info_comprehensive_by_mbid_with_retries(mbid)
-        except (pylast.WSError, TimeoutError) as e:
+        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
             logger.warning(
                 f"Failed to get comprehensive track info by MBID after retries: {e}"
             )
@@ -256,129 +304,32 @@ class LastFMAPIClient:
         self, mbid: str
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        if not self.is_configured or self.client is None or not mbid:
+        if not self.is_configured or not mbid:
             return None
 
-        def get_track_by_mbid_raw():
-            client_args = {
-                "api_key": settings.credentials.lastfm_key,
-                "api_secret": settings.credentials.lastfm_secret.get_secret_value(),
-            }
-            if self.lastfm_username:
-                client_args["username"] = self.lastfm_username
-                if self.lastfm_password_hash:
-                    client_args["password_hash"] = self.lastfm_password_hash
+        params: dict[str, str] = {"mbid": mbid, "autocorrect": "1"}
+        if self.lastfm_username:
+            params["username"] = self.lastfm_username
 
-            fresh_client = pylast.LastFMNetwork(**client_args)
-            return fresh_client.get_track_by_mbid(mbid)
+        data = await self._api_request("track.getInfo", params)
+        return _parse_track_info(data, has_user_data=bool(self.lastfm_username))
 
-        track = await asyncio.wait_for(
-            asyncio.to_thread(get_track_by_mbid_raw),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-
-        if not track:
-            return None
-
-        return await self._get_comprehensive_track_data(track)
-
-    async def _get_comprehensive_track_data(
-        self, track: pylast.Track
-    ) -> dict[str, Any] | None:
-        """Extract comprehensive data from pylast Track object."""
-        if not track:
-            return None
-
-        def get_comprehensive_data():
-            raw_data = track._request(track.ws_prefix + ".getInfo", cacheable=True)
-            if not raw_data:
-                return None
-
-            track_info = {}
-
-            try:
-                if hasattr(raw_data, "getElementsByTagName"):  # minidom
-                    track_elements = raw_data.getElementsByTagName("track")
-                    if track_elements:
-                        elem = track_elements[0]
-
-                        # Basic fields
-                        track_info["lastfm_title"] = self._extract_minidom_text(
-                            elem, "name"
-                        )
-                        track_info["lastfm_mbid"] = self._extract_minidom_text(
-                            elem, "mbid"
-                        )
-                        track_info["lastfm_url"] = self._extract_minidom_text(
-                            elem, "url"
-                        )
-                        track_info["lastfm_duration"] = self._extract_minidom_int(
-                            elem, "duration"
-                        )
-                        track_info["lastfm_global_playcount"] = (
-                            self._extract_minidom_int(elem, "playcount")
-                        )
-                        track_info["lastfm_listeners"] = self._extract_minidom_int(
-                            elem, "listeners"
-                        )
-
-                        # Artist
-                        artist_elems = elem.getElementsByTagName("artist")
-                        if artist_elems:
-                            artist = artist_elems[0]
-                            track_info["lastfm_artist_name"] = (
-                                self._extract_minidom_text(artist, "name")
-                            )
-                            track_info["lastfm_artist_mbid"] = (
-                                self._extract_minidom_text(artist, "mbid")
-                            )
-                            track_info["lastfm_artist_url"] = (
-                                self._extract_minidom_text(artist, "url")
-                            )
-
-                        # Album
-                        album_elems = elem.getElementsByTagName("album")
-                        if album_elems:
-                            album = album_elems[0]
-                            track_info["lastfm_album_name"] = (
-                                self._extract_minidom_text(album, "title")
-                            )
-                            track_info["lastfm_album_mbid"] = (
-                                self._extract_minidom_text(album, "mbid")
-                            )
-                            track_info["lastfm_album_url"] = self._extract_minidom_text(
-                                album, "url"
-                            )
-
-                        # User data
-                        if self.lastfm_username:
-                            track_info["lastfm_user_playcount"] = (
-                                self._extract_minidom_int(elem, "userplaycount")
-                            )
-                            userloved = self._extract_minidom_text(elem, "userloved")
-                            track_info["lastfm_user_loved"] = userloved == "1"
-
-                return track_info
-
-            except Exception as parse_error:
-                logger.error(f"Error parsing track data: {parse_error}")
-                return None
-
-        result = await asyncio.wait_for(
-            asyncio.to_thread(get_comprehensive_data),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-        return result
+    # -------------------------------------------------------------------------
+    # TRACK LOVE (WRITE)
+    # -------------------------------------------------------------------------
 
     async def love_track(self, artist: str, title: str) -> bool:
-        """Love a track for the authenticated user."""
-        if not self.is_configured or not self.lastfm_username or self.client is None:
+        """Love a track for the authenticated user.
+
+        Single API call — no intermediate track lookup required.
+        """
+        if not self.is_configured or not self.lastfm_username:
             logger.warning("Cannot love track - no username configured")
             return False
 
         try:
             return await self._love_track_with_retries(artist, title)
-        except (pylast.WSError, TimeoutError) as e:
+        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
             logger.warning(f"Failed to love track after retries: {e}")
             return False
 
@@ -388,18 +339,16 @@ class LastFMAPIClient:
 
     async def _love_track_impl(self, artist: str, title: str) -> bool:
         """Pure implementation without retry logic."""
-        if self.client is None:
-            raise RuntimeError("LastFM client not initialized")
-
-        track = await asyncio.wait_for(
-            asyncio.to_thread(self.client.get_track, artist, title),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-        await asyncio.wait_for(
-            asyncio.to_thread(track.love),
-            timeout=settings.api.lastfm_request_timeout,
+        await self._api_request(
+            "track.love",
+            params={"artist": artist, "track": title},
+            authenticated=True,
         )
         return True
+
+    # -------------------------------------------------------------------------
+    # RECENT TRACKS
+    # -------------------------------------------------------------------------
 
     async def get_recent_tracks(
         self,
@@ -407,38 +356,24 @@ class LastFMAPIClient:
         limit: int = 200,
         from_time: datetime | None = None,
         to_time: datetime | None = None,
-    ) -> list[dict]:
-        """Get recent tracks from Last.fm user.getRecentTracks API."""
-        try:
-            return await self._get_recent_tracks_with_retries(
-                username, limit, from_time, to_time
-            )
-        except (pylast.WSError, TimeoutError) as e:
-            logger.warning(f"Failed to get recent tracks after retries: {e}")
-            return []
+    ) -> list[LastFMTrackEntry]:
+        """Get recent tracks from Last.fm user.getRecentTracks API.
 
-    async def _get_recent_tracks_with_retries(
-        self,
-        username: str | None = None,
-        limit: int = 200,
-        from_time: datetime | None = None,
-        to_time: datetime | None = None,
-    ) -> list[dict]:
-        """Get recent tracks with retry policy."""
-        return await self._retry_policy(
-            self._get_recent_tracks_impl, username, limit, from_time, to_time
-        )
+        Fetches multiple pages as needed to satisfy the requested total limit.
+        Each page is individually retried on failure; a single-page failure
+        stops iteration but returns all tracks gathered so far.
 
-    async def _get_recent_tracks_impl(
-        self,
-        username: str | None = None,
-        limit: int = 200,
-        from_time: datetime | None = None,
-        to_time: datetime | None = None,
-    ) -> list[dict]:
-        """Pure implementation without retry logic."""
-        if not self.is_configured or self.client is None:
-            logger.error("Last.fm client not initialized")
+        Args:
+            username: Last.fm username (defaults to configured username)
+            limit: Total number of tracks to return (pagination handled automatically)
+            from_time: Beginning timestamp (UTC)
+            to_time: End timestamp (UTC)
+
+        Returns:
+            Validated LastFMTrackEntry objects, newest-first, up to `limit` entries.
+        """
+        if not self.is_configured:
+            logger.error("Last.fm client not configured")
             return []
 
         user = username or self.lastfm_username
@@ -446,156 +381,124 @@ class LastFMAPIClient:
             logger.error("No Last.fm username provided")
             return []
 
-        # Validate limit
-        limit = min(
-            max(settings.api.lastfm_recent_tracks_min_limit, limit),
-            settings.api.lastfm_recent_tracks_max_limit,
+        all_tracks: list[LastFMTrackEntry] = []
+        page = 1
+        total_pages = 1
+
+        while page <= total_pages and len(all_tracks) < limit:
+            try:
+                tracks, total_pages = await self._get_recent_tracks_with_retries(
+                    user, page, from_time, to_time
+                )
+            except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
+                logger.warning(f"Failed to get recent tracks page {page}: {e}")
+                break
+
+            all_tracks.extend(tracks)
+            if not tracks:  # Empty page → stop early
+                break
+            page += 1
+
+        logger.info(f"Retrieved {len(all_tracks)} recent tracks ({page - 1} pages)")
+        return all_tracks[:limit]
+
+    async def _get_recent_tracks_with_retries(
+        self,
+        username: str | None = None,
+        page: int = 1,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> tuple[list[LastFMTrackEntry], int]:
+        """Fetch a single page of recent tracks with retry policy."""
+        return await self._retry_policy(
+            self._get_recent_tracks_impl, username, page, from_time, to_time
         )
 
-        # Build time range params
-        params = {"limit": limit}
+    async def _get_recent_tracks_impl(
+        self,
+        username: str | None = None,
+        page: int = 1,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+    ) -> tuple[list[LastFMTrackEntry], int]:
+        """Fetch ONE page from user.getRecentTracks. Returns (validated entries, total_pages)."""
+        params: dict[str, str] = {
+            "user": username or "",
+            "limit": str(LastFMConstants.RECENT_TRACKS_PAGE_SIZE),
+            "page": str(page),
+            "extended": "1",  # loved status (userloved) + artist URL per track; no extra cost
+        }
         if from_time:
-            params["time_from"] = int(from_time.timestamp())
+            params["from"] = str(int(from_time.timestamp()))
         if to_time:
-            params["time_to"] = int(to_time.timestamp())
+            params["to"] = str(int(to_time.timestamp()))
 
-        # Get Last.fm user
-        lastfm_user = await asyncio.wait_for(
-            asyncio.to_thread(self.client.get_user, user),
-            timeout=settings.api.lastfm_request_timeout,
-        )
-        if not lastfm_user:
-            logger.error(f"Could not get Last.fm user: {user}")
-            return []
-
-        # Get recent tracks
-        recent_tracks = await asyncio.wait_for(
-            asyncio.to_thread(
-                lastfm_user.get_recent_tracks,
-                limit=params["limit"],
-                time_from=params.get("time_from"),
-                time_to=params.get("time_to"),
-            ),
-            timeout=settings.api.lastfm_request_timeout * 2,
-        )
-
-        # Convert to track data dicts
-        tracks_data = []
-        for played_track in recent_tracks:
-            track = played_track.track
-            timestamp_str = played_track.timestamp
-
-            if not timestamp_str:  # Skip currently playing
-                continue
-
-            track_name = (
-                track.get_title() if hasattr(track, "get_title") else str(track)
-            )
-            artist_name = (
-                track.get_artist().get_name()
-                if hasattr(track, "get_artist") and track.get_artist()
-                else ""
-            )
-            album_name = played_track.album or None
-
-            track_url = track.get_url() if hasattr(track, "get_url") else None
-            track_mbid = track.get_mbid() if hasattr(track, "get_mbid") else None
-
-            artist_url = (
-                track.get_artist().get_url()
-                if hasattr(track, "get_artist") and track.get_artist()
-                else None
-            )
-            artist_mbid = (
-                track.get_artist().get_mbid()
-                if hasattr(track, "get_artist") and track.get_artist()
-                else None
-            )
-
-            album_url = (
-                track.get_album().get_url()
-                if hasattr(track, "get_album") and track.get_album()
-                else None
-            )
-            album_mbid = (
-                track.get_album().get_mbid()
-                if hasattr(track, "get_album") and track.get_album()
-                else None
-            )
-
-            track_data = {
-                "artist_name": artist_name,
-                "track_name": track_name,
-                "album_name": album_name,
-                "timestamp": timestamp_str,
-                "lastfm_track_url": track_url,
-                "lastfm_artist_url": artist_url,
-                "lastfm_album_url": album_url,
-                "mbid": track_mbid,
-                "artist_mbid": artist_mbid,
-                "album_mbid": album_mbid,
-                "raw_data": {
-                    "track_url": track_url,
-                    "artist_url": artist_url,
-                    "album_url": album_url,
-                },
-            }
-
-            tracks_data.append(track_data)
-
-        logger.info(
-            f"Retrieved {len(tracks_data)} recent tracks for user {user}",
-            limit=limit,
-        )
-        return tracks_data
-
-    async def extract_track_metadata(self, track: pylast.Track) -> dict:
-        """Extract all metadata from a pylast Track object."""
-        if not track:
-            return {}
+        data = await self._api_request("user.getRecentTracks", params)
 
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self._extract_metadata_sync, track),
-                timeout=settings.api.lastfm_request_timeout,
+            page_data = LastFMRecentTracksPage.model_validate(
+                data.get("recenttracks", {})
             )
-        except TimeoutError:
-            logger.warning("Timeout extracting track metadata")
-            return {}
-        except Exception as e:
-            logger.error(f"Failed to extract track metadata: {e}")
-            return {}
+        except ValidationError as e:
+            logger.warning(f"Unexpected Last.fm response shape on page {page}: {e}")
+            return [], 1
 
-    def _extract_metadata_sync(self, track: pylast.Track) -> dict:
-        """Synchronously extract metadata fields from pylast track."""
-        metadata = {}
+        return page_data.playable_tracks, page_data.total_pages
 
-        extractors = {
-            "title": lambda t: t.get_title(),
-            "mbid": lambda t: t.get_mbid(),
-            "url": lambda t: t.get_url(),
-            "duration": lambda t: t.get_duration(),
-            "artist_name": lambda t: t.get_artist() and t.get_artist().get_name(),
-            "artist_mbid": lambda t: t.get_artist() and t.get_artist().get_mbid(),
-            "artist_url": lambda t: t.get_artist() and t.get_artist().get_url(),
-            "album_name": lambda t: t.get_album() and t.get_album().get_name(),
-            "album_mbid": lambda t: t.get_album() and t.get_album().get_mbid(),
-            "album_url": lambda t: t.get_album() and t.get_album().get_url(),
-            "user_playcount": lambda t: (
-                int(t.get_userplaycount() or 0) if t.username else None
-            ),
-            "user_loved": lambda t: bool(t.get_userloved()) if t.username else False,
-            "global_playcount": lambda t: int(t.get_playcount() or 0),
-            "listeners": lambda t: int(t.get_listener_count() or 0),
-        }
 
-        for field_name, extractor in extractors.items():
-            try:
-                value = extractor(track)
-                if value is not None:
-                    metadata[f"lastfm_{field_name}"] = value
-            except AttributeError, TypeError, ValueError:
-                # Skip fields that can't be extracted
-                continue
+def _parse_int(value: str | int | None) -> int | None:
+    """Parse an integer from a Last.fm API response value."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError, TypeError:
+        return None
 
-        return metadata
+
+def _parse_track_info(
+    data: dict[str, Any], has_user_data: bool
+) -> dict[str, Any] | None:
+    """Extract lastfm_* metadata dict from a track.getInfo JSON response.
+
+    Output keys match LastFMTrackInfo field names (lastfm_* prefix) for
+    backward compatibility with LastFMTrackInfo.from_comprehensive_data().
+
+    Args:
+        data: Parsed JSON response from track.getInfo
+        has_user_data: Whether user-specific fields (playcount, loved) are expected
+
+    Returns:
+        Dict with lastfm_* prefixed keys, or None if no track data present
+    """
+    track_data = data.get("track", {})
+    if not track_data:
+        return None
+
+    result: dict[str, Any] = {
+        "lastfm_title": track_data.get("name"),
+        "lastfm_mbid": track_data.get("mbid") or None,
+        "lastfm_url": track_data.get("url"),
+        "lastfm_duration": _parse_int(track_data.get("duration")),
+        "lastfm_global_playcount": _parse_int(track_data.get("playcount")),
+        "lastfm_listeners": _parse_int(track_data.get("listeners")),
+    }
+
+    artist_data = track_data.get("artist", {})
+    if isinstance(artist_data, dict):
+        result["lastfm_artist_name"] = artist_data.get("name")
+        result["lastfm_artist_mbid"] = artist_data.get("mbid") or None
+        result["lastfm_artist_url"] = artist_data.get("url")
+
+    album_data = track_data.get("album", {})
+    if isinstance(album_data, dict):
+        # Last.fm uses "title" for album name in track.getInfo
+        result["lastfm_album_name"] = album_data.get("title")
+        result["lastfm_album_mbid"] = album_data.get("mbid") or None
+        result["lastfm_album_url"] = album_data.get("url")
+
+    if has_user_data:
+        result["lastfm_user_playcount"] = _parse_int(track_data.get("userplaycount"))
+        result["lastfm_user_loved"] = track_data.get("userloved") == "1"
+
+    return result

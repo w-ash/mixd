@@ -100,11 +100,12 @@ async def execute_node(node_type: str, context: dict, config: dict) -> dict:
             await progress_manager.emit_progress(event)
 
         task_logger.info(f"Node completed successfully: {node_type}")
-        return result
 
     except Exception:
         task_logger.exception(f"Node failed (type: {node_type})")
         raise
+    else:
+        return result
 
 
 # --- Flow building ---

@@ -32,6 +32,7 @@ from src.infrastructure.connectors._shared.error_classification import (
     classify_unknown_error,
 )
 from src.infrastructure.connectors._shared.metrics import (
+    MetricResolveFn,
     MetricResolverProtocol,
     register_metric_resolver,
 )
@@ -64,24 +65,25 @@ class BaseMetricResolver:
         track_ids: list[int],
         metric_name: str,
         uow: Any,  # UnitOfWorkProtocol - avoiding import for infrastructure layer
+        resolve_fn: MetricResolveFn,
     ) -> dict[int, Any]:
         """Retrieve metric values for multiple tracks from database.
+
+        Uses a callback injected by the application layer to perform the actual
+        metric resolution, avoiding a circular import from infrastructure to
+        application.
 
         Args:
             track_ids: Internal track IDs to get metrics for
             metric_name: Name of metric to retrieve (e.g., "spotify_popularity")
             uow: Database unit of work for transaction management
+            resolve_fn: Application-layer callback that handles cache lookup,
+                API fetching, and persistence of metric values.
 
         Returns:
             Track ID to metric value mapping
         """
-        # Import at runtime to avoid circular dependencies
-        from src.application.services.metrics_application_service import (
-            MetricsApplicationService,
-        )
-
-        metrics_service = MetricsApplicationService()
-        return await metrics_service.resolve_metrics(
+        return await resolve_fn(
             track_ids=track_ids,
             metric_name=metric_name,
             connector=self.CONNECTOR,

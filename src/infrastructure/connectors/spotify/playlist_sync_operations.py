@@ -91,7 +91,6 @@ class SpotifyPlaylistSyncOperations:
             )
 
             logger.info("All operations completed", final_snapshot=current_snapshot)
-            return current_snapshot
 
         except Exception as e:
             logger.error(
@@ -100,6 +99,8 @@ class SpotifyPlaylistSyncOperations:
                 error_type=type(e).__name__,
             )
             raise
+        else:
+            return current_snapshot
 
     async def _execute_operation_group(
         self,
@@ -117,7 +118,6 @@ class SpotifyPlaylistSyncOperations:
         try:
             new_snapshot = await executor(playlist_id, operations, snapshot_id)
             logger.info(f"{operation_name.capitalize()} operations completed")
-            return new_snapshot
         except Exception as e:
             logger.error(
                 f"{operation_name.capitalize()} operations failed",
@@ -125,6 +125,8 @@ class SpotifyPlaylistSyncOperations:
                 error_type=type(e).__name__,
             )
             raise
+        else:
+            return new_snapshot
 
     async def _resolve_canonical_uris_to_spotify(
         self, operations: list, track_repo

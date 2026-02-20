@@ -65,14 +65,14 @@ class SpotifyConnector(BaseAPIConnector):
     _client: SpotifyAPIClient = field(init=False, repr=False)
     _operations: SpotifyOperations = field(init=False, repr=False)
 
-    @override
     @property
+    @override
     def connector_name(self) -> str:
         """The name of this connector."""
         return "spotify"
 
-    @override
     @property
+    @override
     def error_classifier(self):
         """Get Spotify-specific error classifier."""
         return SpotifyErrorClassifier()
@@ -80,7 +80,7 @@ class SpotifyConnector(BaseAPIConnector):
     @property
     def client(self):
         """Access to underlying Spotify client for compatibility."""
-        return self._client.client
+        return self._client  # type: ignore[return-value]
 
     def __attrs_post_init__(self) -> None:
         """Initialize modular components."""

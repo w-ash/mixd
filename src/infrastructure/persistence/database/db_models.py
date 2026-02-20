@@ -112,27 +112,27 @@ class DBTrack(BaseEntity):
     mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
     # Relationships
-    mappings: Mapped[list[DBTrackMapping]] = relationship(
+    mappings: Mapped[list[DBTrackMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="track",
         passive_deletes=True,
     )
-    metrics: Mapped[list[DBTrackMetric]] = relationship(
+    metrics: Mapped[list[DBTrackMetric]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    likes: Mapped[list[DBTrackLike]] = relationship(
+    likes: Mapped[list[DBTrackLike]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    plays: Mapped[list[DBTrackPlay]] = relationship(
+    plays: Mapped[list[DBTrackPlay]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(
+    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    connector_plays: Mapped[list[DBConnectorPlay]] = relationship(
+    connector_plays: Mapped[list[DBConnectorPlay]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="resolved_track",
         passive_deletes=True,
     )
@@ -172,7 +172,7 @@ class DBConnectorTrack(BaseEntity):
     )
 
     # Mapping relationship - plural to reflect conceptual many-to-one possibility
-    mappings: Mapped[list[DBTrackMapping]] = relationship(
+    mappings: Mapped[list[DBTrackMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="connector_track",
         passive_deletes=True,
     )
@@ -425,11 +425,11 @@ class DBPlaylist(BaseEntity):
     track_count: Mapped[int] = mapped_column(default=0)
 
     # Relationships
-    tracks: Mapped[list[DBPlaylistTrack]] = relationship(
+    tracks: Mapped[list[DBPlaylistTrack]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="playlist",
         cascade="all, delete-orphan",
     )
-    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="playlist",
         passive_deletes=True,
     )
@@ -459,7 +459,7 @@ class DBConnectorPlaylist(BaseEntity):
     last_updated: Mapped[datetime]
 
     # Relationships
-    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
         back_populates="connector_playlist",
         passive_deletes=True,
     )
@@ -580,37 +580,3 @@ class DBSyncCheckpoint(BaseEntity):
     entity_type: Mapped[str] = mapped_column(String(32))  # 'likes', 'plays'
     last_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cursor: Mapped[str | None] = mapped_column(String(1024))  # continuation token
-
-
-async def init_db() -> None:
-    """Initialize database schema.
-
-    Creates all tables if they don't exist.
-    This is a safe operation that won't affect existing data.
-    """
-    from sqlalchemy import inspect
-
-    from src.infrastructure.persistence.database.db_connection import get_engine
-
-    engine = get_engine()
-
-    try:
-        # First check if tables exist (for informational purposes)
-        async with engine.connect() as conn:
-            inspector = await conn.run_sync(inspect)
-            existing_tables = await conn.run_sync(lambda _: inspector.get_table_names())
-            has_tables = bool(existing_tables)
-
-            if has_tables:
-                logger.info(f"Found existing tables: {existing_tables}")
-
-        # Create tables - SQLAlchemy will skip tables that already exist
-        async with engine.begin() as conn:
-            await conn.run_sync(DatabaseModel.metadata.create_all)
-            logger.info("Database schema verified - all tables exist")
-
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        raise
-    else:
-        logger.info("Database schema initialization complete")

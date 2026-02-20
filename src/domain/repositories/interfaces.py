@@ -550,25 +550,6 @@ class ServiceConnectorProvider(Protocol):
         ...
 
 
-class TrackMergeServiceProtocol(Protocol):
-    """Service interface for track merging operations."""
-
-    def merge_tracks(
-        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
-    ) -> Awaitable[Track]:
-        """Merge two canonical tracks by moving references and soft-deleting loser.
-
-        Args:
-            winner_id: Track ID that will keep all references.
-            loser_id: Track ID that will be soft-deleted.
-            uow: Unit of work for transaction management.
-
-        Returns:
-            Winner track after merge.
-        """
-        ...
-
-
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
@@ -645,7 +626,7 @@ class UnitOfWorkProtocol(Protocol):
         """Get connector play repository for play ingestion and resolution operations."""
         ...
 
-    def get_track_merge_service(self) -> TrackMergeServiceProtocol:
+    def get_track_merge_service(self) -> TrackMergeServiceProtocol:  # pyright: ignore[reportUndefinedVariable]
         """Get track merge service using this unit of work's transaction."""
         ...
 
@@ -655,6 +636,25 @@ class UnitOfWorkProtocol(Protocol):
         This method provides controlled access to the underlying session for
         complex transactional operations like bulk updates. Use with caution
         and prefer repository methods when possible.
+        """
+        ...
+
+
+class TrackMergeServiceProtocol(Protocol):
+    """Service interface for track merging operations."""
+
+    def merge_tracks(
+        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
+    ) -> Awaitable[Track]:
+        """Merge two canonical tracks by moving references and soft-deleting loser.
+
+        Args:
+            winner_id: Track ID that will keep all references.
+            loser_id: Track ID that will be soft-deleted.
+            uow: Unit of work for transaction management.
+
+        Returns:
+            Winner track after merge.
         """
         ...
 

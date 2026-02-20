@@ -114,7 +114,7 @@ class PlaylistMetadataBuilder:
 
     def build(self) -> ApiMetadata:
         """Build final metadata dictionary."""
-        return self._metadata  # type: ignore[return-value]
+        return self._metadata  # pyright: ignore[reportReturnType] — builder accumulates any keys; ApiMetadata is total=False
 
     def build_dict(self) -> dict[str, Any]:
         """Build as plain dictionary for cases where TypedDict isn't needed."""

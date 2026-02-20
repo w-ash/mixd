@@ -177,8 +177,6 @@ class DeleteCanonicalPlaylistUseCase:
                     execution_time_ms=execution_time,
                 )
 
-                return result
-
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -188,6 +186,8 @@ class DeleteCanonicalPlaylistUseCase:
                     playlist_id=command.playlist_id,
                 )
                 raise
+            else:
+                return result
 
     async def _get_playlist(
         self, playlist_id: str, uow: UnitOfWorkProtocol
@@ -212,7 +212,6 @@ class DeleteCanonicalPlaylistUseCase:
         try:
             # Try to get by internal ID first
             playlist = await playlist_repo.get_playlist_by_id(int(playlist_id))
-            return playlist
         except ValueError:
             # If not an integer, try as connector ID
             playlist = await playlist_repo.get_playlist_by_connector(
@@ -220,4 +219,6 @@ class DeleteCanonicalPlaylistUseCase:
             )
             if playlist is None:
                 raise ValueError(f"Playlist with ID {playlist_id} not found") from None
+            return playlist
+        else:
             return playlist

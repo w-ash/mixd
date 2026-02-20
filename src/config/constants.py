@@ -63,6 +63,7 @@ class LastFMConstants:
 
     # Last.fm API limits and thresholds
     RECENT_TRACKS_MAX_LIMIT = 200
+    RECENT_TRACKS_PAGE_SIZE = 200  # Hard API limit per page
     FULL_HISTORY_LIMIT = 10000
 
 

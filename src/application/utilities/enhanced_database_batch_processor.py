@@ -234,8 +234,6 @@ class EnhancedDatabaseBatchProcessor[T, R]:
                 operation_id, OperationStatus.COMPLETED
             )
 
-            return results
-
         except Exception as e:
             # Complete operation with failure status
             self.logger_instance.error(
@@ -247,3 +245,5 @@ class EnhancedDatabaseBatchProcessor[T, R]:
                 operation_id, OperationStatus.FAILED
             )
             raise
+        else:
+            return results

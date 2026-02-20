@@ -17,12 +17,18 @@ class TestRetryPolicyFactory:
     """Tests for retry policy factory methods."""
 
     def test_spotify_policy_only_retries_spotify_exceptions(self):
-        """Critical: Spotify policy must filter to SpotifyException only."""
-        import spotipy
+        """Critical: Spotify policy must filter to httpx exception types only."""
+        import httpx
 
-        policy = RetryPolicyFactory.create_spotify_policy()
+        from src.infrastructure.connectors.spotify.error_classifier import (
+            SpotifyErrorClassifier,
+        )
 
-        # Network errors should NOT be retried (fails exception type filter)
+        policy = RetryPolicyFactory.create_spotify_policy(
+            classifier=SpotifyErrorClassifier(),
+        )
+
+        # Plain Python ConnectionError (not httpx) should NOT be retried (fails type filter)
         network_error = Mock()
         network_error.outcome.failed = True
         network_error.outcome.exception.return_value = ConnectionError(
@@ -31,27 +37,51 @@ class TestRetryPolicyFactory:
 
         assert policy.retry(network_error) is False
 
-        # SpotifyException with permanent error should also not retry (error classifier)
+        # httpx.HTTPStatusError with permanent status (400) should also not retry (error classifier)
+        req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
+        resp = httpx.Response(400, request=req)
         permanent_error = Mock()
         permanent_error.outcome.failed = True
-        permanent_error.outcome.exception.return_value = spotipy.SpotifyException(
-            400, -1, "Bad request"
+        permanent_error.outcome.exception.return_value = httpx.HTTPStatusError(
+            "HTTP 400 Bad Request", request=req, response=resp
         )
 
         assert policy.retry(permanent_error) is False
 
-    def test_lastfm_policy_retries_wserror_and_timeout(self):
-        """Critical: Last.FM policy must filter to pylast.WSError and TimeoutError."""
-        policy = RetryPolicyFactory.create_lastfm_policy()
+    def test_lastfm_policy_retries_lastfm_and_httpx_errors(self):
+        """Critical: Last.FM policy must filter to LastFMAPIError and httpx exceptions."""
+        import httpx
 
-        # TimeoutError SHOULD be retried (added to exception type filter)
-        timeout_error = Mock()
-        timeout_error.outcome.failed = True
-        timeout_error.outcome.exception.return_value = TimeoutError("Request timeout")
+        from src.infrastructure.connectors.lastfm.error_classifier import (
+            LastFMErrorClassifier,
+        )
+        from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
-        assert policy.retry(timeout_error) is True
+        policy = RetryPolicyFactory.create_lastfm_policy(
+            classifier=LastFMErrorClassifier(),
+            service_error_types=(LastFMAPIError,),
+        )
 
-        # Other network errors should NOT be retried (fails exception type filter)
+        # LastFMAPIError with temporary code (11 = service offline) SHOULD be retried
+        lastfm_error = Mock()
+        lastfm_error.outcome.failed = True
+        lastfm_error.outcome.exception.return_value = LastFMAPIError(
+            11, "Service Offline"
+        )
+
+        assert policy.retry(lastfm_error) is True
+
+        # httpx.RequestError SHOULD be retried (network failures are temporary)
+        request = httpx.Request("POST", "https://ws.audioscrobbler.com/2.0")
+        httpx_error = Mock()
+        httpx_error.outcome.failed = True
+        httpx_error.outcome.exception.return_value = httpx.ConnectError(
+            "Connection refused", request=request
+        )
+
+        assert policy.retry(httpx_error) is True
+
+        # Plain ConnectionError (not httpx) should NOT be retried (fails type filter)
         connection_error = Mock()
         connection_error.outcome.failed = True
         connection_error.outcome.exception.return_value = ConnectionError(
@@ -62,7 +92,13 @@ class TestRetryPolicyFactory:
 
     def test_musicbrainz_policy_retries_all_exceptions(self):
         """Critical: MusicBrainz must retry all exceptions (matching original behavior)."""
-        policy = RetryPolicyFactory.create_musicbrainz_policy()
+        from src.infrastructure.connectors.musicbrainz.error_classifier import (
+            MusicBrainzErrorClassifier,
+        )
+
+        policy = RetryPolicyFactory.create_musicbrainz_policy(
+            classifier=MusicBrainzErrorClassifier(),
+        )
 
         # Network errors SHOULD be retried for MusicBrainz (no exception type filter)
         network_error = Mock()
@@ -76,10 +112,25 @@ class TestRetryPolicyFactory:
     def test_policies_have_correct_max_attempts(self):
         """Verify max attempt counts match original backoff configuration."""
         from src.config import settings
+        from src.infrastructure.connectors.lastfm.error_classifier import (
+            LastFMErrorClassifier,
+        )
+        from src.infrastructure.connectors.musicbrainz.error_classifier import (
+            MusicBrainzErrorClassifier,
+        )
+        from src.infrastructure.connectors.spotify.error_classifier import (
+            SpotifyErrorClassifier,
+        )
 
-        spotify_policy = RetryPolicyFactory.create_spotify_policy()
-        lastfm_policy = RetryPolicyFactory.create_lastfm_policy()
-        musicbrainz_policy = RetryPolicyFactory.create_musicbrainz_policy()
+        spotify_policy = RetryPolicyFactory.create_spotify_policy(
+            classifier=SpotifyErrorClassifier(),
+        )
+        lastfm_policy = RetryPolicyFactory.create_lastfm_policy(
+            classifier=LastFMErrorClassifier(),
+        )
+        musicbrainz_policy = RetryPolicyFactory.create_musicbrainz_policy(
+            classifier=MusicBrainzErrorClassifier(),
+        )
 
         # Spotify: 3 attempts
         retry_state = Mock()
@@ -107,14 +158,20 @@ class TestRetryPolicyFactory:
         we were using 'after' instead of 'retry_error_callback'.
         """
 
-        import pylast
+        from src.infrastructure.connectors.lastfm.error_classifier import (
+            LastFMErrorClassifier,
+        )
+        from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
         # Track callback invocations
         before_sleep_calls = []
         after_calls = []
 
         # Create policy with instrumented callbacks
-        policy = RetryPolicyFactory.create_lastfm_policy()
+        policy = RetryPolicyFactory.create_lastfm_policy(
+            classifier=LastFMErrorClassifier(),
+            service_error_types=(LastFMAPIError,),
+        )
 
         # Patch the callbacks to track invocations
         original_before_sleep = policy.before_sleep
@@ -138,11 +195,11 @@ class TestRetryPolicyFactory:
 
         # Create a function that always fails with a retryable error
         async def failing_function():
-            raise pylast.WSError("lastfm", "11", "Service Offline - Try again later")
+            raise LastFMAPIError("11", "Service Offline - Try again later")
 
         # Execute and expect all retries to be exhausted
         # With reraise=True, tenacity should raise the original exception
-        with pytest.raises(pylast.WSError):
+        with pytest.raises(LastFMAPIError):
             await policy(failing_function)
 
         # Verify callbacks were invoked correctly

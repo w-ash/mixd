@@ -58,14 +58,14 @@ class LastFMConnector(BaseAPIConnector):
         )
         self._operations = LastFMOperations(self._client)
 
-    @override
     @property
+    @override
     def connector_name(self) -> str:
         """Service identifier for this connector."""
         return "lastfm"
 
-    @override
     @property
+    @override
     def error_classifier(self):
         """Get Last.fm-specific error classifier."""
         return LastFMErrorClassifier()
@@ -139,7 +139,7 @@ class LastFMConnector(BaseAPIConnector):
 
         Args:
             username: Last.fm username (defaults to configured username)
-            limit: Number of tracks to fetch (default 200, max 200)
+            limit: Total number of tracks to return (pagination handled automatically)
             from_time: Beginning timestamp (UTC)
             to_time: End timestamp (UTC)
 
@@ -150,46 +150,47 @@ class LastFMConnector(BaseAPIConnector):
 
         from src.domain.entities import create_lastfm_play_record
 
-        # Get raw track data from client
-        tracks_data = await self._client.get_recent_tracks(
+        # Get validated track entries from client
+        track_entries = await self._client.get_recent_tracks(
             username, limit, from_time, to_time
         )
 
-        # Convert raw data to PlayRecord objects
+        # Convert typed entries to PlayRecord objects
         play_records = []
-        for track_data in tracks_data:
-            timestamp_str = track_data["timestamp"]
+        for entry in track_entries:
+            timestamp_uts = entry.timestamp_uts
 
             # Parse the timestamp (should be UNIX timestamp as string)
             try:
-                # Convert string timestamp to datetime
-                timestamp_numeric = int(timestamp_str)
-                scrobbled_at = datetime.fromtimestamp(timestamp_numeric, tz=UTC)
+                scrobbled_at = datetime.fromtimestamp(int(timestamp_uts or ""), tz=UTC)
             except (ValueError, TypeError) as e:
-                # Skip tracks with invalid timestamp data
                 logger.warning(
-                    f"Skipping track with invalid timestamp: {timestamp_str!r}, "
-                    f"track: {track_data['track_name']!r}, "
+                    f"Skipping track with invalid timestamp: {timestamp_uts!r}, "
+                    f"track: {entry.name!r}, "
                     f"error: {e}"
                 )
                 continue
 
             # Create unified PlayRecord using factory method
             play_record = create_lastfm_play_record(
-                artist_name=track_data["artist_name"],
-                track_name=track_data["track_name"],
-                album_name=track_data["album_name"],
+                artist_name=entry.artist.name,
+                track_name=entry.name,
+                album_name=entry.album.name if entry.album else None,
                 scrobbled_at=scrobbled_at,
-                lastfm_track_url=track_data["lastfm_track_url"],
-                lastfm_artist_url=track_data["lastfm_artist_url"],
-                lastfm_album_url=track_data["lastfm_album_url"],
-                mbid=track_data["mbid"],
-                artist_mbid=track_data["artist_mbid"],
-                album_mbid=track_data["album_mbid"],
-                streamable=False,  # Not available in recent tracks API
-                loved=False,  # Not available in recent tracks API
-                api_page=1,  # No pagination support in pylast
-                raw_data=track_data["raw_data"],
+                lastfm_track_url=entry.url,
+                lastfm_artist_url=entry.artist.url,
+                lastfm_album_url=None,  # not in getRecentTracks response
+                mbid=entry.mbid,
+                artist_mbid=entry.artist.mbid,
+                album_mbid=entry.album.mbid if entry.album else None,
+                streamable=False,  # not in getRecentTracks response
+                loved=entry.loved,
+                api_page=1,
+                raw_data={
+                    "track_url": entry.url,
+                    "artist_url": entry.artist.url,
+                    "album_url": None,
+                },
             )
 
             play_records.append(play_record)

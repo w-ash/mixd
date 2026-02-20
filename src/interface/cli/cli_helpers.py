@@ -43,12 +43,13 @@ def parse_date_string(
 
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
-        return dt
     except ValueError:
         console.print(
             f"[red]Invalid {field_name} format: {date_str}. Use YYYY-MM-DD format.[/red]"
         )
         raise typer.Exit(1) from None
+    else:
+        return dt
 
 
 def validate_date_range(

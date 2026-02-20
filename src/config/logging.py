@@ -316,20 +316,23 @@ def resilient_operation(
                         status="success",
                     )
 
-                return result
-
             except Exception as e:
                 error_context = _build_error_context(
                     e, op_name, start_time, include_timing
                 )
 
-                # Log with structured context
-                operation_logger.error(
-                    f"Operation failed: {op_name}", **error_context, exc_info=True
+                # Log with structured context; opt(exception=True) captures the
+                # current exception into .record.exception in the JSON sink —
+                # passing exc_info=True as a kwarg is a stdlib logging convention
+                # that loguru ignores (it would just land in .extra).
+                operation_logger.opt(exception=True).error(
+                    f"Operation failed: {op_name}", **error_context
                 )
 
                 # Re-raise to maintain original behavior
                 raise
+            else:
+                return result
 
         return wrapper
 
@@ -342,7 +345,6 @@ def _build_error_context(
     start_time: float | None,
     include_timing: bool,
 ) -> dict[str, Any]:
-    _ = operation_name  # Mark as intentionally unused for now
     """Build structured error context for logging.
 
     Args:
@@ -354,6 +356,7 @@ def _build_error_context(
     Returns:
         Dictionary with structured error context
     """
+    _ = operation_name  # reserved for future per-operation context enrichment
     context = {
         "error_type": type(exception).__name__,
         "error_message": str(exception),

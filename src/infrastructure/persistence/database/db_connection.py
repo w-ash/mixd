@@ -12,38 +12,16 @@ from contextlib import asynccontextmanager
 import os
 from typing import Any
 
-from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import (
-    AsyncAttrs,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
 
 from src.config import get_logger
 
-# Create module logger
 logger = get_logger(__name__)
-
-# Convention for consistent constraint naming
-convention = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
-}
-
-# Create metadata with naming convention
-metadata = MetaData(naming_convention=convention)
-
-
-class Base(AsyncAttrs, DeclarativeBase):
-    """Base class for all SQLAlchemy ORM models with async attributes support."""
-
-    metadata = metadata
 
 
 def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
@@ -322,35 +300,48 @@ class SafeQuery[T: Any]:
             raise
 
 
-# Import database models after base class is defined to avoid circular imports
+# Import DatabaseModel for init_db() schema creation
 from src.infrastructure.persistence.database.db_models import (  # noqa: E402
-    DBConnectorTrack,
-    DBPlaylist,
-    DBPlaylistMapping,
-    DBPlaylistTrack,
-    DBSyncCheckpoint,
-    DBTrack,
-    DBTrackLike,
-    DBTrackMapping,
-    DBTrackMetric,
-    DBTrackPlay,
+    DatabaseModel,
 )
 
 # Create aliases for public API
 engine = get_engine()
 session_factory = get_session_factory()
 
+
+async def init_db() -> None:
+    """Initialize database schema.
+
+    Creates all tables if they don't exist.
+    This is a safe operation that won't affect existing data.
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    db_engine = get_engine()
+
+    try:
+        # First check if tables exist (for informational purposes)
+        async with db_engine.connect() as conn:
+            inspector = await conn.run_sync(sa_inspect)
+            existing_tables = await conn.run_sync(lambda _: inspector.get_table_names())
+
+            if existing_tables:
+                logger.info(f"Found existing tables: {existing_tables}")
+
+        # Create tables - SQLAlchemy will skip tables that already exist
+        async with db_engine.begin() as conn:
+            await conn.run_sync(DatabaseModel.metadata.create_all)
+            logger.info("Database schema verified - all tables exist")
+
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        raise
+    else:
+        logger.info("Database schema initialization complete")
+
+
 __all__ = [
-    "DBConnectorTrack",
-    "DBPlaylist",
-    "DBPlaylistMapping",
-    "DBPlaylistTrack",
-    "DBSyncCheckpoint",
-    "DBTrack",
-    "DBTrackLike",
-    "DBTrackMapping",
-    "DBTrackMetric",
-    "DBTrackPlay",
     "SafeQuery",
     "create_db_engine",
     "create_session_factory",
@@ -359,6 +350,8 @@ __all__ = [
     "get_isolated_session",
     "get_session",
     "get_session_factory",
+    "init_db",
+    "reset_engine_cache",
     "session_factory",
     "transaction",
 ]

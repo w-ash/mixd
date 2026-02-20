@@ -41,8 +41,8 @@ class LastFMProvider(BaseMatchingProvider):
         """
         self.connector_instance = connector_instance
 
-    @override
     @property
+    @override
     def service_name(self) -> str:
         """Service identifier."""
         return "lastfm"

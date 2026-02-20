@@ -24,6 +24,7 @@ from src.domain.entities import (
     Track,
 )
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
+from src.infrastructure.connectors.spotify.models import SpotifyPlaylist, SpotifyTrack
 
 # Get contextual logger for conversion operations
 logger = get_logger(__name__).bind(service="spotify_conversions")
@@ -45,58 +46,42 @@ def validate_non_empty(items: list, empty_result=None):
 
 def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> ConnectorTrack:
     """Convert Spotify track data to ConnectorTrack domain model."""
-    # Extract artist information
-    artists = [Artist(name=artist["name"]) for artist in spotify_track["artists"]]
+    track = SpotifyTrack.model_validate(spotify_track)
 
-    # Parse release date with different precision levels
+    artists = [Artist(name=a.name) for a in track.artists]
+
     release_date = None
-    if "album" in spotify_track and "release_date" in spotify_track["album"]:
-        date_str = spotify_track["album"]["release_date"]
-        precision = spotify_track["album"].get("release_date_precision", "day")
-
+    if track.album and track.album.release_date:
+        date_str = track.album.release_date
+        precision = track.album.release_date_precision
         try:
             if precision == "year":
                 release_date = datetime.strptime(date_str, "%Y").replace(tzinfo=UTC)
             elif precision == "month":
                 release_date = datetime.strptime(date_str, "%Y-%m").replace(tzinfo=UTC)
-            else:  # day precision
+            else:
                 release_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
-                    tzinfo=UTC,
+                    tzinfo=UTC
                 )
         except ValueError as e:
             logger.warning(f"Failed to parse release date '{date_str}': {e}")
 
-    # Extract album information
-    album_name = None
-    album_id = None
-    if "album" in spotify_track:
-        album_name = spotify_track["album"]["name"]
-        album_id = spotify_track["album"].get("id")
-
-    # Prepare raw metadata with essential Spotify-specific information
-    raw_metadata = {
-        "popularity": spotify_track.get("popularity", 0),
-        "album_id": album_id,
-        "explicit": spotify_track.get("explicit", False),
-    }
-
-    # Extract and normalize ISRC if available
-    isrc = None
-    if "external_ids" in spotify_track:
-        raw_isrc = spotify_track["external_ids"].get("isrc")
-        if raw_isrc:
-            isrc = normalize_isrc(raw_isrc)
+    isrc = normalize_isrc(track.external_ids.isrc) if track.external_ids.isrc else None
 
     return ConnectorTrack(
         connector_name="spotify",
-        connector_track_identifier=spotify_track["id"],
-        title=spotify_track["name"],
+        connector_track_identifier=track.id,
+        title=track.name,
         artists=artists,
-        album=album_name,
-        duration_ms=spotify_track["duration_ms"],
+        album=track.album.name if track.album else None,
+        duration_ms=track.duration_ms,
         release_date=release_date,
         isrc=isrc,
-        raw_metadata=raw_metadata,
+        raw_metadata={
+            "popularity": track.popularity,
+            "album_id": track.album.id if track.album else None,
+            "explicit": track.explicit,
+        },
         last_updated=datetime.now(UTC),
     )
 
@@ -105,44 +90,26 @@ def convert_spotify_playlist_to_connector(
     spotify_playlist: dict[str, Any],
 ) -> ConnectorPlaylist:
     """Convert Spotify playlist data to ConnectorPlaylist domain model."""
-    # Extract owner information with fallback handling
-    owner = None
-    owner_id = None
+    playlist = SpotifyPlaylist.model_validate(spotify_playlist)
 
-    if "owner" in spotify_playlist:
-        owner = spotify_playlist["owner"].get("display_name") or spotify_playlist[
-            "owner"
-        ].get("id")
-        owner_id = spotify_playlist["owner"].get("id")
-
-    # Extract playlist metadata
-    collaborative = spotify_playlist.get("collaborative", False)
-    is_public = spotify_playlist.get("public", False)
-
-    # Extract follower count
-    follower_count = None
-    if "followers" in spotify_playlist:
-        follower_count = spotify_playlist["followers"].get("total")
-
-    # Prepare raw metadata with Spotify-specific information
-    raw_metadata = {
-        "snapshot_id": spotify_playlist.get("snapshot_id"),
-        "tracks_href": spotify_playlist.get("tracks", {}).get("href"),
-        "images": spotify_playlist.get("images", []),
-        "total_tracks": spotify_playlist.get("tracks", {}).get("total", 0),
-    }
+    owner = playlist.owner.display_name or playlist.owner.id or None
 
     return ConnectorPlaylist(
         connector_name="spotify",
-        connector_playlist_identifier=spotify_playlist["id"],
-        name=spotify_playlist["name"],
-        description=spotify_playlist.get("description"),
+        connector_playlist_identifier=playlist.id,
+        name=playlist.name,
+        description=playlist.description,
         owner=owner,
-        owner_id=owner_id,
-        is_public=is_public,
-        collaborative=collaborative,
-        follower_count=follower_count,
-        raw_metadata=raw_metadata,
+        owner_id=playlist.owner.id or None,
+        is_public=playlist.public or False,
+        collaborative=playlist.collaborative,
+        follower_count=playlist.followers.total if playlist.followers else None,
+        raw_metadata={
+            "snapshot_id": playlist.snapshot_id,
+            "tracks_href": playlist.tracks.href,
+            "images": playlist.images,
+            "total_tracks": playlist.tracks.total,
+        },
         last_updated=datetime.now(UTC),
     )
 
@@ -166,7 +133,8 @@ def extract_track_metadata_for_playlist_item(
     spotify_track: dict[str, Any],
 ) -> dict[str, Any]:
     """Extract minimal track metadata for playlist item storage."""
+    track = SpotifyTrack.model_validate(spotify_track)
     return {
-        "track_name": spotify_track.get("name"),
-        "artist_names": [a["name"] for a in spotify_track.get("artists", [])],
+        "track_name": track.name,
+        "artist_names": [a.name for a in track.artists],
     }

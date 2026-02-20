@@ -94,8 +94,8 @@ class LastFMOperations(BaseAPIConnector):
                 LastFMErrorClassifier,
             )
 
-            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(
-                e
+            error_type, error_code, _error_desc = (
+                LastFMErrorClassifier().classify_error(e)
             )
 
             if error_type == "not_found":
@@ -156,8 +156,8 @@ class LastFMOperations(BaseAPIConnector):
                 LastFMErrorClassifier,
             )
 
-            error_type, error_code, error_desc = LastFMErrorClassifier().classify_error(
-                e
+            error_type, error_code, _error_desc = (
+                LastFMErrorClassifier().classify_error(e)
             )
 
             if error_type == "not_found":

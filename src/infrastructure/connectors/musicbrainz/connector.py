@@ -43,8 +43,8 @@ class MusicBrainzConnector(BaseAPIConnector):
         """Initialize MusicBrainz client."""
         self._client = MusicBrainzAPIClient()
 
-    @override
     @property
+    @override
     def connector_name(self) -> str:
         """Service identifier for this connector."""
         return "musicbrainz"
@@ -64,7 +64,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         return await self._client.search_recording(artist, title)
 
     async def batch_isrc_lookup(
-        self, isrcs: list[str], progress_desc: str = "MusicBrainz ISRC lookup"
+        self, isrcs: list[str], _progress_desc: str = "MusicBrainz ISRC lookup"
     ) -> dict[str, str | None]:
         """Sequential lookup of ISRCs to MBIDs with rate limiting."""
         if not isrcs:

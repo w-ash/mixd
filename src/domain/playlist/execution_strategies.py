@@ -26,6 +26,22 @@ DEBUG_POSITIONS_LIMIT = 10
 logger = get_logger(__name__)
 
 
+@define(frozen=True, slots=True)
+class ExecutionPlan:
+    """Plan for executing playlist operations.
+
+    Contains the organized operations and metadata about execution strategy.
+    Different strategies may plan the same operations differently.
+    """
+
+    operations: list[PlaylistOperation]
+    execution_metadata: dict[str, Any]
+    use_atomic_reorder: bool = False
+    dependency_order: list[int] | None = (
+        None  # Order indices for dependency-aware execution
+    )
+
+
 class ExecutionStrategy(Protocol):
     """Protocol for playlist operation execution strategies.
 
@@ -55,22 +71,6 @@ class ExecutionStrategy(Protocol):
             True if direct reordering is more efficient than individual operations
         """
         ...
-
-
-@define(frozen=True, slots=True)
-class ExecutionPlan:
-    """Plan for executing playlist operations.
-
-    Contains the organized operations and metadata about execution strategy.
-    Different strategies may plan the same operations differently.
-    """
-
-    operations: list[PlaylistOperation]
-    execution_metadata: dict[str, Any]
-    use_atomic_reorder: bool = False
-    dependency_order: list[int] | None = (
-        None  # Order indices for dependency-aware execution
-    )
 
 
 class CanonicalExecutionStrategy:

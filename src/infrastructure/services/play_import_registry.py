@@ -135,9 +135,7 @@ def get_play_import_registry() -> PlayImportServiceRegistry:
     Returns:
         Shared PlayImportServiceRegistry instance
     """
-    # Using module-level variable without global statement
+    global _registry_instance
     if _registry_instance is None:
-        # This assignment will create a new local variable, but we want the module-level one
-        # So we need to use globals() to access the module-level variable
-        globals()["_registry_instance"] = PlayImportServiceRegistry()
-    return _registry_instance  # type: ignore[return-value]
+        _registry_instance = PlayImportServiceRegistry()
+    return _registry_instance

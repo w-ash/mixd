@@ -7,71 +7,12 @@ Designed to be display-agnostic and usable across CLI, web, and future interface
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 from uuid import uuid4
 
-from attrs import define, field
+from attrs import define, evolve, field
 
 from .shared import utc_now_factory
-
-
-class ProgressEmitter(Protocol):
-    """Protocol for progress tracking implementations.
-
-    Defines the interface for emitting progress events during long-running operations.
-    Implementations can be real progress managers or null objects for silent operation.
-    """
-
-    async def start_operation(self, operation: ProgressOperation) -> str:
-        """Start tracking a new operation.
-
-        Args:
-            operation: The operation to track
-
-        Returns:
-            Operation ID for subsequent progress events
-        """
-        ...
-
-    async def emit_progress(self, event: ProgressEvent) -> None:
-        """Emit a progress event for an ongoing operation.
-
-        Args:
-            event: Progress event with current status
-        """
-        ...
-
-    async def complete_operation(
-        self, operation_id: str, final_status: OperationStatus
-    ) -> None:
-        """Mark an operation as completed.
-
-        Args:
-            operation_id: ID of the operation to complete
-            status: Final status (COMPLETED, FAILED, etc.)
-        """
-        ...
-
-
-class NullProgressEmitter:
-    """Null object implementation of ProgressEmitter.
-
-    Provides silent no-op implementations for when progress tracking is disabled.
-    This eliminates the need for None checks throughout the codebase.
-    """
-
-    async def start_operation(self, operation: ProgressOperation) -> str:
-        """Silent no-op that returns a dummy operation ID."""
-        _ = operation  # Mark as intentionally unused for null implementation
-        return f"null-{uuid4().hex[:8]}"
-
-    async def emit_progress(self, event: ProgressEvent) -> None:
-        """Silent no-op for progress events."""
-
-    async def complete_operation(
-        self, operation_id: str, final_status: OperationStatus
-    ) -> None:
-        """Silent no-op for operation completion."""
 
 
 class ProgressStatus(Enum):
@@ -240,31 +181,72 @@ class ProgressOperation:
 
     def with_status(
         self, new_status: OperationStatus, end_time: datetime | None = None
-    ) -> ProgressOperation:
+    ) -> Self:
         """Create new operation instance with updated status and optional end time."""
-        return ProgressOperation(
-            operation_id=self.operation_id,
-            description=self.description,
-            total_items=self.total_items,
-            start_time=self.start_time,
-            end_time=end_time if end_time is not None else self.end_time,
-            status=new_status,
-            metadata=self.metadata.copy(),
-        )
+        return evolve(self, status=new_status, end_time=end_time or self.end_time)
 
-    def with_metadata(self, **new_metadata: Any) -> ProgressOperation:
+    def with_metadata(self, **new_metadata: Any) -> Self:
         """Create new operation instance with additional metadata."""
-        updated_metadata = self.metadata.copy()
-        updated_metadata.update(new_metadata)
-        return ProgressOperation(
-            operation_id=self.operation_id,
-            description=self.description,
-            total_items=self.total_items,
-            start_time=self.start_time,
-            end_time=self.end_time,
-            status=self.status,
-            metadata=updated_metadata,
-        )
+        return evolve(self, metadata={**self.metadata, **new_metadata})
+
+
+class ProgressEmitter(Protocol):
+    """Protocol for progress tracking implementations.
+
+    Defines the interface for emitting progress events during long-running operations.
+    Implementations can be real progress managers or null objects for silent operation.
+    """
+
+    async def start_operation(self, operation: ProgressOperation) -> str:
+        """Start tracking a new operation.
+
+        Args:
+            operation: The operation to track
+
+        Returns:
+            Operation ID for subsequent progress events
+        """
+        ...
+
+    async def emit_progress(self, event: ProgressEvent) -> None:
+        """Emit a progress event for an ongoing operation.
+
+        Args:
+            event: Progress event with current status
+        """
+        ...
+
+    async def complete_operation(
+        self, operation_id: str, final_status: OperationStatus
+    ) -> None:
+        """Mark an operation as completed.
+
+        Args:
+            operation_id: ID of the operation to complete
+            status: Final status (COMPLETED, FAILED, etc.)
+        """
+        ...
+
+
+class NullProgressEmitter:
+    """Null object implementation of ProgressEmitter.
+
+    Provides silent no-op implementations for when progress tracking is disabled.
+    This eliminates the need for None checks throughout the codebase.
+    """
+
+    async def start_operation(self, operation: ProgressOperation) -> str:
+        """Silent no-op that returns a dummy operation ID."""
+        _ = operation  # Mark as intentionally unused for null implementation
+        return f"null-{uuid4().hex[:8]}"
+
+    async def emit_progress(self, event: ProgressEvent) -> None:
+        """Silent no-op for progress events."""
+
+    async def complete_operation(
+        self, operation_id: str, final_status: OperationStatus
+    ) -> None:
+        """Silent no-op for operation completion."""
 
 
 # Domain protocols for progress tracking (dependency injection interfaces)

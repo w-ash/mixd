@@ -7,7 +7,7 @@ Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 
 import asyncio
 import contextlib
-from typing import Any, override
+from typing import Any, Self, override
 
 from attrs import define
 from rich.live import Live
@@ -95,7 +95,7 @@ class RichProgressProvider:
         self._show_rate = show_rate
 
         # Create Rich progress display with custom columns
-        progress_columns = [
+        progress_columns: list[ProgressColumn | str] = [
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="left"),
             BarColumn(bar_width=None),
@@ -106,7 +106,7 @@ class RichProgressProvider:
         ]
 
         if show_rate:
-            progress_columns.extend((RateColumn(), "•"))
+            progress_columns.extend([RateColumn(), "•"])
 
         progress_columns.append(ETAColumn())
 
@@ -164,10 +164,8 @@ class RichProgressProvider:
 
                 # Wait for all cleanup tasks to finish cancellation
                 for task in tasks_snapshot:
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
                         await task
-                    except asyncio.CancelledError, Exception:
-                        pass
 
                 self._cleanup_tasks.clear()
 
@@ -244,7 +242,7 @@ class RichProgressProvider:
                 return
 
             # Update Rich task with current progress
-            task_update_kwargs = {
+            task_update_kwargs: dict[str, Any] = {
                 "completed": event.current,
                 "description": event.message,
             }
@@ -423,7 +421,7 @@ class RichProgressProvider:
         """Get number of currently tracked operations."""
         return len([task for task in self._operation_tasks.values() if task.is_active])
 
-    async def __aenter__(self) -> RichProgressProvider:
+    async def __aenter__(self) -> Self:
         """Async context manager entry - starts Live Display."""
         await self.start_display()
         return self

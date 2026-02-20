@@ -262,8 +262,6 @@ class CreateCanonicalPlaylistUseCase:
                     execution_time_ms=execution_time,
                 )
 
-                return result
-
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -274,6 +272,8 @@ class CreateCanonicalPlaylistUseCase:
                     track_count=len(command.tracklist.tracks),
                 )
                 raise
+            else:
+                return result
 
     async def _extract_track_metrics(
         self, tracks: list[Track], uow: UnitOfWorkProtocol

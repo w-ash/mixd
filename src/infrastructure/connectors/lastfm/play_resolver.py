@@ -57,7 +57,7 @@ class LastfmConnectorPlayResolver:
 
         # Step 3: Create TrackPlay objects with Last.fm metadata preservation
         track_plays = []
-        filtering_stats = {
+        filtering_stats: dict[str, Any] = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
             "error_count": 0,

@@ -15,6 +15,7 @@ definitions can focus on data flow rather than implementation details.
 """
 
 from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 # Import for enrichment functionality
 from src.application.use_cases.enrich_tracks import (
@@ -34,6 +35,11 @@ from .transform_registry import TRANSFORM_REGISTRY
 
 # Type definitions
 type NodeFn = Callable[[dict, dict], Awaitable[dict]]
+
+# Registry type aliases: transform factories take (ctx, config) and return a TrackList→TrackList fn.
+# toolz has no stubs so registry values are inferred as `object`; these aliases enable cast().
+type _TransformFn = Callable[[TrackList], TrackList]
+type _TransformFactory = Callable[[Any, dict], _TransformFn]
 
 logger = get_logger(__name__)
 
@@ -207,8 +213,11 @@ def _create_transform_node_impl(
     if node_type not in TRANSFORM_REGISTRY[category]:
         raise ValueError(f"Unknown node type: {node_type} in category {category}")
 
-    # Get transform factory from registry
-    transform_factory = TRANSFORM_REGISTRY[category][node_type]
+    # Get transform factory from registry.
+    # cast() informs pyright of the runtime contract: registry values are factories that
+    # take (ctx, config) and return a TrackList→TrackList transform. toolz has no stubs,
+    # so the inferred type is `object`/`curry` without the cast.
+    transform_factory = cast(_TransformFactory, TRANSFORM_REGISTRY[category][node_type])
     operation = operation_name or f"{category}.{node_type}"
 
     async def node_impl(context: dict, config: dict) -> dict:  # noqa: RUF029

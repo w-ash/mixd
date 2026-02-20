@@ -54,8 +54,9 @@ async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
         # Simple fallback for non-AsyncAttrs models
         elif hasattr(db_model, rel_name):
             return _normalize_to_list(getattr(db_model, rel_name))
-        return []
     except Exception:
+        return []
+    else:
         return []
 
 
@@ -85,7 +86,9 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
         ...
 
 
-class SessionAwareMapper[TDBModel, TDomainModel](Protocol):
+class SessionAwareMapper[TDBModel: DatabaseModel, TDomainModel](
+    ModelMapper[TDBModel, TDomainModel], Protocol
+):
     """Protocol for mappers that support session-aware domain conversion.
 
     Some mappers (e.g., TrackMapper) need a session to auto-heal missing
@@ -99,7 +102,7 @@ class SessionAwareMapper[TDBModel, TDomainModel](Protocol):
     ) -> TDomainModel: ...
 
 
-def has_session_support[TDBModel, TDomainModel](
+def has_session_support[TDBModel: DatabaseModel, TDomainModel](
     mapper: ModelMapper[TDBModel, TDomainModel],
 ) -> TypeIs[SessionAwareMapper[TDBModel, TDomainModel]]:
     """Type guard for session-aware mappers.
@@ -717,7 +720,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         THE SAME object instances but with relationships populated.
         Works across repository boundaries in Unit of Work.
 
-        This optimization reduces queries from O(N×R) to O(1+R) where:
+        This optimization reduces queries from O(N*R) to O(1+R) where:
         - N = number of entities
         - R = number of relationships
 

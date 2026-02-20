@@ -14,9 +14,14 @@ through the registration functions. This eliminates static dependencies between
 shared utilities and specific service implementations.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from src.config import get_logger
+
+# Type alias for the resolve callback injected by the application layer.
+# Signature: (track_ids, metric_name, connector, field_map, uow) -> dict[int, Any]
+MetricResolveFn = Callable[..., Awaitable[dict[int, Any]]]
 
 logger = get_logger(__name__).bind(service="connectors")
 
@@ -52,7 +57,11 @@ class MetricResolverProtocol(Protocol):
     CONNECTOR: ClassVar[str]
 
     async def resolve(
-        self, track_ids: list[int], metric_name: str, uow: Any
+        self,
+        track_ids: list[int],
+        metric_name: str,
+        uow: Any,
+        resolve_fn: MetricResolveFn,
     ) -> dict[int, Any]:
         """Resolve metrics for tracks.
 
@@ -60,6 +69,8 @@ class MetricResolverProtocol(Protocol):
             track_ids: List of internal track IDs to resolve metrics for
             metric_name: Name of the metric to resolve
             uow: UnitOfWork for database access
+            resolve_fn: Callback provided by the application layer to perform
+                the actual metric resolution (cache lookup, API fetch, persistence).
 
         Returns:
             Dictionary mapping track IDs to their metric values

@@ -5,7 +5,7 @@ from music services like Spotify and Last.fm.
 """
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from attrs import define, field
 
@@ -35,7 +35,7 @@ class SyncCheckpoint:
         self,
         timestamp: datetime,
         cursor: str | None = None,
-    ) -> SyncCheckpoint:
+    ) -> Self:
         """Returns new checkpoint with updated timestamp and optional cursor.
 
         Args:
@@ -219,7 +219,7 @@ class ConnectorTrackPlay:
         spotify_record: SpotifyPlayRecord,
         import_timestamp: datetime | None = None,
         import_batch_id: str | None = None,
-    ) -> ConnectorTrackPlay:
+    ) -> Self:
         """Create ConnectorTrackPlay from SpotifyPlayRecord for unified processing.
 
         Args:
@@ -276,7 +276,7 @@ class ConnectorTrackPlay:
         raw_data: dict[str, Any] | None = None,
         import_timestamp: datetime | None = None,
         import_batch_id: str | None = None,
-    ) -> ConnectorTrackPlay:
+    ) -> Self:
         """Create ConnectorTrackPlay from Last.fm API data for unified processing.
 
         Args:
@@ -315,7 +315,7 @@ class ConnectorTrackPlay:
 
     def with_resolution(
         self, track_id: int, resolved_at: datetime | None = None
-    ) -> ConnectorTrackPlay:
+    ) -> Self:
         """Create new ConnectorTrackPlay with resolution information.
 
         Args:
@@ -370,7 +370,7 @@ class TrackPlay:
     @classmethod
     def create_with_current_import_timestamp(
         cls, track_id: int | None, service: str, played_at: datetime, **kwargs
-    ) -> TrackPlay:
+    ) -> Self:
         """Create TrackPlay with current UTC timestamp for import tracking."""
         return cls(
             track_id=track_id,
