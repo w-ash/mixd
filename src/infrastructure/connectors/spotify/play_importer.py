@@ -36,6 +36,8 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
     Contains ALL Spotify-specific logic: file parsing, batch processing, memory optimization.
     """
 
+    operation_name: str
+
     def __init__(self) -> None:
         """Initialize Spotify play importer for connector-only ingestion pattern."""
         # Initialize base class with None since we only do connector ingestion
@@ -45,6 +47,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         # Note: Batch processing handled by base class methods with event-driven progress
         # All processing uses the new progress system via ProgressEmitter protocol
 
+    @override
     async def import_plays(
         self,
         uow: UnitOfWorkProtocol,
@@ -126,7 +129,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         self,
         progress_emitter: ProgressEmitter | None = None,
         uow: Any | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[Any]:
         """Fetch and parse Spotify JSON export file.
 
@@ -187,7 +190,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: Any | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[ConnectorTrackPlay]:
         """Process raw Spotify data into ConnectorTrackPlay objects.
 
@@ -202,7 +205,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
             return []
 
         # Process raw data directly into ConnectorTrackPlay objects
-        connector_plays = []
+        connector_plays: list[ConnectorTrackPlay] = []
         for record in raw_data:
             # Extract Spotify-specific data from SpotifyPlayRecord attributes
             connector_play = ConnectorTrackPlay(
@@ -261,7 +264,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs
+        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs: Any
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

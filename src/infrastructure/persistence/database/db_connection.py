@@ -10,7 +10,7 @@ This module is responsible for:
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 logger = get_logger(__name__)
 
@@ -88,9 +91,9 @@ def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
 
     # Configure event listeners on the sync engine to manage SQLite connection behavior
     if db_url.startswith("sqlite"):
-        # Ignoring unused function warning, this is used by SQLAlchemy event system
-        @event.listens_for(engine.sync_engine, "connect")  # type: ignore
-        def _set_sqlite_pragma(dbapi_connection, _):  # type: ignore # pragma: no cover
+        # Used via SQLAlchemy event system — not called directly
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection: Any, _: Any) -> None:  # pyright: ignore[reportUnusedFunction] — registered via SQLAlchemy event  # pragma: no cover
             """Set SQLite PRAGMAs on connection creation."""
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
@@ -132,7 +135,9 @@ def reset_engine_cache() -> None:
     _session_factory = None
 
 
-def create_session_factory(engine: AsyncEngine | None = None) -> async_sessionmaker:
+def create_session_factory(
+    engine: AsyncEngine | None = None,
+) -> async_sessionmaker[AsyncSession]:
     """Create an async session factory for the given engine.
 
     Args:
@@ -150,10 +155,10 @@ def create_session_factory(engine: AsyncEngine | None = None) -> async_sessionma
 
 
 # Global session factory singleton
-_session_factory: async_sessionmaker | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def get_session_factory() -> async_sessionmaker:
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Get or create the global session factory singleton.
 
     Returns:
@@ -181,7 +186,7 @@ async def get_session(rollback: bool = True) -> AsyncGenerator[AsyncSession]:
     session = session_factory()
     try:
         # Just touch the connection to ensure engine event listeners run
-        await session.connection()
+        _ = await session.connection()
 
         yield session
         await session.commit()
@@ -214,7 +219,7 @@ async def get_isolated_session() -> AsyncGenerator[AsyncSession]:
     session = isolated_factory()
     try:
         # Just touch the connection to ensure engine event listeners run
-        await session.connection()
+        _ = await session.connection()
 
         yield session
         await session.commit()
@@ -270,6 +275,9 @@ class SafeQuery[T: Any]:
         )
         ```
     """
+
+    session: AsyncSession
+    _logger: Logger
 
     def __init__(self, session: AsyncSession):
         """Initialize with a session.

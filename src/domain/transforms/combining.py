@@ -15,7 +15,7 @@ from collections.abc import Callable
 
 from toolz import curry
 
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
@@ -38,8 +38,8 @@ def concatenate(
     """
 
     def transform(_: TrackList) -> TrackList:
-        all_tracks = []
-        combined_track_sources = {}
+        all_tracks: list[Track] = []
+        combined_track_sources: dict[str, str] = {}
 
         for t in tracklists:
             all_tracks.extend(t.tracks)
@@ -78,7 +78,7 @@ def interleave(
     """
 
     def transform(_: TrackList) -> TrackList:
-        interleaved_tracks = []
+        interleaved_tracks: list[Track] = []
         iterators = [iter(t.tracks) for t in tracklists]
         exhausted = [False] * len(tracklists)
 

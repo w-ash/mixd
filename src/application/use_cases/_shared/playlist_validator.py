@@ -99,8 +99,8 @@ class ConnectorPlaylistUpdateValidator:
         Returns:
             Validation result with any issues or warnings
         """
-        issues = []
-        warnings = []
+        issues: list[str] = []
+        warnings: list[str] = []
 
         # Check operation count consistency
         if operations_applied_count == 0 and applied_operations:
@@ -141,7 +141,7 @@ class ConnectorPlaylistUpdateValidator:
         Returns:
             Validation result with warnings if validation issues detected
         """
-        warnings = []
+        warnings: list[str] = []
 
         if not validation_passed and operations_applied > 0:
             warnings.append(
@@ -180,7 +180,7 @@ class ConnectorPlaylistUpdateValidator:
         Returns:
             Validation result with warnings if counts don't match
         """
-        warnings = []
+        warnings: list[str] = []
 
         if items_created_count == 0 and track_count > 0:
             warnings.append(
@@ -216,7 +216,7 @@ class ConnectorPlaylistUpdateValidator:
         Returns:
             Validation result with issues if required fields are missing
         """
-        issues = []
+        issues: list[str] = []
 
         if not connector_name:
             issues.append("Connector name cannot be empty")
@@ -249,7 +249,7 @@ class ConnectorPlaylistUpdateValidator:
         Returns:
             Validation result with detailed consistency check metadata
         """
-        warnings = []
+        warnings: list[str] = []
         metadata = {
             "requested_tracks": requested_tracks,
             "created_items": created_items,

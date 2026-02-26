@@ -16,8 +16,11 @@ from src.infrastructure.connectors._shared.failure_handling import (
     handle_track_processing_failure,
     log_failure_summary,
     log_match_failure,
-    merge_results,
     validate_track_for_method,
+)
+from src.infrastructure.connectors._shared.isrc import (
+    normalize_isrc,
+    validate_isrc_format,
 )
 from src.infrastructure.connectors._shared.metrics import (
     MetricResolveFn,
@@ -28,7 +31,6 @@ from src.infrastructure.connectors._shared.metrics import (
     get_field_name,
     get_metric_freshness,
     get_metric_resolver,
-    get_registered_metrics,
     register_connector_metrics,
     register_metric_config,
     register_metric_resolver,
@@ -49,13 +51,13 @@ __all__ = [
     "get_field_name",
     "get_metric_freshness",
     "get_metric_resolver",
-    "get_registered_metrics",
     "handle_track_processing_failure",
     "log_failure_summary",
     "log_match_failure",
-    "merge_results",
+    "normalize_isrc",
     "register_connector_metrics",
     "register_metric_config",
     "register_metric_resolver",
+    "validate_isrc_format",
     "validate_track_for_method",
 ]

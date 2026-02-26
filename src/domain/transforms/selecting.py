@@ -98,10 +98,8 @@ def select_by_method(count: int, method: str = "first") -> Transform:
 
     def transform(t: TrackList) -> TrackList:
         result = cast(Transform, transform_fn)(t)
-        return (
-            cast(TrackList, result)
-            .with_metadata("selection_method", method)
-            .with_metadata("original_count", len(t.tracks))
+        return result.with_metadata("selection_method", method).with_metadata(
+            "original_count", len(t.tracks)
         )
 
     return transform

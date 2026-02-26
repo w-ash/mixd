@@ -11,7 +11,7 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 from src.domain.entities.track import Track, TrackList
 
@@ -95,6 +95,18 @@ class UseCaseProvider(Protocol):
         """Get use case for matching and identifying tracks between music services."""
         ...
 
+    async def get_read_canonical_playlist_use_case(self) -> Any:
+        """Get use case for reading master playlist definitions."""
+        ...
+
+    async def get_update_canonical_playlist_use_case(self) -> Any:
+        """Get use case for updating master playlist definitions."""
+        ...
+
+    async def get_update_connector_playlist_use_case(self) -> Any:
+        """Get use case for updating service-specific playlists."""
+        ...
+
 
 class WorkflowContext(Protocol):
     """Central dependency container enabling complex cross-service operations."""
@@ -143,6 +155,17 @@ class TransformFunction(Protocol):
     def __call__(self, track_list: TrackList, context: dict[str, Any]) -> TrackList:
         """Apply transformation to track list."""
         ...
+
+
+class NodeResult(TypedDict):
+    """Minimum contract for all workflow node outputs.
+
+    Every node (source, transform, destination) returns at least a tracklist.
+    Destination nodes also return operation-specific keys; structural typing
+    allows those extra keys while enforcing the tracklist contract.
+    """
+
+    tracklist: TrackList
 
 
 class WorkflowNode(Protocol):

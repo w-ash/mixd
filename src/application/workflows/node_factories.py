@@ -14,7 +14,7 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any, cast
 
 # Import for enrichment functionality
@@ -30,16 +30,14 @@ from src.domain.entities.track import TrackList
 # WorkflowRepositoryAdapter removed - dependencies now injected through protocols
 from .destination_nodes import DESTINATION_HANDLERS
 from .node_context import NodeContext
-from .protocols import WorkflowContext
+from .node_registry import NodeFn
+from .protocols import LoggerProvider, NodeResult, WorkflowContext
 from .transform_registry import TRANSFORM_REGISTRY
-
-# Type definitions
-type NodeFn = Callable[[dict, dict], Awaitable[dict]]
 
 # Registry type aliases: transform factories take (ctx, config) and return a TrackList→TrackList fn.
 # toolz has no stubs so registry values are inferred as `object`; these aliases enable cast().
 type _TransformFn = Callable[[TrackList], TrackList]
-type _TransformFactory = Callable[[Any, dict], _TransformFn]
+type _TransformFactory = Callable[[Any, dict[str, Any]], _TransformFn]
 
 logger = get_logger(__name__)
 
@@ -71,7 +69,7 @@ def _get_connector_metric_names(
         return []
 
     # Map requested attributes to actual metric names
-    metric_names = []
+    metric_names: list[str] = []
     for attr_name in requested_attributes:
         # Try exact match first
         if attr_name in available_metrics:
@@ -121,6 +119,9 @@ class WorkflowNodeFactory:
         context: Workflow execution environment with database connections and external services
         logger: Logging instance for tracking node operations
     """
+
+    context: WorkflowContext
+    logger: LoggerProvider
 
     def __init__(self, context: WorkflowContext):
         """Initialize factory with workflow execution context.
@@ -172,7 +173,7 @@ def create_destination_node(destination_type: str) -> NodeFn:
 
     handler = DESTINATION_HANDLERS[destination_type]
 
-    async def node_impl(context: dict, config: dict) -> dict:
+    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
 
@@ -220,7 +221,7 @@ def _create_transform_node_impl(
     transform_factory = cast(_TransformFactory, TRANSFORM_REGISTRY[category][node_type])
     operation = operation_name or f"{category}.{node_type}"
 
-    async def node_impl(context: dict, config: dict) -> dict:  # noqa: RUF029
+    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
         ctx = NodeContext(context)
 
         # Special handling for combiners which use multiple upstreams
@@ -243,12 +244,12 @@ def _create_transform_node_impl(
             transform = transform_factory(ctx, config)
             result = transform(TrackList())  # Transform handles collection
 
-            return {
-                "tracklist": result,
-                "operation": operation,
-                "input_count": len(upstream_tracklists),
-                "output_count": len(result.tracks),
-            }
+            logger.debug(
+                operation,
+                input_count=len(upstream_tracklists),
+                output_count=len(result.tracks),
+            )
+            return {"tracklist": result}
 
         else:
             # Standard case - single upstream dependency
@@ -259,16 +260,16 @@ def _create_transform_node_impl(
                 # Create and apply the transformation
                 transform = transform_factory(ctx, config)
                 result = transform(tracklist)
-
-                return {
-                    "tracklist": result,
-                    "operation": operation,
-                    "input_count": len(tracklist.tracks),
-                    "output_count": len(result.tracks),
-                }
             except Exception as e:
                 logger.error(f"Error in node {operation}: {e}")
                 raise
+            else:
+                logger.debug(
+                    operation,
+                    input_count=len(tracklist.tracks),
+                    output_count=len(result.tracks),
+                )
+                return {"tracklist": result}
 
     return node_impl
 
@@ -292,7 +293,7 @@ def make_node(
     return _create_transform_node_impl(category, node_type, operation_name)
 
 
-def create_enricher_node(config: dict) -> NodeFn:
+def create_enricher_node(config: dict[str, Any]) -> NodeFn:
     """Create a node that adds metadata from external music services to tracks.
 
     Fetches additional track information from services like Last.fm or Spotify
@@ -315,7 +316,9 @@ def create_enricher_node(config: dict) -> NodeFn:
     if not enricher_type:
         raise ValueError("Enricher configuration must specify a 'connector' type")
 
-    async def node_impl(context: dict, node_config: dict) -> dict:
+    async def node_impl(
+        context: dict[str, Any], node_config: dict[str, Any]
+    ) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
 
@@ -381,12 +384,11 @@ def create_enricher_node(config: dict) -> NodeFn:
         if result.errors:
             logger.warning(f"Enrichment had errors: {result.errors}")
 
-        # Use standardized result formatter
-        return NodeContext.format_enrichment_result(
-            operation=f"{enricher_type}_enrichment",
-            enriched_tracklist=result.enriched_tracklist,
-            metrics=result.metrics_added,
+        logger.info(
+            f"{enricher_type}_enrichment complete",
+            metrics_count=sum(len(v) for v in result.metrics_added.values()),
         )
+        return {"tracklist": result.enriched_tracklist}
 
     return node_impl
 
@@ -403,7 +405,7 @@ def create_play_history_enricher_node() -> NodeFn:
         Config options: metrics (list), period_days (int)
     """
 
-    async def node_impl(context: dict, config: dict) -> dict:
+    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
 
@@ -437,14 +439,11 @@ def create_play_history_enricher_node() -> NodeFn:
         if result.errors:
             logger.warning(f"Play history enrichment had errors: {result.errors}")
 
-        # Use standardized result formatter with extra fields
-        return NodeContext.format_enrichment_result(
-            operation="play_history_enrichment",
-            enriched_tracklist=result.enriched_tracklist,
-            metrics=result.metrics_added,
-            enriched_metrics=list(
-                result.metrics_added.keys()
-            ),  # Extra field for this operation
+        logger.info(
+            "play_history_enrichment complete",
+            metrics_count=sum(len(v) for v in result.metrics_added.values()),
+            enriched_metrics=list(result.metrics_added.keys()),
         )
+        return {"tracklist": result.enriched_tracklist}
 
     return node_impl

@@ -12,7 +12,7 @@ Data recovery relies on external API re-import and database backups.
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     JSON,
@@ -58,7 +58,7 @@ class DatabaseModel(AsyncAttrs, DeclarativeBase):
     All database models inherit from this class to ensure consistent metadata handling.
     """
 
-    metadata = metadata
+    metadata: ClassVar[MetaData] = metadata
 
     id: Mapped[int] = mapped_column(primary_key=True, sort_order=-1)
 
@@ -90,7 +90,7 @@ class BaseEntity(DatabaseModel, TimestampMixin):
     Uses hard deletes for simplicity and performance.
     """
 
-    __abstract__ = True
+    __abstract__: ClassVar[bool] = True
 
 
 class DBTrack(BaseEntity):
@@ -100,7 +100,7 @@ class DBTrack(BaseEntity):
     Uses hard deletes for simplicity and performance.
     """
 
-    __tablename__ = "tracks"
+    __tablename__: str = "tracks"
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     artists: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -112,33 +112,33 @@ class DBTrack(BaseEntity):
     mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
     # Relationships
-    mappings: Mapped[list[DBTrackMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="track",
         passive_deletes=True,
     )
-    metrics: Mapped[list[DBTrackMetric]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    metrics: Mapped[list[DBTrackMetric]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    likes: Mapped[list[DBTrackLike]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    likes: Mapped[list[DBTrackLike]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    plays: Mapped[list[DBTrackPlay]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    plays: Mapped[list[DBTrackPlay]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    connector_plays: Mapped[list[DBConnectorPlay]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    connector_plays: Mapped[list[DBConnectorPlay]] = relationship(
         back_populates="resolved_track",
         passive_deletes=True,
     )
 
     # Standard unique constraints that work with SQLite bulk upsert
-    __table_args__ = (
+    __table_args__: tuple[Any, ...] = (
         # Standard unique constraints for external identifiers
         UniqueConstraint("spotify_id", name="uq_tracks_spotify_id"),
         UniqueConstraint("isrc", name="uq_tracks_isrc"),
@@ -155,7 +155,7 @@ class DBConnectorTrack(BaseEntity):
     Can be recreated from external sources when needed.
     """
 
-    __tablename__ = "connector_tracks"
+    __tablename__: str = "connector_tracks"
 
     connector_name: Mapped[str] = mapped_column(String(32))
     connector_track_identifier: Mapped[str] = mapped_column(String(64))
@@ -172,12 +172,12 @@ class DBConnectorTrack(BaseEntity):
     )
 
     # Mapping relationship - plural to reflect conceptual many-to-one possibility
-    mappings: Mapped[list[DBTrackMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="connector_track",
         passive_deletes=True,
     )
 
-    __table_args__ = (
+    __table_args__: tuple[Any, ...] = (
         UniqueConstraint("connector_name", "connector_track_identifier"),
         Index(None, "connector_name", "isrc"),
     )
@@ -190,7 +190,7 @@ class DBTrackMapping(BaseEntity):
     Mappings can be recreated from connector data when needed.
     """
 
-    __tablename__ = "track_mappings"
+    __tablename__: str = "track_mappings"
 
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
     connector_track_id: Mapped[int] = mapped_column(
@@ -212,7 +212,7 @@ class DBTrackMapping(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__ = (
+    __table_args__: tuple[Any, ...] = (
         # CRITICAL: Prevent multiple canonical tracks mapping to same connector track
         UniqueConstraint(
             "connector_track_id",
@@ -240,8 +240,8 @@ class DBTrackMetric(BaseEntity):
     Stores track performance metrics (play counts, popularity scores) for analytics and trends.
     """
 
-    __tablename__ = "track_metrics"
-    __table_args__ = (
+    __tablename__: str = "track_metrics"
+    __table_args__: tuple[Any, ...] = (
         # Create a unique constraint - let naming convention handle the name
         UniqueConstraint("track_id", "connector_name", "metric_type"),
         # Keep the lookup index
@@ -270,8 +270,8 @@ class DBTrackLike(BaseEntity):
     Represents user preferences for tracks across different services.
     """
 
-    __tablename__ = "track_likes"
-    __table_args__ = (
+    __tablename__: str = "track_likes"
+    __table_args__: tuple[Any, ...] = (
         UniqueConstraint("track_id", "service"),
         Index(None, "service", "is_liked"),
     )
@@ -296,8 +296,8 @@ class DBTrackPlay(BaseEntity):
     Represents user listening history across music services for analytics and insights.
     """
 
-    __tablename__ = "track_plays"
-    __table_args__ = (
+    __tablename__: str = "track_plays"
+    __table_args__: tuple[Any, ...] = (
         # Unique constraint to prevent duplicate plays (safety net for application-level deduplication)
         UniqueConstraint(
             "track_id",
@@ -353,7 +353,7 @@ class DBConnectorPlay(BaseEntity):
     DBConnectorTrack for separation of ingestion and resolution concerns.
     """
 
-    __tablename__ = "connector_plays"
+    __tablename__: str = "connector_plays"
 
     # Connector identification
     connector_name: Mapped[str] = mapped_column(String(32))  # "lastfm", "spotify"
@@ -392,7 +392,7 @@ class DBConnectorPlay(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__ = (
+    __table_args__: tuple[Any, ...] = (
         # Prevent duplicate connector plays (same as track_plays deduplication pattern)
         UniqueConstraint(
             "connector_name",
@@ -418,18 +418,18 @@ class DBPlaylist(BaseEntity):
     Represents user-created playlists with track associations.
     """
 
-    __tablename__ = "playlists"
+    __tablename__: str = "playlists"
 
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(String(1000))
     track_count: Mapped[int] = mapped_column(default=0)
 
     # Relationships
-    tracks: Mapped[list[DBPlaylistTrack]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    tracks: Mapped[list[DBPlaylistTrack]] = relationship(
         back_populates="playlist",
         cascade="all, delete-orphan",
     )
-    mappings: Mapped[list[DBPlaylistMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="playlist",
         passive_deletes=True,
     )
@@ -442,7 +442,7 @@ class DBConnectorPlaylist(BaseEntity):
     Can be recreated from external sources when needed.
     """
 
-    __tablename__ = "connector_playlists"
+    __tablename__: str = "connector_playlists"
 
     connector_name: Mapped[str]
     connector_playlist_identifier: Mapped[str]
@@ -459,12 +459,12 @@ class DBConnectorPlaylist(BaseEntity):
     last_updated: Mapped[datetime]
 
     # Relationships
-    mappings: Mapped[list[DBPlaylistMapping]] = relationship(  # pyright: ignore[reportUndefinedVariable]
+    mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="connector_playlist",
         passive_deletes=True,
     )
 
-    __table_args__ = (
+    __table_args__: tuple[Any, ...] = (
         UniqueConstraint("connector_name", "connector_playlist_identifier"),
     )
 
@@ -475,8 +475,8 @@ class DBPlaylistMapping(BaseEntity):
     Represents the relationship between canonical playlists and external service playlists.
     """
 
-    __tablename__ = "playlist_mappings"
-    __table_args__ = (
+    __tablename__: str = "playlist_mappings"
+    __table_args__: tuple[Any, ...] = (
         # Prevent one canonical playlist from having multiple mappings to same connector
         UniqueConstraint("playlist_id", "connector_name", name="uq_playlist_connector"),
         # Prevent multiple canonical playlists from claiming same external playlist
@@ -541,8 +541,8 @@ class DBPlaylistTrack(BaseEntity):
     genuinely new track memberships.
     """
 
-    __tablename__ = "playlist_tracks"
-    __table_args__ = (Index(None, "playlist_id", "sort_key"),)
+    __tablename__: str = "playlist_tracks"
+    __table_args__: tuple[Any, ...] = (Index(None, "playlist_id", "sort_key"),)
 
     playlist_id: Mapped[int] = mapped_column(
         ForeignKey("playlists.id", ondelete="CASCADE"),
@@ -572,8 +572,10 @@ class DBSyncCheckpoint(BaseEntity):
     Represents synchronization state for external services.
     """
 
-    __tablename__ = "sync_checkpoints"
-    __table_args__ = (UniqueConstraint("user_id", "service", "entity_type"),)
+    __tablename__: str = "sync_checkpoints"
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint("user_id", "service", "entity_type"),
+    )
 
     user_id: Mapped[str] = mapped_column(String(64))
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm'

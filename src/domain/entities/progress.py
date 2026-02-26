@@ -7,7 +7,7 @@ Designed to be display-agnostic and usable across CLI, web, and future interface
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol, Self
+from typing import Any, Protocol, Self, override
 from uuid import uuid4
 
 from attrs import define, evolve, field
@@ -228,25 +228,30 @@ class ProgressEmitter(Protocol):
         ...
 
 
-class NullProgressEmitter:
+class NullProgressEmitter(ProgressEmitter):
     """Null object implementation of ProgressEmitter.
 
     Provides silent no-op implementations for when progress tracking is disabled.
     This eliminates the need for None checks throughout the codebase.
     """
 
+    @override
     async def start_operation(self, operation: ProgressOperation) -> str:
         """Silent no-op that returns a dummy operation ID."""
         _ = operation  # Mark as intentionally unused for null implementation
         return f"null-{uuid4().hex[:8]}"
 
+    @override
     async def emit_progress(self, event: ProgressEvent) -> None:
         """Silent no-op for progress events."""
+        _ = event
 
+    @override
     async def complete_operation(
         self, operation_id: str, final_status: OperationStatus
     ) -> None:
         """Silent no-op for operation completion."""
+        _ = operation_id, final_status
 
 
 # Domain protocols for progress tracking (dependency injection interfaces)

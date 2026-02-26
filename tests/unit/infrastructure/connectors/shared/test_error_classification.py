@@ -49,7 +49,9 @@ class TestErrorClassificationRetryLogic:
 
     def test_rate_limit_error_retries(self, retry_predicate):
         """Test rate limit errors are retried."""
-        retry_state = self._make_retry_state(LastFMAPIError("29", "Rate Limit Exceeded"))
+        retry_state = self._make_retry_state(
+            LastFMAPIError("29", "Rate Limit Exceeded")
+        )
         assert retry_predicate(retry_state) is True
 
     def test_network_error_retries(self, retry_predicate):
@@ -59,7 +61,9 @@ class TestErrorClassificationRetryLogic:
 
     def test_unknown_error_retries(self, retry_predicate):
         """Test unknown errors are retried (defensive retry)."""
-        retry_state = self._make_retry_state(LastFMAPIError("9999", "Unknown error message"))
+        retry_state = self._make_retry_state(
+            LastFMAPIError("9999", "Unknown error message")
+        )
         assert retry_predicate(retry_state) is True
 
     def test_non_exception_base_exceptions_not_retried(self, retry_predicate):

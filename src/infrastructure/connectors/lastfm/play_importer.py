@@ -37,6 +37,9 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
     Contains ALL Last.fm-specific logic: daily chunking, checkpoint management, etc.
     """
 
+    operation_name: str
+    lastfm_connector: LastFMConnector
+
     def __init__(
         self,
         lastfm_connector: LastFMConnector | None = None,
@@ -51,6 +54,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         self.operation_name = "Last.fm Connector Play Import"
         self.lastfm_connector = lastfm_connector or LastFMConnector()
 
+    @override
     async def import_plays(
         self,
         uow: UnitOfWorkProtocol,
@@ -123,7 +127,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         import_batch_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> OperationResult:
         """Import Last.fm plays with unified checkpoint-bounded approach.
 
@@ -159,7 +163,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         from_date: datetime | None = None,
         to_date: datetime | None = None,
         username: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[PlayRecord]:
         """Unified import using checkpoint-bounded date ranges.
 
@@ -268,7 +272,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **additional_options,
+        **additional_options: Any,
     ) -> list[PlayRecord]:
         """Download scrobbles using smart daily chunking with auto-scaling for power users.
 
@@ -289,11 +293,6 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         logger.debug(
             f"Daily chunking debug: from_date type={type(from_date)}, to_date type={type(to_date)}"
         )
-
-        if not from_date or not to_date:
-            raise ValueError(
-                "Both from_date and to_date are required for daily chunking strategy"
-            )
 
         if not uow:
             logger.warning("No UnitOfWork provided - checkpoint functionality disabled")
@@ -349,7 +348,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
             )
             return []
 
-        all_play_records = []
+        all_play_records: list[PlayRecord] = []
         days_processed = 0
 
         # Process each day chronologically (oldest → newest)
@@ -408,7 +407,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
                 if min_ts < effective_start or max_ts > effective_end:
                     logger.warning(
                         f"Day {current_date}: timestamps outside expected range! "
-                        f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
+                        + f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
                     )
 
             # Save checkpoint after successful day completion
@@ -486,7 +485,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
             # Use UnitOfWork's checkpoint repository to ensure proper transaction handling
             checkpoint_repo = uow.get_checkpoint_repository()
-            await checkpoint_repo.save_sync_checkpoint(checkpoint)
+            _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
             logger.debug(f"Checkpoint saved: user={username}, date={completed_date}")
 
         except Exception as e:
@@ -501,7 +500,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[ConnectorTrackPlay]:
         """Convert PlayRecord objects to ConnectorTrackPlay objects.
 
@@ -511,7 +510,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         _ = progress_emitter, uow, kwargs, import_timestamp
         # raw_data should be list[PlayRecord] in this case
         play_records = raw_data
-        connector_plays = []
+        connector_plays: list[ConnectorTrackPlay] = []
 
         for play_record in play_records:
             connector_play = ConnectorTrackPlay(
@@ -570,7 +569,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
         # Use transaction manager's checkpoint repository
         checkpoint_repo = uow.get_checkpoint_repository()
-        await checkpoint_repo.save_sync_checkpoint(checkpoint)
+        _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
 
         logger.info(
             f"Reset Last.fm checkpoint for full history import: user={resolved_username}"
@@ -578,7 +577,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs
+        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs: Any
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

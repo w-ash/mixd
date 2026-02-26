@@ -1,17 +1,16 @@
-"""Shared httpx client factories for Spotify and Last.fm API connectors.
+"""Shared httpx client factories for Spotify, Last.fm, and MusicBrainz API connectors.
 
-Provides lightweight per-call AsyncClient factories with:
+Provides AsyncClient factories with:
 - Structured request/response logging via event hooks
 - Error response body logging for debugging
 - Service-specific timeouts from settings
-- Authorization headers baked in for Spotify
 
-Usage:
-    async with make_spotify_client(token) as client:
-        response = await client.get("/tracks", params={"ids": "...", "market": "US"})
-        response.raise_for_status()
-        return response.json()
+Spotify clients delegate auth to an httpx.Auth instance (SpotifyBearerAuth)
+so token injection and 401-retry are handled transparently.
 """
+
+from importlib.metadata import metadata
+from typing import Any
 
 import httpx
 
@@ -20,6 +19,7 @@ from src.config import get_logger, settings
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com"
 LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0"
+MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -40,30 +40,43 @@ async def _log_request(request: httpx.Request) -> None:  # noqa: RUF029 — http
     )
 
 
-async def _log_response(response: httpx.Response) -> None:  # noqa: RUF029 — httpx AsyncClient requires async hooks
-    """Log incoming HTTP responses; WARNING level on 4xx/5xx with Retry-After."""
-    elapsed_ms = (
-        round(response.elapsed.total_seconds() * 1000, 1) if response.elapsed else None
-    )
-    retry_after = response.headers.get("Retry-After")
+def _elapsed_ms(response: httpx.Response) -> float | None:
+    """Return elapsed time in ms, or None if the response hasn't been read yet.
+
+    httpx sets ``response.elapsed`` (``_elapsed``) only after the response body
+    has been consumed or the connection closed.  Accessing the property before
+    that raises ``RuntimeError``, so we guard defensively.
+    """
+    try:
+        return round(response.elapsed.total_seconds() * 1000, 1)
+    except RuntimeError:
+        return None
+
+
+async def _log_response(response: httpx.Response) -> None:
+    """Log incoming HTTP responses; WARNING level on 4xx/5xx including buffered body."""
     if response.status_code < _HTTP_ERROR_THRESHOLD:
         _http_logger.debug(
             "HTTP response",
             status=response.status_code,
             url=str(response.url),
-            elapsed_ms=elapsed_ms,
+            elapsed_ms=_elapsed_ms(response),
         )
     else:
+        # Buffer the body so raise_for_status() callers can still read it.
+        # aread() is idempotent and also populates response._elapsed.
+        _ = await response.aread()
         _http_logger.warning(
             "HTTP error response",
             status=response.status_code,
             url=str(response.url),
-            elapsed_ms=elapsed_ms,
-            retry_after=retry_after,
+            elapsed_ms=_elapsed_ms(response),
+            retry_after=response.headers.get("Retry-After"),
+            body=response.text[:500],
         )
 
 
-_EVENT_HOOKS: dict[str, list] = {
+_EVENT_HOOKS: dict[str, list[Any]] = {
     "request": [_log_request],
     "response": [_log_response],
 }
@@ -74,18 +87,17 @@ _EVENT_HOOKS: dict[str, list] = {
 # -------------------------------------------------------------------------
 
 
-def make_spotify_client(access_token: str) -> httpx.AsyncClient:
+def make_spotify_client(auth: httpx.Auth) -> httpx.AsyncClient:
     """Return a configured AsyncClient for Spotify Web API calls.
 
-    Uses /v1 as base URL. Authorization Bearer header is pre-set.
+    Authentication is delegated to the provided httpx.Auth instance.
+    Caller owns lifecycle — call aclose() or use as async context manager.
     Timeouts sourced from settings.api.spotify_request_timeout.
     """
     return httpx.AsyncClient(
         base_url=SPOTIFY_API_BASE,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
+        auth=auth,
+        headers={"Content-Type": "application/json"},
         timeout=httpx.Timeout(
             connect=5.0,
             read=float(settings.api.spotify_request_timeout or 15),
@@ -124,24 +136,31 @@ def make_lastfm_client() -> httpx.AsyncClient:
     )
 
 
-# -------------------------------------------------------------------------
-# ERROR LOGGING HELPER
-# -------------------------------------------------------------------------
+def make_musicbrainz_client() -> httpx.AsyncClient:
+    """Return a configured AsyncClient for MusicBrainz API calls.
 
-
-def log_error_response_body(e: httpx.HTTPStatusError, operation: str) -> None:
-    """Log the response body from an HTTP error for debugging.
-
-    Call this inside _impl methods after catching HTTPStatusError before re-raising.
-    Caps body at 500 characters to avoid flooding logs.
-
-    Args:
-        e: The HTTPStatusError with response body
-        operation: Name of the operation for log context
+    Base URL is the /ws/2 endpoint. All requests use JSON format via Accept header
+    and fmt=json query param. MusicBrainz requires a descriptive User-Agent.
+    No authentication needed for read-only requests.
     """
-    _http_logger.debug(
-        "API error response body",
-        operation=operation,
-        status=e.response.status_code,
-        body=e.response.text[:500],
+    pkg_meta = metadata("narada")
+    app_name = pkg_meta.get("Name", "Narada")
+    app_version = pkg_meta.get("Version", "0.1.0")
+    app_url = pkg_meta.get("Home-page", "https://github.com/user/narada")
+    user_agent = f"{app_name}/{app_version} ({app_url})"
+
+    return httpx.AsyncClient(
+        base_url=MUSICBRAINZ_API_BASE,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": user_agent,
+        },
+        params={"fmt": "json"},
+        timeout=httpx.Timeout(
+            connect=5.0,
+            read=15.0,
+            write=10.0,
+            pool=5.0,
+        ),
+        event_hooks=_EVENT_HOOKS,
     )

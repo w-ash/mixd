@@ -91,7 +91,7 @@ def format_destination_result(
     tracklist: TrackList,
     persisted_tracks: list[Track],
     stats: dict[str, int],
-    **additional_fields,
+    **additional_fields: Any,
 ) -> dict[str, Any]:
     """Pure business logic for formatting destination operation results.
 

@@ -356,7 +356,7 @@ class UpdateCanonicalPlaylistUseCase:
             if entry.track.id
         }
 
-        updated_entries = []
+        updated_entries: list[PlaylistEntry] = []
         for track in updated_tracks:
             if track.id in track_to_current_entry:
                 # Existing track - preserve its added_at
@@ -410,7 +410,7 @@ class UpdateCanonicalPlaylistUseCase:
         Returns:
             Playlist with updated metadata, or unchanged playlist if no updates
         """
-        updates = {}
+        updates: dict[str, str] = {}
         if command.playlist_name:
             updates["name"] = command.playlist_name
         if command.playlist_description:
@@ -539,8 +539,8 @@ class UpdateCanonicalPlaylistUseCase:
         # Group tracks by connector to batch process metadata
         for connector, available_metrics in get_all_connectors_metrics().items():
             # Find tracks that have metadata for this connector
-            tracks_with_metadata = []
-            fresh_metadata = {}
+            tracks_with_metadata: list[Track] = []
+            fresh_metadata: dict[int, dict[str, Any]] = {}
 
             for track in tracks:
                 if (
@@ -560,7 +560,7 @@ class UpdateCanonicalPlaylistUseCase:
                 )
 
                 # Use the metrics service to batch process the fresh metadata
-                await self.metrics_service.batch_process_fresh_metadata(
+                _ = await self.metrics_service.batch_process_fresh_metadata(
                     fresh_metadata=fresh_metadata,
                     connector=connector,
                     available_metrics=available_metrics,

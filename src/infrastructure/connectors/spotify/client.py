@@ -10,28 +10,26 @@ Key components:
 - Market-aware API calls with configurable timeouts
 """
 
-from typing import Any
+from typing import Any, ClassVar, override
 
 from attrs import define, field
 import httpx
-from tenacity import AsyncRetrying
+from loguru import logger as _loguru_logger
 
-from src.config import get_logger, resilient_operation, settings
+from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
-from src.infrastructure.connectors._shared.http_client import (
-    log_error_response_body,
-    make_spotify_client,
+from src.infrastructure.connectors._shared.retry_policies import (
+    RetryConfig,
+    RetryPolicyFactory,
 )
-from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
+from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
 logger = get_logger(__name__).bind(service="spotify_client")
 
-_HTTP_UNAUTHORIZED = 401
-
 
 @define(slots=True)
-class SpotifyAPIClient:
+class SpotifyAPIClient(BaseAPIClient):
     """Pure Spotify API client using native httpx.
 
     Provides thin wrappers around the Spotify Web API with authentication,
@@ -44,8 +42,14 @@ class SpotifyAPIClient:
         >>> playlist_data = await client.get_playlist("37i9dQZF1DX0XUsuxWHRQd")
     """
 
+    _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
+        httpx.HTTPStatusError,
+        httpx.RequestError,
+    )
+
     _token_manager: SpotifyTokenManager = field(init=False, repr=False)
-    _retry_policy: AsyncRetrying = field(init=False, repr=False)
+    _retry_policy: Any = field(init=False, repr=False)
+    _client: httpx.AsyncClient = field(init=False, repr=False)
 
     @property
     def market(self) -> str:
@@ -53,16 +57,32 @@ class SpotifyAPIClient:
         return settings.api.spotify_market
 
     def __attrs_post_init__(self) -> None:
-        """Initialize token manager and retry policy."""
+        """Initialize token manager, retry policy, and long-lived pooled client."""
         logger.debug("Initializing Spotify API client")
         self._token_manager = SpotifyTokenManager()
+        from src.infrastructure.connectors._shared.http_client import (
+            make_spotify_client,
+        )
+        from src.infrastructure.connectors.spotify.auth import SpotifyBearerAuth
         from src.infrastructure.connectors.spotify.error_classifier import (
             SpotifyErrorClassifier,
         )
 
-        self._retry_policy = RetryPolicyFactory.create_spotify_policy(
-            classifier=SpotifyErrorClassifier(),
+        self._retry_policy = RetryPolicyFactory.create_policy(
+            RetryConfig(
+                service_name="spotify",
+                classifier=SpotifyErrorClassifier(),
+                max_attempts=settings.api.spotify_retry_count,
+                wait_multiplier=settings.api.spotify_retry_base_delay,
+                wait_max=settings.api.spotify_retry_max_delay,
+            )
         )
+        self._client = make_spotify_client(SpotifyBearerAuth(self._token_manager))
+
+    @override
+    async def aclose(self) -> None:
+        """Close the underlying HTTP connection pool."""
+        await self._client.aclose()
 
     # -------------------------------------------------------------------------
     # Track API Methods
@@ -70,17 +90,9 @@ class SpotifyAPIClient:
 
     async def get_tracks_bulk(self, track_ids: list[str]) -> dict[str, Any] | None:
         """Fetch multiple tracks from Spotify (up to 50 per request)."""
-        try:
-            return await self._get_tracks_bulk_with_retries(track_ids)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_tracks_bulk")
-    async def _get_tracks_bulk_with_retries(
-        self, track_ids: list[str]
-    ) -> dict[str, Any] | None:
-        """Fetch tracks with retry policy."""
-        return await self._retry_policy(self._get_tracks_bulk_impl, track_ids)
+        return await self._api_call(
+            "get_spotify_tracks_bulk", self._get_tracks_bulk_impl, track_ids
+        )
 
     async def _get_tracks_bulk_impl(
         self, track_ids: list[str]
@@ -92,20 +104,12 @@ class SpotifyAPIClient:
             )
             return None
 
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    "/tracks",
-                    params={"ids": ",".join(track_ids), "market": self.market},
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_tracks_bulk")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            "/tracks",
+            params={"ids": ",".join(track_ids), "market": self.market},
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     # -------------------------------------------------------------------------
     # Search API Methods
@@ -113,59 +117,35 @@ class SpotifyAPIClient:
 
     async def search_by_isrc(self, isrc: str) -> dict[str, Any] | None:
         """Search for a track using ISRC identifier."""
-        try:
-            return await self._search_by_isrc_with_retries(isrc)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("search_spotify_by_isrc")
-    async def _search_by_isrc_with_retries(self, isrc: str) -> dict[str, Any] | None:
-        """Search by ISRC with retry policy."""
-        return await self._retry_policy(self._search_by_isrc_impl, isrc)
+        return await self._api_call(
+            "search_spotify_by_isrc", self._search_by_isrc_impl, isrc
+        )
 
     async def _search_by_isrc_impl(self, isrc: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
         logger.debug(f"Searching Spotify for ISRC: {isrc}")
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    "/search",
-                    params={
-                        "q": f"isrc:{isrc}",
-                        "type": "track",
-                        "limit": 1,
-                        "market": self.market,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                tracks = data.get("tracks", {}).get("items", [])
-                if not tracks:
-                    logger.warning(
-                        "Spotify search by ISRC returned no results", isrc=isrc
-                    )
-                    return None
-                return tracks[0]
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "search_by_isrc")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            "/search",
+            params={
+                "q": f"isrc:{isrc}",
+                "type": "track",
+                "limit": 1,
+                "market": self.market,
+            },
+        )
+        _ = response.raise_for_status()
+        data = response.json()
+        tracks = data.get("tracks", {}).get("items", [])
+        if not tracks:
+            logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
+            return None
+        return tracks[0]
 
     async def search_track(self, artist: str, title: str) -> dict[str, Any] | None:
         """Search for a track by artist and title."""
-        try:
-            return await self._search_track_with_retries(artist, title)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("search_spotify_track")
-    async def _search_track_with_retries(
-        self, artist: str, title: str
-    ) -> dict[str, Any] | None:
-        """Search track with retry policy."""
-        return await self._retry_policy(self._search_track_impl, artist, title)
+        return await self._api_call(
+            "search_spotify_track", self._search_track_impl, artist, title
+        )
 
     async def _search_track_impl(
         self, artist: str, title: str
@@ -173,27 +153,19 @@ class SpotifyAPIClient:
         """Pure implementation without retry logic."""
         query = f"artist:{artist} track:{title}"
         logger.debug(f"Searching Spotify with query: {query}")
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    "/search",
-                    params={
-                        "q": query,
-                        "type": "track",
-                        "limit": 1,
-                        "market": self.market,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                tracks = data.get("tracks", {}).get("items", [])
-                return tracks[0] if tracks else None
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "search_track")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            "/search",
+            params={
+                "q": query,
+                "type": "track",
+                "limit": 1,
+                "market": self.market,
+            },
+        )
+        _ = response.raise_for_status()
+        data = response.json()
+        tracks = data.get("tracks", {}).get("items", [])
+        return tracks[0] if tracks else None
 
     # -------------------------------------------------------------------------
     # Playlist Read Methods
@@ -201,77 +173,45 @@ class SpotifyAPIClient:
 
     async def get_playlist(self, playlist_id: str) -> dict[str, Any] | None:
         """Fetch a Spotify playlist with basic metadata."""
-        try:
-            return await self._get_playlist_with_retries(playlist_id)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_playlist")
-    async def _get_playlist_with_retries(
-        self, playlist_id: str
-    ) -> dict[str, Any] | None:
-        """Get playlist with retry policy."""
-        return await self._retry_policy(self._get_playlist_impl, playlist_id)
+        return await self._api_call(
+            "get_spotify_playlist", self._get_playlist_impl, playlist_id
+        )
 
     async def _get_playlist_impl(self, playlist_id: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    f"/playlists/{playlist_id}",
-                    params={"market": self.market},
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_playlist")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            f"/playlists/{playlist_id}",
+            params={"market": self.market},
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def get_playlist_tracks(
         self, playlist_id: str, limit: int = 100, offset: int = 0
     ) -> dict[str, Any] | None:
         """Fetch tracks from a Spotify playlist with pagination."""
-        try:
-            return await self._get_playlist_tracks_with_retries(
-                playlist_id, limit, offset
-            )
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_playlist_tracks")
-    async def _get_playlist_tracks_with_retries(
-        self, playlist_id: str, limit: int = 100, offset: int = 0
-    ) -> dict[str, Any] | None:
-        """Get playlist tracks with retry policy."""
-        return await self._retry_policy(
-            self._get_playlist_tracks_impl, playlist_id, limit, offset
+        return await self._api_call(
+            "get_spotify_playlist_tracks",
+            self._get_playlist_tracks_impl,
+            playlist_id,
+            limit,
+            offset,
         )
 
     async def _get_playlist_tracks_impl(
         self, playlist_id: str, limit: int = 100, offset: int = 0
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    f"/playlists/{playlist_id}/tracks",
-                    params={
-                        "limit": min(limit, 100),
-                        "offset": offset,
-                        "market": self.market,
-                    },
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_playlist_tracks")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            f"/playlists/{playlist_id}/tracks",
+            params={
+                "limit": min(limit, 100),
+                "offset": offset,
+                "market": self.market,
+            },
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def get_next_page(
         self, current_page: dict[str, Any]
@@ -280,48 +220,25 @@ class SpotifyAPIClient:
         if not current_page or not current_page.get("next"):
             return None
 
-        try:
-            return await self._get_next_page_with_retries(current_page)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_next_page")
-    async def _get_next_page_with_retries(
-        self, current_page: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """Get next page with retry policy."""
-        return await self._retry_policy(self._get_next_page_impl, current_page)
+        return await self._api_call(
+            "get_spotify_next_page", self._get_next_page_impl, current_page
+        )
 
     async def _get_next_page_impl(
         self, current_page: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic.
 
-        Spotify's "next" cursor is an absolute URL — must use a client without
-        base_url to avoid double-prefixing.
+        Spotify's "next" cursor is an absolute URL. httpx uses absolute URLs
+        as-is when a base_url is set, so self._client handles them correctly.
         """
         next_url = current_page.get("next")
         if not next_url:
             return None
 
-        token = await self._token_manager.get_valid_token()
-        # Use a plain client with no base_url — next_url is absolute
-        async with httpx.AsyncClient(
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            timeout=httpx.Timeout(float(settings.api.spotify_request_timeout or 15)),
-        ) as client:
-            try:
-                response = await client.get(next_url)
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_next_page")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(next_url)
+        _ = response.raise_for_status()
+        return response.json()
 
     # -------------------------------------------------------------------------
     # Playlist Write Methods
@@ -331,18 +248,12 @@ class SpotifyAPIClient:
         self, name: str, description: str = "", public: bool = False
     ) -> dict[str, Any] | None:
         """Create a new empty Spotify playlist for the current user."""
-        try:
-            return await self._create_playlist_with_retries(name, description, public)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("create_spotify_playlist")
-    async def _create_playlist_with_retries(
-        self, name: str, description: str = "", public: bool = False
-    ) -> dict[str, Any] | None:
-        """Create playlist with retry policy."""
-        return await self._retry_policy(
-            self._create_playlist_impl, name, description, public
+        return await self._api_call(
+            "create_spotify_playlist",
+            self._create_playlist_impl,
+            name,
+            description,
+            public,
         )
 
     async def _create_playlist_impl(
@@ -352,20 +263,12 @@ class SpotifyAPIClient:
 
         Uses POST /me/playlists — no user ID prefetch required.
         """
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.post(
-                    "/me/playlists",
-                    json={"name": name, "public": public, "description": description},
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "create_playlist")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.post(
+            "/me/playlists",
+            json={"name": name, "public": public, "description": description},
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def playlist_add_items(
         self, playlist_id: str, items: list[str], position: int | None = None
@@ -380,20 +283,12 @@ class SpotifyAPIClient:
         Returns:
             API response with new snapshot_id, None if error
         """
-        try:
-            return await self._playlist_add_items_with_retries(
-                playlist_id, items, position
-            )
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("add_spotify_playlist_items")
-    async def _playlist_add_items_with_retries(
-        self, playlist_id: str, items: list[str], position: int | None = None
-    ) -> dict[str, Any] | None:
-        """Add playlist items with retry policy."""
-        return await self._retry_policy(
-            self._playlist_add_items_impl, playlist_id, items, position
+        return await self._api_call(
+            "add_spotify_playlist_items",
+            self._playlist_add_items_impl,
+            playlist_id,
+            items,
+            position,
         )
 
     async def _playlist_add_items_impl(
@@ -404,23 +299,18 @@ class SpotifyAPIClient:
         if position is not None:
             body["position"] = position
 
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.post(
-                    f"/playlists/{playlist_id}/tracks",
-                    json=body,
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "playlist_add_items")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.post(
+            f"/playlists/{playlist_id}/tracks",
+            json=body,
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def playlist_remove_specific_occurrences_of_items(
-        self, playlist_id: str, items: list[dict], snapshot_id: str | None = None
+        self,
+        playlist_id: str,
+        items: list[dict[str, Any]],
+        snapshot_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Remove specific occurrences of items from a Spotify playlist.
 
@@ -432,21 +322,8 @@ class SpotifyAPIClient:
         Returns:
             API response with new snapshot_id, None if error
         """
-        try:
-            return (
-                await self._playlist_remove_specific_occurrences_of_items_with_retries(
-                    playlist_id, items, snapshot_id
-                )
-            )
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("remove_specific_spotify_playlist_items")
-    async def _playlist_remove_specific_occurrences_of_items_with_retries(
-        self, playlist_id: str, items: list[dict], snapshot_id: str | None = None
-    ) -> dict[str, Any] | None:
-        """Remove playlist items with retry policy."""
-        return await self._retry_policy(
+        return await self._api_call(
+            "remove_specific_spotify_playlist_items",
             self._playlist_remove_specific_occurrences_of_items_impl,
             playlist_id,
             items,
@@ -454,28 +331,23 @@ class SpotifyAPIClient:
         )
 
     async def _playlist_remove_specific_occurrences_of_items_impl(
-        self, playlist_id: str, items: list[dict], snapshot_id: str | None = None
+        self,
+        playlist_id: str,
+        items: list[dict[str, Any]],
+        snapshot_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
         body: dict[str, Any] = {"tracks": items}
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.request(
-                    "DELETE",
-                    f"/playlists/{playlist_id}/tracks",
-                    json=body,
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "playlist_remove_items")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.request(
+            "DELETE",
+            f"/playlists/{playlist_id}/tracks",
+            json=body,
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def playlist_reorder_items(
         self,
@@ -497,24 +369,8 @@ class SpotifyAPIClient:
         Returns:
             API response with new snapshot_id, None if error
         """
-        try:
-            return await self._playlist_reorder_items_with_retries(
-                playlist_id, range_start, insert_before, range_length, snapshot_id
-            )
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("reorder_spotify_playlist_items")
-    async def _playlist_reorder_items_with_retries(
-        self,
-        playlist_id: str,
-        range_start: int,
-        insert_before: int,
-        range_length: int = 1,
-        snapshot_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        """Reorder playlist items with retry policy."""
-        return await self._retry_policy(
+        return await self._api_call(
+            "reorder_spotify_playlist_items",
             self._playlist_reorder_items_impl,
             playlist_id,
             range_start,
@@ -540,20 +396,12 @@ class SpotifyAPIClient:
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.put(
-                    f"/playlists/{playlist_id}/tracks",
-                    json=body,
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "playlist_reorder_items")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.put(
+            f"/playlists/{playlist_id}/tracks",
+            json=body,
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def playlist_replace_items(
         self, playlist_id: str, items: list[str]
@@ -567,38 +415,23 @@ class SpotifyAPIClient:
         Returns:
             API response with new snapshot_id, None if error
         """
-        try:
-            return await self._playlist_replace_items_with_retries(playlist_id, items)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("replace_spotify_playlist_items")
-    async def _playlist_replace_items_with_retries(
-        self, playlist_id: str, items: list[str]
-    ) -> dict[str, Any] | None:
-        """Replace playlist items with retry policy."""
-        return await self._retry_policy(
-            self._playlist_replace_items_impl, playlist_id, items
+        return await self._api_call(
+            "replace_spotify_playlist_items",
+            self._playlist_replace_items_impl,
+            playlist_id,
+            items,
         )
 
     async def _playlist_replace_items_impl(
         self, playlist_id: str, items: list[str]
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.put(
-                    f"/playlists/{playlist_id}/tracks",
-                    json={"uris": items},
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "playlist_replace_items")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.put(
+            f"/playlists/{playlist_id}/tracks",
+            json={"uris": items},
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def playlist_change_details(
         self, playlist_id: str, name: str | None = None, description: str | None = None
@@ -610,16 +443,10 @@ class SpotifyAPIClient:
             name: Optional new playlist name
             description: Optional new playlist description
         """
-        await self._playlist_change_details_with_retries(playlist_id, name, description)
-
-    @resilient_operation("update_spotify_playlist_metadata")
-    async def _playlist_change_details_with_retries(
-        self, playlist_id: str, name: str | None = None, description: str | None = None
-    ) -> None:
-        """Change playlist details with retry policy."""
-        return await self._retry_policy(
-            self._playlist_change_details_impl, playlist_id, name, description
-        )
+        with _loguru_logger.contextualize(operation="update_spotify_playlist_metadata"):
+            await self._retry_policy(
+                self._playlist_change_details_impl, playlist_id, name, description
+            )
 
     async def _playlist_change_details_impl(
         self, playlist_id: str, name: str | None = None, description: str | None = None
@@ -634,16 +461,8 @@ class SpotifyAPIClient:
         if not body:
             return
 
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.put(f"/playlists/{playlist_id}", json=body)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "playlist_change_details")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.put(f"/playlists/{playlist_id}", json=body)
+        _ = response.raise_for_status()
 
     # -------------------------------------------------------------------------
     # User Library Methods
@@ -661,40 +480,24 @@ class SpotifyAPIClient:
         Returns:
             Saved tracks response, None if error
         """
-        try:
-            return await self._get_saved_tracks_with_retries(limit, offset)
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_saved_tracks")
-    async def _get_saved_tracks_with_retries(
-        self, limit: int = 50, offset: int = 0
-    ) -> dict[str, Any] | None:
-        """Get saved tracks with retry policy."""
-        return await self._retry_policy(self._get_saved_tracks_impl, limit, offset)
+        return await self._api_call(
+            "get_spotify_saved_tracks", self._get_saved_tracks_impl, limit, offset
+        )
 
     async def _get_saved_tracks_impl(
         self, limit: int = 50, offset: int = 0
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get(
-                    "/me/tracks",
-                    params={
-                        "limit": min(limit, 50),
-                        "offset": offset,
-                        "market": self.market,
-                    },
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_saved_tracks")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get(
+            "/me/tracks",
+            params={
+                "limit": min(limit, 50),
+                "offset": offset,
+                "market": self.market,
+            },
+        )
+        _ = response.raise_for_status()
+        return response.json()
 
     async def get_current_user(self) -> dict[str, Any] | None:
         """Get current Spotify user information.
@@ -702,26 +505,12 @@ class SpotifyAPIClient:
         Returns:
             User data if authenticated, None otherwise
         """
-        try:
-            return await self._get_current_user_with_retries()
-        except httpx.HTTPStatusError, httpx.RequestError:
-            return None
-
-    @resilient_operation("get_spotify_current_user")
-    async def _get_current_user_with_retries(self) -> dict[str, Any] | None:
-        """Get current user with retry policy."""
-        return await self._retry_policy(self._get_current_user_impl)
+        return await self._api_call(
+            "get_spotify_current_user", self._get_current_user_impl
+        )
 
     async def _get_current_user_impl(self) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        token = await self._token_manager.get_valid_token()
-        async with make_spotify_client(token) as client:
-            try:
-                response = await client.get("/me")
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                log_error_response_body(e, "get_current_user")
-                if e.response.status_code == _HTTP_UNAUTHORIZED:
-                    await self._token_manager.force_refresh()
-                raise
+        response = await self._client.get("/me")
+        _ = response.raise_for_status()
+        return response.json()

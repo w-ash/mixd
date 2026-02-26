@@ -1,5 +1,7 @@
 """CLI commands for track operations including merging duplicates."""
 
+from typing import Annotated
+
 from rich.table import Table
 import typer
 
@@ -20,13 +22,15 @@ track_app = typer.Typer(
 
 @track_app.command("merge")
 def merge_tracks(
-    winner_id: int = typer.Option(
-        ..., "--winner-id", help="Track ID that will keep all references"
-    ),
-    loser_id: int = typer.Option(
-        ..., "--loser-id", help="Track ID that will be merged and deleted"
-    ),
-    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    winner_id: Annotated[
+        int, typer.Option("--winner-id", help="Track ID that will keep all references")
+    ],
+    loser_id: Annotated[
+        int, typer.Option("--loser-id", help="Track ID that will be merged and deleted")
+    ],
+    force: Annotated[
+        bool, typer.Option("--force", help="Skip confirmation prompt")
+    ] = False,
 ) -> None:
     """Merge two duplicate tracks by moving all references to the winner track.
 
@@ -131,7 +135,7 @@ def merge_tracks(
 
 @track_app.command("show")
 def show_track(
-    track_id: int = typer.Argument(..., help="Track ID to display"),
+    track_id: Annotated[int, typer.Argument(help="Track ID to display")],
 ) -> None:
     """Show detailed information about a track."""
 

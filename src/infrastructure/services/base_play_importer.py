@@ -67,6 +67,9 @@ class BasePlayImporter(ABC):
         6. Return import statistics
     """
 
+    plays_repository: PlaysRepositoryProtocol | None
+    operation_name: str
+
     def __init__(self, plays_repository: PlaysRepositoryProtocol | None) -> None:
         """Initialize with database repository for saving track plays.
 
@@ -85,7 +88,7 @@ class BasePlayImporter(ABC):
         import_batch_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> OperationResult:
         """Import music listening data from external source to database.
 
@@ -258,7 +261,7 @@ class BasePlayImporter(ABC):
         self,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[Any]:
         """Fetch raw listening data from external source.
 
@@ -282,7 +285,7 @@ class BasePlayImporter(ABC):
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[Any]:
         """Convert raw source data into standardized domain objects.
 
@@ -303,7 +306,7 @@ class BasePlayImporter(ABC):
 
     @abstractmethod
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: Any | None = None, **kwargs
+        self, raw_data: list[Any], uow: Any | None = None, **kwargs: Any
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
@@ -349,7 +352,7 @@ class BasePlayImporter(ABC):
             return 0, 0
 
         connector_play_repository = uow.get_connector_play_repository()
-        await connector_play_repository.bulk_insert_connector_plays(connector_plays)
+        _ = await connector_play_repository.bulk_insert_connector_plays(connector_plays)
 
         logger.info(f"💾 Saved {len(connector_plays)} connector plays via UnitOfWork")
         self._store_connector_plays(connector_plays)

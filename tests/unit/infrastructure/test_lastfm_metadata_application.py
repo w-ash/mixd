@@ -117,23 +117,20 @@ class TestLastFMMetadataApplication:
             artists=[Artist(name="Test Artist")],
         )
 
-        # Mock the comprehensive data response
-        mock_comprehensive_data = {
-            "lastfm_title": "Test Track",
-            "lastfm_artist_name": "Test Artist",
-            "lastfm_user_playcount": 42,
-            "lastfm_global_playcount": 1000,
-            "lastfm_listeners": 500,
-            "lastfm_user_loved": True,
-        }
-
-        print("\n🚀 Testing complete fast enrichment flow:")
+        print("\n Testing complete fast enrichment flow:")
 
         # Mock the intelligent method to return our test data
         async def mock_get_track_info_intelligent(self, track_obj):
             from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
-            return LastFMTrackInfo.from_comprehensive_data(mock_comprehensive_data)
+            return LastFMTrackInfo(
+                lastfm_title="Test Track",
+                lastfm_artist_name="Test Artist",
+                lastfm_user_playcount=42,
+                lastfm_global_playcount=1000,
+                lastfm_listeners=500,
+                lastfm_user_loved=True,
+            )
 
         # Patch at the class level before creating the instance
         with (

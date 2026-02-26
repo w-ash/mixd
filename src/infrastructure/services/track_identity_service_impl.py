@@ -4,9 +4,10 @@ This service provides the infrastructure layer implementation of track identity 
 while delegating to the new unambiguous identity pipeline components.
 """
 
-from typing import Any
+from typing import Any, override
 
 from src.config import get_logger
+from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchResultsById,
     ProviderMatchResult,
@@ -32,6 +33,10 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
     architecture components.
     """
 
+    track_repo: TrackRepositoryProtocol
+    connector_repo: ConnectorRepositoryProtocol
+    _provider_classes: dict[str, type[Any]]
+
     def __init__(
         self,
         track_repo: TrackRepositoryProtocol,
@@ -48,9 +53,10 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
             "musicbrainz": MusicBrainzProvider,
         }
 
+    @override
     async def get_raw_external_matches(
         self,
-        tracks: list,
+        tracks: list[Track],
         connector: str,
         connector_instance: Any,
         **additional_options: Any,
@@ -89,7 +95,8 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         # Calling code (MatchAndIdentifyTracksUseCase) only expects successful matches
         return result.matches
 
-    async def _get_existing_identity_mappings(
+    @override
+    async def get_existing_identity_mappings(
         self, track_ids: list[int], connector: str
     ) -> MatchResultsById:
         """Retrieve existing identity mappings from database.
@@ -130,7 +137,8 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
                 )
         return result
 
-    async def _persist_identity_mappings(
+    @override
+    async def persist_identity_mappings(
         self, matches: MatchResultsById, connector: str
     ) -> None:
         """Save identity mappings to database.
@@ -140,7 +148,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         for match_result in matches.values():
             if hasattr(match_result, "track") and hasattr(match_result.track, "id"):
                 # Use existing repository method to save mapping
-                await self.connector_repo.map_track_to_connector(
+                _ = await self.connector_repo.map_track_to_connector(
                     track=match_result.track,
                     connector=connector,
                     connector_id=match_result.connector_id,

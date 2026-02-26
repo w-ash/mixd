@@ -19,6 +19,19 @@ class Artist:
     name: str = field(validator=validators.instance_of(str))
 
 
+def _validate_artists(
+    _instance: object,
+    _attribute: attrs.Attribute[list[Artist]],
+    value: list[Artist],
+) -> None:
+    """Validate artists list: non-empty and all elements are Artist instances."""
+    if not value:
+        raise ValueError("Track must have at least one artist")
+    for artist in value:
+        if not isinstance(artist, Artist):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"Expected Artist, got {type(artist).__name__}")
+
+
 @define(frozen=True, slots=True)
 class Track:
     """Immutable track entity representing a musical recording.
@@ -31,10 +44,7 @@ class Track:
     title: str = field(validator=validators.instance_of(str))
     artists: list[Artist] = field(
         factory=list,
-        validator=validators.deep_iterable(
-            member_validator=validators.instance_of(Artist),
-            iterable_validator=validators.min_len(1),
-        ),
+        validator=_validate_artists,
     )
     album: str | None = field(default=None)
     duration_ms: int | None = field(default=None)
@@ -54,7 +64,7 @@ class Track:
 
     def with_id(self, db_id: int) -> Self:
         """Set the internal database ID for this track."""
-        if not isinstance(db_id, int) or db_id <= 0:
+        if db_id <= 0:
             raise ValueError(
                 f"Invalid database ID: {db_id}. Must be a positive integer.",
             )
@@ -106,12 +116,12 @@ class Track:
         self,
         connector: str,
         attribute: str,
-        default=None,
+        default: object = None,
     ) -> Any:
         """Get a specific attribute from connector metadata."""
         return self.connector_metadata.get(connector, {}).get(attribute, default)
 
-    def has_same_identity_as(self, other: Track) -> bool:  # pyright: ignore[reportUndefinedVariable]
+    def has_same_identity_as(self, other: Track) -> bool:
         """Compare tracks by external identifiers for identity resolution.
 
         Business rule: tracks with identical external identifiers (ISRC,
@@ -123,9 +133,6 @@ class Track:
         Returns:
             True if tracks have matching external identifiers.
         """
-        if not isinstance(other, Track):
-            return False
-
         # Check ISRC first - most reliable identifier
         if self.isrc and other.isrc and self.isrc == other.isrc:
             return True

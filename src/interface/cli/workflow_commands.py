@@ -4,9 +4,10 @@ Modern Typer implementation with progressive discovery, Rich UI, and clean separ
 of concerns. Follows [tool] [noun] [verb] command patterns for consistency.
 """
 
+from collections.abc import Sequence
 import json
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -69,8 +70,8 @@ def run(
     _execute_workflow(workflow_id, show_results, output_format, quiet)
 
 
-@app.command()
-def list(
+@app.command(name="list")
+def list_workflows(
     format: Annotated[
         Literal["table", "json"], typer.Option("--format", "-f")
     ] = "table",
@@ -109,8 +110,7 @@ def _show_interactive_workflow_browser() -> None:
 
     console.print(
         Panel.fit(
-            "🎵 [bold]Workflow Browser[/bold]\n"
-            "[dim]Discover and execute playlist transformation workflows[/dim]",
+            "🎵 [bold]Workflow Browser[/bold]\n[dim]Discover and execute playlist transformation workflows[/dim]",
             title="[bold bright_blue]⚡ Narada Workflows[/bold bright_blue]",
             border_style="blue",
         )
@@ -128,11 +128,11 @@ def _show_interactive_workflow_browser() -> None:
         )
 
 
-def _prompt_for_workflow_selection(workflows: list[dict]) -> str | None:  # type: ignore[misc]
+def _prompt_for_workflow_selection(workflows: Sequence[dict[str, Any]]) -> str | None:
     """Enhanced workflow selection with fuzzy matching support."""
     # Build choices: numbers, IDs, and common exit terms
-    choices = []
-    id_map = {}
+    choices: list[str] = []
+    id_map: dict[str, str] = {}
 
     for i, wf in enumerate(workflows, 1):
         choices.extend((str(i), wf["id"]))
@@ -180,9 +180,7 @@ def _execute_workflow(
         if not quiet:
             console.print(
                 Panel.fit(
-                    f"[bold]{workflow_info['name']}[/bold]\n"
-                    f"[dim]{workflow_info['description']}[/dim]\n"
-                    f"[cyan]Tasks: [bold]{workflow_info.get('task_count', 0)}[/bold][/cyan]",
+                    f"[bold]{workflow_info['name']}[/bold]\n[dim]{workflow_info['description']}[/dim]\n[cyan]Tasks: [bold]{workflow_info.get('task_count', 0)}[/bold][/cyan]",
                     title="[bold bright_blue]⚡ Executing Workflow[/bold bright_blue]",
                     border_style="blue",
                 )
@@ -208,8 +206,7 @@ def _execute_workflow(
             )
             console.print(
                 Panel.fit(
-                    f"[bold green]{workflow_info['name']}[/bold green]\n"
-                    f"[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
+                    f"[bold green]{workflow_info['name']}[/bold green]\n[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
                     title="[bold green]✓ Workflow Completed[/bold green]",
                     border_style="green",
                 )
@@ -224,7 +221,7 @@ def _execute_workflow(
         raise typer.Exit(1) from e
 
 
-def _display_workflows_table(workflows: list[dict]) -> None:  # type: ignore[misc]
+def _display_workflows_table(workflows: Sequence[dict[str, Any]]) -> None:
     """Display workflows in a Rich table for reference."""
     table = Table(
         title="Available Workflows",
@@ -252,7 +249,7 @@ def _display_workflows_table(workflows: list[dict]) -> None:  # type: ignore[mis
     console.print(table)
 
 
-def _get_available_workflows() -> list[dict]:  # type: ignore[misc]
+def _get_available_workflows() -> list[dict[str, Any]]:
     """Get available workflow definitions with metadata.
 
     Returns list of workflow info dictionaries with id, name, description,
@@ -263,7 +260,7 @@ def _get_available_workflows() -> list[dict]:  # type: ignore[misc]
     definitions_path = (
         current_file.parent.parent.parent / "application" / "workflows" / "definitions"
     )
-    workflows = []
+    workflows: list[dict[str, Any]] = []
 
     if not definitions_path.exists():
         return workflows

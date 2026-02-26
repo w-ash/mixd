@@ -13,6 +13,7 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,7 +40,7 @@ def extract_spotify_track_uris(tracks: list[Track]) -> list[str]:
     ]
 
 
-def validate_non_empty(items: list, empty_result=None):
+def validate_non_empty(items: Sequence[object], empty_result: Any = None) -> Any:
     """Return empty_result if items is empty, None otherwise."""
     return empty_result if not items else None
 

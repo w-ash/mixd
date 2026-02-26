@@ -54,6 +54,9 @@ class DatabaseUnitOfWork:
     but also allows explicit commit/rollback control for complex business logic.
     """
 
+    _session: AsyncSession
+    _committed: bool
+
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session.
 

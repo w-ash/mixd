@@ -4,6 +4,7 @@ Clean implementation focused solely on stored playlist operations:
 list, backup, delete. Workflow functionality moved to workflow_commands.py.
 """
 
+from collections.abc import Sequence
 from typing import Annotated
 
 from rich.panel import Panel
@@ -11,6 +12,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
+from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console
 
@@ -35,10 +37,10 @@ def list() -> None:
 
 @app.command()
 def backup(
-    connector: str = typer.Argument(..., help="Connector name (e.g., 'spotify')"),
-    playlist_id: str = typer.Argument(
-        ..., help="Playlist ID from the connector service"
-    ),
+    connector: Annotated[str, typer.Argument(help="Connector name (e.g., 'spotify')")],
+    playlist_id: Annotated[
+        str, typer.Argument(help="Playlist ID from the connector service")
+    ],
 ) -> None:
     """Backup a playlist from a music service to your local database.
 
@@ -55,7 +57,7 @@ def backup(
 
 @app.command()
 def delete(
-    playlist_id: int = typer.Argument(..., help="Playlist ID to delete"),
+    playlist_id: Annotated[int, typer.Argument(help="Playlist ID to delete")],
     force: Annotated[bool, typer.Option("--force", "-f")] = False,
 ) -> None:
     """Delete a playlist from your local database.
@@ -96,7 +98,7 @@ async def _list_stored_playlists() -> None:
         raise typer.Exit(1) from e
 
 
-def _display_playlists_table(playlists) -> None:
+def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
     """Display playlists in a Rich table format."""
     from src.config.settings import settings
 
@@ -166,8 +168,8 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
                 console.print(
                     Panel.fit(
                         f"[bold]{playlist.name}[/bold]\n"
-                        f"[dim]{playlist.description or 'No description'}[/dim]\n"
-                        f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
+                        + f"[dim]{playlist.description or 'No description'}[/dim]\n"
+                        + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
                         title="[bold red]⚠️  Delete Playlist[/bold red]",
                         border_style="red",
                     )
@@ -175,7 +177,7 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
 
                 if not Confirm.ask(
                     "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
-                    "[dim]This action cannot be undone.[/dim]"
+                    + "[dim]This action cannot be undone.[/dim]"
                 ):
                     console.print("[yellow]Delete cancelled.[/yellow]")
                     return
@@ -186,9 +188,9 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
             if deleted:
                 console.print(
                     Panel.fit(
-                        f"[bold green]✓ Playlist Deleted[/bold green]\n"
-                        f"[cyan]Name:[/cyan] {playlist.name}\n"
-                        f"[cyan]ID:[/cyan] {playlist_id}",
+                        "[bold green]✓ Playlist Deleted[/bold green]\n"
+                        + f"[cyan]Name:[/cyan] {playlist.name}\n"
+                        + f"[cyan]ID:[/cyan] {playlist_id}",
                         title="[bold green]🗑️  Deletion Complete[/bold green]",
                         border_style="green",
                     )
@@ -210,7 +212,7 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
     console.print(
         Panel.fit(
             f"[bold]{connector_name.title()} Playlist Backup[/bold]\n"
-            f"[dim]Playlist ID: {playlist_id}[/dim]",
+            + f"[dim]Playlist ID: {playlist_id}[/dim]",
             title="[bold bright_blue]🎵 Starting Backup[/bold bright_blue]",
             border_style="blue",
         )
@@ -231,11 +233,11 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             # Updated existing playlist
             console.print(
                 Panel.fit(
-                    f"[bold green]✓ Playlist Updated[/bold green]\n"
-                    f"[cyan]Name:[/cyan] {result.playlist.name}\n"
-                    f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
-                    f"[cyan]Operations:[/cyan] {result.operations_performed} changes\n"
-                    f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
+                    "[bold green]✓ Playlist Updated[/bold green]\n"
+                    + f"[cyan]Name:[/cyan] {result.playlist.name}\n"
+                    + f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
+                    + f"[cyan]Operations:[/cyan] {result.operations_performed} changes\n"
+                    + f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
                     title="[bold green]🎵 Backup Complete[/bold green]",
                     border_style="green",
                 )
@@ -244,11 +246,11 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             # Created new playlist
             console.print(
                 Panel.fit(
-                    f"[bold green]✓ Playlist Created[/bold green]\n"
-                    f"[cyan]Name:[/cyan] {result.playlist.name}\n"
-                    f"[cyan]ID:[/cyan] {result.playlist.id}\n"
-                    f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
-                    f"[cyan]New tracks saved:[/cyan] {result.tracks_created}",
+                    "[bold green]✓ Playlist Created[/bold green]\n"
+                    + f"[cyan]Name:[/cyan] {result.playlist.name}\n"
+                    + f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+                    + f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
+                    + f"[cyan]New tracks saved:[/cyan] {result.tracks_created}",
                     title="[bold green]🎵 Backup Complete[/bold green]",
                     border_style="green",
                 )

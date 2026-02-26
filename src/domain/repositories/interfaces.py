@@ -177,8 +177,8 @@ class ConnectorRepositoryProtocol(Protocol):
         connector_id: str,
         match_method: str,
         confidence: int,
-        metadata: dict | None = None,
-        confidence_evidence: dict | None = None,
+        metadata: dict[str, object] | None = None,
+        confidence_evidence: dict[str, object] | None = None,
         auto_set_primary: bool = True,
     ) -> Awaitable[Track]:
         """Map an existing track to a connector.
@@ -486,7 +486,7 @@ class TrackIdentityServiceProtocol(Protocol):
 
     def get_raw_external_matches(
         self,
-        tracks: list,
+        tracks: list[Track],
         connector: str,
         connector_instance: Any,
         **additional_options: Any,
@@ -504,7 +504,7 @@ class TrackIdentityServiceProtocol(Protocol):
         """
         ...
 
-    def _get_existing_identity_mappings(
+    def get_existing_identity_mappings(
         self, track_ids: list[int], connector: str
     ) -> Awaitable[dict[int, Any]]:
         """Retrieve existing identity mappings from database.
@@ -518,7 +518,7 @@ class TrackIdentityServiceProtocol(Protocol):
         """
         ...
 
-    def _persist_identity_mappings(
+    def persist_identity_mappings(
         self, matches: dict[int, Any], connector: str
     ) -> Awaitable[None]:
         """Save identity mappings to database.
@@ -626,7 +626,7 @@ class UnitOfWorkProtocol(Protocol):
         """Get connector play repository for play ingestion and resolution operations."""
         ...
 
-    def get_track_merge_service(self) -> TrackMergeServiceProtocol:  # pyright: ignore[reportUndefinedVariable]
+    def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""
         ...
 

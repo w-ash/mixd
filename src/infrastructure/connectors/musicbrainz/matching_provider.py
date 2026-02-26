@@ -4,7 +4,7 @@ This provider handles communication with the MusicBrainz API and transforms
 MusicBrainz track data into raw provider matches without business logic.
 """
 
-from typing import Any, override
+from typing import override
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -20,6 +20,8 @@ from src.infrastructure.connectors._shared.failure_handling import (
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
 )
+from src.infrastructure.connectors.musicbrainz.connector import MusicBrainzConnector
+from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
 
 logger = get_logger(__name__)
 
@@ -27,7 +29,9 @@ logger = get_logger(__name__)
 class MusicBrainzProvider(BaseMatchingProvider):
     """MusicBrainz track matching provider."""
 
-    def __init__(self, connector_instance: Any) -> None:
+    connector_instance: MusicBrainzConnector
+
+    def __init__(self, connector_instance: MusicBrainzConnector) -> None:
         """Initialize with MusicBrainz connector.
 
         Args:
@@ -57,7 +61,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
         failures: list[MatchFailure] = []
 
         # Validate tracks and collect valid ISRCs
-        valid_tracks = []
+        valid_tracks: list[Track] = []
         for track in tracks:
             if not track.id:
                 continue
@@ -84,15 +88,29 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
                 # Map results back to tracks
                 for track in valid_tracks:
+                    track_id = track.id
+                    if not track_id:
+                        continue
                     if track.isrc and track.isrc in isrc_results:
                         mbid = isrc_results[track.isrc]
+                        if not mbid:
+                            failures.append(
+                                create_and_log_failure(
+                                    track_id,
+                                    MatchFailureReason.NO_RESULTS,
+                                    self.service_name,
+                                    "isrc",
+                                    f"No MusicBrainz MBID for ISRC: {track.isrc}",
+                                )
+                            )
+                            continue
                         raw_match = self._create_isrc_raw_match(mbid)
                         if raw_match:
-                            matches[track.id] = raw_match
+                            matches[track_id] = raw_match
                         else:
                             failures.append(
                                 create_and_log_failure(
-                                    track.id,
+                                    track_id,
                                     MatchFailureReason.INVALID_RESPONSE,
                                     self.service_name,
                                     "isrc",
@@ -102,7 +120,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
                     else:
                         failures.append(
                             create_and_log_failure(
-                                track.id,
+                                track_id,
                                 MatchFailureReason.NO_RESULTS,
                                 self.service_name,
                                 "isrc",
@@ -161,8 +179,8 @@ class MusicBrainzProvider(BaseMatchingProvider):
                     artist, track.title
                 )
 
-                if recording and "id" in recording:
-                    raw_match = self._create_artist_title_raw_match(recording=recording)
+                if recording:
+                    raw_match = self._create_artist_title_raw_match(recording)
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
@@ -198,9 +216,6 @@ class MusicBrainzProvider(BaseMatchingProvider):
     def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
         """Create raw match data for ISRC-based matches.
 
-        This method creates raw provider data without applying any business logic,
-        confidence scoring, or match decisions.
-
         Args:
             mbid: MusicBrainz recording ID
 
@@ -208,16 +223,15 @@ class MusicBrainzProvider(BaseMatchingProvider):
             Raw provider match data or None if creation fails
         """
         try:
-            # Create minimal service data for ISRC matches - no business logic
-            service_data = {
+            artists: list[str] = []
+            service_data: dict[str, object] = {
                 "mbid": mbid,
-                "title": "",  # ISRC matches don't provide track metadata directly
+                "title": "",
                 "artist": "",
-                "artists": [],
+                "artists": artists,
                 "duration_ms": None,
             }
 
-            # Return raw data - no confidence calculation or business logic
             return RawProviderMatch(
                 connector_id=mbid,
                 match_method="isrc",
@@ -229,41 +243,28 @@ class MusicBrainzProvider(BaseMatchingProvider):
             return None
 
     def _create_artist_title_raw_match(
-        self, recording: dict[str, Any]
+        self, recording: MusicBrainzRecording
     ) -> RawProviderMatch | None:
         """Create raw match data from MusicBrainz recording data.
 
-        This method extracts and formats data from MusicBrainz API without applying
-        any business logic, confidence scoring, or match decisions.
-
         Args:
-            recording: MusicBrainz recording data
+            recording: Validated MusicBrainz recording model
 
         Returns:
             Raw provider match data or None if creation fails
         """
         try:
-            mbid = recording["id"]
-
-            # Extract service data without any business logic
-            service_data = {
-                "title": recording.get("title", ""),
-                "mbid": mbid,
-                "artists": [],
-                "duration_ms": recording.get("length"),  # MusicBrainz duration
+            service_data: dict[str, object] = {
+                "title": recording.title,
+                "mbid": recording.id,
+                "artists": [
+                    credit.name for credit in recording.artist_credit if credit.name
+                ],
+                "duration_ms": recording.length,
             }
 
-            # Add artists if available
-            if "artist-credit" in recording:
-                service_data["artists"] = [
-                    credit["name"]
-                    for credit in recording.get("artist-credit", [])
-                    if isinstance(credit, dict) and "name" in credit
-                ]
-
-            # Return raw data - no confidence calculation or business logic
             return RawProviderMatch(
-                connector_id=mbid,
+                connector_id=recording.id,
                 match_method="artist_title",
                 service_data=service_data,
             )

@@ -57,6 +57,8 @@ class ProgressCoordinator:
     business logic and operates on domain entities.
     """
 
+    _operation_lock: asyncio.Lock
+
     def __init__(self):
         """Initialize progress coordinator."""
         self._operations: dict[str, OperationState] = {}
@@ -245,7 +247,7 @@ class ProgressCoordinator:
         cleanup_count = 0
 
         async with self._operation_lock:
-            operations_to_remove = []
+            operations_to_remove: list[str] = []
 
             for operation_id, state in self._operations.items():
                 if (
@@ -273,7 +275,7 @@ class ProgressCoordinator:
         Returns:
             Dictionary of derived metrics to add to event metadata
         """
-        metrics = {}
+        metrics: dict[str, Any] = {}
 
         # Calculate rate (items per second) if we have enough data
         if operation_state.event_count > 0:

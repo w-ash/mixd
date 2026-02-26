@@ -15,7 +15,6 @@ python = ">=3.13,<3.15"
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.46"}
 alembic = "^1.18.1"
 httpx = "^0.28.1"
-musicbrainzngs = "^0.7.1"
 loguru = "^0.7.3"
 python-dotenv = "^1.2.1"
 rich = "^14.3.1"
@@ -41,6 +40,7 @@ vulture = "^2.14"
 interrogate = "^1.7.0"
 bandit = "^1.9.2"
 psutil = "^7.1.3"
+toolz-stubs = "^0.3.1"
 
 [tool.poetry.scripts]
 narada = "src.interface.cli.app:main"
@@ -176,9 +176,8 @@ docstring-code-line-length = "dynamic"
 allow-star-arg-any = true
 suppress-none-returning = true
 
-# flake8-bugbear settings
-[tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Argument", "typer.Option"]
+# Note: implicit string concatenation (ISC) enforcement via basedpyright reportImplicitStringConcatenation
+# — ruff ISC001/ISC002 don't catch the parenthesized multi-line pattern that basedpyright does.
 
 # Testing configuration (pytest 9+ native TOML)
 [tool.pytest]
@@ -200,7 +199,7 @@ omit = ["tests/*"]
 [tool.basedpyright]
 include = ["src"]
 exclude = ["tests", "**/__pycache__"]
-typeCheckingMode = "recommended"  # More comprehensive than strict (2025 best practice)
+typeCheckingMode = "recommended"
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnusedImport = true
@@ -210,24 +209,31 @@ reportUntypedBaseClass = true
 reportUntypedClassDecorator = true
 reportUntypedFunctionDecorator = true
 reportUntypedNamedTuple = true
-# Python 3.14 and 2025 specific type checking features
 reportDeprecated = "warning"
 reportUnnecessaryTypeIgnoreComment = "warning"
 reportImplicitOverride = "warning"
-# BasedPyright specific enhancements (2025)
-reportAny = "warning"
+# Keep: catches genuinely unknown types from missing annotations
 reportUnknownParameterType = "warning"
 reportUnknownVariableType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownLambdaType = "warning"
+# Disable: noise from legitimate patterns
+# Any is the correct type for JSON payloads, loguru kwargs, protocol flexibility.
+# reportUnknown* already catches genuinely unresolvable types.
+reportAny = "none"
+reportExplicitAny = "none"
+# Side-effect calls (raise_for_status, .pop, .discard) intentionally discard returns.
+reportUnusedCallResult = "none"
 # Intentional patterns that "recommended" mode would flag as errors:
 # - bare list/dict generics are valid in Python 3.14 (equivalent to list[Any])
 reportMissingTypeArgument = "none"
 # - attrs @define classes initialize fields via __attrs_post_init__ (not __init__)
 reportUninitializedInstanceVariable = "none"
-# Python 3.14 typing features
+# Python 3.14
 enableTypeIgnoreComments = true
 pythonVersion = "3.14"
 pythonPlatform = "All"
-# Modern virtual environment detection
 venvPath = "."
 venv = ".venv"
 

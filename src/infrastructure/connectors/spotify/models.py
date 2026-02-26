@@ -18,22 +18,29 @@ Endpoint coverage:
 - POST /me/playlists  → SpotifyPlaylist
 """
 
+from typing import Any, ClassVar
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SpotifyArtist(BaseModel):
-    """Simplified artist as embedded in track objects."""
+class SpotifyBaseModel(BaseModel):
+    """Base model for all Spotify API response shapes.
 
-    model_config = ConfigDict(extra="ignore")
+    Declares the shared model_config once — all subclasses inherit it.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+
+class SpotifyArtist(SpotifyBaseModel):
+    """Simplified artist as embedded in track objects."""
 
     id: str = Field(default="")
     name: str = Field(default="")
 
 
-class SpotifyAlbum(BaseModel):
+class SpotifyAlbum(SpotifyBaseModel):
     """Simplified album as embedded in track objects."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: str | None = Field(default=None)
     name: str = Field(default="")
@@ -41,28 +48,22 @@ class SpotifyAlbum(BaseModel):
     release_date_precision: str = Field(default="day")  # "year" | "month" | "day"
 
 
-class SpotifyExternalIds(BaseModel):
+class SpotifyExternalIds(SpotifyBaseModel):
     """External identifier block — deprecated in API but still returned."""
-
-    model_config = ConfigDict(extra="ignore")
 
     isrc: str | None = Field(default=None)
     ean: str | None = Field(default=None)
     upc: str | None = Field(default=None)
 
 
-class SpotifyLinkedFrom(BaseModel):
+class SpotifyLinkedFrom(SpotifyBaseModel):
     """Track relinking metadata — deprecated in API but still returned."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: str
 
 
-class SpotifyTrack(BaseModel):
+class SpotifyTrack(SpotifyBaseModel):
     """Full track object from GET /tracks and embedded in playlist items."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: str
     name: str
@@ -77,22 +78,18 @@ class SpotifyTrack(BaseModel):
     )  # deprecated but still returned
 
 
-class SpotifyOwner(BaseModel):
+class SpotifyOwner(SpotifyBaseModel):
     """Playlist owner — has display_name. Reused for added_by where display_name is absent."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: str = Field(default="")
     display_name: str | None = Field(default=None)
 
 
-class SpotifyFollowers(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
+class SpotifyFollowers(SpotifyBaseModel):
     total: int = Field(default=0)
 
 
-class SpotifyPlaylistItem(BaseModel):
+class SpotifyPlaylistItem(SpotifyBaseModel):
     """Single entry from GET /playlists/{id}/tracks.
 
     Uses `track` field (not `item`) — this is the /tracks endpoint response shape.
@@ -100,22 +97,18 @@ class SpotifyPlaylistItem(BaseModel):
     but this codebase calls /tracks which keeps the original `track` field name.
     """
 
-    model_config = ConfigDict(extra="ignore")
-
     track: SpotifyTrack | None = Field(default=None)
     added_at: str | None = Field(default=None)
     added_by: SpotifyOwner = Field(default_factory=SpotifyOwner)
     is_local: bool = Field(default=False)
 
 
-class SpotifyPaginatedPlaylistItems(BaseModel):
+class SpotifyPaginatedPlaylistItems(SpotifyBaseModel):
     """Paginated tracks container — used as SpotifyPlaylist.tracks AND as the
     standalone response from GET /playlists/{id}/tracks.
 
     Pagination uses a `next` URL cursor (absolute URL), not page numbers.
     """
-
-    model_config = ConfigDict(extra="ignore")
 
     href: str = Field(default="")
     limit: int = Field(default=20)
@@ -126,10 +119,8 @@ class SpotifyPaginatedPlaylistItems(BaseModel):
     items: list[SpotifyPlaylistItem] = Field(default_factory=list)
 
 
-class SpotifyPlaylist(BaseModel):
+class SpotifyPlaylist(SpotifyBaseModel):
     """Full playlist object from GET /playlists/{id} and POST /me/playlists."""
-
-    model_config = ConfigDict(extra="ignore")
 
     id: str
     name: str
@@ -138,25 +129,21 @@ class SpotifyPlaylist(BaseModel):
     public: bool | None = Field(default=None)  # nullable per API spec
     collaborative: bool = Field(default=False)
     snapshot_id: str | None = Field(default=None)
-    images: list[dict] = Field(default_factory=list)
+    images: list[dict[str, Any]] = Field(default_factory=list)
     followers: SpotifyFollowers | None = Field(default=None)
     tracks: SpotifyPaginatedPlaylistItems = Field(
         default_factory=SpotifyPaginatedPlaylistItems
     )
 
 
-class SpotifySavedTrack(BaseModel):
+class SpotifySavedTrack(SpotifyBaseModel):
     """Single entry from GET /me/tracks (liked/saved tracks)."""
-
-    model_config = ConfigDict(extra="ignore")
 
     track: SpotifyTrack
     added_at: str | None = Field(default=None)
 
 
-class SpotifySnapshotResponse(BaseModel):
+class SpotifySnapshotResponse(SpotifyBaseModel):
     """Response from playlist write operations: add, remove, reorder, replace."""
-
-    model_config = ConfigDict(extra="ignore")
 
     snapshot_id: str

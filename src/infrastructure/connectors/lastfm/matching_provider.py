@@ -33,6 +33,8 @@ class LastFMProvider(BaseMatchingProvider):
     fetch_raw_matches_for_tracks() instead of using the template method pattern.
     """
 
+    connector_instance: Any
+
     def __init__(self, connector_instance: Any) -> None:
         """Initialize with LastFM connector.
 
@@ -97,8 +99,8 @@ class LastFMProvider(BaseMatchingProvider):
         with logger.contextualize(operation="match_lastfm", tracks_count=len(tracks)):
             logger.info(f"Matching {len(tracks)} tracks to LastFM")
 
-            matches = {}
-            failures = []
+            matches: dict[int, RawProviderMatch] = {}
+            failures: list[MatchFailure] = []
 
             try:
                 # Get batch track info from LastFM
@@ -112,7 +114,7 @@ class LastFMProvider(BaseMatchingProvider):
                 )
 
                 # Process results and classify failures
-                processed_track_ids = set()
+                processed_track_ids: set[int] = set()
                 for track_id, track_info in track_infos.items():
                     processed_track_ids.add(track_id)
 

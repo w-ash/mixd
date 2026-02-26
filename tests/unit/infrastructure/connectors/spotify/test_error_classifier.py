@@ -234,7 +234,9 @@ class TestSpotifyErrorClassifier:
         """Test handling of unknown HTTP status codes."""
         exception = make_http_error(999, "Unknown HTTP status")
 
-        error_type, error_code, _error_description = classifier.classify_error(exception)
+        error_type, error_code, _error_description = classifier.classify_error(
+            exception
+        )
 
         assert error_type == "unknown"
         assert error_code == "999"

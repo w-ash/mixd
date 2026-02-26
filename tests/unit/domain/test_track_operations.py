@@ -43,7 +43,7 @@ class TestTrackEntity:
 
     def test_track_requires_at_least_one_artist(self):
         """Test that track creation fails without artists."""
-        with pytest.raises(ValueError, match="Length of 'artists' must be >= 1"):
+        with pytest.raises(ValueError, match="Track must have at least one artist"):
             Track(title="Test Song", artists=[])
 
     def test_track_with_connector_track_id(self):

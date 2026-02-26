@@ -17,6 +17,7 @@ The retry system preserves all current behavior while enabling:
 
 from collections.abc import Callable
 
+from attrs import define
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -27,7 +28,7 @@ from tenacity import (
     wait_random,
 )
 
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.infrastructure.connectors._shared.error_classification import (
     ErrorClassifier,
 )
@@ -258,145 +259,115 @@ def create_tenacity_giveup_handler(
 
 
 # -------------------------------------------------------------------------
-# RETRY POLICY FACTORY
+# RETRY CONFIGURATION + FACTORY
 # -------------------------------------------------------------------------
+
+
+@define(frozen=True)
+class RetryConfig:
+    """Configuration for a service retry policy.
+
+    All numeric tuning parameters are required — callers must supply values
+    from ``settings.api.*`` so that retry behaviour is controlled solely by
+    the configuration layer (no magic numbers in business or infrastructure
+    code).
+
+    Args:
+        service_name: Service name for logging (e.g., "spotify", "lastfm").
+        classifier: Service-specific error classifier instance.
+        max_attempts: Maximum number of retry attempts.
+            Source: ``settings.api.<service>_retry_count``.
+        wait_multiplier: Exponential backoff base multiplier in seconds.
+            Source: ``settings.api.<service>_retry_base_delay``.
+        wait_max: Maximum wait between retries in seconds.
+            Source: ``settings.api.<service>_retry_max_delay``.
+        max_delay: Optional time-based stop in seconds (``None`` = no limit).
+            Source: ``settings.api.<service>_retry_max_delay`` when a hard
+            wall-clock cap is also needed (e.g. LastFM).
+        include_httpx_errors: If True, type-filter to httpx exceptions before
+            passing to the error classifier. Set False for non-httpx clients
+            like MusicBrainz that use a sync library and catch all exceptions.
+        service_error_types: Additional exception types to retry on beyond
+            httpx errors (e.g., LastFMAPIError).
+    """
+
+    service_name: str
+    classifier: ErrorClassifier
+    max_attempts: int
+    wait_multiplier: float
+    wait_max: float
+    max_delay: float | None = None
+    include_httpx_errors: bool = True
+    service_error_types: tuple[type[BaseException], ...] = ()
 
 
 class RetryPolicyFactory:
     """Factory for creating centralized retry policies for connectors.
 
-    This factory creates AsyncRetrying instances with service-specific
-    configurations while maintaining consistent retry behavior patterns.
-    Each policy preserves the current behavior of the service's backoff
-    decorators while enabling easier maintenance and future enhancements.
-
-    The factory supports:
-    - Service-specific retry counts and timeouts
-    - Error classification integration
-    - Comprehensive logging via callbacks
-    - Settings-based dynamic configuration
+    All policies are created via the single ``create_policy()`` class method,
+    parameterized by a ``RetryConfig`` dataclass.  This keeps the policy
+    logic in one place while making per-service differences explicit at the
+    call site.
 
     Example:
-        >>> # In SpotifyAPIClient.__attrs_post_init__
-        >>> self._retry_policy = RetryPolicyFactory.create_spotify_policy()
-        >>>
-        >>> # Use policy to retry method calls
-        >>> result = await self._retry_policy(api_method, *args)
+        >>> policy = RetryPolicyFactory.create_policy(
+        ...     RetryConfig(
+        ...         service_name="spotify",
+        ...         classifier=SpotifyErrorClassifier(),
+        ...     )
+        ... )
+        >>> result = await policy(api_method, *args)
     """
 
     @staticmethod
-    def create_spotify_policy(
-        classifier: ErrorClassifier,
-        service_error_types: tuple[type[BaseException], ...] = (),
-    ) -> AsyncRetrying:
-        """Create Spotify retry policy (preserves current behavior).
+    def create_policy(config: RetryConfig) -> AsyncRetrying:
+        """Create a retry policy from a RetryConfig.
 
-        Configuration:
-            - max_tries: 3 attempts
-            - wait: Exponential backoff (0.5s base, 30s max)
-            - retry: httpx HTTP and network errors, based on error classification
-            - reraise: True (let caller handle final exception)
+        Builds the tenacity retry predicate, stop condition, and wait strategy
+        from the supplied configuration.  When ``include_httpx_errors=True``
+        (the default) the predicate type-filters to httpx exceptions (plus any
+        ``service_error_types``) before invoking the error classifier.  When
+        False, all exception types flow through the classifier directly.
 
         Args:
-            classifier: Spotify-specific error classifier instance.
-            service_error_types: Additional exception types to retry on
-                (beyond httpx errors).
+            config: Policy configuration parameters.
 
         Returns:
-            Configured AsyncRetrying instance for Spotify API calls
+            Configured AsyncRetrying instance ready for ``await policy(fn, *args)``.
         """
-        import httpx
+        if config.include_httpx_errors:
+            import httpx
 
-        retry_predicate = retry_if_exception_type(
-            httpx.HTTPStatusError
-        ) | retry_if_exception_type(httpx.RequestError)
-        if service_error_types:
-            retry_predicate |= retry_if_exception_type(service_error_types)
+            retry_predicate = retry_if_exception_type(
+                httpx.HTTPStatusError
+            ) | retry_if_exception_type(httpx.RequestError)
+            if config.service_error_types:
+                retry_predicate |= retry_if_exception_type(config.service_error_types)
+            retry_predicate &= create_error_classifier_retry(config.classifier)
+        else:
+            retry_predicate = create_error_classifier_retry(config.classifier)
+            if config.service_error_types:
+                retry_predicate = (
+                    retry_if_exception_type(config.service_error_types)
+                    & retry_predicate
+                )
+
+        stop = stop_after_attempt(config.max_attempts)
+        if config.max_delay is not None:
+            stop |= stop_after_delay(config.max_delay)
 
         return AsyncRetrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=0.5, max=30) + wait_random(0, 1),
-            retry=retry_predicate & create_error_classifier_retry(classifier),
-            before_sleep=create_tenacity_backoff_handler(classifier, "spotify"),
-            after=create_tenacity_giveup_handler(classifier, "spotify"),
-            reraise=True,
-        )
-
-    @staticmethod
-    def create_lastfm_policy(
-        classifier: ErrorClassifier,
-        service_error_types: tuple[type[BaseException], ...] = (),
-    ) -> AsyncRetrying:
-        """Create Last.FM retry policy (settings-based, preserves behavior).
-
-        Configuration:
-            - max_tries: settings.api.lastfm_retry_count_rate_limit
-            - max_time: settings.api.lastfm_retry_max_delay
-            - wait: Exponential backoff (settings-based multiplier and max)
-            - retry: service_error_types + httpx exceptions, based on error classification
-            - reraise: True
-
-        Args:
-            classifier: Last.fm-specific error classifier instance.
-            service_error_types: Additional exception types to retry on
-                (e.g., LastFMAPIError).
-
-        Returns:
-            Configured AsyncRetrying instance for Last.FM API calls
-        """
-        import httpx
-
-        retry_predicate = retry_if_exception_type(
-            httpx.HTTPStatusError
-        ) | retry_if_exception_type(httpx.RequestError)
-        if service_error_types:
-            retry_predicate |= retry_if_exception_type(service_error_types)
-
-        return AsyncRetrying(
-            stop=(
-                stop_after_attempt(settings.api.lastfm_retry_count_rate_limit)
-                | stop_after_delay(settings.api.lastfm_retry_max_delay)
-            ),
+            stop=stop,
             wait=wait_exponential(
-                multiplier=settings.api.lastfm_retry_base_delay,
-                max=settings.api.lastfm_retry_max_delay,
+                multiplier=config.wait_multiplier, max=config.wait_max
             )
             + wait_random(0, 1),
-            retry=retry_predicate & create_error_classifier_retry(classifier),
-            before_sleep=create_tenacity_backoff_handler(classifier, "lastfm"),
-            after=create_tenacity_giveup_handler(classifier, "lastfm"),
-            reraise=True,
-        )
-
-    @staticmethod
-    def create_musicbrainz_policy(
-        classifier: ErrorClassifier,
-        service_error_types: tuple[type[BaseException], ...] = (),
-    ) -> AsyncRetrying:
-        """Create MusicBrainz retry policy.
-
-        Configuration:
-            - max_tries: 3 attempts
-            - wait: Exponential backoff (1s base, 30s max)
-            - retry: All exceptions, based on error classification
-            - reraise: True
-
-        Args:
-            classifier: MusicBrainz-specific error classifier instance.
-            service_error_types: Additional exception types to retry on.
-
-        Returns:
-            Configured AsyncRetrying instance for MusicBrainz API calls
-        """
-        base_retry = create_error_classifier_retry(classifier)
-        if service_error_types:
-            base_retry = retry_if_exception_type(service_error_types) & base_retry
-
-        return AsyncRetrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1.0, max=30) + wait_random(0, 1),
-            retry=base_retry,
-            before_sleep=create_tenacity_backoff_handler(classifier, "musicbrainz"),
-            after=create_tenacity_giveup_handler(classifier, "musicbrainz"),
+            retry=retry_predicate,
+            before_sleep=create_tenacity_backoff_handler(
+                config.classifier, config.service_name
+            ),
+            after=create_tenacity_giveup_handler(
+                config.classifier, config.service_name
+            ),
             reraise=True,
         )

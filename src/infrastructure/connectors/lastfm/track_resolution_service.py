@@ -9,6 +9,7 @@ Follows the exact same proven pattern as Spotify resolution but adapted for Last
 """
 
 from collections.abc import Callable
+from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import Artist, PlayRecord, Track
@@ -28,6 +29,9 @@ class LastfmTrackResolutionService:
     2. Create canonical tracks from Last.fm metadata + save connector mapping
     3. Spotify discovery enhancement: attempt to find new tracks on Spotify for dual connectors
     """
+
+    spotify_connector: SpotifyConnector
+    match_evaluation_service: TrackMatchEvaluationService
 
     def __init__(self, spotify_connector: SpotifyConnector | None = None):
         """Initialize with optional Spotify connector for discovery enhancement."""
@@ -84,7 +88,7 @@ class LastfmTrackResolutionService:
             progress_callback(80, 100, "Creating resolved track list...")
 
         # Step 3: Create resolved tracks list in same order as input plays
-        resolved_tracks = []
+        resolved_tracks: list[Track | None] = []
         for record in play_records:
             identifier = self._create_lastfm_identifier(
                 record.artist_name, record.track_name
@@ -122,7 +126,7 @@ class LastfmTrackResolutionService:
         if not play_records:
             return set()
 
-        unique_identifiers = set()
+        unique_identifiers: set[str] = set()
 
         for record in play_records:
             if record.artist_name and record.track_name:
@@ -133,12 +137,12 @@ class LastfmTrackResolutionService:
             else:
                 logger.warning(
                     f"Skipping record with missing artist/track: artist='{record.artist_name}', "
-                    f"track='{record.track_name}'"
+                    + f"track='{record.track_name}'"
                 )
 
         logger.debug(
             f"Extracted {len(unique_identifiers)} unique Last.fm identifiers from "
-            f"{len(play_records)} play records"
+            + f"{len(play_records)} play records"
         )
 
         return unique_identifiers
@@ -252,7 +256,7 @@ class LastfmTrackResolutionService:
 
         logger.info(
             f"Last.fm resolution complete: {metrics['existing_mappings']} existing, "
-            f"{metrics['new_tracks']} new tracks, {metrics['spotify_enhanced']} Spotify enhanced"
+            + f"{metrics['new_tracks']} new tracks, {metrics['spotify_enhanced']} Spotify enhanced"
         )
 
         return existing_canonical_tracks, metrics
@@ -276,8 +280,8 @@ class LastfmTrackResolutionService:
             return {}
 
         # Create Last.fm connector IDs for bulk lookup
-        connections = []
-        identifier_to_connector_id = {}
+        connections: list[tuple[str, str]] = []
+        identifier_to_connector_id: dict[str, str] = {}
 
         for identifier in lastfm_identifiers:
             artist_name, track_name = self._parse_lastfm_identifier(identifier)
@@ -294,7 +298,7 @@ class LastfmTrackResolutionService:
         )
 
         # Map back from connector IDs to lastfm_identifiers
-        existing_canonical_tracks = {}
+        existing_canonical_tracks: dict[str, Track] = {}
         for identifier, connector_id in identifier_to_connector_id.items():
             connector_key = ("lastfm", connector_id)
             if connector_key in existing_by_connector:
@@ -347,7 +351,7 @@ class LastfmTrackResolutionService:
                 canonical_track, raw_match, "lastfm"
             )
 
-            await uow.get_connector_repository().map_track_to_connector(
+            _ = await uow.get_connector_repository().map_track_to_connector(
                 canonical_track,
                 "lastfm",
                 self._create_lastfm_connector_id(artist_name, track_name),
@@ -414,7 +418,7 @@ class LastfmTrackResolutionService:
 
             # Only create mapping if the match passes business rules
             if match_result.success:
-                await uow.get_connector_repository().map_track_to_connector(
+                _ = await uow.get_connector_repository().map_track_to_connector(
                     canonical_track,
                     "spotify",
                     spotify_id,
@@ -429,13 +433,13 @@ class LastfmTrackResolutionService:
 
                 logger.debug(
                     f"Spotify discovery success: {artist_name} - {track_name} -> {spotify_id} "
-                    f"(confidence: {match_result.confidence})"
+                    + f"(confidence: {match_result.confidence})"
                 )
                 return True
             else:
                 logger.debug(
                     f"Spotify discovery rejected: {artist_name} - {track_name} -> {spotify_id} "
-                    f"(confidence: {match_result.confidence} below threshold)"
+                    + f"(confidence: {match_result.confidence} below threshold)"
                 )
                 return False
 
@@ -445,11 +449,13 @@ class LastfmTrackResolutionService:
             )
             return False
 
-    def _extract_primary_artist(self, spotify_track: dict) -> str:
+    def _extract_primary_artist(self, spotify_track: dict[str, Any]) -> str:
         """Extract primary artist name from Spotify track data."""
-        artists = spotify_track.get("artists", [])
+        artists_raw = spotify_track.get("artists", [])
+        artists: list[dict[str, Any]] = [a for a in artists_raw if isinstance(a, dict)]
         if artists:
-            return artists[0].get("name", "")
+            name = artists[0].get("name", "")
+            return name if isinstance(name, str) else ""
         return ""
 
     def _create_lastfm_connector_id(self, artist_name: str, track_name: str) -> str:

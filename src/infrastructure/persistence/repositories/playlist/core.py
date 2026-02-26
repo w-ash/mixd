@@ -4,6 +4,7 @@ Handles CRUD operations for playlists from multiple music services (Spotify, Las
 MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, delete, insert, select, update
@@ -40,6 +41,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     music services like Spotify and Last.fm.
     """
 
+    track_repository: CoreTrackRepository
+    connector_repository: TrackConnectorRepository
+
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session and dependent repositories.
 
@@ -59,7 +63,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     # ENHANCED QUERY METHODS
     # -------------------------------------------------------------------------
 
-    def select_by_connector(self, connector: str, connector_id: str) -> Select:
+    def select_by_connector(
+        self, connector: str, connector_id: str
+    ) -> Select[tuple[DBPlaylist]]:
         """Build query to find playlist by external service ID.
 
         Args:
@@ -135,14 +141,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             return []
 
         # Separate tracks by processing type for batch operations
-        connector_tracks_to_save = []
-        direct_tracks_to_save = []
-        track_positions = {}  # Track original positions for result ordering
+        connector_tracks_to_save: list[ConnectorTrack] = []
+        direct_tracks_to_save: list[Track] = []
+        # Track original positions for result ordering: idx -> (type, index_or_track)
+        existing_track_positions: dict[int, Track] = {}
+        connector_track_positions: dict[int, int] = {}
+        direct_track_positions: dict[int, int] = {}
 
         for idx, track in enumerate(tracks):
             if track.id:
                 # Track already has ID, no processing needed
-                track_positions[idx] = ("existing", track)
+                existing_track_positions[idx] = track
             elif connector and connector in track.connector_track_identifiers:
                 # Track needs connector ingestion
                 connector_track = ConnectorTrack(
@@ -163,14 +172,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                     ),
                 )
                 connector_tracks_to_save.append(connector_track)
-                track_positions[idx] = ("connector", len(connector_tracks_to_save) - 1)
+                connector_track_positions[idx] = len(connector_tracks_to_save) - 1
             else:
                 # Track needs direct saving
                 direct_tracks_to_save.append(track)
-                track_positions[idx] = ("direct", len(direct_tracks_to_save) - 1)
+                direct_track_positions[idx] = len(direct_tracks_to_save) - 1
 
         # Batch process connector tracks
-        saved_connector_tracks = []
+        saved_connector_tracks: list[Track] = []
         if connector_tracks_to_save and connector:
             try:
                 saved_connector_tracks = (
@@ -182,7 +191,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 raise ValueError(f"Failed to save connector tracks: {e}") from e
 
         # Process direct tracks individually (they may have different external IDs)
-        saved_direct_tracks = []
+        saved_direct_tracks: list[Track] = []
         for track in direct_tracks_to_save:
             try:
                 saved_track = await self.track_repository.save_track(track)
@@ -191,19 +200,20 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 raise ValueError(f"Failed to save track: {e}") from e
 
         # Reconstruct results in original order
-        updated_tracks = []
+        updated_tracks: list[Track] = []
         for idx in range(len(tracks)):
-            track_type, position = track_positions[idx]
-            if track_type == "existing":
-                updated_tracks.append(position)  # position is the track itself
-            elif track_type == "connector":
+            if idx in existing_track_positions:
+                updated_tracks.append(existing_track_positions[idx])
+            elif idx in connector_track_positions:
+                position = connector_track_positions[idx]
                 if position < len(saved_connector_tracks):
                     updated_tracks.append(saved_connector_tracks[position])
                 else:
                     raise ValueError(
                         f"Connector track at position {position} failed to save"
                     )
-            elif track_type == "direct":
+            elif idx in direct_track_positions:
+                position = direct_track_positions[idx]
                 if position < len(saved_direct_tracks):
                     updated_tracks.append(saved_direct_tracks[position])
                 else:
@@ -232,7 +242,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         now = datetime.now(UTC)
 
         # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
-        values = []
+        values: list[dict[str, object]] = []
         for idx, entry in enumerate(entries):
             if entry.track.id is None:
                 continue
@@ -256,7 +266,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             })
 
         if values:
-            await self.session.execute(insert(DBPlaylistTrack).values(values))
+            _ = await self.session.execute(insert(DBPlaylistTrack).values(values))
             await self.session.flush()
 
     async def _update_playlist_tracks(
@@ -297,20 +307,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Build consumption pool: track_id → list of available records
         # This allows handling duplicate tracks (same track_id, multiple records)
-        from collections import defaultdict
-
-        available_records = defaultdict(list)
+        available_records: defaultdict[int, list[DBPlaylistTrack]] = defaultdict(list)
         for record in existing_records:
             available_records[record.track_id].append(record)
 
         logger.debug(
             f"Playlist update: {len(existing_records)} existing records, "
-            f"{len(available_records)} unique tracks, "
-            f"{len(entries)} target entries"
+            + f"{len(available_records)} unique tracks, "
+            + f"{len(entries)} target entries"
         )
 
-        records_to_update = []
-        records_to_create = []
+        records_to_update: list[DBPlaylistTrack] = []
+        records_to_create: list[DBPlaylistTrack] = []
 
         # Consume records for each target position
         for idx, entry in enumerate(entries):
@@ -358,7 +366,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 )
 
         # Collect unconsumed records (tracks removed from playlist)
-        records_to_delete = []
+        records_to_delete: list[DBPlaylistTrack] = []
         for track_id, remaining_records in available_records.items():
             for record in remaining_records:
                 records_to_delete.append(record)
@@ -419,7 +427,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
         now = datetime.now(UTC)
-        connector_playlist_db_ids = {}
+        connector_playlist_db_ids: dict[str, int] = {}
 
         for connector_name, external_id in connector_ids.items():
             # Check if connector playlist exists
@@ -496,7 +504,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         ]
 
         if values:
-            await self.session.execute(insert(DBPlaylistMapping).values(values))
+            _ = await self.session.execute(insert(DBPlaylistMapping).values(values))
             await self.session.flush()
 
     async def _update_connector_mappings(
@@ -532,8 +540,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         existing = {m.connector_name: m for m in result.all()}
 
         # Track updates and new additions
-        new_mappings = []
-        update_mappings = []
+        new_mappings: list[dict[str, object]] = []
+        update_mappings: list[DBPlaylistMapping] = []
 
         # Process each mapping
         for connector_name in connector_ids:
@@ -565,7 +573,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Execute inserts
         if new_mappings:
-            await self.session.execute(insert(DBPlaylistMapping).values(new_mappings))
+            _ = await self.session.execute(
+                insert(DBPlaylistMapping).values(new_mappings)
+            )
 
         await self.session.flush()
 
@@ -758,7 +768,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 "updated_at": datetime.now(UTC),
             }
 
-            await self.session.execute(
+            _ = await self.session.execute(
                 update(self.model_class)
                 .where(self.model_class.id == playlist.id)
                 .values(**updates)
@@ -770,10 +780,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             self.session.add(db_playlist)
             await self.session.flush()
             await self.session.refresh(db_playlist)
-
-            # Ensure we got an ID
-            if db_playlist.id is None:
-                raise ValueError("Failed to create playlist: no ID was generated")
 
             playlist_id = db_playlist.id
 
@@ -853,7 +859,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         db_playlists = result.scalars().all()
 
         # Convert to domain entities with minimal track loading
-        playlists = []
+        playlists: list[Playlist] = []
         for db_playlist in db_playlists:
             # Map to domain entity without loading full track relationships
             playlist = await self.mapper.to_domain(db_playlist)

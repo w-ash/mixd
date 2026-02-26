@@ -311,10 +311,7 @@ with asyncio.Runner() as runner:
 
 | Technology | Purpose | Rationale |
 |------------|---------|-----------|
-| **spotipy** | Spotify API integration | OAuth handling, rate limiting, well-maintained |
-| **pylast** | Last.fm API integration | Comprehensive API coverage, stable interface |
-| **musicbrainzngs** | MusicBrainz integration | Official client, proper rate limiting |
-| **httpx** | HTTP client | Async-first, modern API, excellent performance |
+| **httpx** | HTTP client for all APIs | Async-first, native OAuth/rate limiting, replaces spotipy/pylast/musicbrainzngs |
 | **tenacity** | Retry logic | Declarative retry patterns, exponential backoff, async-native |
 | **aiolimiter** | Rate limiting | Async rate limiting for API compliance, leaky bucket algorithm |
 | **rapidfuzz** | String matching | High-performance fuzzy matching for track resolution |
@@ -813,12 +810,13 @@ Each music service connector is completely self-contained in its own folder:
 
 ```
 src/infrastructure/connectors/spotify/
-├── client.py              # API client (auth, requests)
+├── models.py              # Pydantic models for API response shapes
+├── client.py              # API client (auth, requests, validates → models)
 ├── connector.py           # Main service interface
 ├── factory.py             # Creates all Spotify services
 ├── operations.py          # Core operations (get playlists, etc)
 ├── matching_provider.py   # Track matching logic
-├── conversions.py         # External ↔ Domain model conversion
+├── conversions.py         # Typed model → Domain model conversion
 ├── error_classifier.py    # Service-specific error handling
 ├── play_importer.py       # Play history import
 ├── play_resolver.py       # Play record resolution

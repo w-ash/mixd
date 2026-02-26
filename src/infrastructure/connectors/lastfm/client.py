@@ -13,24 +13,26 @@ Key components:
 import asyncio
 from datetime import datetime
 import hashlib
-from typing import Any
+from typing import Any, ClassVar, override
 
 from attrs import define, field
 import httpx
+from loguru import logger as _loguru_logger
 from pydantic import ValidationError
-from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
-from src.infrastructure.connectors._shared.http_client import (
-    log_error_response_body,
-    make_lastfm_client,
+from src.infrastructure.connectors._shared.retry_policies import (
+    RetryConfig,
+    RetryPolicyFactory,
 )
-from src.infrastructure.connectors._shared.retry_policies import RetryPolicyFactory
+from src.infrastructure.connectors.base import BaseAPIClient
+from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import (
     LastFMAPIError,
     LastFMRecentTracksPage,
     LastFMTrackEntry,
+    LastFMTrackInfoData,
 )
 
 logger = get_logger(__name__).bind(service="lastfm_client")
@@ -64,7 +66,7 @@ def _sign_params(params: dict[str, str], api_secret: str) -> str:
 
 
 @define(slots=True)
-class LastFMAPIClient:
+class LastFMAPIClient(BaseAPIClient):
     """Last.fm API client using native httpx with JSON format.
 
     Reads track info, recent tracks, and love tracks via the Last.fm Web Services.
@@ -75,15 +77,22 @@ class LastFMAPIClient:
         >>> info = await client.get_track_info_comprehensive("Radiohead", "Creep")
     """
 
+    _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
+        LastFMAPIError,
+        httpx.HTTPStatusError,
+        httpx.RequestError,
+    )
+
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
     _session_key: str | None = field(default=None, init=False, repr=False)
     _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
-    _retry_policy: AsyncRetrying = field(init=False, repr=False)
+    _retry_policy: Any = field(init=False, repr=False)
+    _client: httpx.AsyncClient = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Resolve credentials from settings and initialize retry policy."""
+        """Resolve credentials from settings, initialize retry policy, and create pooled client."""
         self.api_key = self.api_key or settings.credentials.lastfm_key
         self.api_secret = self.api_secret or (
             settings.credentials.lastfm_secret.get_secret_value()
@@ -101,10 +110,25 @@ class LastFMAPIClient:
             LastFMErrorClassifier,
         )
 
-        self._retry_policy = RetryPolicyFactory.create_lastfm_policy(
-            classifier=LastFMErrorClassifier(),
-            service_error_types=(LastFMAPIError,),
+        self._retry_policy = RetryPolicyFactory.create_policy(
+            RetryConfig(
+                service_name="lastfm",
+                classifier=LastFMErrorClassifier(),
+                max_attempts=settings.api.lastfm_retry_count_rate_limit,
+                wait_multiplier=settings.api.lastfm_retry_base_delay,
+                wait_max=settings.api.lastfm_retry_max_delay,
+                max_delay=settings.api.lastfm_retry_max_delay,
+                service_error_types=(LastFMAPIError,),
+            )
         )
+        from src.infrastructure.connectors._shared.http_client import make_lastfm_client
+
+        self._client = make_lastfm_client()
+
+    @override
+    async def aclose(self) -> None:
+        """Close the underlying HTTP connection pool."""
+        await self._client.aclose()
 
     @property
     def is_configured(self) -> bool:
@@ -147,31 +171,22 @@ class LastFMAPIClient:
             **(params or {}),
         }
 
-        async with make_lastfm_client() as client:
-            if authenticated:
-                sk = await self._get_session_key()
-                base_params["sk"] = sk
-                # api_sig excludes "format" per Last.fm API spec
-                sig_params = {k: v for k, v in base_params.items() if k != "format"}
-                base_params["api_sig"] = _sign_params(sig_params, self.api_secret or "")
-                try:
-                    response = await client.post("/", data=base_params)
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    log_error_response_body(e, method)
-                    raise
-            else:
-                # Read-only methods: GET with params in query string
-                # Last.fm API documentation specifies GET for all read operations
-                try:
-                    response = await client.get("/", params=base_params)
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    log_error_response_body(e, method)
-                    raise
+        if authenticated:
+            sk = await self._get_session_key()
+            base_params["sk"] = sk
+            # api_sig excludes "format" per Last.fm API spec
+            sig_params = {k: v for k, v in base_params.items() if k != "format"}
+            base_params["api_sig"] = _sign_params(sig_params, self.api_secret or "")
+            response = await self._client.post("/", data=base_params)
+            _ = response.raise_for_status()
+        else:
+            # Read-only methods: GET with params in query string
+            # Last.fm API documentation specifies GET for all read operations
+            response = await self._client.get("/", params=base_params)
+            _ = response.raise_for_status()
 
-            # Last.fm returns errors as HTTP 200 with {"error": N, "message": "..."}
-            data = response.json()
+        # Last.fm returns errors as HTTP 200 with {"error": N, "message": "..."}
+        data = response.json()
 
         if "error" in data:
             raise LastFMAPIError(data["error"], data.get("message", ""))
@@ -227,10 +242,9 @@ class LastFMAPIClient:
             auth_params["api_sig"] = api_sig
             auth_params["format"] = "json"
 
-            async with make_lastfm_client() as client:
-                response = await client.post("/", data=auth_params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self._client.post("/", data=auth_params)
+            _ = response.raise_for_status()
+            data = response.json()
 
             if "error" in data:
                 raise LastFMAPIError(data["error"], data.get("message", ""))
@@ -247,28 +261,18 @@ class LastFMAPIClient:
 
     async def get_track_info_comprehensive(
         self, artist: str, title: str
-    ) -> dict[str, Any] | None:
-        """Get comprehensive track info in a single API call.
-
-        Returns a dict with lastfm_* prefixed keys matching LastFMTrackInfo fields.
-        """
-        try:
-            return await self._get_track_info_comprehensive_with_retries(artist, title)
-        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
-            logger.warning(f"Failed to get comprehensive track info after retries: {e}")
-            return None
-
-    async def _get_track_info_comprehensive_with_retries(
-        self, artist: str, title: str
-    ) -> dict[str, Any] | None:
-        """Get comprehensive track info with retry policy."""
-        return await self._retry_policy(
-            self._get_track_info_comprehensive_impl, artist, title
+    ) -> LastFMTrackInfo | None:
+        """Get comprehensive track info in a single API call."""
+        return await self._api_call(
+            "get_lastfm_track_info_comprehensive",
+            self._get_track_info_comprehensive_impl,
+            artist,
+            title,
         )
 
     async def _get_track_info_comprehensive_impl(
         self, artist: str, title: str
-    ) -> dict[str, Any] | None:
+    ) -> LastFMTrackInfo | None:
         """Pure implementation without retry logic."""
         if not self.is_configured:
             return None
@@ -278,31 +282,21 @@ class LastFMAPIClient:
             params["username"] = self.lastfm_username
 
         data = await self._api_request("track.getInfo", params)
-        return _parse_track_info(data, has_user_data=bool(self.lastfm_username))
+        return _validate_track_info(data, has_user_data=bool(self.lastfm_username))
 
     async def get_track_info_comprehensive_by_mbid(
         self, mbid: str
-    ) -> dict[str, Any] | None:
+    ) -> LastFMTrackInfo | None:
         """Get comprehensive track info by MusicBrainz ID."""
-        try:
-            return await self._get_track_info_comprehensive_by_mbid_with_retries(mbid)
-        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
-            logger.warning(
-                f"Failed to get comprehensive track info by MBID after retries: {e}"
-            )
-            return None
-
-    async def _get_track_info_comprehensive_by_mbid_with_retries(
-        self, mbid: str
-    ) -> dict[str, Any] | None:
-        """Get comprehensive track info by MBID with retry policy."""
-        return await self._retry_policy(
-            self._get_track_info_comprehensive_by_mbid_impl, mbid
+        return await self._api_call(
+            "get_lastfm_track_info_by_mbid",
+            self._get_track_info_comprehensive_by_mbid_impl,
+            mbid,
         )
 
     async def _get_track_info_comprehensive_by_mbid_impl(
         self, mbid: str
-    ) -> dict[str, Any] | None:
+    ) -> LastFMTrackInfo | None:
         """Pure implementation without retry logic."""
         if not self.is_configured or not mbid:
             return None
@@ -312,7 +306,7 @@ class LastFMAPIClient:
             params["username"] = self.lastfm_username
 
         data = await self._api_request("track.getInfo", params)
-        return _parse_track_info(data, has_user_data=bool(self.lastfm_username))
+        return _validate_track_info(data, has_user_data=bool(self.lastfm_username))
 
     # -------------------------------------------------------------------------
     # TRACK LOVE (WRITE)
@@ -327,19 +321,14 @@ class LastFMAPIClient:
             logger.warning("Cannot love track - no username configured")
             return False
 
-        try:
-            return await self._love_track_with_retries(artist, title)
-        except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
-            logger.warning(f"Failed to love track after retries: {e}")
-            return False
-
-    async def _love_track_with_retries(self, artist: str, title: str) -> bool:
-        """Love track with retry policy."""
-        return await self._retry_policy(self._love_track_impl, artist, title)
+        result = await self._api_call(
+            "lastfm_love_track", self._love_track_impl, artist, title
+        )
+        return result if result is not None else False
 
     async def _love_track_impl(self, artist: str, title: str) -> bool:
         """Pure implementation without retry logic."""
-        await self._api_request(
+        _ = await self._api_request(
             "track.love",
             params={"artist": artist, "track": title},
             authenticated=True,
@@ -387,9 +376,10 @@ class LastFMAPIClient:
 
         while page <= total_pages and len(all_tracks) < limit:
             try:
-                tracks, total_pages = await self._get_recent_tracks_with_retries(
-                    user, page, from_time, to_time
-                )
+                with _loguru_logger.contextualize(operation="get_lastfm_recent_tracks"):
+                    tracks, total_pages = await self._retry_policy(
+                        self._get_recent_tracks_impl, user, page, from_time, to_time
+                    )
             except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
                 logger.warning(f"Failed to get recent tracks page {page}: {e}")
                 break
@@ -401,18 +391,6 @@ class LastFMAPIClient:
 
         logger.info(f"Retrieved {len(all_tracks)} recent tracks ({page - 1} pages)")
         return all_tracks[:limit]
-
-    async def _get_recent_tracks_with_retries(
-        self,
-        username: str | None = None,
-        page: int = 1,
-        from_time: datetime | None = None,
-        to_time: datetime | None = None,
-    ) -> tuple[list[LastFMTrackEntry], int]:
-        """Fetch a single page of recent tracks with retry policy."""
-        return await self._retry_policy(
-            self._get_recent_tracks_impl, username, page, from_time, to_time
-        )
 
     async def _get_recent_tracks_impl(
         self,
@@ -446,59 +424,26 @@ class LastFMAPIClient:
         return page_data.playable_tracks, page_data.total_pages
 
 
-def _parse_int(value: str | int | None) -> int | None:
-    """Parse an integer from a Last.fm API response value."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError, TypeError:
-        return None
-
-
-def _parse_track_info(
+def _validate_track_info(
     data: dict[str, Any], has_user_data: bool
-) -> dict[str, Any] | None:
-    """Extract lastfm_* metadata dict from a track.getInfo JSON response.
+) -> LastFMTrackInfo | None:
+    """Validate a track.getInfo JSON response and convert to domain model.
 
-    Output keys match LastFMTrackInfo field names (lastfm_* prefix) for
-    backward compatibility with LastFMTrackInfo.from_comprehensive_data().
+    Uses LastFMTrackInfoData Pydantic model for boundary validation,
+    then constructs the attrs domain model directly.
 
     Args:
         data: Parsed JSON response from track.getInfo
         has_user_data: Whether user-specific fields (playcount, loved) are expected
 
     Returns:
-        Dict with lastfm_* prefixed keys, or None if no track data present
+        LastFMTrackInfo domain model, or None if no track data present
     """
-    track_data = data.get("track", {})
-    if not track_data:
+    track_node = data.get("track")
+    if not track_node:
         return None
 
-    result: dict[str, Any] = {
-        "lastfm_title": track_data.get("name"),
-        "lastfm_mbid": track_data.get("mbid") or None,
-        "lastfm_url": track_data.get("url"),
-        "lastfm_duration": _parse_int(track_data.get("duration")),
-        "lastfm_global_playcount": _parse_int(track_data.get("playcount")),
-        "lastfm_listeners": _parse_int(track_data.get("listeners")),
-    }
-
-    artist_data = track_data.get("artist", {})
-    if isinstance(artist_data, dict):
-        result["lastfm_artist_name"] = artist_data.get("name")
-        result["lastfm_artist_mbid"] = artist_data.get("mbid") or None
-        result["lastfm_artist_url"] = artist_data.get("url")
-
-    album_data = track_data.get("album", {})
-    if isinstance(album_data, dict):
-        # Last.fm uses "title" for album name in track.getInfo
-        result["lastfm_album_name"] = album_data.get("title")
-        result["lastfm_album_mbid"] = album_data.get("mbid") or None
-        result["lastfm_album_url"] = album_data.get("url")
-
-    if has_user_data:
-        result["lastfm_user_playcount"] = _parse_int(track_data.get("userplaycount"))
-        result["lastfm_user_loved"] = track_data.get("userloved") == "1"
-
-    return result
+    validated = LastFMTrackInfoData.model_validate(track_node)
+    return LastFMTrackInfo.from_track_info_response(
+        validated, has_user_data=has_user_data
+    )

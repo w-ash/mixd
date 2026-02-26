@@ -143,7 +143,7 @@ class CreateCanonicalPlaylistUseCase:
                     # Processing service returned a Playlist with entries - use it directly
                     # Ensure all tracks in entries are persisted
                     track_repo = uow.get_track_repository()
-                    persisted_entries = []
+                    persisted_entries: list[PlaylistEntry] = []
 
                     for entry in source_data.entries:
                         # Save track if it doesn't have an ID (not yet persisted)
@@ -187,7 +187,7 @@ class CreateCanonicalPlaylistUseCase:
                 else:
                     # TrackList input - convert to Playlist with uniform added_at
                     track_repo = uow.get_track_repository()
-                    persisted_tracks = []
+                    persisted_tracks: list[Track] = []
 
                     for track in source_data.tracks:
                         # Save track if it doesn't have an ID (not yet persisted)
@@ -198,7 +198,7 @@ class CreateCanonicalPlaylistUseCase:
                             persisted_tracks.append(track)
 
                     # Create playlist using from_tracklist() helper
-                    connector_playlist_identifiers = {}
+                    connector_playlist_identifiers: dict[str, str] = {}
                     if (
                         command.metadata
                         and "connector" in command.metadata
@@ -293,8 +293,8 @@ class CreateCanonicalPlaylistUseCase:
         # Group tracks by connector to batch process metadata
         for connector, available_metrics in get_all_connectors_metrics().items():
             # Find tracks that have metadata for this connector
-            tracks_with_metadata = []
-            fresh_metadata = {}
+            tracks_with_metadata: list[Track] = []
+            fresh_metadata: dict[int, dict[str, Any]] = {}
 
             for track in tracks:
                 if (
@@ -314,7 +314,7 @@ class CreateCanonicalPlaylistUseCase:
                 )
 
                 # Use the metrics service to batch process the fresh metadata
-                await self.metrics_service.batch_process_fresh_metadata(
+                _ = await self.metrics_service.batch_process_fresh_metadata(
                     fresh_metadata=fresh_metadata,
                     connector=connector,
                     available_metrics=available_metrics,

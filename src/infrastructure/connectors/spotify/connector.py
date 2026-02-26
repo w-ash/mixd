@@ -26,6 +26,7 @@ from src.domain.entities import (
     Playlist,
     Track,
 )
+from src.domain.playlist.diff_engine import PlaylistOperation
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
@@ -80,7 +81,7 @@ class SpotifyConnector(BaseAPIConnector):
     @property
     def client(self):
         """Access to underlying Spotify client for compatibility."""
-        return self._client  # type: ignore[return-value]
+        return self._client
 
     def __attrs_post_init__(self) -> None:
         """Initialize modular components."""
@@ -164,9 +165,9 @@ class SpotifyConnector(BaseAPIConnector):
     async def execute_playlist_operations(
         self,
         playlist_id: str,
-        operations: list,
+        operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo=None,
+        track_repo: Any = None,
     ) -> str | None:
         """Execute a list of differential playlist operations."""
         return await self._operations.execute_playlist_operations(
@@ -202,7 +203,7 @@ class SpotifyConnector(BaseAPIConnector):
         return await self._operations.get_playlist_details(playlist_id)
 
     @override
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         """Convert Spotify track data to ConnectorTrack domain model."""
         from .conversions import convert_spotify_track_to_connector
 

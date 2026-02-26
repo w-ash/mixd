@@ -4,9 +4,14 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
 
 from attrs import define
+from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 from src.config import get_logger
 
@@ -31,6 +36,8 @@ class ConfigProviderImpl:
     Provides workflow access to application settings through a clean interface
     that avoids direct coupling to the config module structure.
     """
+
+    _settings: Any
 
     def __init__(self):
         """Initialize the configuration provider."""
@@ -69,6 +76,8 @@ class LoggerProviderImpl:
     Wraps the application logger to provide consistent logging interface
     for tracking workflow progress, errors, and debugging information.
     """
+
+    _logger: Logger
 
     def __init__(self, name: str = __name__):
         """Initialize the logger provider.
@@ -122,6 +131,8 @@ class ConnectorRegistryImpl:
     and MusicBrainz. Automatically discovers available connectors and provides
     factory access to create configured connector instances.
     """
+
+    _connectors: dict[str, Any]
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""
@@ -178,7 +189,9 @@ class SharedSessionProvider:
     that would conflict with SQLite's locking behavior.
     """
 
-    def __init__(self, session):
+    _session: AsyncSession
+
+    def __init__(self, session: AsyncSession) -> None:
         """Initialize with an existing database session.
 
         Args:
@@ -202,7 +215,12 @@ class SharedSessionProvider:
         """
         return self._session
 
-    async def __aexit__(self, exc_type, _exc_val, _exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
         """Exit async context without closing session.
 
         The session is managed by the workflow and should not be closed here.
@@ -217,7 +235,9 @@ class UseCaseProviderImpl:
     metadata, and synchronizing playlists across music services.
     """
 
-    def __init__(self, shared_session=None):
+    _shared_session: AsyncSession | None
+
+    def __init__(self, shared_session: AsyncSession | None = None) -> None:
         """Initialize the use case provider.
 
         Args:
@@ -226,50 +246,25 @@ class UseCaseProviderImpl:
         self._shared_session = shared_session
 
     async def get_create_canonical_playlist_use_case(self):
-        """Create use case for creating master playlist definitions.
-
-        Returns:
-            Use case instance for creating canonical playlists
-        """
         from src.application.use_cases.create_canonical_playlist import (
             CreateCanonicalPlaylistUseCase,
         )
 
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
         return CreateCanonicalPlaylistUseCase()
 
     async def get_create_connector_playlist_use_case(self):
-        """Create use case for creating service-specific playlist instances.
-
-        Returns:
-            Use case instance for creating connector playlists
-        """
         from src.application.use_cases.create_connector_playlist import (
             CreateConnectorPlaylistUseCase,
         )
 
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
         return CreateConnectorPlaylistUseCase()
 
     async def get_enrich_tracks_use_case(self):
-        """Create use case for enriching track metadata from external services.
-
-        Returns:
-            Use case instance for track enrichment
-        """
         from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
 
-        # EnrichTracksUseCase follows UnitOfWork pattern - no constructor dependencies
         return EnrichTracksUseCase()
 
     async def get_match_and_identify_tracks_use_case(self):
-        """Create use case for track matching and identification.
-
-        Returns:
-            Use case instance for track matching and identification
-        """
         from src.application.use_cases.match_and_identify_tracks import (
             MatchAndIdentifyTracksUseCase,
         )
@@ -277,55 +272,27 @@ class UseCaseProviderImpl:
         return MatchAndIdentifyTracksUseCase()
 
     async def get_match_tracks_use_case(self):
-        """Create use case for track matching (legacy method name compatibility).
-
-        Returns the new MatchAndIdentifyTracksUseCase for backward compatibility.
-
-        Returns:
-            Use case instance for track matching and identification
-        """
         return await self.get_match_and_identify_tracks_use_case()
 
     async def get_update_canonical_playlist_use_case(self):
-        """Create use case for updating master playlist definitions.
-
-        Returns:
-            Use case instance for updating canonical playlists
-        """
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistUseCase,
         )
 
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
         return UpdateCanonicalPlaylistUseCase()
 
     async def get_update_connector_playlist_use_case(self):
-        """Create use case for updating service-specific playlist instances.
-
-        Returns:
-            Use case instance for updating connector playlists
-        """
         from src.application.use_cases.update_connector_playlist import (
             UpdateConnectorPlaylistUseCase,
         )
 
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
         return UpdateConnectorPlaylistUseCase()
 
     async def get_read_canonical_playlist_use_case(self):
-        """Create use case for reading master playlist definitions.
-
-        Returns:
-            Use case instance for reading canonical playlists
-        """
         from src.application.use_cases.read_canonical_playlist import (
             ReadCanonicalPlaylistUseCase,
         )
 
-        # Simple instantiation - no dependencies
-        # UnitOfWork will be passed as parameter during execution
         return ReadCanonicalPlaylistUseCase()
 
 
@@ -392,7 +359,9 @@ class ConcreteWorkflowContext:
                 return await use_case.execute(command, uow)
 
 
-def create_workflow_context(shared_session=None) -> WorkflowContext:
+def create_workflow_context(
+    shared_session: AsyncSession | None = None,
+) -> WorkflowContext:
     """Create a complete workflow context with all dependencies configured.
 
     Factory function that instantiates and wires together all the services

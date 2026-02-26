@@ -20,7 +20,7 @@ def complete_workflow_names(incomplete: str) -> list[str]:
         if not definitions_path.exists():
             return []
 
-        workflow_names = []
+        workflow_names: list[str] = []
         for json_file in definitions_path.glob("*.json"):
             try:
                 with json_file.open(encoding="utf-8") as f:

@@ -120,7 +120,7 @@ def find_potential_duplicate_plays(
         List of (play, confidence_score, evidence) tuples for potential
         duplicates, sorted by confidence (highest first).
     """
-    duplicates = []
+    duplicates: list[tuple[TrackPlay, int, ConfidenceEvidence]] = []
 
     for candidate in candidate_plays:
         # Skip same service comparisons (handled by database deduplication)

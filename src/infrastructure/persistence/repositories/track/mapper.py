@@ -1,7 +1,7 @@
 """Track mappers for converting between domain and database models."""
 
 from collections.abc import Awaitable, Callable
-from typing import Any, override
+from typing import Any, cast, override
 
 from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +43,7 @@ def _make_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
 
         try:
             # Step 1: Demote all mappings for this track+connector to non-primary
-            await session.execute(
+            _ = await session.execute(
                 update(DBTrackMapping)
                 .where(
                     DBTrackMapping.track_id == track_id,
@@ -64,7 +64,7 @@ def _make_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
         except Exception as e:
             logger.error(
                 f"Promote primary mapping failed: track_id={track_id}, "
-                f"connector={connector_name}, connector_track_db_id={connector_track_db_id}: {e}"
+                + f"connector={connector_name}, connector_track_db_id={connector_track_db_id}: {e}"
             )
             return False
         else:
@@ -85,10 +85,14 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     async def to_domain_with_session(
-        db_model: DBTrack, session: AsyncSession | None = None
-    ) -> Track:
+        db_model: DBTrack | None, session: AsyncSession | None = None
+    ) -> Track | None:
         """Convert database track to domain model with session for auto-healing."""
-        promote_primary_fn = _make_promote_primary_fn(session) if session is not None else None
+        if not db_model:
+            return None
+        promote_primary_fn = (
+            _make_promote_primary_fn(session) if session is not None else None
+        )
         return await TrackMapper._to_domain_with_session(
             db_model, promote_primary_fn=promote_primary_fn
         )
@@ -110,9 +114,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 When provided and a connector has no primary mapping, the mapper
                 delegates the write to the caller via this callback.
         """
-        if not db_model:
-            return None
-
         # Use only eager-loaded relationships to avoid greenlet issues
         # Check if relationships are loaded to prevent lazy loading that causes MissingGreenlet
         from sqlalchemy import inspect
@@ -121,22 +122,22 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         state = inspect(db_model)
 
         # Safely access mappings - only if already loaded
-        active_mappings = []
+        active_mappings: list[DBTrackMapping] = []
         mappings_attr = state.attrs.get("mappings")
         if mappings_attr and mappings_attr.loaded_value is not NEVER_SET:
-            mappings = mappings_attr.loaded_value or []
+            mappings: list[DBTrackMapping] = mappings_attr.loaded_value or []
             active_mappings = mappings
 
         # Safely access likes - only if already loaded
-        active_likes = []
+        active_likes: list[Any] = []
         likes_attr = state.attrs.get("likes")
         if likes_attr and likes_attr.loaded_value is not NEVER_SET:
-            likes = likes_attr.loaded_value or []
+            likes: list[Any] = likes_attr.loaded_value or []
             active_likes = likes
 
         # Build connector IDs and metadata
-        connector_track_identifiers = {}
-        connector_metadata = {}
+        connector_track_identifiers: dict[str, str] = {}
+        connector_metadata: dict[str, Any] = {}
 
         # Add internal ID first
         if db_model.id:
@@ -165,7 +166,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         # Second pass: fill in any missing connectors with non-primary mappings (fallback)
         # Also auto-heal by promoting the best non-primary to primary
-        connectors_needing_primary = set()
+        connectors_needing_primary: set[str] = set()
         fallback_mappings: dict[str, DBTrackMapping] = {}
 
         for mapping in active_mappings:
@@ -190,15 +191,19 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                         fallback_mappings[connector_name] = mapping
 
         # Promote fallback mappings to primary via caller-provided callback
-        if connectors_needing_primary and hasattr(db_model, "id") and promote_primary_fn:
+        if (
+            connectors_needing_primary
+            and hasattr(db_model, "id")
+            and promote_primary_fn
+        ):
             await TrackMapper._promote_fallback_to_primary(
                 db_model.id, fallback_mappings, promote_primary_fn
             )
         elif connectors_needing_primary:
             logger.warning(
                 f"Track {db_model.id} has no primary connector mapping(s): "
-                f"connectors={list(connectors_needing_primary)} — "
-                f"pass a session to to_domain_with_session() to enable auto-promotion"
+                + f"connectors={list(connectors_needing_primary)} — "
+                + "pass a session to to_domain_with_session() to enable auto-promotion"
             )
 
         # Process likes into connector metadata
@@ -250,25 +255,27 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             for connector_name, mapping in fallback_mappings.items():
                 conn_track = await TrackMapper._get_connector_track(mapping)
                 if conn_track and conn_track.id:
-                    success = await promote_primary_fn(track_id, connector_name, conn_track.id)
+                    success = await promote_primary_fn(
+                        track_id, connector_name, conn_track.id
+                    )
                     if success:
                         promoted_count += 1
                         logger.info(
                             f"Promoted connector mapping to primary: track_id={track_id}, "
-                            f"connector={connector_name}, "
-                            f"connector_track_db_id={conn_track.id}, "
-                            f"external_id={conn_track.connector_track_identifier}"
+                            + f"connector={connector_name}, "
+                            + f"connector_track_db_id={conn_track.id}, "
+                            + f"external_id={conn_track.connector_track_identifier}"
                         )
                     else:
                         logger.warning(
                             f"Failed to promote connector mapping to primary: track_id={track_id}, "
-                            f"connector={connector_name}, "
-                            f"connector_track_db_id={conn_track.id}"
+                            + f"connector={connector_name}, "
+                            + f"connector_track_db_id={conn_track.id}"
                         )
                 else:
                     logger.warning(
                         f"Cannot promote — connector track unavailable: track_id={track_id}, "
-                        f"connector={connector_name}"
+                        + f"connector={connector_name}"
                     )
 
             if promoted_count > 0:
@@ -277,7 +284,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 )
 
         except Exception as e:
-            logger.error(f"Connector mapping promotion failed for track {track_id}: {e}")
+            logger.error(
+                f"Connector mapping promotion failed for track {track_id}: {e}"
+            )
             # Don't re-raise — promotion is best-effort and shouldn't interrupt the read path
 
     @staticmethod
@@ -316,24 +325,29 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         )
 
     @staticmethod
-    def extract_artist_names(artists_data: list) -> list[str]:
+    def extract_artist_names(artists_data: list[Any]) -> list[str]:
         """Extract artist names from mixed format artist data."""
-        if not artists_data or not isinstance(artists_data, list):
+        if not artists_data:
             return []
 
         if all(isinstance(a, str) for a in artists_data):
-            return artists_data
+            return [a for a in artists_data if isinstance(a, str)]
         elif all(isinstance(a, dict) for a in artists_data):
-            return [a.get("name", "") for a in artists_data if a.get("name")]
+            typed_dicts: list[dict[str, Any]] = [
+                a for a in artists_data if isinstance(a, dict)
+            ]
+            return [a.get("name", "") for a in typed_dicts if a.get("name")]
 
         # Mixed format - extract what we can
-        names = []
+        names: list[str] = []
         for artist in artists_data:
-            match artist:
-                case str() as name if name:
-                    names.append(name)
-                case dict() as d if d.get("name"):
-                    names.append(d.get("name"))
+            if isinstance(artist, str) and artist:
+                names.append(artist)
+            elif isinstance(artist, dict):
+                typed_artist = cast(dict[str, Any], artist)
+                name_val = typed_artist.get("name")
+                if isinstance(name_val, str) and name_val:
+                    names.append(name_val)
 
         return names
 

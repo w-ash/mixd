@@ -70,7 +70,7 @@ class ConnectorPlaylistSyncService:
         # Step 2: Store/update the connector playlist in database
         # This ensures positions are properly calculated and stored
         connector_playlist_repo = uow.get_connector_playlist_repository()
-        await connector_playlist_repo.upsert_model(connector_playlist)
+        _ = await connector_playlist_repo.upsert_model(connector_playlist)
 
         # Step 3: Retrieve the stored connector playlist from database
         # This ensures we use the database-persisted version as the single source of truth

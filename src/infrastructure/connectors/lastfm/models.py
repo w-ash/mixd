@@ -12,6 +12,8 @@ Key design decisions:
 - is_now_playing: dual check — @attr.nowplaying flag OR absent date field
 """
 
+from typing import Any, ClassVar
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
@@ -29,13 +31,30 @@ class LastFMAPIError(Exception):
         message: Human-readable error description
     """
 
+    status: str
+    details: str
+
     def __init__(self, code: int | str, message: str) -> None:
         self.status = str(code)  # Match pylast.WSError.status interface
         self.details = message
         super().__init__(f"Last.fm error {code}: {message}")
 
 
-class LastFMArtist(BaseModel):
+class LastFMBaseModel(BaseModel):
+    """Base model for Last.fm API responses using extra='ignore' only."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+
+class LastFMNamedModel(BaseModel):
+    """Base model for Last.fm models that use field aliases (populate_by_name=True)."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="ignore", populate_by_name=True
+    )
+
+
+class LastFMArtist(LastFMNamedModel):
     """Artist object as returned by user.getRecentTracks.
 
     Schema differs between extended=1 and non-extended requests:
@@ -45,17 +64,13 @@ class LastFMArtist(BaseModel):
     AliasChoices tries "name" first, then "#text", so both schemas populate .name.
     """
 
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
     name: str = Field(default="", validation_alias=AliasChoices("name", "#text"))
     url: str | None = Field(default=None)
     mbid: str | None = Field(default=None)  # absent with extended=1
 
 
-class LastFMAlbum(BaseModel):
+class LastFMAlbum(LastFMBaseModel):
     """Album object. getRecentTracks uses '#text'; track.getInfo uses 'title'."""
-
-    model_config = ConfigDict(extra="ignore")
 
     name: str | None = Field(
         default=None, validation_alias=AliasChoices("title", "#text")
@@ -64,26 +79,20 @@ class LastFMAlbum(BaseModel):
     url: str | None = Field(default=None)
 
 
-class LastFMDate(BaseModel):
+class LastFMDate(LastFMBaseModel):
     """Timestamp present on completed scrobbles; absent on now-playing entries."""
-
-    model_config = ConfigDict(extra="ignore")
 
     uts: str  # UNIX timestamp as string — connector converts to datetime
 
 
-class LastFMNowPlayingAttr(BaseModel):
+class LastFMNowPlayingAttr(LastFMBaseModel):
     """@attr object on individual track items (signals now-playing status)."""
-
-    model_config = ConfigDict(extra="ignore")
 
     nowplaying: str = Field(default="false")
 
 
-class LastFMAttr(BaseModel):
+class LastFMAttr(LastFMBaseModel):
     """Pagination metadata from the @attr node on user.getRecentTracks responses."""
-
-    model_config = ConfigDict(extra="ignore")
 
     total_pages: int = Field(default=1, validation_alias="totalPages")
     page: int = Field(default=1)
@@ -96,10 +105,8 @@ class LastFMAttr(BaseModel):
         return max(0, int(v))
 
 
-class LastFMTrackEntry(BaseModel):
+class LastFMTrackEntry(LastFMNamedModel):
     """Single scrobble entry from user.getRecentTracks."""
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     name: str = Field(default="")
     mbid: str | None = Field(default=None)
@@ -128,17 +135,15 @@ class LastFMTrackEntry(BaseModel):
         ) or self.date is None
 
 
-class LastFMRecentTracksPage(BaseModel):
+class LastFMRecentTracksPage(LastFMNamedModel):
     """Validated shape of the recenttracks node from user.getRecentTracks."""
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     tracks: list[LastFMTrackEntry] = Field(default=[], alias="track")
     attr: LastFMAttr = Field(default_factory=LastFMAttr, validation_alias="@attr")
 
     @field_validator("tracks", mode="before")
     @classmethod
-    def coerce_single_to_list(cls, v: list | dict | None) -> list:
+    def coerce_single_to_list(cls, v: list[Any] | dict[str, Any] | None) -> list[Any]:
         """Last.fm returns a bare dict (not a list) when there is exactly 1 track."""
         if isinstance(v, dict):
             return [v]
@@ -152,3 +157,42 @@ class LastFMRecentTracksPage(BaseModel):
     @property
     def total_pages(self) -> int:
         return max(1, self.attr.total_pages)
+
+
+class LastFMTrackInfoData(LastFMBaseModel):
+    """Track node from a track.getInfo JSON response.
+
+    Last.fm returns ints as strings and empty MBIDs as "" — validators coerce
+    these at the boundary so downstream code sees clean Python types.
+    """
+
+    name: str = Field(default="")
+    mbid: str | None = Field(default=None)
+    url: str | None = Field(default=None)
+    duration: int | None = Field(default=None)
+    playcount: int | None = Field(default=None)
+    listeners: int | None = Field(default=None)
+    artist: LastFMArtist = Field(default_factory=LastFMArtist)
+    album: LastFMAlbum | None = Field(default=None)
+    # User-specific fields — only present when username param is supplied
+    userplaycount: int | None = Field(default=None)
+    userloved: str = Field(default="0")
+
+    @field_validator(
+        "duration", "playcount", "listeners", "userplaycount", mode="before"
+    )
+    @classmethod
+    def coerce_str_to_int(cls, v: str | int | None) -> int | None:
+        """Last.fm returns numeric fields as JSON strings."""
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except ValueError, TypeError:
+            return None
+
+    @field_validator("mbid", mode="before")
+    @classmethod
+    def empty_mbid_to_none(cls, v: str | None) -> str | None:
+        """Last.fm sends "" for missing MBIDs."""
+        return v or None

@@ -119,14 +119,13 @@ class DeleteCanonicalPlaylistUseCase:
                 playlist = await self._get_playlist(command.playlist_id, uow)
 
                 # Step 2: Check for external connections and warn if needed
-                warnings = []
+                warnings: list[str] = []
                 if playlist.connector_playlist_identifiers and not command.force_delete:
                     connected_services = list(
                         playlist.connector_playlist_identifiers.keys()
                     )
                     warnings.append(
-                        f"Playlist is connected to external services: {connected_services}. "
-                        "Use force_delete=True to delete anyway."
+                        f"Playlist is connected to external services: {connected_services}. Use force_delete=True to delete anyway."
                     )
 
                     # For now, we'll proceed but log the warning

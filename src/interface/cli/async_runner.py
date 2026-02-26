@@ -5,7 +5,9 @@ use cases. FastAPI's web interface won't need this — it's natively async.
 """
 
 import asyncio
+from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from src.config import get_logger, settings
 
@@ -25,7 +27,7 @@ def create_executor_for_connectors() -> ThreadPoolExecutor:
     )
 
 
-def run_async(coro):
+def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run coroutine with custom high-concurrency executor.
 
     Uses ``asyncio.run()`` (Python 3.14+ pattern) with a pre-configured

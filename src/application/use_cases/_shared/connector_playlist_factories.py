@@ -71,7 +71,7 @@ def create_connector_playlist_items_from_tracks(
     Returns:
         List of created ConnectorPlaylistItems (may be shorter than input)
     """
-    items = []
+    items: list[ConnectorPlaylistItem] = []
     timestamp = added_at or datetime.now(UTC)
 
     for position, track in enumerate(tracks):

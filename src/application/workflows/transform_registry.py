@@ -16,6 +16,9 @@ Each strategy focuses on a single responsibility and adheres to a consistent
 interface, making the system extensible through new strategy implementations.
 """
 
+from collections.abc import Callable
+from typing import Any, cast
+
 from src.application.transforms import (
     filter_by_metric_range,
     filter_by_play_history,
@@ -23,6 +26,7 @@ from src.application.transforms import (
     sort_by_play_history,
     weighted_shuffle,
 )
+from src.domain.entities.track import Track, TrackList
 from src.domain.transforms import (
     concatenate,
     exclude_artists,
@@ -33,6 +37,13 @@ from src.domain.transforms import (
     select_by_method,
     sort_by_key_function,
 )
+from src.domain.transforms.core import Transform
+
+from .node_context import NodeContext
+
+# Transform factory: takes (context, config) and returns a transform.
+# Return type is Any because toolz @curry returns untyped objects; cast() at call site.
+type TransformFactory = Callable[[NodeContext, dict[str, Any]], Any]
 
 # === METRIC CLASSIFICATION SYSTEM ===
 
@@ -77,7 +88,12 @@ def _get_metric_category(metric_name: str) -> str:
 # === TRACK ATTRIBUTE RESOLUTION ===
 
 
-def _resolve_sort_key_function(value_name: str):
+def _track_release_date(track: Track) -> Any:
+    """Key function for sorting tracks by release date."""
+    return track.release_date
+
+
+def _resolve_sort_key_function(value_name: str) -> Callable[[Track], Any] | None:
     """Resolve value name to appropriate key function for track attributes.
 
     Args:
@@ -87,7 +103,7 @@ def _resolve_sort_key_function(value_name: str):
         Key function for extracting the attribute from Track entities
     """
     # Track attributes - extract directly from Track entity
-    track_attribute_extractors = {
+    track_attribute_extractors: dict[str, Callable[[Track], Any]] = {
         "title": lambda track: track.title,
         "album": lambda track: track.album or "",
         "release_date": lambda track: track.release_date,
@@ -98,7 +114,7 @@ def _resolve_sort_key_function(value_name: str):
     return track_attribute_extractors.get(value_name)
 
 
-def _route_metric_sorting(cfg: dict):
+def _route_metric_sorting(cfg: dict[str, Any]) -> Transform | TrackList:
     """Route metric sorting to appropriate domain function based on data source.
 
     Clean separation of concerns: application layer makes routing decisions,
@@ -124,30 +140,37 @@ def _route_metric_sorting(cfg: dict):
 
     elif category == "external_metric":
         # Route to external metrics sorting (expects metrics in metadata)
-        return sort_by_external_metrics(
-            metric_name=metric_name,
-            reverse=reverse,
+        # cast: @curry returns curry type; at runtime this is a Transform
+        return cast(
+            Transform | TrackList,
+            sort_by_external_metrics(
+                metric_name=metric_name,
+                reverse=reverse,
+            ),
         )
 
     elif category == "play_history":
         # Route to specialized play history sorting
-        return sort_by_play_history(
-            reverse=reverse,
-            # Note: Play history sorting has its own time window parameters
+        # cast: @curry returns curry type; at runtime this is a Transform
+        return cast(
+            Transform | TrackList,
+            sort_by_play_history(
+                reverse=reverse,
+                # Note: Play history sorting has its own time window parameters
+            ),
         )
 
     else:
         # No fallbacks! Force proper classification of all metrics
         raise ValueError(
-            f"Unknown metric '{metric_name}' - must be classified in TRACK_ATTRIBUTES, "
-            f"EXTERNAL_METRICS, or PLAY_HISTORY_METRICS"
+            f"Unknown metric '{metric_name}' - must be classified in TRACK_ATTRIBUTES, EXTERNAL_METRICS, or PLAY_HISTORY_METRICS"
         )
 
 
 # === TRANSFORM STRATEGIES ===
 
 
-TRANSFORM_REGISTRY = {
+TRANSFORM_REGISTRY: dict[str, dict[str, TransformFactory]] = {
     "filter": {
         "deduplicate": lambda _ctx, _cfg: filter_duplicates(),
         "by_release_date": lambda _ctx, cfg: filter_by_date_range(
@@ -182,7 +205,7 @@ TRANSFORM_REGISTRY = {
         "by_metric": lambda _ctx, cfg: _route_metric_sorting(cfg),
         "by_release_date": lambda _ctx, cfg: sort_by_key_function(
             # Sort tracks by release date using clean architecture
-            key_fn=lambda track: track.release_date,
+            key_fn=_track_release_date,
             metric_name="release_date",
             reverse=cfg.get("reverse", False),  # Default to oldest first
         ),

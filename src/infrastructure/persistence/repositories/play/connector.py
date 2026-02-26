@@ -6,6 +6,7 @@ from typing import Any, cast
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, ensure_utc
@@ -27,6 +28,9 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     Handles raw play data from external music services before resolution to canonical tracks.
     Uses proper domain entities with mapping to database models.
     """
+
+    session: AsyncSession
+    model_class: type[DBConnectorPlay]
 
     def __init__(self, session: AsyncSession) -> None:  # pyright: ignore[reportMissingSuperCall]
         """Initialize repository with session.
@@ -62,7 +66,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         if duplicate_count > 0:
             logger.info(
                 f"Filtered out {duplicate_count} duplicate connector plays "
-                f"(inserting {len(new_plays)} new plays)"
+                + f"(inserting {len(new_plays)} new plays)"
             )
 
         if not new_plays:
@@ -70,7 +74,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
             return (0, duplicate_count)
 
         # Prepare data for bulk insert by converting domain objects to db format
-        play_data = []
+        play_data: list[dict[str, Any]] = []
         for play in new_plays:
             # Ensure datetime fields are timezone-aware using utility function
             played_at = ensure_utc(play.played_at)
@@ -151,7 +155,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         db_plays = result.scalars().all()
 
         # Convert to ConnectorTrackPlay domain objects
-        connector_plays = []
+        connector_plays: list[ConnectorTrackPlay] = []
         for db_play in db_plays:
             # Extract fields from raw_metadata
             raw_metadata = db_play.raw_metadata or {}
@@ -233,7 +237,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
 
     async def _find_existing_connector_plays(
         self, plays: list[ConnectorTrackPlay]
-    ) -> set[tuple]:
+    ) -> set[tuple[Any, ...]]:
         """Find existing connector plays that match the lookup keys.
 
         Uses batched queries to avoid SQLite expression tree limit.
@@ -241,14 +245,14 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         if not plays:
             return set()
 
-        existing_keys = set()
+        existing_keys: set[tuple[Any, ...]] = set()
 
         # Batch plays to avoid SQLite expression tree limit
         batch_size = 200
 
         for batch in _chunked(plays, batch_size):
             # Build conditions for this batch
-            conditions = []
+            conditions: list[ColumnElement[bool]] = []
             for play in batch:
                 condition = (
                     (self.model_class.connector_name == play.connector_name)
@@ -262,12 +266,9 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
                 conditions.append(condition)
 
             # Combine batch conditions with OR
-            if len(conditions) == 1:
-                combined_condition = conditions[0]
-            else:
-                combined_condition = conditions[0]
-                for condition in conditions[1:]:
-                    combined_condition |= condition
+            combined_condition: ColumnElement[bool] = conditions[0]
+            for condition in conditions[1:]:
+                combined_condition |= condition
 
             # Query for existing plays in this batch
             query = select(self.model_class).where(combined_condition)
@@ -289,10 +290,10 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         return existing_keys
 
     def _filter_duplicates(
-        self, plays: list[ConnectorTrackPlay], existing_keys: set[tuple]
+        self, plays: list[ConnectorTrackPlay], existing_keys: set[tuple[Any, ...]]
     ) -> list[ConnectorTrackPlay]:
         """Filter out plays that already exist in the database."""
-        new_plays = []
+        new_plays: list[ConnectorTrackPlay] = []
 
         for play in plays:
             # Normalize timezone for consistent comparison using utility function

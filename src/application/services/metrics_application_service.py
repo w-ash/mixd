@@ -21,6 +21,8 @@ from src.infrastructure.connectors._shared.metrics import (
 )
 from src.infrastructure.connectors.protocols import TrackMetadataConnector
 
+type _MetricsTuple = tuple[int, str, str, float | int | bool]
+
 logger = get_logger(__name__)
 
 
@@ -135,7 +137,7 @@ class MetricsApplicationService:
                 metadata.update(fresh_metadata)
 
             # Step 5: Extract and convert metric values (preserve data types)
-            metrics_to_save = []
+            metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
             for track_id, value in metadata.items():
                 if value is not None and not isinstance(value, dict):
                     try:
@@ -218,7 +220,7 @@ class MetricsApplicationService:
         if unsupported_metrics:
             logger.warning(
                 f"Connector {connector} does not support metrics: {unsupported_metrics}. "
-                f"Available metrics: {available_metrics}"
+                + f"Available metrics: {available_metrics}"
             )
             # Filter to only supported metrics
             metric_names = [m for m in metric_names if m in available_metrics]
@@ -228,7 +230,7 @@ class MetricsApplicationService:
             return {}, {}
 
         # Build field map from registered metric configurations
-        field_map = {}
+        field_map: dict[str, str] = {}
         for metric_name in metric_names:
             field_name = get_field_name(metric_name)
             if field_name:
@@ -243,12 +245,12 @@ class MetricsApplicationService:
         # PRE-FETCH STRATEGY: SQLite-safe concurrent processing
         import asyncio
 
-        result = {}
+        result: dict[str, dict[int, Any]] = {}
         fresh_ids_per_metric: dict[str, set[int]] = {}
 
         # Phase 1: Single database transaction to identify missing data
-        missing_tracks_per_metric = {}
-        cached_values_per_metric = {}
+        missing_tracks_per_metric: dict[str, list[int]] = {}
+        cached_values_per_metric: dict[str, dict[int, Any]] = {}
 
         async with uow:
             for metric_name in field_map:
@@ -320,12 +322,12 @@ class MetricsApplicationService:
             if metrics_to_resolve:
                 async with asyncio.TaskGroup() as tg:
                     for metric_name, field_value in metrics_to_resolve:
-                        tg.create_task(
+                        _ = tg.create_task(
                             resolve_single_metric_no_db(metric_name, field_value)
                         )
 
                 # Collect fresh data for bulk save
-                all_metrics_to_save = []
+                all_metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
                 for metric_name, fresh_values in metric_results:
                     for track_id, value in fresh_values.items():
                         if value is not None:
@@ -379,8 +381,8 @@ class MetricsApplicationService:
 
         logger.info(
             f"Successfully retrieved {len(result)} metric types with "
-            f"{sum(len(values) for values in result.values())} total values "
-            f"({sum(len(ids) for ids in fresh_ids_per_metric.values())} freshly fetched)"
+            + f"{sum(len(values) for values in result.values())} total values "
+            + f"({sum(len(ids) for ids in fresh_ids_per_metric.values())} freshly fetched)"
         )
 
         return result, fresh_ids_per_metric
@@ -418,7 +420,7 @@ class MetricsApplicationService:
             track_count=len(fresh_metadata),
         )
 
-        all_metrics_batch = []
+        all_metrics_batch: list[tuple[int, str, str, float]] = []
 
         # Extract all metrics for all tracks
         for track_id, track_metadata in fresh_metadata.items():
@@ -449,7 +451,7 @@ class MetricsApplicationService:
 
             # Create enhanced database batch processor with progress tracking
             batch_processor = EnhancedDatabaseBatchProcessor[
-                list, int
+                _MetricsTuple, int
             ](
                 batch_size=10,  # Small batch size to prevent SQLite locks
                 retry_count=3,  # Simple retry for database deadlock scenarios
@@ -457,7 +459,7 @@ class MetricsApplicationService:
                 logger_instance=logger,
             )
 
-            async def save_metrics_batch(metrics_batch: list) -> int:
+            async def save_metrics_batch(metrics_batch: list[_MetricsTuple]) -> int:
                 """Save a batch of metrics to the database."""
                 return await metrics_repo.save_track_metrics(metrics_batch)
 
@@ -521,8 +523,8 @@ class MetricsApplicationService:
             return {}
 
         # Step 2: Extract external IDs and create reverse mapping
-        external_ids = []
-        external_id_to_track_id = {}
+        external_ids: list[str] = []
+        external_id_to_track_id: dict[str, int] = {}
 
         for track_id, connector_mappings in mappings.items():
             external_id = connector_mappings.get(connector)
@@ -559,7 +561,7 @@ class MetricsApplicationService:
             return {}
 
         # Step 5: Extract field values from metadata (already keyed by track.id)
-        field_values = {}
+        field_values: dict[int, Any] = {}
         for track_id, metadata in fresh_metadata.items():
             if metadata:
                 field_value = metadata.get(field_name)
@@ -633,7 +635,7 @@ class MetricsApplicationService:
             return {}
 
         # Extract field values from metadata
-        field_values = {}
+        field_values: dict[int, Any] = {}
         for track_id, metadata in fresh_metadata.items():
             if metadata:
                 field_value = metadata.get(field_name)

@@ -77,7 +77,7 @@ class LikeManager:
         like_repo = uow.get_like_repository()
 
         for service in services:
-            await like_repo.save_track_like(
+            _ = await like_repo.save_track_like(
                 track_id=track_id,
                 service=service,
                 is_liked=is_liked,
@@ -179,7 +179,7 @@ class ImportSpotifyLikesUseCase:
                 break
 
             batch_time = datetime.now(UTC)
-            successful_ids = []
+            successful_ids: list[int] = []
             new_in_batch = 0
 
             for connector_track in tracks:
@@ -228,7 +228,7 @@ class ImportSpotifyLikesUseCase:
 
             # Update checkpoint periodically
             if batches % 10 == 0 or not cursor:
-                await CheckpointManager.update(checkpoint, uow, batch_time, cursor)
+                _ = await CheckpointManager.update(checkpoint, uow, batch_time, cursor)
 
             if not cursor:
                 logger.info("Completed import of all Spotify likes")
@@ -309,7 +309,7 @@ class ExportLastFmLikesUseCase:
 
         logger.info(
             f"Export: {total_narada} total, {already_loved} already loved "
-            f"({already_loved / total_narada * 100:.1f}%), {len(unsynced)} candidates"
+            + f"({already_loved / total_narada * 100:.1f}%), {len(unsynced)} candidates"
         )
 
         exported = 0
@@ -326,7 +326,7 @@ class ExportLastFmLikesUseCase:
             batch_time = datetime.now(UTC)
 
             # Load tracks for batch
-            tracks_to_export = []
+            tracks_to_export: list[Track] = []
             for like in batch:
                 if command.max_exports and exported >= command.max_exports:
                     break
@@ -356,7 +356,7 @@ class ExportLastFmLikesUseCase:
                     case _:
                         errors += 1
 
-            await CheckpointManager.update(checkpoint, uow, batch_time)
+            _ = await CheckpointManager.update(checkpoint, uow, batch_time)
 
         logger.info(
             f"Export complete: {exported} exported, {filtered} skipped, {errors} errors"

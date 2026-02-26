@@ -121,7 +121,7 @@ class TrackMatchEvaluationService:
         Returns:
             Dictionary mapping track IDs to evaluated match results (accepted matches only)
         """
-        results = {}
+        results: MatchResultsById = {}
 
         for track in tracks:
             if track.id is None or track.id not in raw_matches:
@@ -157,7 +157,7 @@ class TrackMatchEvaluationService:
 
                 logger.warning(
                     f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
-                    f"(confidence {match_result.confidence} < {threshold})",
+                    + f"(confidence {match_result.confidence} < {threshold})",
                     track_id=track.id,
                     confidence=match_result.confidence,
                     threshold=threshold,

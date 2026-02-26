@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.entities import Artist, Track
+from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
 
@@ -69,13 +70,13 @@ async def test_mbid_lookup_succeeds_no_fallback_needed(lastfm_operations, sample
     )
 
     # Mock successful MBID lookup at client level
-    mock_track_data = {
-        "lastfm_title": "Test Song",
-        "lastfm_artist_name": "Test Artist",
-        "lastfm_url": "https://last.fm/music/test",
-    }
+    mock_info = LastFMTrackInfo(
+        lastfm_title="Test Song",
+        lastfm_artist_name="Test Artist",
+        lastfm_url="https://last.fm/music/test",
+    )
     lastfm_operations.client.get_track_info_comprehensive_by_mbid = AsyncMock(
-        return_value=mock_track_data
+        return_value=mock_info
     )
 
     # Execute
@@ -113,13 +114,13 @@ async def test_mbid_fails_fallback_to_artist_title_succeeds(
     )
 
     # Mock successful artist/title lookup
-    mock_track_data = {
-        "lastfm_title": "Test Song",
-        "lastfm_artist_name": "Test Artist",
-        "lastfm_url": "https://last.fm/music/test",
-    }
+    mock_info = LastFMTrackInfo(
+        lastfm_title="Test Song",
+        lastfm_artist_name="Test Artist",
+        lastfm_url="https://last.fm/music/test",
+    )
     lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
-        return_value=mock_track_data
+        return_value=mock_info
     )
 
     # Execute
@@ -146,13 +147,13 @@ async def test_no_mbid_goes_straight_to_artist_title(lastfm_operations, sample_t
     # Setup: Track has no MBID (sample_track already has empty connector_metadata)
 
     # Mock successful artist/title lookup
-    mock_track_data = {
-        "lastfm_title": "Test Song",
-        "lastfm_artist_name": "Test Artist",
-        "lastfm_url": "https://last.fm/music/test",
-    }
+    mock_info = LastFMTrackInfo(
+        lastfm_title="Test Song",
+        lastfm_artist_name="Test Artist",
+        lastfm_url="https://last.fm/music/test",
+    )
     lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
-        return_value=mock_track_data
+        return_value=mock_info
     )
 
     # Execute
@@ -217,12 +218,12 @@ async def test_multi_artist_first_artist_succeeds(
     Assert: Only called once with first artist
     """
     # Mock first artist succeeds
-    mock_track_data = {
-        "lastfm_title": "Collaboration",
-        "lastfm_artist_name": "Artist One",
-        "lastfm_url": "https://last.fm/music/test",
-    }
-    mock_get_track_info = AsyncMock(return_value=mock_track_data)
+    mock_info = LastFMTrackInfo(
+        lastfm_title="Collaboration",
+        lastfm_artist_name="Artist One",
+        lastfm_url="https://last.fm/music/test",
+    )
+    mock_get_track_info = AsyncMock(return_value=mock_info)
     lastfm_operations.client.get_track_info_comprehensive = mock_get_track_info
 
     # Execute
@@ -259,11 +260,11 @@ async def test_multi_artist_second_artist_succeeds(
             # First artist fails
             return None
         # Second artist succeeds
-        return {
-            "lastfm_title": "Collaboration",
-            "lastfm_artist_name": artist,
-            "lastfm_url": "https://last.fm/music/test",
-        }
+        return LastFMTrackInfo(
+            lastfm_title="Collaboration",
+            lastfm_artist_name=artist,
+            lastfm_url="https://last.fm/music/test",
+        )
 
     mock_get_track_info = AsyncMock(side_effect=mock_get_track_info_func)
     lastfm_operations.client.get_track_info_comprehensive = mock_get_track_info
@@ -361,13 +362,13 @@ async def test_connection_error_falls_back_to_artist_title(
     )
 
     # Mock artist/title fallback succeeds
-    mock_track_data = {
-        "lastfm_title": "Test Song",
-        "lastfm_artist_name": "Test Artist",
-        "lastfm_url": "https://last.fm/music/test",
-    }
+    mock_info = LastFMTrackInfo(
+        lastfm_title="Test Song",
+        lastfm_artist_name="Test Artist",
+        lastfm_url="https://last.fm/music/test",
+    )
     lastfm_operations.client.get_track_info_comprehensive = AsyncMock(
-        return_value=mock_track_data
+        return_value=mock_info
     )
 
     # Execute - should fall back to artist/title
@@ -424,11 +425,11 @@ async def test_not_found_error_tries_next_artist(lastfm_operations, multi_artist
             # First artist not found
             return None
         # Second artist succeeds
-        return {
-            "lastfm_title": "Collaboration",
-            "lastfm_artist_name": artist,
-            "lastfm_url": "https://last.fm/music/test",
-        }
+        return LastFMTrackInfo(
+            lastfm_title="Collaboration",
+            lastfm_artist_name=artist,
+            lastfm_url="https://last.fm/music/test",
+        )
 
     mock_get_track_info = AsyncMock(side_effect=mock_get_track_info_func)
     lastfm_operations.client.get_track_info_comprehensive = mock_get_track_info

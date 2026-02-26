@@ -12,7 +12,7 @@ import random
 
 from toolz import curry
 
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
@@ -99,7 +99,7 @@ def weighted_shuffle(
 
         # Create weighted blend by selecting from original vs random based on strength
         # Use per-position random choice weighted by shuffle_strength
-        blended_tracks = []
+        blended_tracks: list[Track] = []
         for i in range(track_count):
             # At each position, choose between original order track and random order track
             if random.random() < shuffle_strength:  # noqa: S311 # playlist shuffling, not crypto

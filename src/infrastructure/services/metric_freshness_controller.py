@@ -19,6 +19,8 @@ class MetricFreshnessController:
     which tracks need updated play counts, popularity scores, or other metrics.
     """
 
+    connector_repo: ConnectorRepositoryProtocol
+
     def __init__(self, connector_repo: ConnectorRepositoryProtocol) -> None:
         """Initialize with repository for accessing metadata timestamps.
 
@@ -80,7 +82,7 @@ class MetricFreshnessController:
                 track_ids, connector
             )
 
-            stale_track_ids = []
+            stale_track_ids: list[int] = []
 
             for track_id in track_ids:
                 # Only use metrics timestamps to determine freshness

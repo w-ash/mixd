@@ -5,6 +5,8 @@ use cases. Supports both local canonical playlists and external platform playlis
 (Spotify, Apple Music, etc.) with automatic ID resolution and metadata templating.
 """
 
+from typing import Any
+
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
 )
@@ -21,6 +23,7 @@ from src.config import get_logger
 from src.domain.entities.track import TrackList
 
 from .node_context import NodeContext
+from .protocols import NodeResult
 from .template_utils import render_playlist_config_templates
 
 logger = get_logger(__name__)
@@ -28,9 +31,9 @@ logger = get_logger(__name__)
 
 async def create_playlist(
     tracklist: TrackList,
-    config: dict,
-    context: dict,
-) -> dict:
+    config: dict[str, Any],
+    context: dict[str, Any],
+) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
 
     Creates local canonical playlist first, then optionally creates matching
@@ -70,16 +73,15 @@ async def create_playlist(
             workflow_context.use_cases.get_create_connector_playlist_use_case, command
         )
 
-        return {
-            "operation": "create_playlist",
-            "playlist": result.playlist,
-            "playlist_name": result.playlist.name,
-            "playlist_id": result.playlist.id,
-            "connector": connector,
-            "external_playlist_id": result.external_playlist_id,
-            "tracklist": tracklist,
-            "track_count": len(tracklist.tracks),
-        }
+        logger.info(
+            "create_playlist complete",
+            connector=connector,
+            playlist_id=result.playlist.id,
+            playlist_name=result.playlist.name,
+            external_playlist_id=result.external_playlist_id,
+            track_count=len(tracklist.tracks),
+        )
+        return {"tracklist": tracklist}
     else:
         # Create canonical only
         command = CreateCanonicalPlaylistCommand(
@@ -91,21 +93,20 @@ async def create_playlist(
             workflow_context.use_cases.get_create_canonical_playlist_use_case, command
         )
 
-        return {
-            "operation": "create_playlist",
-            "playlist": result.playlist,
-            "playlist_name": result.playlist.name,
-            "playlist_id": result.playlist.id,
-            "tracklist": tracklist,
-            "track_count": len(tracklist.tracks),
-        }
+        logger.info(
+            "create_playlist complete",
+            playlist_id=result.playlist.id,
+            playlist_name=result.playlist.name,
+            track_count=len(tracklist.tracks),
+        )
+        return {"tracklist": tracklist}
 
 
 async def update_playlist(
     tracklist: TrackList,
-    config: dict,
-    context: dict,
-) -> dict:
+    config: dict[str, Any],
+    context: dict[str, Any],
+) -> NodeResult:
     """Update existing playlist with track replacement or appending.
 
     Interprets playlist_id based on connector presence:
@@ -154,18 +155,18 @@ async def update_playlist(
             workflow_context.use_cases.get_update_connector_playlist_use_case, command
         )
 
-        return {
-            "operation": "update_playlist",
-            "connector": connector,
-            "playlist_id": result.playlist_id,
-            "append_mode": append,
-            "tracklist": tracklist,
-            "track_count": len(tracklist.tracks),
-            "operations_performed": result.operations_performed,
-            "tracks_added": result.tracks_added,
-            "tracks_removed": result.tracks_removed,
-            "tracks_moved": result.tracks_moved,
-        }
+        logger.info(
+            "update_playlist complete",
+            connector=connector,
+            playlist_id=result.playlist_id,
+            append_mode=append,
+            track_count=len(tracklist.tracks),
+            operations_performed=result.operations_performed,
+            tracks_added=result.tracks_added,
+            tracks_removed=result.tracks_removed,
+            tracks_moved=result.tracks_moved,
+        )
+        return {"tracklist": tracklist}
     else:
         # playlist_id is canonical ID - update canonical only
         command = UpdateCanonicalPlaylistCommand(
@@ -179,19 +180,14 @@ async def update_playlist(
             workflow_context.use_cases.get_update_canonical_playlist_use_case, command
         )
 
-        return {
-            "operation": "update_playlist",
-            "playlist": result.playlist,
-            "playlist_name": result.playlist.name,
-            "playlist_id": result.playlist.id,
-            "append_mode": append,
-            "tracklist": tracklist,
-            "track_count": len(tracklist.tracks),
-            "operations_performed": result.operations_performed,
-            "tracks_added": result.tracks_added,
-            "tracks_removed": result.tracks_removed,
-            "tracks_moved": result.tracks_moved,
-        }
+        logger.info(
+            "update_playlist complete",
+            playlist_id=result.playlist.id,
+            playlist_name=result.playlist.name,
+            append_mode=append,
+            track_count=len(tracklist.tracks),
+        )
+        return {"tracklist": tracklist}
 
 
 # Export simplified destination handler map

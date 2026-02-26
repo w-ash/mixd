@@ -13,6 +13,7 @@ Unlike pure domain transforms, these functions:
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from toolz import curry, get_in
 
@@ -101,7 +102,7 @@ def filter_by_time_criteria(
             return include_missing
 
         # Use toolz get_in for safer nested access
-        time_data = get_in([metadata_key, track.id], current_tracklist.metadata)
+        time_data: Any = get_in([metadata_key, track.id], current_tracklist.metadata)
 
         if time_data is None:
             return include_missing
@@ -206,8 +207,7 @@ def filter_by_play_history(
     ]
     if not any(constraints):
         raise ValueError(
-            "Must specify at least one constraint: "
-            "min_plays, max_plays, start_date, end_date, min_days_back, or max_days_back"
+            "Must specify at least one constraint: min_plays, max_plays, start_date, end_date, min_days_back, or max_days_back"
         )
 
     def transform(t: TrackList) -> TrackList:

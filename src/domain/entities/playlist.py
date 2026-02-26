@@ -169,7 +169,7 @@ class Playlist:
 
         This is the source of truth for playlist identity in our system.
         """
-        if not isinstance(db_id, int) or db_id <= 0:
+        if db_id <= 0:
             raise ValueError(
                 f"Invalid database ID: {db_id}. Must be a positive integer.",
             )

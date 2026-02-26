@@ -33,9 +33,6 @@ class TrackMetricMapper(BaseModelMapper[DBTrackMetric, dict[str, Any]]):
     @staticmethod
     async def to_domain(db_model: DBTrackMetric) -> dict[str, Any]:
         """Convert DB metric to dictionary representation."""
-        if not db_model:
-            return None
-
         return {
             "id": db_model.id,
             "track_id": db_model.track_id,
@@ -109,7 +106,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         )
 
         # Process results - only keep most recent value per track
-        metrics_dict = {}
+        metrics_dict: dict[int, Any] = {}
         for metric in result:
             track_id = metric["track_id"]
             if track_id not in metrics_dict:
@@ -144,7 +141,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
         # Prepare values for insertion
-        values = []
+        values: list[dict[str, Any]] = []
         for i, metric_tuple in enumerate(metrics):
             try:
                 track_id, connector_name, metric_type, value = metric_tuple
@@ -158,8 +155,8 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
             except ValueError as e:
                 logger.error(
                     f"Error unpacking metric tuple at index {i}: {metric_tuple} "
-                    f"(length: {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}). "
-                    f"Expected 4 values, got {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}: {e}"
+                    + f"(length: {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}). "
+                    + f"Expected 4 values, got {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}: {e}"
                 )
                 continue
 
@@ -176,7 +173,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
             },
         )
 
-        await self.session.execute(stmt)
+        _ = await self.session.execute(stmt)
         await self.session.flush()
 
         return len(metrics)

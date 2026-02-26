@@ -8,7 +8,8 @@ duplicate preservation, and performance optimization across create and update us
 from datetime import datetime
 
 from src.config import get_logger, settings
-from src.domain.entities.playlist import Playlist, PlaylistEntry
+from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.domain.entities.track import ConnectorTrack, Track
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -32,7 +33,7 @@ class ConnectorPlaylistProcessingService:
     """
 
     async def process_connector_playlist(
-        self, connector_playlist, uow: UnitOfWorkProtocol
+        self, connector_playlist: ConnectorPlaylist | None, uow: UnitOfWorkProtocol
     ) -> Playlist:
         """Process ConnectorPlaylist data to create Playlist with entries.
 
@@ -51,8 +52,7 @@ class ConnectorPlaylistProcessingService:
             ValueError: If connector_playlist is invalid or missing required data
         """
         if not connector_playlist:
-            raise ValueError("ConnectorPlaylist is required for processing")
-
+            raise ValueError("connector_playlist cannot be None")
         playlist_items = connector_playlist.items
         connector_name = connector_playlist.connector_name
 
@@ -88,8 +88,8 @@ class ConnectorPlaylistProcessingService:
         connector_instance = connector_provider.get_connector(connector_name)
 
         # Collect unique tracks while preserving the data we already have
-        seen_track_ids = set()
-        unique_connector_tracks = []
+        seen_track_ids: set[str] = set()
+        unique_connector_tracks: list[ConnectorTrack] = []
 
         # First pass: collect unique track data from playlist items
         for item in playlist_items:
@@ -125,7 +125,7 @@ class ConnectorPlaylistProcessingService:
         connector_repo = uow.get_connector_repository()
 
         # Bulk lookup existing tracks
-        connector_tuples = [
+        connector_tuples: list[tuple[str, str]] = [
             (connector_name, track.connector_track_identifier)
             for track in unique_connector_tracks
         ]
@@ -134,8 +134,8 @@ class ConnectorPlaylistProcessingService:
         )
 
         # Separate existing vs new tracks
-        track_id_to_domain_track = {}
-        new_connector_tracks = []
+        track_id_to_domain_track: dict[str, Track] = {}
+        new_connector_tracks: list[ConnectorTrack] = []
 
         for connector_track in unique_connector_tracks:
             lookup_key = (connector_name, connector_track.connector_track_identifier)
@@ -206,7 +206,7 @@ class ConnectorPlaylistProcessingService:
 
             logger.warning(
                 f"Track mapping incomplete: expected {expected_track_count}, got {actual_track_count}. "
-                f"Missing from domain mapping: {missing_track_ids[: settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
+                + f"Missing from domain mapping: {missing_track_ids[: settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
             )
 
         logger.info(
@@ -218,8 +218,8 @@ class ConnectorPlaylistProcessingService:
         # Step 4: Create PlaylistEntry for each position, preserving duplicates and metadata
         # CLEAN ARCHITECTURE: PlaylistEntry properly models "track membership in playlist"
         # by combining track identity with position-specific metadata (added_at, added_by).
-        playlist_entries = []
-        missing_tracks = []
+        playlist_entries: list[PlaylistEntry] = []
+        missing_tracks: list[tuple[int, str]] = []
 
         for position, playlist_item in enumerate(playlist_items):
             if playlist_item.connector_track_identifier in track_id_to_domain_track:
@@ -253,7 +253,7 @@ class ConnectorPlaylistProcessingService:
                 # Better error message - track was missing from our domain mapping, not API
                 logger.warning(
                     f"Position {position}: Track {playlist_item.connector_track_identifier} missing from domain track mapping "
-                    f"(was in API response: {playlist_item.connector_track_identifier in [t.connector_track_identifier for t in unique_connector_tracks]})"
+                    + f"(was in API response: {playlist_item.connector_track_identifier in [t.connector_track_identifier for t in unique_connector_tracks]})"
                 )
 
         if missing_tracks:

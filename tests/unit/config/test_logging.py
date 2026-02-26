@@ -4,19 +4,15 @@ This module provides comprehensive tests for the logging system to ensure
 backward compatibility during refactoring and verify all logging features work correctly.
 """
 
-import asyncio
 import logging
 from pathlib import Path
 import tempfile
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.config.logging import (
     configure_prefect_logging,
     get_logger,
     log_startup_info,
-    resilient_operation,
     setup_loguru_logger,
 )
 from src.config.settings import LoggingConfig
@@ -88,77 +84,6 @@ class TestCurrentLoggingBehavior:
         # Should not raise
         log_startup_info()
 
-    def test_resilient_operation_decorator_success(self):
-        """Test resilient_operation decorator with successful operation."""
-
-        @resilient_operation("test_operation")
-        async def successful_operation():
-            return "success"
-
-        async def run_test():
-            result = await successful_operation()
-            assert result == "success"
-
-        asyncio.run(run_test())
-
-    def test_resilient_operation_decorator_with_exception(self):
-        """Test resilient_operation decorator with exception."""
-
-        @resilient_operation("test_operation")
-        async def failing_operation():
-            raise ValueError("Test error")
-
-        async def run_test():
-            with pytest.raises(ValueError, match="Test error"):
-                await failing_operation()
-
-        asyncio.run(run_test())
-
-    def test_resilient_operation_no_operation_name(self):
-        """Test resilient_operation without explicit operation name."""
-
-        @resilient_operation()
-        async def test_function():
-            return "test_result"
-
-        async def run_test():
-            result = await test_function()
-            assert result == "test_result"
-
-        asyncio.run(run_test())
-
-    def test_resilient_operation_timing_disabled(self):
-        """Test resilient_operation with timing disabled."""
-
-        @resilient_operation("test_no_timing", include_timing=False)
-        async def operation_no_timing():
-            return "no_timing_result"
-
-        async def run_test():
-            result = await operation_no_timing()
-            assert result == "no_timing_result"
-
-        asyncio.run(run_test())
-
-    def test_resilient_operation_http_error_classification(self):
-        """Test HTTP error classification in resilient_operation."""
-
-        class MockHTTPException(Exception):
-            def __init__(self, status_code):
-                self.response = MagicMock()
-                self.response.status_code = status_code
-                super().__init__(f"HTTP {status_code}")
-
-        @resilient_operation("http_test")
-        async def failing_http_operation():
-            raise MockHTTPException(404)
-
-        async def run_test():
-            with pytest.raises(MockHTTPException):
-                await failing_http_operation()
-
-        asyncio.run(run_test())
-
     def test_configure_prefect_logging(self):
         """Test Prefect logging configuration."""
         # Should not raise
@@ -221,27 +146,12 @@ class TestLoggingIntegration:
         # Should not raise
         contextual_logger.info("Contextual message")
 
-    @pytest.mark.asyncio
-    async def test_async_logging_operations(self):
-        """Test logging in async context."""
-        test_logger = get_logger("async.test")
-
-        @resilient_operation("async_test")
-        async def async_operation():
-            test_logger.info("Inside async operation")
-            await asyncio.sleep(0.01)  # Simulate async work
-            return "async_result"
-
-        result = await async_operation()
-        assert result == "async_result"
-
 
 class TestLoggingConfiguration:
     """Test logging configuration system."""
 
     def test_settings_integration(self):
         """Test that logging uses settings correctly."""
-        # Current settings should be accessible
         from src.config.settings import settings
 
         assert hasattr(settings.logging, "console_level")
@@ -285,20 +195,6 @@ class TestLoggingConfiguration:
 
 class TestErrorHandling:
     """Test error handling in logging system."""
-
-    def test_resilient_operation_logs_exceptions(self):
-        """Test that resilient_operation properly logs exceptions."""
-
-        @resilient_operation("error_test")
-        async def error_operation():
-            raise RuntimeError("Intentional test error")
-
-        async def run_test():
-            with pytest.raises(RuntimeError):
-                await error_operation()
-
-        # Should not raise during test setup
-        asyncio.run(run_test())
 
     def test_logging_with_invalid_settings(self):
         """Test logging behavior with edge case settings."""
@@ -386,36 +282,44 @@ class TestSecurityEnhancements:
                             test_logger.info("Rotation test message")
 
 
+class TestConsoleOutputCoordination:
+    """Regression tests for enable/restore console output lifecycle."""
+
+    def test_restore_standard_console_output_after_enable(self, capsys):
+        """Logging restore must not fall through to the error-recovery path.
+
+        Regression: restore_standard_console_output() used delattr() on the
+        enable_unified_console_output function, treating it as a namespace for
+        module-level globals. This caused AttributeError that was caught by the
+        except block, triggering a "Warning: Failed to restore..." print and
+        a full reset instead of a clean restore.
+        """
+        from unittest.mock import MagicMock
+
+        from src.config.logging import (
+            enable_unified_console_output,
+            restore_standard_console_output,
+        )
+
+        mock_console = MagicMock()
+        enable_unified_console_output(mock_console)
+
+        restore_standard_console_output()
+
+        # The error-recovery path prints a warning to stdout — verify it was NOT hit
+        captured = capsys.readouterr()
+        assert "Failed to restore" not in captured.out
+
+    def test_restore_without_enable_is_safe(self):
+        """Calling restore without a prior enable should not crash."""
+        from src.config.logging import restore_standard_console_output
+
+        # Should be a no-op, not an error
+        restore_standard_console_output()
+
+
 class TestEnhancedLoggingFeatures:
     """Test the enhanced logging features actually work in practice."""
-
-    def test_enhanced_resilient_operation_backward_compatibility(self):
-        """Test that enhanced resilient_operation is backward compatible."""
-
-        # Old usage pattern should still work
-        @resilient_operation("test_compat")
-        async def old_style_operation():
-            return "backward_compatible"
-
-        async def run_test():
-            result = await old_style_operation()
-            assert result == "backward_compatible"
-
-        asyncio.run(run_test())
-
-    def test_enhanced_resilient_operation_new_features(self):
-        """Test new features of resilient_operation work."""
-
-        # New usage with timing disabled
-        @resilient_operation("test_new_features", include_timing=False)
-        async def new_style_operation():
-            return "enhanced_features"
-
-        async def run_test():
-            result = await new_style_operation()
-            assert result == "enhanced_features"
-
-        asyncio.run(run_test())
 
     def test_production_security_settings_accessible(self):
         """Test that new security settings are accessible and have safe defaults."""

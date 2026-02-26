@@ -1,5 +1,7 @@
 """Connector playlist repository implementation."""
 
+from typing import Any
+
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +31,9 @@ class ConnectorPlaylistRepository(
             mapper=ConnectorPlaylistMapper(),
         )
 
-    def select_by_connector_id(self, connector: str, connector_id: str) -> Select:
+    def select_by_connector_id(
+        self, connector: str, connector_id: str
+    ) -> Select[tuple[Any, ...]]:
         """Create a select statement for a connector playlist by its external ID."""
         return self.select().where(
             self.model_class.connector_name == connector,

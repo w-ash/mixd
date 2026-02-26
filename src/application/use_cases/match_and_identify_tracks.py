@@ -172,7 +172,7 @@ class MatchAndIdentifyTracksUseCase:
                 track_ids = [t.id for t in valid_tracks if t.id is not None]
 
                 existing_mappings = (
-                    await track_identity_service._get_existing_identity_mappings(
+                    await track_identity_service.get_existing_identity_mappings(
                         track_ids, command.connector
                     )
                 )
@@ -210,7 +210,7 @@ class MatchAndIdentifyTracksUseCase:
 
                     # STEP 5: Persist successful identity mappings (application responsibility)
                     if new_identity_mappings:
-                        await track_identity_service._persist_identity_mappings(
+                        await track_identity_service.persist_identity_mappings(
                             new_identity_mappings, command.connector
                         )
                         logger.info(

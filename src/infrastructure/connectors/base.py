@@ -20,9 +20,12 @@ Example:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from collections.abc import Awaitable, Callable
+from typing import Any, ClassVar, Self
 
-from attrs import define
+from attrs import define, field
+from loguru import logger as _loguru_logger
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist
@@ -39,6 +42,46 @@ from src.infrastructure.connectors._shared.metrics import (
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="connectors")
+
+
+@define(slots=True)
+class BaseAPIClient:
+    """Shared base for API clients with retry, context propagation, and error suppression.
+
+    Subclasses set _SUPPRESS_ERRORS and initialize _retry_policy in __attrs_post_init__.
+    The _api_call() helper replaces @resilient_operation + the _with_retries layer.
+    """
+
+    _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = ()
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
+
+    async def _api_call[T](
+        self,
+        operation: str,
+        impl: Callable[..., Awaitable[T]],
+        *args: Any,
+    ) -> T | None:
+        """Execute API call with retry policy, context propagation, and error suppression.
+
+        Operation name propagates via loguru contextvars into ALL nested log calls
+        (httpx hooks, tenacity callbacks, _impl methods).
+        """
+        with _loguru_logger.contextualize(operation=operation):
+            try:
+                return await self._retry_policy(impl, *args)
+            except Exception as exc:
+                if isinstance(exc, self._SUPPRESS_ERRORS):
+                    return None
+                raise
+
+    async def aclose(self) -> None:
+        """Close underlying resources. Override for clients with connection pools."""
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.aclose()
 
 
 @define(frozen=True, slots=True)
@@ -120,7 +163,7 @@ class BaseAPIConnector(ABC):
         """Get error classifier for this connector. Override for service-specific classification."""
         return _DefaultClassifier()
 
-    def get_connector_config(self, key: str, default=None):
+    def get_connector_config(self, key: str, default: object = None) -> Any:
         """Load configuration value from modern settings structure.
 
         Args:
@@ -181,7 +224,7 @@ class BaseAPIConnector(ABC):
         )
 
     @abstractmethod
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         """Convert service-specific track data to ConnectorTrack domain model.
 
         Each connector must implement this method to handle conversion from their
@@ -195,7 +238,7 @@ class BaseAPIConnector(ABC):
 
         Example:
             # In SpotifyConnector
-            def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+            def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
                 from .conversions import convert_spotify_track_to_connector
                 return convert_spotify_track_to_connector(track_data)
         """

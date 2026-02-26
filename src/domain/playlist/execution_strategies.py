@@ -178,7 +178,7 @@ class APIExecutionStrategy:
 
         logger.debug(
             f"Planned API execution: {len(sequenced_operations)} sequenced operations "
-            f"with {len(dependency_order) if dependency_order else 0} dependency constraints"
+            + f"with {len(dependency_order) if dependency_order else 0} dependency constraints"
         )
 
         return ExecutionPlan(
@@ -236,7 +236,7 @@ class APIExecutionStrategy:
 
         logger.debug(
             f"Calculated dependency order for {len(move_operations)} move operations: "
-            f"reverse position order to prevent index shifts"
+            + "reverse position order to prevent index shifts"
         )
 
         return dependency_order
@@ -269,7 +269,7 @@ class APIExecutionStrategy:
             op for op in operations if op.operation_type == PlaylistOperationType.MOVE
         ]
 
-        adjusted_operations = []
+        adjusted_operations: list[PlaylistOperation] = []
 
         # REMOVE operations: sort by position (highest first to avoid index shifts)
         remove_ops_sorted = sorted(
@@ -287,8 +287,8 @@ class APIExecutionStrategy:
             adjusted_operations.extend(adjusted_moves)
 
         logger.debug(
-            f"Position shift simulation complete: "
-            f"{len(remove_ops)} removes, {len(add_ops)} adds, {len(move_ops)} moves"
+            "Position shift simulation complete: "
+            + f"{len(remove_ops)} removes, {len(add_ops)} adds, {len(move_ops)} moves"
         )
 
         return adjusted_operations
@@ -334,11 +334,11 @@ class APIExecutionStrategy:
             else removed_positions,
         )
 
-        adjusted_moves = []
+        adjusted_moves: list[PlaylistOperation] = []
         for move_op in move_ops:
-            if move_op.old_position is None or move_op.position is None:
+            if move_op.old_position is None:
                 logger.warning(
-                    "Move operation missing position data, skipping",
+                    "Move operation missing old_position data, skipping",
                     old_position=move_op.old_position,
                     position=move_op.position,
                 )
@@ -394,8 +394,8 @@ class APIExecutionStrategy:
 
         logger.debug(
             f"Position adjustment complete: {len(move_ops)} original moves, "
-            f"{len(adjusted_moves)} valid after adjustment, "
-            f"{len(move_ops) - len(adjusted_moves)} filtered out"
+            + f"{len(adjusted_moves)} valid after adjustment, "
+            + f"{len(move_ops) - len(adjusted_moves)} filtered out"
         )
 
         return sorted_adjusted_moves

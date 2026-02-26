@@ -174,9 +174,9 @@ class BaseMatchingProvider(ABC):
         Returns:
             Tuple of (isrc_tracks, artist_title_tracks, unprocessable_tracks).
         """
-        isrc_tracks = []
-        artist_title_tracks = []
-        unprocessable_tracks = []
+        isrc_tracks: list[Track] = []
+        artist_title_tracks: list[Track] = []
+        unprocessable_tracks: list[Track] = []
 
         for track in tracks:
             if self._has_isrc(track):

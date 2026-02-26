@@ -30,6 +30,7 @@ from src.domain.entities import (
     Playlist,
     Track,
 )
+from src.domain.playlist import PlaylistOperation
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_playlist_to_connector,
@@ -84,7 +85,7 @@ class SpotifyOperations:
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
 
-        results = {}
+        results: dict[str, dict[str, Any]] = {}
 
         # Process in batches using Spotify's bulk API (50 tracks per call)
         batch_size = settings.api.spotify_batch_size
@@ -183,7 +184,7 @@ class SpotifyOperations:
         connector_playlist = convert_spotify_playlist_to_connector(raw_playlist)
 
         # Process each track item with its metadata
-        playlist_items = []
+        playlist_items: list[ConnectorPlaylistItem] = []
         for idx, item in enumerate(all_items):
             if item.get("track") is not None:
                 track = item["track"]
@@ -263,7 +264,7 @@ class SpotifyOperations:
 
         logger.info(
             f"{'Replacing' if replace else 'Appending to'} playlist {playlist_id} "
-            f"with {len(spotify_track_uris)} tracks"
+            + f"with {len(spotify_track_uris)} tracks"
         )
 
         try:
@@ -287,7 +288,7 @@ class SpotifyOperations:
         if track_uris:
             # Replace with first batch
             first_batch = track_uris[:large_batch_size]
-            await self.client.playlist_replace_items(playlist_id, first_batch)
+            _ = await self.client.playlist_replace_items(playlist_id, first_batch)
 
             # Add remaining tracks in batches
             remaining_tracks = track_uris[large_batch_size:]
@@ -297,7 +298,7 @@ class SpotifyOperations:
                 )
         else:
             # Clear playlist if no tracks
-            await self.client.playlist_replace_items(playlist_id, [])
+            _ = await self.client.playlist_replace_items(playlist_id, [])
 
     async def _add_tracks_to_playlist_batched(
         self, playlist_id: str, track_uris: list[str]
@@ -317,7 +318,7 @@ class SpotifyOperations:
             batch_uris = track_uris[i : i + large_batch_size]
 
             try:
-                await self.client.playlist_add_items(
+                _ = await self.client.playlist_add_items(
                     playlist_id=playlist_id, items=batch_uris
                 )
                 logger.debug(f"Added batch {i // large_batch_size + 1}/{total_batches}")
@@ -337,9 +338,9 @@ class SpotifyOperations:
     async def execute_playlist_operations(
         self,
         playlist_id: str,
-        operations: list,
+        operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo=None,
+        track_repo: Any = None,
     ) -> str | None:
         """Execute a list of differential playlist operations.
 
@@ -374,7 +375,7 @@ class SpotifyOperations:
             if not saved_tracks or "items" not in saved_tracks:
                 return [], None
 
-            connector_tracks = []
+            connector_tracks: list[ConnectorTrack] = []
             for item in saved_tracks["items"]:
                 if not item or "track" not in item:
                     continue

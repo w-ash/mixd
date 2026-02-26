@@ -27,7 +27,7 @@ from attrs import Attribute
 from src.config.constants import BusinessLimits
 
 
-def non_empty_string(_instance: Any, attribute: Attribute, value: str) -> None:
+def non_empty_string(_instance: Any, attribute: Attribute[Any], value: str) -> None:
     """Validates that a string field is non-empty after stripping whitespace.
 
     Args:
@@ -42,7 +42,7 @@ def non_empty_string(_instance: Any, attribute: Attribute, value: str) -> None:
         raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")
 
 
-def non_empty_list(_instance: Any, attribute: Attribute, value: list) -> None:
+def non_empty_list(_instance: Any, attribute: Attribute[Any], value: list[Any]) -> None:
     """Validates that a list field is non-empty.
 
     Args:
@@ -77,22 +77,21 @@ def positive_int_in_range(
         ```
     """
 
-    def validator(_instance: Any, attribute: Attribute, value: int) -> None:
+    def validator(_instance: Any, attribute: Attribute[Any], value: object) -> None:
         if not isinstance(value, int):
             raise TypeError(
                 f"{attribute.name} must be an integer, got {type(value).__name__}"
             )
         if value < min_value or value > max_value:
             raise ValueError(
-                f"{attribute.name} must be between {min_value} and {max_value}, "
-                f"got {value}"
+                f"{attribute.name} must be between {min_value} and {max_value}, got {value}"
             )
 
     return validator
 
 
 def optional_positive_int(
-    _instance: Any, attribute: Attribute, value: int | None
+    _instance: Any, attribute: Attribute[Any], value: int | None
 ) -> None:
     """Validates that an optional integer is positive when provided.
 
@@ -129,7 +128,7 @@ def optional_in_choices(choices: list[str]) -> Any:
         ```
     """
 
-    def validator(_instance: Any, attribute: Attribute, value: str | None) -> None:
+    def validator(_instance: Any, attribute: Attribute[Any], value: str | None) -> None:
         if value is not None and value not in choices:
             raise ValueError(
                 f"{attribute.name} must be one of {choices}, got {value!r}"
@@ -160,7 +159,7 @@ def tracklist_has_tracks_or_metadata(metadata_key: str = "connector_playlist") -
         ```
     """
 
-    def validator(_instance: Any, attribute: Attribute, value: Any) -> None:
+    def validator(_instance: Any, attribute: Attribute[Any], value: Any) -> None:
         # Import here to avoid circular dependency
         from src.domain.entities.track import TrackList
 
@@ -192,7 +191,7 @@ def api_batch_size_validator(
         Validator function for attrs field
     """
 
-    def validator(_instance: Any, attribute: Attribute, value: int) -> None:
+    def validator(_instance: Any, attribute: Attribute[Any], value: int) -> None:
         from src.config import settings
 
         # Navigate settings using dot notation
@@ -204,8 +203,7 @@ def api_batch_size_validator(
         max_int = cast(int, max_value)  # settings values for batch sizes are ints
         if value > max_int:
             raise ValueError(
-                f"{attribute.name} cannot exceed {max_int} (from settings.{max_batch_size_setting}), "
-                f"got {value}"
+                f"{attribute.name} cannot exceed {max_int} (from settings.{max_batch_size_setting}), got {value}"
             )
 
     return validator
@@ -270,4 +268,4 @@ def instance_of(type_: type) -> Any:
             tracklist: TrackList = field(validator=instance_of(TrackList))
         ```
     """
-    return attrs.validators.instance_of(type_)
+    return attrs.validators.instance_of(type_)  # pyright: ignore[reportUnknownVariableType]

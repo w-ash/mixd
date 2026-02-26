@@ -33,6 +33,8 @@ class ListPlaylistsUseCase:
     - No direct infrastructure dependencies
     """
 
+    _unit_of_work: UnitOfWorkProtocol
+
     def __init__(self, unit_of_work: UnitOfWorkProtocol) -> None:
         """Initialize with unit of work for dependency injection.
 

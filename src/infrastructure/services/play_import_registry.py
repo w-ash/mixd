@@ -5,6 +5,7 @@ service requests to appropriate connector factories without the application laye
 needing to know about specific connectors.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from src.application.services.play_import_orchestrator import PlayImporterProtocol
@@ -18,6 +19,9 @@ class PlayImportServiceRegistry:
     to specific connector factory implementations, maintaining clean architecture
     boundaries while enabling extensibility.
     """
+
+    _importer_factories: dict[str, Callable[..., Any]]
+    _resolver_factories: dict[str, Callable[..., Any]]
 
     def __init__(self):
         """Initialize registry with known service mappings."""

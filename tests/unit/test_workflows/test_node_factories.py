@@ -145,22 +145,15 @@ class TestEnricherNodeFactory:
         mock_workflow_context.execute_use_case.return_value = mock_result
         mock_ctx.extract_workflow_context.return_value = mock_workflow_context
 
-        # Mock format_enrichment_result
-        with patch(
-            "src.application.workflows.node_factories.NodeContext.format_enrichment_result"
-        ) as mock_format:
-            mock_format.return_value = {"operation": "test_enrichment", "success": True}
+        config = {"connector": "lastfm"}
+        node_func = create_enricher_node(config)
 
-            config = {"connector": "lastfm"}
-            node_func = create_enricher_node(config)
+        context = {"test": "context"}
+        node_config = {"max_age_hours": 24}
 
-            context = {"test": "context"}
-            node_config = {"max_age_hours": 24}
+        result = await node_func(context, node_config)
 
-            result = await node_func(context, node_config)
-
-            assert result["operation"] == "test_enrichment"
-            assert result["success"] is True
+        assert result["tracklist"] == sample_tracklist
 
     def test_create_enricher_node_missing_connector(self):
         """Test enricher node creation with missing connector."""
@@ -198,24 +191,14 @@ class TestEnricherNodeFactory:
         mock_workflow_context.execute_use_case.return_value = mock_result
         mock_ctx.extract_workflow_context.return_value = mock_workflow_context
 
-        # Mock format_enrichment_result
-        with patch(
-            "src.application.workflows.node_factories.NodeContext.format_enrichment_result"
-        ) as mock_format:
-            mock_format.return_value = {
-                "operation": "play_history_enrichment",
-                "success": True,
-            }
+        node_func = create_play_history_enricher_node()
 
-            node_func = create_play_history_enricher_node()
+        context = {"test": "context"}
+        config = {"metrics": ["total_plays"], "period_days": 30}
 
-            context = {"test": "context"}
-            config = {"metrics": ["total_plays"], "period_days": 30}
+        result = await node_func(context, config)
 
-            result = await node_func(context, config)
-
-            assert result["operation"] == "play_history_enrichment"
-            assert result["success"] is True
+        assert result["tracklist"] == sample_tracklist
 
 
 class TestHelperFunctions:

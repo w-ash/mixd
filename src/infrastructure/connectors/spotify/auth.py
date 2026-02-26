@@ -16,16 +16,18 @@ multiple tasks call get_valid_token() simultaneously.
 
 import asyncio
 import base64
+import collections.abc
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from pathlib import Path
 import secrets
 import time
-from typing import Any
+from typing import Any, override
 import urllib.parse
 import webbrowser
 
 from attrs import define, field
+import httpx
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.http_client import make_spotify_auth_client
@@ -128,7 +130,7 @@ class SpotifyTokenManager:
                     "refresh_token": refresh_token,
                 },
             )
-            response.raise_for_status()
+            _ = response.raise_for_status()
             new_token = response.json()
 
         # Spotify sometimes omits refresh_token in refresh responses — preserve the old one
@@ -178,7 +180,8 @@ class SpotifyTokenManager:
                     b"Spotify authorization successful. You may close this tab."
                 )
 
-            def log_message(self, format, *args):
+            @override
+            def log_message(self, format: str, *args: Any) -> None:
                 pass  # Suppress HTTP server access logs
 
         server = HTTPServer(("localhost", 8888), _CallbackHandler)
@@ -190,8 +193,7 @@ class SpotifyTokenManager:
 
         if not captured.get("code"):
             raise RuntimeError(
-                "Spotify authorization failed — no authorization code received. "
-                "Ensure the redirect URI is configured as http://localhost:8888/callback."
+                "Spotify authorization failed — no authorization code received. Ensure the redirect URI is configured as http://localhost:8888/callback."
             )
 
         logger.debug("Spotify authorization code captured")
@@ -210,7 +212,7 @@ class SpotifyTokenManager:
                     "redirect_uri": redirect_uri,
                 },
             )
-            response.raise_for_status()
+            _ = response.raise_for_status()
             token_info = response.json()
 
         token_info["expires_at"] = int(time.time()) + token_info.get("expires_in", 3600)
@@ -283,3 +285,37 @@ class SpotifyTokenManager:
             )
             self._save_cache(self._token_info)
             return self._token_info["access_token"]
+
+
+_HTTP_UNAUTHORIZED = 401
+
+
+# -------------------------------------------------------------------------
+# HTTPX AUTH FLOW
+# -------------------------------------------------------------------------
+
+
+class SpotifyBearerAuth(httpx.Auth):
+    """httpx async auth flow: injects Bearer token and retries on 401.
+
+    Used with a long-lived AsyncClient so token injection and 401 retry
+    are handled transparently without per-call boilerplate in _impl methods.
+    """
+
+    _token_manager: SpotifyTokenManager
+
+    def __init__(self, token_manager: SpotifyTokenManager) -> None:
+        self._token_manager = token_manager
+
+    @override
+    async def async_auth_flow(
+        self, request: httpx.Request
+    ) -> collections.abc.AsyncGenerator[httpx.Request, httpx.Response]:
+        token = await self._token_manager.get_valid_token()
+        request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+
+        if response.status_code == _HTTP_UNAUTHORIZED:
+            new_token = await self._token_manager.force_refresh()
+            request.headers["Authorization"] = f"Bearer {new_token}"
+            yield request

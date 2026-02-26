@@ -26,6 +26,8 @@ class LastfmConnectorPlayResolver:
     - Love status and streamability flags
     """
 
+    lastfm_resolution_service: LastfmTrackResolutionService
+
     def __init__(
         self, lastfm_resolution_service: LastfmTrackResolutionService | None = None
     ):
@@ -56,7 +58,7 @@ class LastfmConnectorPlayResolver:
         )
 
         # Step 3: Create TrackPlay objects with Last.fm metadata preservation
-        track_plays = []
+        track_plays: list[TrackPlay] = []
         filtering_stats: dict[str, Any] = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
@@ -163,7 +165,7 @@ class LastfmConnectorPlayResolver:
         self, connector_plays: list[ConnectorTrackPlay]
     ) -> list[PlayRecord]:
         """Convert ConnectorTrackPlay objects to PlayRecord objects."""
-        play_records = []
+        play_records: list[PlayRecord] = []
 
         for connector_play in connector_plays:
             play_record = PlayRecord(

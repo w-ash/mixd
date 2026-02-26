@@ -5,10 +5,10 @@ calculating operation statistics (adds, removes, moves).
 """
 
 from src.application.use_cases._shared.playlist_results import OperationCounts
-from src.domain.playlist import PlaylistOperationType
+from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 
 
-def count_operation_types(operations: list) -> OperationCounts:
+def count_operation_types(operations: list[PlaylistOperation]) -> OperationCounts:
     """Count add/remove/move operations from diff operations list.
 
     Analyzes a list of playlist operations and returns typed counts

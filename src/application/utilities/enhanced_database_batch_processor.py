@@ -57,8 +57,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
         """Validate configuration."""
         if self.batch_size > BusinessLimits.SQLITE_BATCH_WARNING_THRESHOLD:
             self.logger_instance.warning(
-                f"Large batch size {self.batch_size} may cause SQLite locks. "
-                "Consider using smaller batch sizes (10-50) for database operations."
+                f"Large batch size {self.batch_size} may cause SQLite locks. Consider using smaller batch sizes (10-50) for database operations."
             )
 
     async def process(
@@ -155,7 +154,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
                             )  # Exponential backoff
                             self.logger_instance.warning(
                                 f"Database batch {current_batch} failed (attempt {attempt + 1}), "
-                                f"retrying in {delay}s: {e}"
+                                + f"retrying in {delay}s: {e}"
                             )
 
                             # Emit progress event for retry

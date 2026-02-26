@@ -7,10 +7,13 @@ ProgressCoordinator domain service for business rule enforcement.
 
 import asyncio
 import contextlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from attrs import define
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 from src.config import get_logger
 from src.domain.entities.progress import (
@@ -44,12 +47,16 @@ class AsyncProgressManager:
     bridging the domain layer (business rules) with the interface layer (display).
     """
 
+    _coordinator: ProgressCoordinator
+    _subscriber_lock: asyncio.Lock
+    _logger: Logger
+
     def __init__(self):
         """Initialize progress manager."""
         self._coordinator = ProgressCoordinator()
         self._subscribers: dict[str, SubscriberRegistration] = {}
         self._subscriber_lock = asyncio.Lock()
-        self._event_tasks: set[asyncio.Task] = set()
+        self._event_tasks: set[asyncio.Task[Any]] = set()
 
         # Contextual logger
         self._logger = logger.bind(manager_id=str(uuid4())[:8])
@@ -269,7 +276,7 @@ class AsyncProgressManager:
         # Cancel any pending notification tasks
         for task in self._event_tasks:
             if not task.done():
-                task.cancel()
+                _ = task.cancel()
 
         # Wait for tasks to complete cancellation
         for task in self._event_tasks:
@@ -307,7 +314,7 @@ class AsyncProgressManager:
         # Run all notifications concurrently with structured concurrency
         async with asyncio.TaskGroup() as tg:
             for registration in active_subscribers:
-                tg.create_task(
+                _ = tg.create_task(
                     self._safe_notify_subscriber(
                         registration, notification_type, *args
                     ),

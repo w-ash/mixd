@@ -15,7 +15,7 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from typing import Any
+from typing import Any, override
 
 from attrs import define, field
 
@@ -52,11 +52,13 @@ class LastFMOperations(BaseAPIConnector):
     client: LastFMAPIClient = field()
 
     @property
+    @override
     def connector_name(self) -> str:
         """Service identifier for Last.fm connector."""
         return "lastfm"
 
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    @override
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
 
@@ -74,13 +76,11 @@ class LastFMOperations(BaseAPIConnector):
             return LastFMTrackInfo.empty()
 
         try:
-            # Use comprehensive MBID lookup that follows same pattern as artist/title
-            track_data = await self.client.get_track_info_comprehensive_by_mbid(mbid)
+            result = await self.client.get_track_info_comprehensive_by_mbid(mbid)
 
-            if track_data:
-                return LastFMTrackInfo.from_comprehensive_data(track_data)
+            if result:
+                return result
 
-            # Track data is None - track not found (expected behavior)
             logger.info(
                 "Track not in Last.FM catalog",
                 mbid=mbid,
@@ -136,12 +136,11 @@ class LastFMOperations(BaseAPIConnector):
             return LastFMTrackInfo.empty()
 
         try:
-            track_data = await self.client.get_track_info_comprehensive(artist, title)
+            result = await self.client.get_track_info_comprehensive(artist, title)
 
-            if track_data:
-                return LastFMTrackInfo.from_comprehensive_data(track_data)
+            if result:
+                return result
 
-            # Track data is None - track not found (expected behavior)
             logger.info(
                 "Track not in Last.FM catalog",
                 artist=artist,
@@ -293,8 +292,8 @@ class LastFMOperations(BaseAPIConnector):
         async def process_track(track: Track) -> TrackProcessingResult:
             """Process a single track and return typed result with metadata.
 
-            Note: This function will be called with @resilient_operation decorator
-            applied by the API client, so retries are handled automatically.
+            Note: Retries are handled by the API client's _api_call() method
+            via tenacity retry policy, so retries are handled automatically.
 
             Returns:
                 TrackProcessingResult with track_id and metadata fields
@@ -308,7 +307,7 @@ class LastFMOperations(BaseAPIConnector):
             lastfm_info = await self.get_track_info_intelligent(track)
 
             # Convert to metadata dictionary using attrs introspection
-            metadata = {}
+            metadata: dict[str, Any] = {}
             if lastfm_info:
                 import attrs
 
@@ -327,7 +326,7 @@ class LastFMOperations(BaseAPIConnector):
         )
 
         # Process batch with queue-based rate limiting
-        results = {}
+        results: dict[int, dict[str, Any]] = {}
         async for _item_id, result in processor.process_batch(tracks, process_track):
             if isinstance(result, TrackProcessingResult) and result.metadata:
                 results[result.track_id] = result.metadata
@@ -364,14 +363,12 @@ class LastFMOperations(BaseAPIConnector):
         lastfm_info = await self.get_track_info_intelligent(track)
 
         # Parse timestamp or use current time
+        import contextlib
+
         scrobbled_at = datetime.now(UTC)
         if timestamp:
-            try:
-                if isinstance(timestamp, str):
-                    scrobbled_at = datetime.fromisoformat(timestamp)
-            except ValueError:
-                # Keep default current time if parsing fails
-                pass
+            with contextlib.suppress(ValueError):
+                scrobbled_at = datetime.fromisoformat(timestamp)
 
         # Extract artist and track names
         artist_name = track.artists[0].name if track.artists else "Unknown Artist"

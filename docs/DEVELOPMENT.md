@@ -59,8 +59,7 @@ src/
 │   └── persistence/      # Database adapters
 │
 └── interface/            # Primary adapters
-    ├── cli/             # CLI entry points
-    └── shared/          # Shared UI utilities
+    └── cli/             # CLI entry points
 ```
 
 ### Key Files
@@ -328,25 +327,44 @@ async def custom_sort_node(tracklist: TrackList, config: dict) -> TrackList:
 
 ### External Service Connector
 ```python
+# 1. Define Pydantic models for API response shapes
+# src/infrastructure/connectors/new_service/models.py
+class NewServiceBaseModel(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+class NewServiceTrack(NewServiceBaseModel):
+    id: str
+    name: str
+    # ... typed fields matching API JSON shape
+
+# 2. Validate raw dict → typed model at the API client boundary
+# src/infrastructure/connectors/new_service/client.py
+class NewServiceAPIClient(BaseAPIClient):
+    async def get_track(self, track_id: str) -> NewServiceTrack | None:
+        data = response.json()
+        return NewServiceTrack.model_validate(data)  # Validate here
+
+# 3. Connector facade delegates to typed client + conversions
 # src/infrastructure/connectors/new_service/connector.py
 class NewServiceConnector(BaseAPIConnector):
     @property
     def connector_name(self) -> str:
         return "new_service"
-    
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         from .conversions import convert_new_service_track
         return convert_new_service_track(track_data)
-    
-    # Implement TrackMetadataConnector and/or PlaylistConnectorProtocol
 
+# 4. Conversions receive typed models, not raw dicts
 # src/infrastructure/connectors/new_service/conversions.py
-def convert_new_service_track(track_data: dict) -> ConnectorTrack:
-    # Convert service API data to ConnectorTrack
+def convert_new_service_track(data: dict[str, Any] | NewServiceTrack) -> ConnectorTrack:
+    track = NewServiceTrack.model_validate(data) if isinstance(data, dict) else data
+    # All access is typed — no isinstance() guards needed
 
-# src/infrastructure/connectors/new_service/matching_provider.py  
+# 5. Matching provider works with typed models
+# src/infrastructure/connectors/new_service/matching_provider.py
 class NewServiceMatchingProvider(BaseMatchingProvider):
-    # Implement matching logic for this service
+    # Implement matching logic using typed models from client
 ```
 
 ### Database Changes

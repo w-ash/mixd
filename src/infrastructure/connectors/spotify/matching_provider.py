@@ -27,6 +27,8 @@ logger = get_logger(__name__)
 class SpotifyProvider(BaseMatchingProvider):
     """Spotify track matching provider."""
 
+    connector_instance: Any
+
     def __init__(self, connector_instance: Any) -> None:
         """Initialize with Spotify connector.
 

@@ -22,6 +22,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
         """Return service name for logging."""
         return "apple_music"
 
+    @override
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:
         """Classify Apple Music API errors for proper retry behavior.
 
@@ -129,7 +130,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
         """
         try:
             error_msg = str(exception)
-            details = {}
+            details: dict[str, Any] = {}
 
             # Try to parse JSON error response if present
             # Look for JSON in the error message

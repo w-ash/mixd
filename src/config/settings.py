@@ -11,7 +11,7 @@ The configuration is organized into logical groups:
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, cast
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -213,7 +213,7 @@ class Settings(BaseSettings):
     The .env file is automatically loaded for development convenience.
     """
 
-    model_config = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=(
             ".env.local",
             ".env",
@@ -249,10 +249,12 @@ class Settings(BaseSettings):
         Handles legacy flat env vars (DATABASE_URL) and maps them to the
         nested structure expected by the models (database.url).
         """
+        # mode="before" receives Any — guard for non-dict input (e.g. model instance copy)
         if not isinstance(data, dict):
             return data
-
-        transformed = {}
+        # isinstance confirms dict; pydantic BaseSettings always uses str keys
+        data = cast(dict[str, Any], data)
+        transformed: dict[str, Any] = {}
 
         # Database mappings
         db_mapping = {

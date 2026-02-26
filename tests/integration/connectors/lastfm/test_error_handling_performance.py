@@ -16,7 +16,11 @@ from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
 # Minimal valid track.getInfo JSON response
 _TRACK_DATA = {
-    "track": {"name": "Fast Track", "artist": {"name": "Fast Artist"}, "playcount": "1000"}
+    "track": {
+        "name": "Fast Track",
+        "artist": {"name": "Fast Artist"},
+        "playcount": "1000",
+    }
 }
 
 
@@ -61,9 +65,7 @@ class TestLastFMErrorHandlingPerformance:
         assert len(results) == num_calls
         assert all(r is not None for r in results)
 
-        assert duration < 2.0, (
-            f"Successful calls took {duration:.2f}s, expected < 2.0s"
-        )
+        assert duration < 2.0, f"Successful calls took {duration:.2f}s, expected < 2.0s"
 
         calls_per_second = num_calls / duration
         assert calls_per_second > 10, (
@@ -97,16 +99,12 @@ class TestLastFMErrorHandlingPerformance:
         assert all(r is None for r in results)
 
         # Should be fast since no retries
-        assert duration < 1.0, (
-            f"Not found errors took {duration:.2f}s, expected < 1.0s"
-        )
+        assert duration < 1.0, f"Not found errors took {duration:.2f}s, expected < 1.0s"
 
         # Verify only one call per track (no retries)
         assert mock_api.call_count == num_calls
 
-        print(
-            f"✅ Not found errors: {num_calls} calls in {duration:.2f}s (no retries)"
-        )
+        print(f"✅ Not found errors: {num_calls} calls in {duration:.2f}s (no retries)")
 
     @pytest.mark.asyncio
     async def test_permanent_errors_performance(self, lastfm_client):
@@ -130,15 +128,11 @@ class TestLastFMErrorHandlingPerformance:
         assert all(r is None for r in results)
 
         # Should be fast since no retries for permanent errors
-        assert duration < 0.5, (
-            f"Permanent errors took {duration:.2f}s, expected < 0.5s"
-        )
+        assert duration < 0.5, f"Permanent errors took {duration:.2f}s, expected < 0.5s"
 
         assert mock_api.call_count == num_calls
 
-        print(
-            f"✅ Permanent errors: {num_calls} calls in {duration:.2f}s (no retries)"
-        )
+        print(f"✅ Permanent errors: {num_calls} calls in {duration:.2f}s (no retries)")
 
     @pytest.mark.asyncio
     async def test_mixed_scenario_performance(self, lastfm_client):
@@ -167,7 +161,9 @@ class TestLastFMErrorHandlingPerformance:
             ]
 
             start_time = time.time()
-            tasks = list(starmap(lastfm_client.get_track_info_comprehensive, test_scenarios))
+            tasks = list(
+                starmap(lastfm_client.get_track_info_comprehensive, test_scenarios)
+            )
             results = await asyncio.gather(*tasks)
             duration = time.time() - start_time
 
@@ -179,9 +175,7 @@ class TestLastFMErrorHandlingPerformance:
         assert len(failed_results) == 3
 
         # Should be reasonably fast (no retries for errors)
-        assert duration < 1.5, (
-            f"Mixed scenario took {duration:.2f}s, expected < 1.5s"
-        )
+        assert duration < 1.5, f"Mixed scenario took {duration:.2f}s, expected < 1.5s"
 
         success_rate = len(successful_results) / len(results) * 100
         print(

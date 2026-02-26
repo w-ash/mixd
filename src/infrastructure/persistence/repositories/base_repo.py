@@ -32,7 +32,10 @@ def _normalize_to_list(result: Any) -> list[Any]:
     """Normalize a result to a list (helper for safe_fetch_relationship)."""
     if result is None:
         return []
-    return result if isinstance(result, list) else [result]
+    as_list: list[Any] = (
+        cast(list[Any], result) if isinstance(result, list) else [result]
+    )
+    return as_list
 
 
 async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
@@ -78,8 +81,9 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
         """Get default relationships to load for this model."""
         return []
 
-    @staticmethod
+    @classmethod
     async def map_collection(
+        cls,
         db_models: list[TDBModel],
     ) -> list[TDomainModel]:
         """Map a collection of DB models to domain models."""
@@ -140,14 +144,14 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
 
     @staticmethod
     async def to_domain(db_model: TDBModel) -> TDomainModel:
-        """Default implementation returns None for None input."""
-        if not db_model:
-            return None
+        """Default implementation raises NotImplementedError."""
+        _ = db_model
         raise NotImplementedError("Subclasses must implement to_domain")
 
     @staticmethod
     def to_db(domain_model: TDomainModel) -> TDBModel:
         """Default implementation raises NotImplementedError."""
+        _ = domain_model
         raise NotImplementedError("Subclasses must implement to_db")
 
     @staticmethod
@@ -171,7 +175,7 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
         if not db_models:
             return []
 
-        domain_models = []
+        domain_models: list[TDomainModel] = []
         for db_model in db_models:
             domain_model = await cls.to_domain(db_model)
             if domain_model:
@@ -180,7 +184,7 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
         return domain_models
 
 
-class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
+class SimpleMapperFactory:
     """Factory to create simple mappers for 1:1 field mappings.
 
     This eliminates boilerplate for simple mappers that just copy fields between
@@ -191,7 +195,7 @@ class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
     """
 
     @staticmethod
-    def create(
+    def create[TDBModel: DatabaseModel, TDomainModel](
         db_class: type[TDBModel], domain_class: type[TDomainModel]
     ) -> type[BaseModelMapper[TDBModel, TDomainModel]]:
         """Create a mapper class for the given DB and domain classes."""
@@ -211,9 +215,6 @@ class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
             @staticmethod
             async def to_domain(db_model: TDBModel) -> TDomainModel:
                 """Convert database model to domain model using attrs field mapping."""
-                if not db_model:
-                    return None
-
                 if attrs.has(domain_class):
                     # Get all field names from the domain class
                     field_names = [field.name for field in attrs.fields(domain_class)]
@@ -257,6 +258,10 @@ class SimpleMapperFactory[TDBModel: DatabaseModel, TDomainModel]:
 class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     """Base repository for database operations with SQLAlchemy 2.0 best practices."""
 
+    session: AsyncSession
+    model_class: type[TDBModel]
+    mapper: ModelMapper[TDBModel, TDomainModel]
+
     def __init__(
         self,
         session: AsyncSession,
@@ -284,7 +289,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         Returns:
             List of relationship attribute names as strings
         """
-        rel_names = []
+        rel_names: list[str] = []
         for rel_item in rel_items:
             if isinstance(rel_item, str):
                 rel_names.append(rel_item)
@@ -315,7 +320,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         Returns:
             List of selectinload options ready for use with SQLAlchemy queries
         """
-        options = []
+        options: list[Any] = []
         for rel_item in rel_items:
             if isinstance(rel_item, str):
                 rel_name = rel_item
@@ -363,7 +368,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     def with_relationship(
         self,
         stmt: Select[tuple[TDBModel]],
-        *relationships: str | InstrumentedAttribute | Any,
+        *relationships: str | InstrumentedAttribute[Any] | Any,
     ) -> Select[tuple[TDBModel]]:
         """Add relationship loading options to select statement.
 
@@ -372,7 +377,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         - InstrumentedAttribute: Direct SQLAlchemy attribute
         - selectinload objects: Pre-constructed loader options
         """
-        options = []
+        options: list[Any] = []
         for rel in relationships:
             if isinstance(rel, str):
                 # Simple string relationship name
@@ -397,8 +402,8 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         return self.with_relationship(stmt, *rels)
 
     def count(
-        self, conditions: dict[str, Any] | list[ColumnElement] | None = None
-    ) -> Select:
+        self, conditions: dict[str, Any] | list[ColumnElement[Any]] | None = None
+    ) -> Select[tuple[int]]:
         """Create a count statement for records matching conditions."""
         stmt = select(func.count(self.model_class.id))
 
@@ -495,7 +500,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         db_entities = await self._execute_query(stmt)
 
         # Use session-aware mapping for each entity (single code path)
-        domain_models = []
+        domain_models: list[TDomainModel] = []
         for db_entity in db_entities:
             if not db_entity:
                 continue
@@ -515,7 +520,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("find_by")
     async def find_by(
         self,
-        conditions: dict[str, Any] | list[ColumnElement],
+        conditions: dict[str, Any] | list[ColumnElement[Any]],
         load_relationships: list[str] | None = None,
         limit: int | None = None,
         order_by: tuple[str, bool] | None = None,
@@ -567,7 +572,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("find_one_by")
     async def find_one_by(
         self,
-        conditions: dict[str, Any] | list[ColumnElement],
+        conditions: dict[str, Any] | list[ColumnElement[Any]],
         load_relationships: list[str] | None = None,
     ) -> TDomainModel | None:
         """Find a single entity matching conditions or None if not found."""
@@ -742,8 +747,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not db_entities or not self.mapper.get_default_relationships():
             return
 
-        # Filter out entities without IDs (shouldn't happen, but defensive)
-        entity_ids = [e.id for e in db_entities if e.id is not None]
+        entity_ids = [e.id for e in db_entities]
         if not entity_ids:
             return
 
@@ -752,7 +756,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         stmt = self.with_default_relationships(stmt)
 
         # Execute - SQLAlchemy populates relationships on original objects
-        await self.session.execute(stmt)
+        _ = await self.session.execute(stmt)
 
     # -------------------------------------------------------------------------
     # TRANSACTION MANAGEMENT
@@ -841,7 +845,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 update_values["updated_at"] = now  # Always update timestamp
 
                 # Execute update
-                await self.session.execute(
+                _ = await self.session.execute(
                     update(self.model_class)
                     .where(self.model_class.id == existing_id)
                     .values(**update_values)
@@ -984,7 +988,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             logger.debug(f"SQLite bulk upsert failed, using individual upserts: {e}")
 
             # Fall back to individual upserts
-            results = []
+            results: list[TDomainModel] = []
             count = 0
 
             for entity_dict in entities:

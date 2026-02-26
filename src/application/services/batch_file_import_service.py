@@ -76,6 +76,8 @@ class BatchFileImportService:
     executor protocol, maintaining clean separation of concerns.
     """
 
+    _import_executor: ImportExecutorProtocol
+
     def __init__(self, import_executor: ImportExecutorProtocol) -> None:
         """Initialize service with import executor.
 
@@ -148,7 +150,7 @@ class BatchFileImportService:
                 logger.info(f"Importing file: {file_path.name}")
 
                 # Execute import
-                self._import_executor(
+                _ = self._import_executor(
                     service=service,
                     mode="file",
                     file_path=file_path,
@@ -158,7 +160,7 @@ class BatchFileImportService:
 
                 # Archive file after successful import
                 destination = imported_dir / file_path.name
-                file_path.rename(destination)
+                _ = file_path.rename(destination)
                 archived_files.append(destination)
 
                 logger.info(f"Successfully imported and archived: {file_path.name}")

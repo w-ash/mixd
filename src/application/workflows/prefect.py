@@ -14,6 +14,7 @@ from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
 
 # Use Narada's standard logger for module-level logging; Prefect tasks use get_run_logger()
+from src.application.services.progress_manager import AsyncProgressManager
 from src.config.logging import get_logger
 from src.domain.entities.operations import WorkflowResult
 from src.domain.entities.progress import (
@@ -24,6 +25,7 @@ from src.domain.entities.progress import (
 )
 
 from .node_registry import get_node
+from .protocols import NodeResult
 
 logger = get_logger(__name__)
 
@@ -46,7 +48,9 @@ class TaskResult(TypedDict):
     tags=["node"],
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
-async def execute_node(node_type: str, context: dict, config: dict) -> dict:
+async def execute_node(
+    node_type: str, context: dict[str, Any], config: dict[str, Any]
+) -> NodeResult:
     """Executes a single workflow node with Rich CLI progress tracking.
 
     Wraps node execution with Prefect's retry logic, logging, and automatic progress
@@ -105,6 +109,7 @@ async def execute_node(node_type: str, context: dict, config: dict) -> dict:
         task_logger.exception(f"Node failed (type: {node_type})")
         raise
     else:
+        # All node implementations return {"tracklist": TrackList, ...} — node contract
         return result
 
 
@@ -118,7 +123,7 @@ def generate_flow_run_name(flow_name: str) -> str:
     )
 
 
-def build_flow(workflow_def: dict) -> Any:
+def build_flow(workflow_def: dict[str, Any]) -> Any:
     """Converts workflow definition JSON into executable Prefect flow function.
 
     Performs topological sort of tasks based on dependencies, creates shared database
@@ -138,16 +143,16 @@ def build_flow(workflow_def: dict) -> Any:
     tasks = workflow_def.get("tasks", [])
 
     # Create a topological sort of tasks based on dependencies
-    def topological_sort(tasks):
+    def topological_sort(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Orders tasks by dependencies to ensure upstream tasks execute first."""
         # Create a dependency graph
         graph = {task["id"]: task.get("upstream", []) for task in tasks}
 
         # Find execution order
-        visited = set()
-        result = []
+        visited: set[str] = set()
+        result: list[dict[str, Any]] = []
 
-        def visit(node_id):
+        def visit(node_id: str) -> None:
             if node_id in visited:
                 return
             visited.add(node_id)
@@ -169,8 +174,10 @@ def build_flow(workflow_def: dict) -> Any:
         flow_run_name=generate_flow_run_name(flow_name),
     )
     async def workflow_flow(
-        workflow_progress_manager=None, workflow_operation_id=None, **parameters
-    ):
+        workflow_progress_manager: AsyncProgressManager | None = None,
+        workflow_operation_id: str | None = None,
+        **parameters: object,
+    ) -> dict[str, Any]:
         """Executes workflow tasks in dependency order with shared database session."""
         # Use Prefect's run logger to get flow context
         flow_logger = get_run_logger()
@@ -207,7 +214,7 @@ def build_flow(workflow_def: dict) -> Any:
                 "workflow_operation_id": workflow_operation_id,  # Unified progress tracking
                 "total_tasks": len(sorted_tasks),  # Total number of tasks in workflow
             }
-            task_results = {}
+            task_results: dict[str, NodeResult] = {}
 
             # Execute tasks in dependency order
             for task_index, task_def in enumerate(sorted_tasks):
@@ -278,8 +285,8 @@ def build_flow(workflow_def: dict) -> Any:
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
 )
 async def extract_workflow_result(  # noqa: RUF029
-    workflow_def: dict,
-    task_results: dict,
+    workflow_def: dict[str, Any],
+    task_results: dict[str, NodeResult],
     flow_run_name: str,
     execution_time: float,
 ) -> WorkflowResult:
@@ -327,30 +334,36 @@ async def extract_workflow_result(  # noqa: RUF029
     final_tracks = final_tracklist.tracks
 
     # Extract all metrics from task results
-    all_metrics = {}
+    all_metrics: dict[str, dict[int, Any]] = {}
 
     for task_id, result in task_results.items():
-        if isinstance(result, dict) and "tracklist" in result:
-            task_metrics = result["tracklist"].metadata.get("metrics", {})
+        # Guard: caller passes the full context dict which contains infrastructure
+        # entries (parameters, use_cases, connectors, logger, etc.) alongside actual
+        # NodeResult dicts. Only NodeResult entries have a "tracklist" key.
+        if not isinstance(result, dict) or "tracklist" not in result:  # pyright: ignore[reportUnnecessaryIsInstance]
+            continue
+        tracklist = result["tracklist"]
+        # metrics structure: {metric_name: {track_id: value}}
+        task_metrics: dict[str, dict[int, Any]] = tracklist.metadata.get("metrics", {})
 
-            # Log metrics information for debugging
-            for metric_name, values in task_metrics.items():
-                if values:
-                    metric_keys = list(values.keys())
-                    logger.debug(
-                        f"Metrics found in {task_id}",
-                        metric_name=metric_name,
-                        key_count=len(metric_keys),
-                        key_type=str(type(metric_keys[0])) if metric_keys else "N/A",
-                        sample_values_count=sum(1 for v in values.values() if v != 0),
-                    )
+        # Log metrics information for debugging
+        for metric_name, values in task_metrics.items():
+            if values:
+                metric_keys = list(values.keys())
+                logger.debug(
+                    f"Metrics found in {task_id}",
+                    metric_name=metric_name,
+                    key_count=len(metric_keys),
+                    key_type=type(metric_keys[0]).__name__ if metric_keys else "N/A",
+                    sample_values_count=sum(1 for v in values.values() if v != 0),
+                )
 
-            # Add to all_metrics - make deep copy to ensure values are preserved
-            for metric_name, values in task_metrics.items():
-                if metric_name not in all_metrics:
-                    all_metrics[metric_name] = {}
-                # Ensure we're not losing any values during update
-                all_metrics[metric_name].update(values.copy())
+        # Add to all_metrics - make deep copy to ensure values are preserved
+        for metric_name, values in task_metrics.items():
+            if metric_name not in all_metrics:
+                all_metrics[metric_name] = {}
+            # Ensure we're not losing any values during update
+            all_metrics[metric_name].update(values.copy())
 
     # Verify final metrics
     if "spotify_popularity" in all_metrics:
@@ -358,7 +371,7 @@ async def extract_workflow_result(  # noqa: RUF029
         logger.debug(
             "Final spotify_popularity metrics",
             key_count=len(sp_keys),
-            key_type=str(type(sp_keys[0])) if sp_keys else "N/A",
+            key_type=type(sp_keys[0]).__name__ if sp_keys else "N/A",
             sample_keys=sp_keys[:5],
             sample_values=[
                 all_metrics["spotify_popularity"].get(k) for k in sp_keys[:5]
@@ -384,8 +397,10 @@ async def extract_workflow_result(  # noqa: RUF029
 
 @flow(name="run_workflow")
 async def run_workflow(
-    workflow_def: dict, progress_manager=None, **parameters
-) -> tuple[dict, WorkflowResult]:
+    workflow_def: dict[str, Any],
+    progress_manager: AsyncProgressManager | None = None,
+    **parameters: object,
+) -> tuple[dict[str, Any], WorkflowResult]:
     """Executes complete playlist workflow from JSON definition to final result.
 
     Main entry point for workflow execution. Builds Prefect flow from definition,

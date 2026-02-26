@@ -44,7 +44,7 @@ def init_cli(
 ) -> None:
     """Initialize Narada CLI with Rich console management."""
     # Store configuration in context for subcommands
-    ctx.ensure_object(dict)
+    _ = ctx.ensure_object(dict)  # pyright: ignore[reportUnknownVariableType]
     ctx.obj["verbose"] = verbose
     ctx.obj["use_live_display"] = should_use_live_display(ctx)
     ctx.obj["console"] = console

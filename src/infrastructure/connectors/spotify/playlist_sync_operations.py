@@ -6,7 +6,7 @@ Handles minimal playlist updates (add/remove/move) with canonical URI resolution
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable
-from typing import cast
+from typing import Any
 
 from attrs import define, evolve, field
 
@@ -28,9 +28,9 @@ class SpotifyPlaylistSyncOperations:
     async def execute_playlist_operations(
         self,
         playlist_id: str,
-        operations: list,
+        operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo=None,
+        track_repo: Any = None,
     ) -> str | None:
         """Execute differential playlist operations with URI translation."""
         if not operations:
@@ -50,7 +50,7 @@ class SpotifyPlaylistSyncOperations:
             logger.info(f"Resolved {len(operations)} operations after URI translation")
 
         # Group by type
-        ops_by_type = {
+        ops_by_type: dict[PlaylistOperationType, list[PlaylistOperation]] = {
             PlaylistOperationType.REMOVE: [],
             PlaylistOperationType.MOVE: [],
             PlaylistOperationType.ADD: [],
@@ -106,9 +106,9 @@ class SpotifyPlaylistSyncOperations:
         self,
         operation_name: str,
         playlist_id: str,
-        operations: list,
+        operations: list[PlaylistOperation],
         snapshot_id: str | None,
-        executor: Callable,
+        executor: Callable[..., Any],
     ) -> str | None:
         """Execute a group of operations with consistent error handling."""
         if not operations:
@@ -129,11 +129,11 @@ class SpotifyPlaylistSyncOperations:
             return new_snapshot
 
     async def _resolve_canonical_uris_to_spotify(
-        self, operations: list, track_repo
-    ) -> list:
+        self, operations: list[PlaylistOperation], track_repo: Any
+    ) -> list[PlaylistOperation]:
         """Convert canonical URIs to Spotify URIs via database lookup."""
         # Collect canonical track IDs
-        canonical_ids = set()
+        canonical_ids: set[int] = set()
         for op in operations:
             if op.spotify_uri and op.spotify_uri.startswith("canonical:"):
                 try:
@@ -156,8 +156,12 @@ class SpotifyPlaylistSyncOperations:
         logger.info(f"Found {len(track_map)}/{len(canonical_ids)} tracks in database")
 
         # Resolve operations
-        resolved = []
-        stats = {"resolved": 0, "missing_track": 0, "missing_spotify_id": 0}
+        resolved: list[PlaylistOperation] = []
+        stats: dict[str, int] = {
+            "resolved": 0,
+            "missing_track": 0,
+            "missing_spotify_id": 0,
+        }
 
         for op in operations:
             if not op.spotify_uri:
@@ -204,10 +208,10 @@ class SpotifyPlaylistSyncOperations:
         return resolved
 
     def _validate_operations(
-        self, operations: list, operation_type: PlaylistOperationType
+        self, operations: list[PlaylistOperation], operation_type: PlaylistOperationType
     ) -> list[tuple[int, PlaylistOperation]]:
         """Validate operations and return list of (index, operation) tuples."""
-        valid = []
+        valid: list[tuple[int, PlaylistOperation]] = []
 
         for i, op in enumerate(operations):
             # Common validation
@@ -221,12 +225,12 @@ class SpotifyPlaylistSyncOperations:
                 valid.append((i, op))
 
             elif operation_type == PlaylistOperationType.ADD:
-                if op.position is not None and op.position < 0:
+                if op.position < 0:
                     continue
                 valid.append((i, op))
 
             elif operation_type == PlaylistOperationType.MOVE:
-                if op.old_position is None or op.position is None:
+                if op.old_position is None:
                     continue
                 if op.old_position < 0 or op.position < 0:
                     continue
@@ -244,7 +248,7 @@ class SpotifyPlaylistSyncOperations:
     async def _execute_remove_operations(
         self,
         playlist_id: str,
-        remove_ops: list,
+        remove_ops: list[PlaylistOperation],
         snapshot_id: str | None,
     ) -> str | None:
         """Execute remove operations batched by track URI."""
@@ -253,7 +257,7 @@ class SpotifyPlaylistSyncOperations:
             return snapshot_id
 
         # Group by URI with positions using defaultdict
-        tracks_to_remove = defaultdict(list)
+        tracks_to_remove: defaultdict[str | None, list[int]] = defaultdict(list)
         for _, op in valid_ops:
             if op.old_position is not None:
                 tracks_to_remove[op.spotify_uri].append(op.old_position)
@@ -303,7 +307,7 @@ class SpotifyPlaylistSyncOperations:
     async def _execute_add_operations(
         self,
         playlist_id: str,
-        add_ops: list,
+        add_ops: list[PlaylistOperation],
         snapshot_id: str | None,
     ) -> str | None:
         """Execute add operations individually with position tracking."""
@@ -315,10 +319,14 @@ class SpotifyPlaylistSyncOperations:
         failed = 0
 
         for _, op in valid_ops:
+            if op.spotify_uri is None:
+                raise RuntimeError(
+                    "BUG: add op passed validation with None spotify_uri"
+                )
             try:
-                await self.client.playlist_add_items(
+                _ = await self.client.playlist_add_items(
                     playlist_id=playlist_id,
-                    items=[cast(str, op.spotify_uri)],  # Validated non-None
+                    items=[op.spotify_uri],
                     position=op.position,
                 )
                 successful += 1
@@ -344,7 +352,7 @@ class SpotifyPlaylistSyncOperations:
     async def _execute_move_operations(
         self,
         playlist_id: str,
-        move_ops: list,
+        move_ops: list[PlaylistOperation],
         snapshot_id: str | None,
     ) -> str | None:
         """Execute move operations individually with bounds checking."""
@@ -361,9 +369,9 @@ class SpotifyPlaylistSyncOperations:
             current_track_count = None
 
         # Validate operations
-        valid_ops = []
+        valid_ops: list[tuple[int, PlaylistOperation]] = []
         for i, op in enumerate(move_ops):
-            if op.old_position is None or op.position is None:
+            if op.old_position is None:
                 continue
             if op.old_position < 0 or op.position < 0:
                 continue
@@ -392,6 +400,10 @@ class SpotifyPlaylistSyncOperations:
         current_snapshot = snapshot_id
 
         for _, op in valid_ops:
+            if op.old_position is None:
+                raise RuntimeError(
+                    "BUG: move op passed validation with None old_position"
+                )
             try:
                 result = await self.client.playlist_reorder_items(
                     playlist_id=playlist_id,

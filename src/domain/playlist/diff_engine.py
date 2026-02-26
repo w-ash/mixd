@@ -114,9 +114,9 @@ def match_tracks_with_db_lookup(
     """
 
     # Match tracks using canonical identity (infrastructure-agnostic)
-    matched = []
-    unmatched_current = []
-    consumed_target_indices = set()
+    matched: list[Track] = []
+    unmatched_current: list[Track] = []
+    consumed_target_indices: set[int] = set()
 
     def tracks_are_equivalent(track1: Track, track2: Track) -> bool:
         """Check if two tracks represent the same musical work."""
@@ -179,8 +179,8 @@ def match_tracks_with_db_lookup(
 
     logger.debug(
         f"Track matching results: {len(matched)} matched, "
-        f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target. "
-        f"Canonical ID matches: {canonical_matches}, content-based matches: {content_matches}."
+        + f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target. "
+        + f"Canonical ID matches: {canonical_matches}, content-based matches: {content_matches}."
     )
 
     return matched, unmatched_current, unmatched_target
@@ -191,7 +191,7 @@ def calculate_remove_operations(
     unmatched_current_tracks: list[Track], current_playlist: Playlist
 ) -> list[PlaylistOperation]:
     """Generate REMOVE operations for tracks in current but not target playlist."""
-    operations = []
+    operations: list[PlaylistOperation] = []
 
     def get_track_uri(track: Track) -> str | None:
         """Get track URI for operations (infrastructure-agnostic)."""
@@ -229,7 +229,7 @@ def calculate_add_operations(
     unmatched_target_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate ADD operations for tracks in target but not current playlist."""
-    operations = []
+    operations: list[PlaylistOperation] = []
 
     def get_track_uri(track: Track) -> str | None:
         """Get track URI for operations (infrastructure-agnostic)."""
@@ -279,7 +279,7 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
 
     n = len(sequence)
     # dp[i] stores the smallest ending element of increasing subsequence of length i+1
-    dp = []
+    dp: list[int] = []
     # parent[i] stores the index of previous element in LIS ending at position i
     parent = [-1] * n
     # lis_indices[i] stores the actual index in dp array for position i
@@ -322,7 +322,7 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
             break
 
     # Reconstruct the path
-    result = []
+    result: list[int] = []
     current = last_index
     while current != -1:
         result.append(current)
@@ -363,8 +363,8 @@ def calculate_lis_reorder_operations(
 
     # Position-aware comparison: treat each playlist position as unique entity
     # Each position represents a unique playlist track instance, even for duplicate tracks
-    target_positions_in_current = []
-    target_track_refs = []
+    target_positions_in_current: list[int] = []
+    target_track_refs: list[tuple[int, Track, int]] = []
 
     # Step 1: Direct position-to-position matching for identical tracks
     direct_matches = 0
@@ -396,10 +396,10 @@ def calculate_lis_reorder_operations(
         )
 
     # Step 2: For remaining target positions, find where those tracks currently are
-    matched_positions = {
+    matched_positions: set[int] = {
         ref[0] for ref in target_track_refs
     }  # target positions already matched
-    matched_current_positions = {
+    matched_current_positions: set[int] = {
         ref[2] for ref in target_track_refs
     }  # current positions already used
 
@@ -426,13 +426,13 @@ def calculate_lis_reorder_operations(
     lis_indices = calculate_longest_increasing_subsequence(target_positions_in_current)
 
     # Convert LIS indices back to (target_pos, current_pos) pairs that don't need to move
-    positions_in_correct_order = set()
+    positions_in_correct_order: set[tuple[int, int]] = set()
     for lis_idx in lis_indices:
         target_pos, target_track, current_pos = target_track_refs[lis_idx]
         positions_in_correct_order.add((target_pos, current_pos))
 
     # Debug: log some examples of what's being identified as needing to move
-    tracks_to_move = [
+    tracks_to_move: list[tuple[int, int, int | None]] = [
         (target_pos, current_pos, target_track.id)
         for target_pos, target_track, current_pos in target_track_refs
         if (target_pos, current_pos) not in positions_in_correct_order
@@ -440,7 +440,7 @@ def calculate_lis_reorder_operations(
 
     logger.debug(
         f"LIS optimization: {len(positions_in_correct_order)} track instances already in correct order, "
-        f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
+        + f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
     )
 
     if (
@@ -451,7 +451,7 @@ def calculate_lis_reorder_operations(
         )
 
     # Generate move operations only for track instances not in LIS
-    operations = []
+    operations: list[PlaylistOperation] = []
 
     for target_pos, target_track, current_pos in target_track_refs:
         if (target_pos, current_pos) not in positions_in_correct_order:
@@ -469,7 +469,7 @@ def calculate_lis_reorder_operations(
 
     logger.debug(
         f"Generated {len(operations)} LIS-optimized move operations "
-        f"(saved {len(positions_in_correct_order)} unnecessary moves)"
+        + f"(saved {len(positions_in_correct_order)} unnecessary moves)"
     )
 
     return operations
@@ -485,7 +485,7 @@ def calculate_move_operations(
     operations, avoiding unnecessary position changes for tracks already in correct order.
     Provides true idempotency and mathematical correctness for single-pass execution.
     """
-    operations = []
+    operations: list[PlaylistOperation] = []
 
     if not matched_tracks:
         return operations
@@ -557,11 +557,7 @@ def calculate_playlist_diff(
         PlaylistDiff containing operations and metadata.
     """
     # Extract tracks from target (handles both Playlist and TrackList)
-    target_tracks = (
-        target_playlist.tracks
-        if isinstance(target_playlist, (Playlist, TrackList))
-        else target_playlist
-    )
+    target_tracks = target_playlist.tracks
 
     logger.debug(
         f"Calculating diff: {len(current_playlist.tracks)} → {len(target_tracks)} tracks"

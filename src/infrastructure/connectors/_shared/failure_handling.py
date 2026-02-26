@@ -7,10 +7,12 @@ across all matching providers while maintaining clean architecture principles.
 from collections.abc import Callable
 
 from src.config import get_logger
+from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
     ProviderMatchResult,
+    RawProviderMatch,
 )
 
 logger = get_logger(__name__)
@@ -102,10 +104,10 @@ def handle_track_processing_failure(
 
 
 def validate_track_for_method(
-    track,
+    track: Track,
     method: str,
     service: str,
-    validator_func: Callable,
+    validator_func: Callable[[Track], bool],
     error_reason: MatchFailureReason,
     error_details: str,
 ) -> MatchFailure | None:
@@ -126,8 +128,8 @@ def validate_track_for_method(
 
 def merge_results(*results: ProviderMatchResult) -> ProviderMatchResult:
     """Merge multiple ProviderMatchResult objects."""
-    matches = {}
-    failures = []
+    matches: dict[int, RawProviderMatch] = {}
+    failures: list[MatchFailure] = []
 
     for result in results:
         matches.update(result.matches)

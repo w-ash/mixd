@@ -7,7 +7,7 @@ Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 
 import asyncio
 import contextlib
-from typing import Any, Self, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 from attrs import define
 from rich.live import Live
@@ -28,6 +28,9 @@ from src.domain.entities.progress import (
     ProgressEvent,
     ProgressOperation,
 )
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 logger = get_logger(__name__).bind(service="rich_progress_provider")
 
@@ -86,6 +89,13 @@ class RichProgressProvider:
     - Automatic cleanup of completed operations
     """
 
+    _show_rate: bool
+    _progress: Progress
+    _live: Live
+    _progress_started: bool
+    _lock: asyncio.Lock
+    _logger: Logger
+
     def __init__(self, show_rate: bool = True):
         """Initialize Rich progress provider with Progress.console coordination.
 
@@ -126,7 +136,7 @@ class RichProgressProvider:
         )
 
         self._operation_tasks: dict[str, OperationTask] = {}
-        self._cleanup_tasks: set[asyncio.Task] = (
+        self._cleanup_tasks: set[asyncio.Task[None]] = (
             set()
         )  # Track cleanup tasks for proper cancellation
         self._progress_started = False
@@ -160,7 +170,7 @@ class RichProgressProvider:
                 tasks_snapshot = list(self._cleanup_tasks)
                 for task in tasks_snapshot:
                     if not task.done():
-                        task.cancel()
+                        _ = task.cancel()
 
                 # Wait for all cleanup tasks to finish cancellation
                 for task in tasks_snapshot:
@@ -256,7 +266,7 @@ class RichProgressProvider:
                 )
 
             # Add metadata to task fields for custom columns
-            task_fields = {}
+            task_fields: dict[str, float] = {}
             if "eta_seconds" in event.metadata:
                 task_fields["eta_seconds"] = event.metadata["eta_seconds"]
             if "items_per_second" in event.metadata:

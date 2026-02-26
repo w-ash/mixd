@@ -34,11 +34,14 @@ from src.config import get_logger
 from src.domain.entities.track import TrackList
 
 from .node_context import NodeContext
+from .protocols import NodeResult
 
 logger = get_logger(__name__)
 
 
-async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
+async def playlist_source(
+    context: dict[str, Any], config: dict[str, Any]
+) -> NodeResult:
     """Import playlist from streaming service or retrieve saved playlist.
 
     Fetches playlists from Spotify/LastFM and saves them locally, or reads previously
@@ -101,15 +104,14 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
             },
         )
 
-        return {
-            "tracklist": tracklist_with_source,
-            "playlist_id": result.playlist.id,
-            "playlist_name": result.playlist.name,
-            "source": "canonical",
-            "source_id": playlist_id,
-            "operation": "playlist_source",
-            "track_count": len(result.playlist.tracks),
-        }
+        logger.info(
+            "playlist_source complete",
+            source="canonical",
+            playlist_id=result.playlist.id,
+            playlist_name=result.playlist.name,
+            track_count=len(result.playlist.tracks),
+        )
+        return {"tracklist": tracklist_with_source}
 
     else:
         # Connector-based playlist with upsert logic
@@ -141,17 +143,7 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
 
         if not connector_playlist or not connector_playlist.items:
             logger.warning(f"Playlist empty or not found: {playlist_id}")
-            return {
-                "tracklist": TrackList(),
-                "playlist_id": None,
-                "playlist_name": connector_playlist.name
-                if connector_playlist
-                else "Unknown",
-                "source": connector,
-                "source_id": playlist_id,
-                "operation": "playlist_source",
-                "track_count": 0,
-            }
+            return {"tracklist": TrackList()}
 
         # Step 2: Check if local playlist already exists for this service playlist
         read_command = ReadCanonicalPlaylistCommand(
@@ -224,16 +216,15 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
                 },
             )
 
-            return {
-                "tracklist": tracklist_with_source,
-                "playlist_id": result.playlist.id,
-                "playlist_name": result.playlist.name,
-                "source": connector,
-                "source_id": playlist_id,
-                "operation": "playlist_source",
-                "track_count": len(result.playlist.tracks),
-                "action": "updated",
-            }
+            logger.info(
+                "playlist_source complete",
+                action="updated",
+                source=connector,
+                playlist_id=result.playlist.id,
+                playlist_name=result.playlist.name,
+                track_count=len(result.playlist.tracks),
+            )
+            return {"tracklist": tracklist_with_source}
 
         else:
             # Create new canonical playlist
@@ -273,22 +264,23 @@ async def playlist_source(context: dict, config: dict) -> dict[str, Any]:
                 },
             )
 
-            return {
-                "tracklist": tracklist_with_source,
-                "playlist_id": result.playlist.id,
-                "playlist_name": result.playlist.name,
-                "source": connector,
-                "source_id": playlist_id,
-                "operation": "playlist_source",
-                "track_count": len(result.playlist.tracks),
-                "action": "created",
-            }
+            logger.info(
+                "playlist_source complete",
+                action="created",
+                source=connector,
+                playlist_id=result.playlist.id,
+                playlist_name=result.playlist.name,
+                track_count=len(result.playlist.tracks),
+            )
+            return {"tracklist": tracklist_with_source}
 
 
 # === User Music Library Access ===
 
 
-async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
+async def source_liked_tracks(
+    context: dict[str, Any], config: dict[str, Any]
+) -> NodeResult:
     """Get user's favorited tracks with filtering and sorting options.
 
     Retrieves tracks the user has liked/favorited across music services.
@@ -327,18 +319,19 @@ async def source_liked_tracks(context: dict, config: dict) -> dict[str, Any]:
     use_case = GetLikedTracksUseCase()
     result = await workflow_context.execute_use_case(lambda: use_case, command)
 
-    # Return standardized result for workflow composition
-    return {
-        "tracklist": result.tracklist,
-        "operation": "source_liked_tracks",
-        "track_count": len(result.tracklist.tracks),
-        "connector_filter": connector_filter,
-        "sort_by": sort_by,
-        "execution_time_ms": result.execution_time_ms,
-    }
+    logger.info(
+        "source_liked_tracks complete",
+        track_count=len(result.tracklist.tracks),
+        connector_filter=connector_filter,
+        sort_by=sort_by,
+        execution_time_ms=result.execution_time_ms,
+    )
+    return {"tracklist": result.tracklist}
 
 
-async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
+async def source_played_tracks(
+    context: dict[str, Any], config: dict[str, Any]
+) -> NodeResult:
     """Get user's listening history with time window and sorting options.
 
     Retrieves tracks the user has played across music services. Useful for
@@ -380,16 +373,15 @@ async def source_played_tracks(context: dict, config: dict) -> dict[str, Any]:
     use_case = GetPlayedTracksUseCase()
     result = await workflow_context.execute_use_case(lambda: use_case, command)
 
-    # Return standardized result for workflow composition
-    return {
-        "tracklist": result.tracklist,
-        "operation": "source_played_tracks",
-        "track_count": len(result.tracklist.tracks),
-        "days_back": days_back,
-        "connector_filter": connector_filter,
-        "sort_by": sort_by,
-        "execution_time_ms": result.execution_time_ms,
-    }
+    logger.info(
+        "source_played_tracks complete",
+        track_count=len(result.tracklist.tracks),
+        days_back=days_back,
+        connector_filter=connector_filter,
+        sort_by=sort_by,
+        execution_time_ms=result.execution_time_ms,
+    )
+    return {"tracklist": result.tracklist}
 
 
 # Track format conversion and database operations handled by use cases

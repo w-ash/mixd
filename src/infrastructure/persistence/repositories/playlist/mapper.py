@@ -48,11 +48,8 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
     @staticmethod
     async def to_domain(db_model: DBPlaylist) -> Playlist:
         """Convert persistence model to domain entity using a consistent async-safe approach."""
-        if not db_model:
-            return None
-
         # Process playlist entries - build PlaylistEntry with track + position metadata
-        playlist_entries = []
+        playlist_entries: list[PlaylistEntry] = []
 
         # Get playlist tracks using safe fetch relationship (always returns a list)
         playlist_tracks = await safe_fetch_relationship(db_model, "tracks")
@@ -83,7 +80,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             track_mappings = await safe_fetch_relationship(track, "mappings")
 
             # Build connector_track_identifiers from mappings
-            connector_track_identifiers = {}
+            connector_track_identifiers: dict[str, str] = {}
 
             # Process track mappings (no soft delete filtering needed after hard delete migration)
             for m in track_mappings:
@@ -153,7 +150,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         playlist_mappings = await safe_fetch_relationship(db_model, "mappings")
 
         # Process active playlist mappings
-        connector_playlist_identifiers = {}
+        connector_playlist_identifiers: dict[str, str] = {}
         for m in playlist_mappings:
             if hasattr(m, "connector_name") and hasattr(m, "connector_playlist_id"):
                 # Get the connector playlist to extract the external identifier
@@ -198,9 +195,6 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
     @staticmethod
     async def to_domain(db_model: DBConnectorPlaylist) -> ConnectorPlaylist:
         """Convert DB connector playlist to domain model."""
-        if not db_model:
-            return None
-
         # Convert stored JSON items to ConnectorPlaylistItem objects
         items = [
             ConnectorPlaylistItem(
@@ -276,9 +270,6 @@ class PlaylistMappingMapper(BaseModelMapper[DBPlaylistMapping, dict[str, Any]]):
     @staticmethod
     async def to_domain(db_model: DBPlaylistMapping) -> dict[str, Any]:
         """Convert DB mapping to dictionary."""
-        if not db_model:
-            return None
-
         return {
             "id": db_model.id,
             "playlist_id": db_model.playlist_id,
@@ -316,7 +307,9 @@ class PlaylistMappingRepository(BaseRepository[DBPlaylistMapping, dict[str, Any]
             mapper=PlaylistMappingMapper(),
         )
 
-    def select_by_connector(self, connector: str, connector_id: str) -> Select:
+    def select_by_connector(
+        self, connector: str, connector_id: str
+    ) -> Select[tuple[DBPlaylistMapping]]:
         """Create a select statement for a mapping by connector details."""
         return self.select().where(
             self.model_class.connector_name == connector,

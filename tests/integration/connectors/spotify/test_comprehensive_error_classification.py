@@ -27,7 +27,9 @@ def make_httpx_error(status_code: int, message: str = "") -> httpx.HTTPStatusErr
     """Create an httpx.HTTPStatusError with the given status code."""
     req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
     resp = httpx.Response(status_code, request=req)
-    return httpx.HTTPStatusError(message or f"HTTP {status_code}", request=req, response=resp)
+    return httpx.HTTPStatusError(
+        message or f"HTTP {status_code}", request=req, response=resp
+    )
 
 
 def make_network_error(message: str = "Connection refused") -> httpx.ConnectError:
@@ -48,12 +50,14 @@ class TestComprehensiveErrorClassification:
             "src.infrastructure.connectors.spotify.client.settings"
         ) as mock_settings:
             mock_settings.credentials.spotify_client_id = "test_client_id"
-            mock_settings.credentials.spotify_client_secret.get_secret_value.return_value = (
-                "test_secret"
-            )
+            mock_settings.credentials.spotify_client_secret.get_secret_value.return_value = "test_secret"
             mock_settings.api.spotify_market = "US"
             mock_settings.api.spotify_rate_limit = 10.0
             mock_settings.api.spotify_request_timeout = 15
+            # Retry policy parameters — must be concrete values, not MagicMock
+            mock_settings.api.spotify_retry_count = 3
+            mock_settings.api.spotify_retry_base_delay = 0.5
+            mock_settings.api.spotify_retry_max_delay = 30.0
             yield SpotifyAPIClient()
 
     # PERMANENT ERRORS (4xx status codes) - Should NOT retry, immediate failure
@@ -274,4 +278,6 @@ class TestComprehensiveErrorClassification:
             f"got {mock_impl.call_count}"
         )
 
-        assert duration > 0, f"Method {method_name} retries should have some delay: {duration}s"
+        assert duration > 0, (
+            f"Method {method_name} retries should have some delay: {duration}s"
+        )

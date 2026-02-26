@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from attrs import define
 from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -44,7 +45,7 @@ class TrackMergeService:
         # Validate tracks exist
         track_repo = uow.get_track_repository()
         winner_track = await track_repo.get_by_id(winner_id)
-        await track_repo.get_by_id(loser_id)  # Just verify it exists
+        _ = await track_repo.get_by_id(loser_id)  # Just verify it exists
 
         # Move all foreign key references
         await self._move_all_references(loser_id, winner_id, uow)
@@ -97,7 +98,7 @@ class TrackMergeService:
         logger.debug(f"Moved all references: {loser_id} → {winner_id}")
 
     async def _merge_track_metrics(
-        self, loser_id: int, winner_id: int, session, now: datetime
+        self, loser_id: int, winner_id: int, session: AsyncSession, now: datetime
     ) -> None:
         """Merge track metrics with conflict resolution for duplicate (connector_name, metric_type)."""
         from sqlalchemy import text, update
@@ -192,7 +193,7 @@ class TrackMergeService:
         )
 
     async def _merge_track_mappings(
-        self, loser_id: int, winner_id: int, session, now: datetime
+        self, loser_id: int, winner_id: int, session: AsyncSession, now: datetime
     ) -> None:
         """Merge track mappings with conflict resolution.
 
@@ -323,12 +324,12 @@ class TrackMergeService:
 
         logger.debug(
             f"Merged track mappings: {loser_id} → {winner_id} "
-            f"({same_external_id_conflicts} same external ID conflicts, "
-            f"{different_external_id_conflicts} different external ID conflicts resolved)"
+            + f"({same_external_id_conflicts} same external ID conflicts, "
+            + f"{different_external_id_conflicts} different external ID conflicts resolved)"
         )
 
     async def _merge_track_likes(
-        self, loser_id: int, winner_id: int, session, now: datetime
+        self, loser_id: int, winner_id: int, session: AsyncSession, now: datetime
     ) -> None:
         """Merge track likes with conflict resolution for duplicate (track_id, service)."""
         from sqlalchemy import text, update

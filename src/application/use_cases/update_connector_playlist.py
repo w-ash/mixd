@@ -7,7 +7,7 @@ playlists while preserving track timestamps and minimizing API calls.
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import define, field
+from attrs import Attribute, define, field
 
 from src.application.use_cases._shared import (
     AppendOperationResult,
@@ -26,14 +26,16 @@ from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
 from src.domain.entities.track import TrackList
-from src.domain.playlist import calculate_playlist_diff
+from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
 from src.domain.playlist.execution_strategies import get_execution_strategy
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(_instance, attribute, value):
+def _validate_tracklist_has_tracks(
+    _instance: object, attribute: Attribute[TrackList], value: TrackList
+) -> None:
     """Validates that TrackList contains tracks."""
     if not value.tracks:
         raise ValueError(f"{attribute.name} must contain tracks")
@@ -524,7 +526,7 @@ class UpdateConnectorPlaylistUseCase:
     async def _execute_external_operations(
         self,
         current_playlist: Playlist,
-        sequenced_operations: list,
+        sequenced_operations: list[PlaylistOperation],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> tuple[int, dict[str, Any], int, int, int, int]:
@@ -587,8 +589,8 @@ class UpdateConnectorPlaylistUseCase:
 
     async def _execute_connector_api_operations(
         self,
-        current_playlist: Playlist,
-        sequenced_operations: list,
+        _current_playlist: Playlist,
+        sequenced_operations: list[PlaylistOperation],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> dict[str, Any]:
@@ -681,7 +683,7 @@ class UpdateConnectorPlaylistUseCase:
     async def _update_connector_playlist_optimistic(
         self,
         current_playlist: Playlist,
-        applied_operations: list,
+        applied_operations: list[PlaylistOperation],
         api_metadata: dict[str, Any],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,

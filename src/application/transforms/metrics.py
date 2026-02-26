@@ -53,14 +53,16 @@ def filter_by_metric_range(
             return include_missing
 
         # Get the metrics dictionary from the tracklist metadata
-        metrics = {} if tracklist is None else tracklist.metadata.get("metrics", {})
-        metric_values = metrics.get(metric_name, {})
+        metrics: dict[str, Any] = (
+            {} if tracklist is None else tracklist.metadata.get("metrics", {})
+        )
+        metric_values: dict[int, Any] = metrics.get(metric_name, {})
 
         # Check if track has the metric
         if track.id not in metric_values:
             return include_missing
 
-        value = metric_values[track.id]
+        value: Any = metric_values[track.id]
 
         # Check range bounds
         if min_value is not None and value < min_value:
@@ -80,7 +82,7 @@ def filter_by_metric_range(
 
         # Add metadata about the filter operation
         filtered_count = len(result.tracks)
-        return cast(TrackList, result).with_metadata(
+        return result.with_metadata(
             "filter_metrics",
             {
                 "metric_name": metric_name,

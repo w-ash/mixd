@@ -60,7 +60,7 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
         data = json.load(f)
 
     # Filter out non-music content and parse records
-    records = []
+    records: list[SpotifyPlayRecord] = []
     for item in data:
         if item.get("spotify_track_uri") and item.get("master_metadata_track_name"):
             try:

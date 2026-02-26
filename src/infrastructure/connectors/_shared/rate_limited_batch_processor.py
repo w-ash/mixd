@@ -30,12 +30,15 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 import contextlib
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import uuid
 
 from attrs import define, field
 
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 logger = get_logger(__name__).bind(service="rate_limited_batch_processor")
 
@@ -64,7 +67,7 @@ class RateLimitedBatchProcessor:
         connector_name: Name for logging and identification
         max_concurrent_tasks: Maximum number of tasks running simultaneously (from settings.api.{connector}_concurrency)
 
-    Note: Retry logic is handled by the @resilient_operation decorator on the process_func,
+    Note: Retry logic is handled by the API client's _api_call() method via tenacity,
     not by this rate limiter. This keeps retry policy and error classification at the
     individual connector level while maintaining rate limiting here.
     """
@@ -73,14 +76,23 @@ class RateLimitedBatchProcessor:
     connector_name: str
     max_concurrent_tasks: int
 
+    rate_delay: float = field(init=False)
+    work_queue: asyncio.Queue[WorkItem] = field(init=False)
+    running_tasks: set[asyncio.Task[Any]] = field(init=False)
+    completed_results: dict[str, Any] = field(init=False)
+    batch_start_time: float = field(init=False)
+    total_expected_items: int = field(init=False)
+    shutdown_event: asyncio.Event = field(init=False)
+    logger: Logger = field(init=False)
+
     def __attrs_post_init__(self):
         """Initialize runtime state after attrs construction."""
         self.rate_delay = 1.0 / self.rate_per_second  # e.g. 0.2s for 5/sec
-        self.work_queue: asyncio.Queue[WorkItem] = asyncio.Queue()
-        self.running_tasks: set[asyncio.Task] = set()
-        self.completed_results: dict[str, Any] = {}
-        self.batch_start_time: float = 0.0
-        self.total_expected_items: int = 0
+        self.work_queue = asyncio.Queue()
+        self.running_tasks = set()
+        self.completed_results = {}
+        self.batch_start_time = 0.0
+        self.total_expected_items = 0
         self.shutdown_event = asyncio.Event()
 
         # Contextual logger
@@ -126,9 +138,7 @@ class RateLimitedBatchProcessor:
         # Queue all initial work items
         for item in items:
             work_item = WorkItem(
-                item_id=str(
-                    uuid.uuid7()  # pyright: ignore[reportAttributeAccessIssue]
-                ),  # Time-ordered UUID for better tracking
+                item_id=str(uuid.uuid7()),  # Time-ordered UUID for better tracking
                 item=item,
             )
             await self.work_queue.put(work_item)
@@ -190,7 +200,7 @@ class RateLimitedBatchProcessor:
             if not rate_limiter_task.done():
                 rate_limiter_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await rate_limiter_task
+                    _ = await rate_limiter_task
 
     async def _rate_limiter_loop(self, process_func: Callable[[Any], Any]) -> None:
         """Background loop that launches requests at controlled intervals.
@@ -245,7 +255,7 @@ class RateLimitedBatchProcessor:
                 self.running_tasks.add(task)
 
                 # Clean up completed tasks
-                def remove_completed_task(completed_task: asyncio.Task) -> None:
+                def remove_completed_task(completed_task: asyncio.Task[Any]) -> None:
                     """Remove task from running_tasks set when completed."""
                     self.running_tasks.discard(completed_task)
 
@@ -334,19 +344,19 @@ class RateLimitedBatchProcessor:
                 ),
             )
 
-            # Handle retry logic - let the calling @resilient_operation decorator handle retries
+            # Handle retry logic - retries are handled by the API client's _api_call()
             # We just log the failure and mark as complete with None result
             self.completed_results[work_item.item_id] = None
 
             self.logger.warning(
                 f"Work item failed for {self.connector_name}",
                 item_id=work_item.item_id,
-                error_details="Retry handled by @resilient_operation decorator",
+                error_details="Retry handled by API client retry policy",
             )
 
     async def _collect_results(self) -> AsyncIterator[tuple[str, Any]]:
         """Collect and yield results as they become available."""
-        yielded_items = set()
+        yielded_items: set[str] = set()
 
         while len(yielded_items) < self.total_expected_items:
             await asyncio.sleep(

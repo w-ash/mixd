@@ -14,6 +14,7 @@ Transformations follow functional programming principles:
 
 from collections.abc import Callable
 from functools import wraps
+from typing import Any, cast
 
 from toolz import compose_left, curry
 
@@ -26,7 +27,9 @@ Transform = Callable[[TrackList], TrackList]
 # === Transform Decorators ===
 
 
-def optional_tracklist_transform(func: Callable[..., Transform]) -> Callable:
+def optional_tracklist_transform(
+    func: Callable[..., Transform],
+) -> Callable[..., Transform | TrackList]:
     """
     Decorator that adds optional tracklist parameter to transform functions.
 
@@ -60,13 +63,16 @@ def optional_tracklist_transform(func: Callable[..., Transform]) -> Callable:
 
     @curry
     @wraps(func)
-    def wrapper(*args, tracklist: TrackList | None = None, **kwargs):
+    def wrapper(
+        *args: Any, tracklist: TrackList | None = None, **kwargs: Any
+    ) -> Transform | TrackList:
         # Get the transform function by calling the decorated function
         transform = func(*args, **kwargs)
         # Execute immediately if tracklist provided, otherwise return transform
         return transform(tracklist) if tracklist is not None else transform
 
-    return wrapper
+    # cast: toolz.curry wraps wrapper but is not typed as Callable — cast is safe here
+    return cast(Callable[..., Transform | TrackList], wrapper)
 
 
 # === Core Pipeline Functions ===
@@ -82,4 +88,5 @@ def create_pipeline(*operations: Transform) -> Transform:
     Returns:
         A single transformation function combining all operations
     """
-    return compose_left(*operations)
+    result: Transform = compose_left(*operations)
+    return result

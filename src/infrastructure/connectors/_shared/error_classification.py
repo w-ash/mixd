@@ -7,6 +7,8 @@ while maintaining consistent retry behavior patterns across all connectors.
 from abc import ABC, abstractmethod
 from typing import Protocol
 
+import httpx
+
 from src.config import get_logger
 from src.config.constants import HTTPStatus as HTTPStatusCode
 
@@ -120,6 +122,8 @@ class HTTPErrorClassifier(ABC):
                     "504",
                     "Gateway Timeout - upstream timeout",
                 )
+            case _:
+                pass
 
         # Generic 4xx client errors (permanent)
         if HTTPStatusCode.CLIENT_ERROR_MIN <= status < HTTPStatusCode.CLIENT_ERROR_MAX:
@@ -222,6 +226,58 @@ class HTTPErrorClassifier(ABC):
 
         # No pattern matched
         return None
+
+    def _classify_service_error(
+        self, _exception: Exception
+    ) -> tuple[str, str, str] | None:
+        """Service-specific classification hook — override in subclasses.
+
+        Called first by the template ``classify_error()`` before the standard
+        HTTP dispatch cascade.  Return ``None`` to fall through to the shared
+        logic (HTTPStatusError → RequestError → text patterns → unknown).
+
+        The default no-op returns ``None`` so subclasses that don't need
+        service-specific handling inherit working behaviour without overriding.
+        """
+        return None
+
+    def classify_error(self, exception: Exception) -> tuple[str, str, str]:
+        """Classify an exception for retry/give-up decisions.
+
+        Dispatch order:
+        1. ``_classify_service_error`` — service-specific hook (override in subclass)
+        2. ``httpx.HTTPStatusError`` — HTTP status code lookup then text patterns
+        3. ``httpx.RequestError`` — network errors (always temporary)
+        4. Text pattern fallback for non-httpx exceptions
+        5. Unknown fallback
+
+        Returns:
+            ``(error_type, error_code, error_description)`` where error_type is
+            one of: ``"permanent"``, ``"temporary"``, ``"rate_limit"``,
+            ``"not_found"``, ``"unknown"``.
+        """
+        if result := self._classify_service_error(exception):
+            return result
+
+        if isinstance(exception, httpx.HTTPStatusError):
+            status = exception.response.status_code
+            error_msg = str(exception)
+            if result := self.classify_http_status(status, error_msg):
+                return result
+            if result := self.classify_text_patterns(error_msg.lower()):
+                return result
+            return ("unknown", str(status), error_msg)
+
+        if isinstance(exception, httpx.RequestError):
+            error_str = str(exception).lower()
+            if result := self.classify_text_patterns(error_str):
+                return result
+            return ("temporary", "network", str(exception))
+
+        error_str = str(exception).lower()
+        if result := self.classify_text_patterns(error_str):
+            return result
+        return ("unknown", "N/A", str(exception))
 
 
 def classify_unknown_error(exception: Exception) -> tuple[str, str, str]:

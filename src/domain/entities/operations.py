@@ -5,9 +5,9 @@ from music services like Spotify and Last.fm.
 """
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Final, Self
 
-from attrs import define, field
+from attrs import Attribute, define, field
 
 if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
@@ -84,25 +84,25 @@ class TrackContextFields:
     """
 
     # Core track metadata (used by all services)
-    TRACK_NAME = "track_name"
-    ARTIST_NAME = "artist_name"
-    ALBUM_NAME = "album_name"
+    TRACK_NAME: Final[str] = "track_name"
+    ARTIST_NAME: Final[str] = "artist_name"
+    ALBUM_NAME: Final[str] = "album_name"
 
     # Service-specific identifiers
-    SPOTIFY_TRACK_URI = "spotify_track_uri"
-    LASTFM_TRACK_URL = "lastfm_track_url"
-    LASTFM_ARTIST_URL = "lastfm_artist_url"
-    LASTFM_ALBUM_URL = "lastfm_album_url"
+    SPOTIFY_TRACK_URI: Final[str] = "spotify_track_uri"
+    LASTFM_TRACK_URL: Final[str] = "lastfm_track_url"
+    LASTFM_ARTIST_URL: Final[str] = "lastfm_artist_url"
+    LASTFM_ALBUM_URL: Final[str] = "lastfm_album_url"
 
     # Behavioral metadata
-    PLATFORM = "platform"
-    COUNTRY = "country"
-    REASON_START = "reason_start"
-    REASON_END = "reason_end"
-    SHUFFLE = "shuffle"
-    SKIPPED = "skipped"
-    OFFLINE = "offline"
-    INCOGNITO_MODE = "incognito_mode"
+    PLATFORM: Final[str] = "platform"
+    COUNTRY: Final[str] = "country"
+    REASON_START: Final[str] = "reason_start"
+    REASON_END: Final[str] = "reason_end"
+    SHUFFLE: Final[str] = "shuffle"
+    SKIPPED: Final[str] = "skipped"
+    OFFLINE: Final[str] = "offline"
+    INCOGNITO_MODE: Final[str] = "incognito_mode"
 
 
 @define(frozen=True, slots=True)
@@ -142,12 +142,13 @@ class PlayRecord:
     raw_data: dict[str, Any] = field(factory=dict)
 
 
-def _validate_timezone_aware_datetime(_instance, attribute, value):
+def _validate_timezone_aware_datetime(
+    _instance: object, attribute: Attribute[Any], value: datetime | None
+) -> None:
     """Validator to ensure datetime fields are timezone-aware."""
     if value is not None and value.tzinfo is None:
         raise ValueError(
-            f"Field '{attribute.name}' must be timezone-aware. "
-            f"Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
+            f"Field '{attribute.name}' must be timezone-aware. Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
         )
 
 
@@ -369,7 +370,7 @@ class TrackPlay:
 
     @classmethod
     def create_with_current_import_timestamp(
-        cls, track_id: int | None, service: str, played_at: datetime, **kwargs
+        cls, track_id: int | None, service: str, played_at: datetime, **kwargs: Any
     ) -> Self:
         """Create TrackPlay with current UTC timestamp for import tracking."""
         return cls(

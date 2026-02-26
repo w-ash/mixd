@@ -71,7 +71,7 @@ class LastFMConnector(BaseAPIConnector):
         return LastFMErrorClassifier()
 
     @override
-    def get_connector_config(self, key: str, default=None):
+    def get_connector_config(self, key: str, default: object = None):
         """Load Last.fm configuration, extending base class with service-specific settings."""
         base_config = super().get_connector_config(key, default)
 
@@ -122,7 +122,7 @@ class LastFMConnector(BaseAPIConnector):
         return await self._operations.create_play_record_from_track(track, timestamp)
 
     @override
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
 
@@ -156,7 +156,7 @@ class LastFMConnector(BaseAPIConnector):
         )
 
         # Convert typed entries to PlayRecord objects
-        play_records = []
+        play_records: list[PlayRecord] = []
         for entry in track_entries:
             timestamp_uts = entry.timestamp_uts
 
@@ -166,8 +166,8 @@ class LastFMConnector(BaseAPIConnector):
             except (ValueError, TypeError) as e:
                 logger.warning(
                     f"Skipping track with invalid timestamp: {timestamp_uts!r}, "
-                    f"track: {entry.name!r}, "
-                    f"error: {e}"
+                    + f"track: {entry.name!r}, "
+                    + f"error: {e}"
                 )
                 continue
 

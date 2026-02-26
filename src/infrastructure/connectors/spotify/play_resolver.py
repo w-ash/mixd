@@ -68,6 +68,8 @@ class SpotifyConnectorPlayResolver:
     - ISRC and detailed album information
     """
 
+    spotify_connector: SpotifyConnector
+
     def __init__(self, spotify_connector: SpotifyConnector | None = None):
         """Initialize with Spotify connector for track resolution."""
         self.spotify_connector = spotify_connector or SpotifyConnector()
@@ -97,7 +99,7 @@ class SpotifyConnectorPlayResolver:
         ) = await self._resolve_spotify_ids_to_canonical_tracks(unique_spotify_ids, uow)
 
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
-        track_plays = []
+        track_plays: list[TrackPlay] = []
         filtering_stats: dict[str, Any] = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
@@ -141,7 +143,7 @@ class SpotifyConnectorPlayResolver:
                 )
                 logger.info(
                     f"Skipped (duration): {connector_play.track_name} - "
-                    f"{connector_play.ms_played / 60000:.2f}/{duration_info}min"
+                    + f"{connector_play.ms_played / 60000:.2f}/{duration_info}min"
                 )
                 continue
 
@@ -238,7 +240,7 @@ class SpotifyConnectorPlayResolver:
         self, connector_plays: list[ConnectorTrackPlay]
     ) -> list[str]:
         """Extract unique Spotify track IDs from connector plays."""
-        unique_ids = set()
+        unique_ids: set[str] = set()
         for connector_play in connector_plays:
             spotify_id = self._extract_spotify_id_from_connector_play(connector_play)
             if spotify_id:
@@ -317,7 +319,7 @@ class SpotifyConnectorPlayResolver:
             if ("spotify", sid) not in existing_canonical_tracks
         ]
 
-        new_canonical_track_ids = set()
+        new_canonical_track_ids: set[int] = set()
 
         if missing_spotify_ids:
             spotify_metadata = await self.spotify_connector.get_tracks_by_ids(
@@ -351,7 +353,7 @@ class SpotifyConnectorPlayResolver:
                     )  # Fallback to requested ID if no response ID
 
                     # Always map the primary ID first
-                    await uow.get_connector_repository().map_track_to_connector(
+                    _ = await uow.get_connector_repository().map_track_to_connector(
                         canonical_track,
                         "spotify",
                         primary_id,
@@ -371,7 +373,7 @@ class SpotifyConnectorPlayResolver:
                         logger.debug(
                             f"Handling Spotify relinking: {original_track_id} -> {primary_id}"
                         )
-                        await uow.get_connector_repository().map_track_to_connector(
+                        _ = await uow.get_connector_repository().map_track_to_connector(
                             canonical_track,
                             "spotify",
                             original_track_id,
@@ -391,7 +393,7 @@ class SpotifyConnectorPlayResolver:
                     continue
 
         # Build final mapping
-        canonical_tracks_map = {}
+        canonical_tracks_map: dict[str, Track] = {}
         for spotify_id in spotify_ids:
             canonical_track = existing_canonical_tracks.get(("spotify", spotify_id))
             if canonical_track:

@@ -175,7 +175,7 @@ class ImportTracksUseCase:
 
                 logger.info(
                     f"Successfully completed {command.service} {command.mode} import: "
-                    f"{imported_count} tracks imported"
+                    + f"{imported_count} tracks imported"
                 )
 
                 return ImportTracksResult(
@@ -219,8 +219,6 @@ class ImportTracksUseCase:
                 return await self._run_lastfm_import(command, uow, progress_emitter)
             case "spotify":
                 return await self._run_spotify_import(command, uow, progress_emitter)
-            case _:
-                raise ValueError(f"Unknown service: {command.service}")
 
     async def _run_lastfm_import(
         self,
@@ -529,7 +527,7 @@ async def run_import(
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     progress_emitter: ProgressEmitter | None = None,
-    **additional_options,
+    **additional_options: object,
 ) -> OperationResult:
     """Downloads listening history from music services.
 

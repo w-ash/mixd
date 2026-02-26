@@ -12,6 +12,7 @@ from typing import Any
 from rich.console import Console
 import typer
 
+from src.application.services.progress_manager import AsyncProgressManager
 from src.config import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +27,9 @@ class SimpleConsoleContext:
     Provides basic console access without progress coordination overhead.
     Used when show_live=False in progress_coordination_context.
     """
+
+    console: Console
+    live_console: Console
 
     def __init__(self, console: Console):
         self.console = console
@@ -43,7 +47,12 @@ class ProgressDisplayContext:
     that display progress bars while ensuring logs appear above progress displays.
     """
 
-    def __init__(self, provider, manager):
+    provider: Any
+    console: Console
+    live_console: Console
+    progress_manager: AsyncProgressManager
+
+    def __init__(self, provider: Any, manager: AsyncProgressManager) -> None:
         self.provider = provider
         self.console = provider.get_console()
         self.live_console = self.console  # Backward compatibility
@@ -127,7 +136,7 @@ async def progress_coordination_context(show_live: bool = True) -> AsyncGenerato
             finally:
                 # Unsubscribe when context exits
                 if subscription_id:
-                    await progress_manager.unsubscribe(subscription_id)
+                    _ = await progress_manager.unsubscribe(subscription_id)
     finally:
         logger.debug("Progress display context completed")
 
@@ -161,8 +170,8 @@ def should_use_live_display(ctx: typer.Context) -> bool:
 
 
 async def run_workflow_with_progress(
-    workflow_def: dict, show_progress: bool = True, **parameters
-) -> tuple[dict, Any]:
+    workflow_def: dict[str, Any], show_progress: bool = True, **parameters: object
+) -> tuple[dict[str, Any], Any]:
     """Execute a Prefect workflow with automatic Rich progress bar setup.
 
     Convenience function that combines workflow execution with progress tracking
@@ -208,7 +217,7 @@ async def run_workflow_with_progress(
 
     logger.info(
         f"Workflow completed successfully: {result.operation_name} "
-        f"({result.execution_time:.2f}s, {len(result.tracks)} tracks)"
+        + f"({result.execution_time:.2f}s, {len(result.tracks)} tracks)"
     )
 
     return context, result

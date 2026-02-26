@@ -72,7 +72,7 @@ def reorder_to_match_target(
         List of tracks reordered to match target, preserving track instances
     """
     # Create mapping from track ID to ALL available instances (handles duplicates)
-    current_track_instances = {}
+    current_track_instances: dict[int, list[Track]] = {}
     for track in current_tracks:
         if track.id is not None:
             if track.id not in current_track_instances:
@@ -80,7 +80,7 @@ def reorder_to_match_target(
             current_track_instances[track.id].append(track)
 
     # Reconstruct list following target order with greedy instance matching
-    reordered_tracks = []
+    reordered_tracks: list[Track] = []
     for target_track in target_tracks:
         if (
             target_track.id is not None

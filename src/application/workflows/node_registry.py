@@ -8,7 +8,9 @@ workflow definitions and node implementations.
 
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, Unpack
+
+from .protocols import NodeResult
 
 # Type definitions with modern annotation style
 type NodeType = Literal[
@@ -22,7 +24,7 @@ type NodeType = Literal[
 ]
 
 # Define strict node function type
-type NodeFn = Callable[[dict, dict], Awaitable[dict]]
+type NodeFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[NodeResult]]
 
 
 class NodeMetadata(TypedDict):
@@ -34,6 +36,15 @@ class NodeMetadata(TypedDict):
     input_type: NotRequired[str]
     output_type: NotRequired[str]
     factory_created: NotRequired[bool]
+
+
+class _NodeRegisterKwargs(TypedDict, total=False):
+    """Typed kwargs for node registration (forwarded from node() to register())."""
+
+    description: str
+    input_type: str | None
+    output_type: str | None
+    category: NodeType | None
 
 
 # Singleton registry using a class-based pattern
@@ -81,7 +92,7 @@ class NodeRegistry:
             metadata: NodeMetadata = {
                 "id": node_id,
                 "description": description,
-                "category": derived_category,  # type: ignore - we validated above
+                "category": derived_category,
             }
             if input_type is not None:
                 metadata["input_type"] = input_type
@@ -92,7 +103,9 @@ class NodeRegistry:
 
             # Preserve function metadata with wraps
             @wraps(func)
-            async def wrapper(context: dict, config: dict) -> dict:
+            async def wrapper(
+                context: dict[str, Any], config: dict[str, Any]
+            ) -> NodeResult:
                 return await func(context, config)
 
             # Store in registry
@@ -101,7 +114,9 @@ class NodeRegistry:
 
         return decorator
 
-    def node(self, node_id: str, **kwargs) -> Callable[[NodeFn], NodeFn]:
+    def node(
+        self, node_id: str, **kwargs: Unpack[_NodeRegisterKwargs]
+    ) -> Callable[[NodeFn], NodeFn]:
         """Simpler alias for register."""
         return self.register(node_id, **kwargs)
 

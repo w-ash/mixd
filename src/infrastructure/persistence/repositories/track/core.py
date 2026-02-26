@@ -1,6 +1,6 @@
 """Core track repository implementation for basic track operations."""
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +38,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # ENHANCED QUERY METHODS
     # -------------------------------------------------------------------------
 
-    def select_with_relations(self) -> Select:
+    def select_with_relations(self) -> Select[tuple[Any, ...]]:
         """Create select statement with standard relations loaded."""
         return self.with_default_relationships(self.select())
 
@@ -142,4 +142,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             await self.session.refresh(db_track)
 
         # Map back to domain model - the to_domain method has been updated to use AsyncAttrs safely
-        return await TrackMapper.to_domain_with_session(db_track, self.session)
+        result = await TrackMapper.to_domain_with_session(db_track, self.session)
+        if result is None:
+            raise ValueError(f"Failed to map track from database (id={db_track.id})")
+        return result

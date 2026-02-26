@@ -122,34 +122,37 @@ class TestLastFMFastImplementation:
 
     @pytest.mark.asyncio
     async def test_fast_conversion_performance(self):
-        """Test that from_comprehensive_data is instant conversion."""
+        """Test that Pydantic validation + attrs construction is fast."""
+        from src.infrastructure.connectors.lastfm.models import LastFMTrackInfoData
 
-        comprehensive_data = {
-            "lastfm_title": "Test Track",
-            "lastfm_mbid": "test-mbid-123",
-            "lastfm_url": "http://test.lastfm.com/track",
-            "lastfm_duration": 180000,
-            "lastfm_global_playcount": 1000,
-            "lastfm_listeners": 500,
-            "lastfm_user_playcount": 42,
-            "lastfm_user_loved": True,
-            "lastfm_artist_name": "Test Artist",
-            "lastfm_artist_mbid": "artist-mbid-456",
-            "lastfm_artist_url": "http://test.lastfm.com/artist",
-            "lastfm_album_name": "Test Album",
-            "lastfm_album_mbid": "album-mbid-789",
-            "lastfm_album_url": "http://test.lastfm.com/album",
+        # Raw JSON shape matching track.getInfo response
+        raw_track_data = {
+            "name": "Test Track",
+            "mbid": "test-mbid-123",
+            "url": "http://test.lastfm.com/track",
+            "duration": "180000",
+            "playcount": "1000",
+            "listeners": "500",
+            "userplaycount": "42",
+            "userloved": "1",
+            "artist": {
+                "name": "Test Artist",
+                "mbid": "artist-mbid-456",
+                "url": "http://test.lastfm.com/artist",
+            },
+            "album": {
+                "title": "Test Album",
+                "mbid": "album-mbid-789",
+                "url": "http://test.lastfm.com/album",
+            },
         }
 
-        print("\n⚡ Testing fast metadata conversion...")
+        print("\n Testing fast metadata conversion...")
 
         start_time = time.time()
-        result = LastFMTrackInfo.from_comprehensive_data(comprehensive_data)
+        validated = LastFMTrackInfoData.model_validate(raw_track_data)
+        result = LastFMTrackInfo.from_track_info_response(validated, has_user_data=True)
         duration = time.time() - start_time
-
-        print("📈 FAST CONVERSION RESULTS:")
-        print(f"⏱️  Conversion time: {duration * 1000:.3f}ms")
-        print(f"📊 All fields populated: {result.lastfm_title is not None}")
 
         assert result is not None
         assert result.lastfm_title == "Test Track"
@@ -157,9 +160,7 @@ class TestLastFMFastImplementation:
         assert result.lastfm_global_playcount == 1000
         assert result.lastfm_user_playcount == 42
         assert result.lastfm_user_loved
-        assert duration < 0.001  # Should be instant (< 1ms)
-
-        print(f"✅ SUCCESS: Instant metadata conversion in {duration * 1000:.3f}ms")
+        assert duration < 0.01  # Pydantic + attrs should be < 10ms
 
     @pytest.mark.asyncio
     async def test_end_to_end_performance_comparison(self):
@@ -222,6 +223,6 @@ class TestLastFMFastImplementation:
         assert not hasattr(LastFMTrackInfo, "from_pylast_track_sync")
         assert not hasattr(LastFMTrackInfo, "EXTRACTORS")
 
-        # Verify the fast implementation exists
-        assert hasattr(LastFMTrackInfo, "from_comprehensive_data")
+        # Verify the current implementation exists
+        assert hasattr(LastFMTrackInfo, "from_track_info_response")
         assert hasattr(LastFMTrackInfo, "empty")

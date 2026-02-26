@@ -15,17 +15,16 @@ The facade pattern allows the rest of the codebase to use MusicBrainzConnector
 without changes while benefiting from the new modular architecture underneath.
 """
 
-from typing import override
+from typing import Any, override
 
 from attrs import define, field
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrack
+from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
-from src.infrastructure.connectors.musicbrainz.conversions import (
-    normalize_isrc,
-)
+from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
 from src.infrastructure.connectors.protocols import ConnectorConfig
 
 # Get contextual logger with service binding
@@ -49,7 +48,11 @@ class MusicBrainzConnector(BaseAPIConnector):
         """Service identifier for this connector."""
         return "musicbrainz"
 
-    # Public API Methods (maintained for backward compatibility)
+    async def aclose(self) -> None:
+        """Close the underlying httpx client."""
+        await self._client.aclose()
+
+    # Public API Methods
 
     async def get_recording_by_isrc(self, isrc: str) -> str | None:
         """Get recording MBID by ISRC with rate limiting."""
@@ -59,7 +62,9 @@ class MusicBrainzConnector(BaseAPIConnector):
 
         return await self._client.get_recording_by_isrc(normalized_isrc)
 
-    async def search_recording(self, artist: str, title: str) -> dict | None:
+    async def search_recording(
+        self, artist: str, title: str
+    ) -> MusicBrainzRecording | None:
         """Search for recording by artist and title."""
         return await self._client.search_recording(artist, title)
 
@@ -70,7 +75,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         if not isrcs:
             return {}
 
-        results = {}
+        results: dict[str, str | None] = {}
 
         for i, isrc in enumerate(isrcs, 1):
             try:
@@ -92,7 +97,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         return results
 
     @override
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         """Convert MusicBrainz recording data to ConnectorTrack domain model."""
         from .conversions import convert_musicbrainz_track_to_connector
 

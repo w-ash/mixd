@@ -8,7 +8,7 @@ database. Manages transaction boundaries and provides detailed operation results
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import define, field
+from attrs import Attribute, define, field
 
 from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
@@ -19,13 +19,15 @@ from src.application.use_cases._shared.command_validators import (
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(_instance, attribute, value):
+def _validate_tracklist_has_tracks(
+    _instance: object, attribute: Attribute[TrackList], value: TrackList
+) -> None:
     """Validates that TrackList contains tracks."""
     if not value.tracks:
         raise ValueError(f"{attribute.name} must contain tracks")
@@ -297,7 +299,7 @@ class CreateConnectorPlaylistUseCase:
             try:
                 # Step 1: Ensure all tracks have database IDs via upsert
                 track_repo = uow.get_track_repository()
-                persisted_tracks = []
+                persisted_tracks: list[Track] = []
 
                 for track in command.tracklist.tracks:
                     # Save track if it doesn't have an ID (not yet persisted)
@@ -414,7 +416,7 @@ class CreateConnectorPlaylistUseCase:
             )
 
             # Save connector playlist entry
-            await connector_repo.upsert_model(connector_playlist)
+            _ = await connector_repo.upsert_model(connector_playlist)
 
             logger.debug(
                 "Connector playlist entry created",

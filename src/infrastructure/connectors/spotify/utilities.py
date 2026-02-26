@@ -6,6 +6,8 @@ Contains common functions used across Spotify connectors for:
 - Play filtering rules
 """
 
+from typing import Any
+
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.domain.entities import Artist, Track
@@ -13,7 +15,9 @@ from src.domain.entities import Artist, Track
 logger = get_logger(__name__)
 
 
-def create_track_from_spotify_data(spotify_id: str, spotify_data: dict) -> Track:
+def create_track_from_spotify_data(
+    spotify_id: str, spotify_data: dict[str, Any]
+) -> Track:
     """Create a Track domain object from Spotify API data.
 
     Args:
@@ -36,7 +40,7 @@ def create_track_from_spotify_data(spotify_id: str, spotify_data: dict) -> Track
         raise ValueError(f"Missing artists for Spotify ID {spotify_id}")
 
     # Create Artist objects
-    artists = []
+    artists: list[Artist] = []
     for artist_data in artists_data:
         artist_name = artist_data.get("name")
         if artist_name:

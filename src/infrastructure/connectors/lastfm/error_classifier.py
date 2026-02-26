@@ -2,8 +2,6 @@
 
 from typing import ClassVar, override
 
-import httpx
-
 from src.infrastructure.connectors._shared.error_classification import (
     HTTPErrorClassifier,
 )
@@ -15,7 +13,8 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
 
     LastFM uses its own error code system (1-29) rather than HTTP status codes,
     surfaced via LastFMAPIError. This classifier checks service-specific codes
-    first, then falls back to HTTPErrorClassifier's text pattern matching.
+    first via ``_classify_service_error()``, then falls back to the shared HTTP
+    dispatch cascade in ``HTTPErrorClassifier.classify_error()``.
     """
 
     @property
@@ -57,62 +56,33 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
         "20": "Not Enough Content - There is not enough content to play this station",
     }
 
-    def classify_error(self, exception: Exception) -> tuple[str, str, str]:
-        """Classify Last.fm API errors for proper retry behavior.
+    @override
+    def _classify_service_error(
+        self, exception: Exception
+    ) -> tuple[str, str, str] | None:
+        """Classify Last.fm API-level errors (HTTP 200 with error body).
 
-        Checks Last.fm service-specific error codes (LastFMAPIError) first,
-        then httpx transport errors, then falls back to text pattern matching.
-
-        Args:
-            exception: The exception to classify
-
-        Returns:
-            Tuple of (error_type, error_code, error_description)
-            error_type: "permanent", "temporary", "rate_limit", "not_found", "unknown"
+        Returns ``None`` for non-LastFMAPIError exceptions so the base class
+        handles httpx transport errors via the standard dispatch cascade.
         """
-        # Last.fm API-level errors (HTTP 200 with error body)
-        if isinstance(exception, LastFMAPIError):
-            error_code = exception.status  # String "1"-"29"
+        if not isinstance(exception, LastFMAPIError):
+            return None
 
-            if error_code in self.PERMANENT_ERROR_CODES:
-                return ("permanent", error_code, self.PERMANENT_ERROR_CODES[error_code])
+        error_code = exception.status  # String "1"-"29"
 
-            if error_code in self.TEMPORARY_ERROR_CODES:
-                return ("temporary", error_code, self.TEMPORARY_ERROR_CODES[error_code])
+        if error_code in self.PERMANENT_ERROR_CODES:
+            return ("permanent", error_code, self.PERMANENT_ERROR_CODES[error_code])
 
-            # Rate limiting — Last.fm error code 29
-            if error_code == "29":
-                return (
-                    "rate_limit",
-                    "29",
-                    "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines",
-                )
+        if error_code in self.TEMPORARY_ERROR_CODES:
+            return ("temporary", error_code, self.TEMPORARY_ERROR_CODES[error_code])
 
-            # Unknown Last.fm error code — fall through to text patterns
-            error_str = str(exception).lower()
-            if result := self.classify_text_patterns(error_str):
-                return result
-            return ("unknown", error_code, str(exception))
+        # Rate limiting — Last.fm error code 29
+        if error_code == "29":
+            return (
+                "rate_limit",
+                "29",
+                "Rate Limit Exceded - Your IP has made too many requests in a short period, exceeding our API guidelines",
+            )
 
-        # httpx HTTP transport errors (4xx/5xx with response)
-        if isinstance(exception, httpx.HTTPStatusError):
-            status = exception.response.status_code
-            error_msg = str(exception)
-            if result := self.classify_http_status(status, error_msg):
-                return result
-            if result := self.classify_text_patterns(error_msg.lower()):
-                return result
-            return ("unknown", str(status), error_msg)
-
-        # httpx network/connection errors (no response)
-        if isinstance(exception, httpx.RequestError):
-            error_str = str(exception).lower()
-            if result := self.classify_text_patterns(error_str):
-                return result
-            return ("temporary", "network", str(exception))
-
-        # Non-httpx exceptions — text pattern fallback
-        error_str = str(exception).lower()
-        if result := self.classify_text_patterns(error_str):
-            return result
-        return ("unknown", "N/A", str(exception))
+        # Unknown Last.fm error code — return None to fall through to text patterns
+        return None

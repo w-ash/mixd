@@ -51,7 +51,7 @@ class PlaylistOperationService:
         operations_by_type = self._group_operations_by_type(operations)
 
         # Apply service-specific optimization strategies
-        optimized_batches = []
+        optimized_batches: list[OptimizedOperationBatch] = []
 
         # Optimal sequence: REMOVE → MOVE → ADD (for stable positioning)
         for op_type in [
@@ -77,7 +77,7 @@ class PlaylistOperationService:
         self, operations: list[PlaylistOperation]
     ) -> dict[PlaylistOperationType, list[PlaylistOperation]]:
         """Group operations by their type for separate optimization."""
-        groups = {}
+        groups: dict[PlaylistOperationType, list[PlaylistOperation]] = {}
         for op in operations:
             if op.operation_type not in groups:
                 groups[op.operation_type] = []
@@ -96,18 +96,8 @@ class PlaylistOperationService:
             return self._optimize_move_operations(operations)
         elif op_type == PlaylistOperationType.ADD:
             return self._optimize_add_operations(operations)
-        elif op_type == PlaylistOperationType.REMOVE:
-            return self._optimize_remove_operations(operations)
         else:
-            # Fallback: individual operations
-            return [
-                OptimizedOperationBatch(
-                    batch_type="individual",
-                    operations=[op],
-                    api_params={"operation": op},
-                )
-                for op in operations
-            ]
+            return self._optimize_remove_operations(operations)
 
     def _optimize_move_operations(
         self, move_ops: list[PlaylistOperation]
@@ -129,7 +119,7 @@ class PlaylistOperationService:
         if not sorted_moves:
             return []
 
-        batches = []
+        batches: list[OptimizedOperationBatch] = []
         current_block_ops = [sorted_moves[0]]
 
         for op in sorted_moves[1:]:
@@ -180,14 +170,14 @@ class PlaylistOperationService:
 
         # Sort adds by position and filter valid operations
         sorted_adds = sorted(
-            [op for op in add_ops if op.spotify_uri and op.position is not None],
+            [op for op in add_ops if op.spotify_uri],
             key=lambda op: op.position,
         )
 
         if not sorted_adds:
             return []
 
-        batches = []
+        batches: list[OptimizedOperationBatch] = []
         current_batch_ops = [sorted_adds[0]]
 
         for op in sorted_adds[1:]:
@@ -231,7 +221,7 @@ class PlaylistOperationService:
             return []
 
         # Group removes by track URI
-        tracks_to_remove = {}
+        tracks_to_remove: dict[str, list[int]] = {}
         for op in remove_ops:
             if op.spotify_uri:
                 if op.spotify_uri not in tracks_to_remove:
@@ -240,7 +230,7 @@ class PlaylistOperationService:
                     tracks_to_remove[op.spotify_uri].append(op.old_position)
 
         # Create batches of up to 100 items each
-        items_to_remove = []
+        items_to_remove: list[dict[str, Any]] = []
         for uri, positions in tracks_to_remove.items():
             if positions:
                 items_to_remove.append({"uri": uri, "positions": positions})
@@ -248,7 +238,7 @@ class PlaylistOperationService:
                 items_to_remove.append({"uri": uri})
 
         # Split into batches of 100
-        batches = []
+        batches: list[OptimizedOperationBatch] = []
         for i in range(0, len(items_to_remove), 100):
             batch_items = items_to_remove[i : i + 100]
             batches.append(

@@ -8,6 +8,7 @@ globs: src/infrastructure/**
 - `expire_on_commit=False` in all session configs
 - Batch operations: `save_batch()`, `get_by_ids()`, `delete_batch()`
 - Shared session per Prefect workflow (NOT session-per-task) — prevents SQLite "database locked"
-- Wrap external API calls with `@resilient_operation("operation_name")` — NOT manual try/except
+- API clients extend `BaseAPIClient` from `base.py` — use `_api_call("op_name", impl, *args)` for retry + context + suppress
 - Retry via `tenacity` policies from `_shared/retry_policies.py` — NOT bare `@retry` or `backoff` library
 - Retry policies integrate with `ErrorClassifier` — retries "temporary"/"rate_limit", fails fast on "permanent"
+- **Validate at the boundary**: every connector defines Pydantic models in `models.py` — validate raw `dict[str, Any]` → typed model at the API client, pass typed models downstream. NEVER leak raw dicts into conversion/matching layers.

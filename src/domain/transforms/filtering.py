@@ -13,6 +13,7 @@ All filters follow functional programming principles:
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import cast
 
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, optional_tracklist_transform
@@ -47,8 +48,8 @@ def filter_duplicates() -> Transform:
     """
 
     def transform(t: TrackList) -> TrackList:
-        seen_ids = set()
-        unique_tracks = []
+        seen_ids: set[int] = set()
+        unique_tracks: list[Track] = []
         duplicates_removed = 0
         original_count = len(t.tracks)
         tracks_without_ids = 0
@@ -103,7 +104,8 @@ def filter_by_date_range(
 
         return not (min_age_days is not None and age_days < min_age_days)
 
-    return filter_by_predicate(in_date_range)
+    # cast: calling filter_by_predicate without tracklist always returns Transform
+    return cast(Transform, filter_by_predicate(in_date_range))
 
 
 @optional_tracklist_transform
@@ -122,7 +124,7 @@ def exclude_tracks(reference_tracks: list[Track]) -> Transform:
     def not_in_reference(track: Track) -> bool:
         return track.id not in exclude_ids
 
-    return filter_by_predicate(not_in_reference)
+    return cast(Transform, filter_by_predicate(not_in_reference))
 
 
 @optional_tracklist_transform
@@ -141,7 +143,7 @@ def exclude_artists(
         Transformation function
     """
     # Create set of artist names to exclude (case-insensitive)
-    exclude_artists_set = set()
+    exclude_artists_set: set[str] = set()
 
     for track in reference_tracks:
         if not track.artists:
@@ -167,4 +169,4 @@ def exclude_artists(
             # Check only the primary artist
             return track.artists[0].name.lower() not in exclude_artists_set
 
-    return filter_by_predicate(not_artist_in_reference)
+    return cast(Transform, filter_by_predicate(not_artist_in_reference))

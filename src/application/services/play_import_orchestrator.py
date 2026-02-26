@@ -125,7 +125,7 @@ class PlayImportOrchestrator:
         spotify_plays = [p for p in connector_plays if p.connector_name == "spotify"]
         lastfm_plays = [p for p in connector_plays if p.connector_name == "lastfm"]
 
-        all_track_plays = []
+        all_track_plays: list[TrackPlay] = []
         combined_metrics = {
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
@@ -155,7 +155,7 @@ class PlayImportOrchestrator:
         # Save all resolved track_plays to database
         if all_track_plays:
             plays_repo = uow.get_plays_repository()
-            await plays_repo.bulk_insert_plays(all_track_plays)
+            _ = await plays_repo.bulk_insert_plays(all_track_plays)
             logger.info(f"Saved {len(all_track_plays)} resolved track plays")
 
         # Convert to OperationResult with summary metrics

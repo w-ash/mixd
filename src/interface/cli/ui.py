@@ -1,7 +1,7 @@
 """Shared UI utilities for interface layer - works for CLI and future web interface."""
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from rich.console import Console
 from rich.table import Table
@@ -27,7 +27,7 @@ def _format_metric_value(value: float, format: SummaryMetricFormat) -> str:
             return f"{value:.1f}%"
         case "duration":
             return f"{value:.1f}s"
-        case "count" | _:
+        case "count":
             return (
                 str(int(value))
                 if isinstance(value, float) and value.is_integer()
@@ -121,16 +121,17 @@ def _display_table_result(
 
             # Get source information from tracklist metadata
             source_info = "Unknown"
-            track_sources = (
+            track_sources: dict[int, dict[str, Any]] = cast(
+                dict[int, dict[str, Any]],
                 result.tracklist.metadata.get("track_sources", {})
                 if hasattr(result, "tracklist") and result.tracklist
-                else {}
+                else {},
             )
             if track.id and track.id in track_sources:
-                source_data = track_sources[track.id]
+                source_data: dict[str, Any] = track_sources[track.id]
                 source_info = source_data.get("playlist_name", "Unknown")
 
-            row = [str(i), artist_name, track.title, source_info]
+            row: list[str] = [str(i), artist_name, track.title, source_info]
 
             # Add metric values for this track
             for metric_name in metric_columns:

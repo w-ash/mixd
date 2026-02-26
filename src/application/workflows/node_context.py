@@ -5,12 +5,14 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from attrs import define
 
 from src.config import get_logger
 from src.domain.entities.track import TrackList
+
+from .protocols import ConnectorProvider, NodeResult, UseCaseProvider, WorkflowContext
 
 logger = get_logger(__name__)
 
@@ -24,9 +26,9 @@ type ContextData = dict[str, Any]
 class NodeContext:
     """Context extractor with path-based access."""
 
-    data: dict
+    data: dict[str, Any]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         object.__setattr__(self, "data", data)
 
     def get(self, path: str, default: Any = None) -> Any:
@@ -63,7 +65,7 @@ class NodeContext:
 
     def collect_tracklists(self, task_ids: list[str]) -> list[TrackList]:
         """Collect tracklists from multiple task results."""
-        tracklists = []
+        tracklists: list[TrackList] = []
         for task_id in task_ids:
             if task_id not in self.data:
                 logger.warning(f"Task ID not found in context: {task_id}")
@@ -74,14 +76,9 @@ class NodeContext:
                 logger.warning(f"Invalid task result for {task_id}: not a dictionary")
                 continue
 
-            tracklist = task_result.get("tracklist")
-            if not isinstance(tracklist, TrackList):
-                logger.warning(
-                    f"Missing or invalid tracklist in task result: {task_id}",
-                )
-                continue
-
-            tracklists.append(tracklist)
+            # isinstance confirmed dict; bridge through object to satisfy pyright's overlap check
+            node_result = cast(NodeResult, cast(object, task_result))
+            tracklists.append(node_result["tracklist"])
 
         if not tracklists:
             # This should raise an exception rather than just logging
@@ -91,7 +88,7 @@ class NodeContext:
 
     # === DRY Helper Functions ===
 
-    def extract_workflow_context(self):
+    def extract_workflow_context(self) -> WorkflowContext:
         """Extract workflow context with validation.
 
         Returns:
@@ -105,7 +102,7 @@ class NodeContext:
             raise ValueError("Workflow context not found in context")
         return workflow_context
 
-    def extract_use_cases(self):
+    def extract_use_cases(self) -> UseCaseProvider:
         """Extract use case provider with validation.
 
         Returns:
@@ -119,14 +116,14 @@ class NodeContext:
             raise ValueError("Use case provider not found in context")
         return use_cases
 
-    def get_connector(self, connector_name: str):
+    def get_connector(self, connector_name: str) -> ConnectorProvider:
         """Get connector instance with validation.
 
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
 
         Returns:
-            Connector instance
+            ConnectorProvider instance
 
         Raises:
             ValueError: If connector registry or specific connector not found
@@ -142,54 +139,3 @@ class NodeContext:
             )
 
         return connector_registry.get_connector(connector_name)
-
-    @staticmethod
-    def format_playlist_result(operation: str, result, tracklist, **extras):
-        """Format standard playlist operation result.
-
-        Args:
-            operation: Operation name (e.g., "create_internal_playlist")
-            result: Use case result object with playlist and track data
-            tracklist: Original input tracklist
-            **extras: Additional fields to include in result
-
-        Returns:
-            Standardized result dictionary
-        """
-        base_result = {
-            "operation": operation,
-            "playlist": result.playlist,
-            "playlist_name": result.playlist.name,
-            "playlist_id": result.playlist.id,
-            "tracklist": tracklist,
-            "persisted_tracks": result.enriched_tracks,
-            "track_count": result.track_count,
-            "execution_time_ms": result.execution_time_ms,
-        }
-
-        # Merge in any additional fields
-        base_result.update(extras)
-        return base_result
-
-    @staticmethod
-    def format_enrichment_result(operation: str, enriched_tracklist, metrics, **extras):
-        """Format standard enrichment operation result.
-
-        Args:
-            operation: Operation name (e.g., "spotify_enrichment")
-            enriched_tracklist: TrackList with enriched data
-            metrics: Dictionary of metrics added
-            **extras: Additional fields to include in result
-
-        Returns:
-            Standardized enrichment result dictionary
-        """
-        base_result = {
-            "tracklist": enriched_tracklist,
-            "operation": operation,
-            "metrics_count": sum(len(values) for values in metrics.values()),
-        }
-
-        # Merge in any additional fields
-        base_result.update(extras)
-        return base_result

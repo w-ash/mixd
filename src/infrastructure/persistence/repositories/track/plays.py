@@ -1,11 +1,13 @@
 """Track repository for play operations."""
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, override
 
 from attrs import define
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 from toolz import groupby
 
 from src.config import get_logger
@@ -18,6 +20,9 @@ from src.infrastructure.persistence.repositories.base_repo import (
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
+
+# (track_id, service, played_at, ms_played) — deduplication key for play records
+type PlayLookupKey = tuple[int | None, str, datetime | None, int | None]
 
 
 def _chunked[T](items: list[T], size: int) -> list[list[T]]:
@@ -147,7 +152,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         inserted_count = len(play_data) if isinstance(result, list) else result
         return (inserted_count, duplicate_count)
 
-    async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[tuple]:
+    async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[PlayLookupKey]:
         """Find existing plays that match the lookup keys.
 
         Uses batched queries to avoid SQLite expression tree limit (max depth 1000).
@@ -156,7 +161,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         if not plays:
             return set()
 
-        existing_keys = set()
+        existing_keys: set[PlayLookupKey] = set()
 
         # Batch plays to avoid SQLite expression tree limit (max depth 1000)
         # Using partition_all from toolz following CLAUDE.md functional patterns
@@ -166,7 +171,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         for batch in _chunked(plays, batch_size):
             # Build conditions for this batch
-            conditions = []
+            conditions: list[ColumnElement[bool]] = []
             for play in batch:
                 condition = (
                     (self.model_class.track_id == play.track_id)
@@ -177,12 +182,9 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 conditions.append(condition)
 
             # Combine batch conditions with OR
-            if len(conditions) == 1:
-                combined_condition = conditions[0]
-            else:
-                combined_condition = conditions[0]
-                for condition in conditions[1:]:
-                    combined_condition |= condition
+            combined_condition: ColumnElement[bool] = conditions[0]
+            for condition in conditions[1:]:
+                combined_condition |= condition
 
             # Query for existing plays in this batch
             existing_db_plays = await self.find_by([combined_condition])
@@ -202,10 +204,10 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         return existing_keys
 
     def _filter_duplicates(
-        self, plays: list[TrackPlay], existing_keys: set[tuple]
+        self, plays: list[TrackPlay], existing_keys: set[PlayLookupKey]
     ) -> list[TrackPlay]:
         """Filter out plays that already exist in the database."""
-        new_plays = []
+        new_plays: list[TrackPlay] = []
 
         for play in plays:
             # Normalize timezone for consistent comparison using utility function
@@ -259,7 +261,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             period_end=period_end,
         )
 
-        result = {}
+        result: dict[str, dict[int, Any]] = {}
 
         # Build base query
         base_query = select(DBTrackPlay).where(
@@ -268,7 +270,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         # Execute query to get all relevant plays
         query_result = await self.session.execute(base_query)
-        plays = query_result.scalars().all()
+        plays: Sequence[DBTrackPlay] = query_result.scalars().all()
 
         # Use toolz for efficient aggregation
         plays_by_track = groupby(lambda p: p.track_id, plays)
@@ -283,7 +285,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         # Calculate last played dates if requested
         if "last_played_dates" in metrics:
 
-            def get_last_played(track_plays):
+            def get_last_played(track_plays: list[DBTrackPlay]):
                 if not track_plays:
                     return None
                 return max(play.played_at for play in track_plays)
@@ -313,8 +315,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 original_end_tz=period_end.tzinfo,
             )
 
-            def count_period_plays(track_plays):
-                matching_plays = []
+            def count_period_plays(track_plays: list[DBTrackPlay]) -> int:
+                matching_plays: list[DBTrackPlay] = []
                 for play in track_plays:
                     try:
                         # Defensive validation - ensure play.played_at is timezone-aware using utility function
@@ -401,7 +403,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 track_ids = [row[0] for row in track_counts]
 
                 # Get one recent play per track, maintaining the order
-                plays = []
+                plays: list[TrackPlay] = []
                 for track_id in track_ids:
                     recent_play_stmt = (
                         select(self.model_class)
@@ -447,7 +449,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 rows = result.fetchall()
 
                 # Convert to domain models
-                plays = []
+                row_plays: list[TrackPlay] = []
                 for row in rows:
                     # Extract the track play data from the row
                     play_data = {
@@ -455,9 +457,9 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                         for col in self.model_class.__table__.columns
                     }
                     db_play = self.model_class(**play_data)
-                    plays.append(await self.mapper.to_domain(db_play))
+                    row_plays.append(await self.mapper.to_domain(db_play))
 
-                return plays
+                return row_plays
 
             elif sort_by == "title_asc":
                 # Join with tracks table for title sorting

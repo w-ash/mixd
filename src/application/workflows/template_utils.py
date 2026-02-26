@@ -5,9 +5,12 @@ with minimal overhead and clean separation of concerns.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
 
-def render_playlist_config_templates(config: dict, track_count: int) -> dict:
+def render_playlist_config_templates(
+    config: dict[str, Any], track_count: int
+) -> dict[str, Any]:
     """Render template strings in playlist config with dynamic values.
 
     Processes 'name' and 'description' fields in config dict, replacing

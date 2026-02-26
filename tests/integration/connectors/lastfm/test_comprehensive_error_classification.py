@@ -44,6 +44,10 @@ class TestComprehensiveErrorClassification:
             mock_settings.api.lastfm_rate_limit = 10.0
             mock_settings.api.lastfm_concurrency = 50
             mock_settings.api.lastfm_request_timeout = 10.0
+            # Retry policy parameters — must be concrete values, not MagicMock
+            mock_settings.api.lastfm_retry_count_rate_limit = 8
+            mock_settings.api.lastfm_retry_base_delay = 1.0
+            mock_settings.api.lastfm_retry_max_delay = 60.0
             yield LastFMAPIClient()
 
     # PERMANENT ERRORS (20+ codes) - Should NOT retry, immediate failure
@@ -194,7 +198,9 @@ class TestComprehensiveErrorClassification:
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
             start_time = time.time()
-            await lastfm_client.get_track_info_comprehensive("Test Artist", "Test Track")
+            await lastfm_client.get_track_info_comprehensive(
+                "Test Artist", "Test Track"
+            )
             duration = time.time() - start_time
 
         # Should have retried (3 calls total: 2 failures + 1 success)
@@ -239,9 +245,7 @@ class TestComprehensiveErrorClassification:
             )
         else:
             # For non-retryable errors: always fail
-            mock_api = AsyncMock(
-                side_effect=LastFMAPIError("999", error_pattern)
-            )
+            mock_api = AsyncMock(side_effect=LastFMAPIError("999", error_pattern))
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
             result = await lastfm_client.get_track_info_comprehensive(
@@ -266,7 +270,9 @@ class TestComprehensiveErrorClassification:
         """Test unrecognized errors are classified as unknown and retried."""
         mock_api = AsyncMock(
             side_effect=[
-                LastFMAPIError("9999", "Completely unknown error that should be retried"),
+                LastFMAPIError(
+                    "9999", "Completely unknown error that should be retried"
+                ),
                 _MINIMAL_TRACK_DATA,
             ]
         )
@@ -296,7 +302,9 @@ class TestComprehensiveErrorClassification:
         get_track_info_comprehensive only catches (LastFMAPIError, httpx exceptions),
         so ValueError propagates to the caller.
         """
-        mock_api = AsyncMock(side_effect=ValueError("Programming error - not an API error"))
+        mock_api = AsyncMock(
+            side_effect=ValueError("Programming error - not an API error")
+        )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
             with pytest.raises(ValueError, match="Programming error"):
@@ -374,6 +382,10 @@ class TestErrorClassificationEdgeCases:
             mock_settings.api.lastfm_rate_limit = 10.0
             mock_settings.api.lastfm_concurrency = 50
             mock_settings.api.lastfm_request_timeout = 10.0
+            # Retry policy parameters — must be concrete values, not MagicMock
+            mock_settings.api.lastfm_retry_count_rate_limit = 8
+            mock_settings.api.lastfm_retry_base_delay = 1.0
+            mock_settings.api.lastfm_retry_max_delay = 60.0
             yield LastFMAPIClient()
 
     @pytest.mark.asyncio
@@ -389,7 +401,9 @@ class TestErrorClassificationEdgeCases:
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
             # Unknown code → retry behavior (succeeds on 3rd attempt)
-            await lastfm_client.get_track_info_comprehensive("Test Artist", "Test Track")
+            await lastfm_client.get_track_info_comprehensive(
+                "Test Artist", "Test Track"
+            )
 
         assert mock_api.call_count >= 1
 
@@ -425,9 +439,18 @@ class TestErrorClassificationEdgeCases:
     async def test_partial_text_matches(self, lastfm_client):
         """Test that partial text matches work correctly."""
         error_scenarios = [
-            ("This track was not found in our database", False),  # "not found" → not_found
-            ("Network connection timeout after 30 seconds", True),  # "timeout" → temporary
-            ("Invalid API key provided for authentication", False),  # "invalid api key" → permanent
+            (
+                "This track was not found in our database",
+                False,
+            ),  # "not found" → not_found
+            (
+                "Network connection timeout after 30 seconds",
+                True,
+            ),  # "timeout" → temporary
+            (
+                "Invalid API key provided for authentication",
+                False,
+            ),  # "invalid api key" → permanent
         ]
 
         for message, should_retry in error_scenarios:
