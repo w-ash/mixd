@@ -10,15 +10,15 @@ application-layer orchestration in workflows.
 from collections.abc import Callable
 import random
 
-from toolz import curry
-
+from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
+
+logger = get_logger(__name__)
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
 
 
-@curry
 def weighted_shuffle(
     shuffle_strength: float,
     tracklist: TrackList | None = None,
@@ -66,28 +66,22 @@ def weighted_shuffle(
             return t
 
         # Edge cases for performance
-        if shuffle_strength == 0.0:
-            # No shuffle - return as-is with metadata
-            return t.with_metadata(
-                "weighted_shuffle_applied",
-                {
-                    "shuffle_strength": shuffle_strength,
-                    "original_count": len(t.tracks),
-                    "shuffle_type": "no_shuffle",
-                },
+        if shuffle_strength <= 0.0:
+            # No shuffle - return as-is
+            logger.debug(
+                "Weighted shuffle skipped (strength=0.0)",
+                track_count=len(t.tracks),
             )
-        elif shuffle_strength == 1.0:
+            return t
+        elif shuffle_strength >= 1.0:
             # Full shuffle - use random.shuffle for efficiency
             shuffled_tracks = t.tracks.copy()
             random.shuffle(shuffled_tracks)
-            return t.with_tracks(shuffled_tracks).with_metadata(
-                "weighted_shuffle_applied",
-                {
-                    "shuffle_strength": shuffle_strength,
-                    "original_count": len(t.tracks),
-                    "shuffle_type": "full_random",
-                },
+            logger.debug(
+                "Full random shuffle applied",
+                track_count=len(t.tracks),
             )
+            return t.with_tracks(shuffled_tracks)
 
         # Weighted blend: create position-based weights favoring original positions
         track_count = len(t.tracks)
@@ -109,13 +103,11 @@ def weighted_shuffle(
                 # Choose from original ordering
                 blended_tracks.append(original_tracks[i])
 
-        return t.with_tracks(blended_tracks).with_metadata(
-            "weighted_shuffle_applied",
-            {
-                "shuffle_strength": shuffle_strength,
-                "original_count": len(t.tracks),
-                "shuffle_type": "weighted_blend",
-            },
+        logger.debug(
+            "Weighted blend shuffle applied",
+            shuffle_strength=shuffle_strength,
+            track_count=len(t.tracks),
         )
+        return t.with_tracks(blended_tracks)
 
     return transform(tracklist) if tracklist is not None else transform

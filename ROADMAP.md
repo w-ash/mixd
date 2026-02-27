@@ -2,7 +2,7 @@
 # Project Narada Backlog
 
 **Current Development Version**: 0.2.7
-**Current Initiative**: Advanced Workflow Features
+**Current Initiative**: Database Migration (v0.3.0)
 
 This document is a high level overview of Project Narada's development roadmap. It primarily explains the why, at a product manager level, of our future features. It also includes high level architectural decisions, with a focus on the why of those descriptions.
 
@@ -65,15 +65,15 @@ Workflow transformer nodes, Python 3.14 modernization, and web interface readine
 
 Visual guide to infrastructure capabilities across version milestones (hobbyist scale: <10 users):
 
-| Capability | v0.2.7 (CLI) | v0.5.0 (Web UI) | v1.0.0 (Multi-User <10) |
+| Capability | v0.2.7 (CLI) | v0.6.0 (Web UI) | v1.0.0 (Multi-User <10) |
 |------------|--------------|-----------------|-------------------------|
-| **Testing** | ✅ 867 tests, <1min | ✅ + E2E (Chromium only) | ✅ Same as v0.5.0 |
-| **CI/CD** | ⚠️ Manual | ✅ GitHub Actions (pytest, ruff) | ✅ Same as v0.5.0 |
-| **Deployment** | ✅ Poetry install | ✅ Docker + Fly.io | ✅ Same as v0.5.0 |
+| **Testing** | ✅ 867 tests, <1min | ✅ + E2E (Chromium only) | ✅ Same as v0.6.0 |
+| **CI/CD** | ⚠️ Manual | ✅ GitHub Actions (pytest, ruff) | ✅ Same as v0.6.0 |
+| **Deployment** | ✅ Poetry install | ✅ Docker + Fly.io | ✅ Same as v0.6.0 |
 | **Observability** | ✅ Loguru JSON logs | ✅ Same as v0.2.7 | ✅ + Email alerts (optional) |
 | **Authentication** | ❌ Not needed | ❌ Not needed | ✅ Email/password + Spotify OAuth |
-| **Database** | ✅ SQLite | ✅ SQLite | ✅ SQLite (PostgreSQL if needed) |
-| **Caching** | ❌ Not needed | ✅ Tanstack Query + lru_cache | ✅ Same as v0.5.0 |
+| **Database** | ✅ SQLite | ✅ PostgreSQL (migrated v0.3.0) | ✅ PostgreSQL |
+| **Caching** | ❌ Not needed | ✅ Tanstack Query + lru_cache | ✅ Same as v0.6.0 |
 | **Security** | ✅ Env vars, secrets | ✅ + CORS | ✅ + HTTPS, bcrypt |
 
 **Legend**: ✅ Ready | ⚠️ Needs work | ❌ Not needed
@@ -87,7 +87,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 Key architecture & tech choices (see CLAUDE.md for migration details):
 
 - **Python 3.14+ & attrs**: Modern type syntax (`str | None`, `class Foo[T]`), immutable domain entities with slots
-- **SQLite → PostgreSQL**: SQLite for <10 users; migrate if write lock contention occurs
+- **PostgreSQL (v0.3.0)**: Migrated from SQLite as a prerequisite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes.
 - **Vite 6+ / Vitest**: 10x faster HMR than Webpack, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`
@@ -145,7 +145,205 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Additional combining strategies (if needed)
             - Production workflow templates showcasing new capabilities
 
-### v0.3.0: Data Visibility Layer
+### v0.3.0: Database Migration
+**Goal**: Migrate from SQLite to a networked relational database, enabling remote hosting and unlocking Prefect parallel task execution.
+
+**Context**: SQLite's file-based, single-writer model ties the application to a local machine and prevents concurrent writes. The Repository + UoW pattern already fully abstracts database access — only the connection config, driver, and a handful of SQLite-specific SQL constructs need to change.
+
+**Why before Web UI**: Hard prerequisite for any deployment outside a local machine. Also unlocks:
+- **Remote hosting**: Fly.io, Railway, Render, or any cloud host (no SQLite volume trickery)
+- **Prefect `.submit()` parallelism**: MVCC concurrent writes remove the `SharedSessionProvider` constraint; source/enricher nodes can execute in parallel
+- **Concurrent web requests**: FastAPI + multiple simultaneous users require concurrent write capability
+- **Prefect task caching**: Currently blocked by non-serializable context dict (live `AsyncSession`, connector instances, loggers) — evaluate separately after migration
+
+#### Database Selection Epic
+
+- [ ] **Evaluate and Select Database**
+    - Effort: S
+    - What: Research database options, evaluate against selection criteria, document ADR (Architecture Decision Record)
+    - Why: Commit to one technology before migration implementation begins
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Leading candidate — PostgreSQL**:
+            - `asyncpg` driver: fastest Python async PostgreSQL driver, mature SQLAlchemy 2.0 support
+            - MVCC concurrency: multiple concurrent writers without locking
+            - JSONB columns: indexable, operators — better than SQLite JSON
+            - Managed hosting: Neon/Supabase (dev free tier), Fly.io Postgres (prod)
+            - Alembic already supports PostgreSQL; existing migration chain can be regenerated as a fresh baseline
+        - **Alternative — Turso (LibSQL)**:
+            - Distributed SQLite fork; near-zero SQL dialect migration cost (SQL stays identical)
+            - HTTP wire protocol; async Python driver (`libsql-experimental`) still maturing
+            - Embedded replicas: local read cache + remote write, interesting for edge deployment
+            - Risk: smaller ecosystem, fewer managed hosting options
+        - **Evaluation criteria**:
+            - Async Python driver maturity and SQLAlchemy 2.0 compatibility
+            - Managed hosting options with free/cheap tiers
+            - Write concurrency model (MVCC vs WAL-over-network)
+            - Migration cost from SQLite (schema + query compat)
+            - Operational simplicity at hobbyist scale (<10 users)
+        - **Expected outcome**: PostgreSQL via `asyncpg`
+
+#### Migration Implementation Epics
+
+- [ ] **Driver and Connection Config**
+    - Effort: S
+    - What: Swap `aiosqlite` → `asyncpg`, update engine/session config, remove SQLite-specific PRAGMAs
+    - Why: Core connectivity change
+    - Dependencies: Database Selection
+    - Status: 🔜 Not Started
+    - Notes:
+        - `db_connection.py`: URL → `postgresql+asyncpg://`, switch `NullPool` → `AsyncAdaptedQueuePool` (pool_size=5, max_overflow=10)
+        - Remove `@event.listens_for` PRAGMA hook (WAL, foreign_keys, busy_timeout not applicable to PostgreSQL)
+        - Remove SQLite connect args (`check_same_thread`, `timeout`)
+        - `alembic.ini` + `alembic/env.py`: remove `render_as_batch=True` (PostgreSQL supports `ALTER TABLE` natively)
+        - Add `DATABASE_URL` env var; remove hardcoded `data/db/narada.db` path
+
+- [ ] **Schema and Query Compatibility**
+    - Effort: M
+    - What: Audit and migrate SQLite-specific SQL constructs to PostgreSQL-compatible equivalents
+    - Why: Several SQLite dialect features won't work on PostgreSQL
+    - Dependencies: Driver and Connection Config
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Bulk upsert**: `sqlite_insert().on_conflict_do_update()` → `postgresql_insert().on_conflict_do_update()` (same semantics, dialect swap in `base_repo.py`)
+        - **JSON → JSONB**: Change column types in `db_models.py` + migration; unlocks `@>` containment queries and GIN indexes for connector metadata
+        - **DateTime → TIMESTAMPTZ**: Verify no tz-naive inserts leak through; PostgreSQL is stricter about timezone-aware datetimes
+        - **Partial indexes**: `WHERE is_primary = TRUE` syntax is identical in PostgreSQL ✅
+        - **Alembic**: Generate fresh `initial_schema` migration for PostgreSQL as new baseline; archive SQLite chain in `alembic/archive/`
+        - **Test fixtures**: Replace `sqlite+aiosqlite:///:memory:` with `pytest-postgresql` ephemeral instances or dedicated test schema
+
+- [ ] **Prefect Parallel Execution**
+    - Effort: M
+    - What: Remove `SharedSessionProvider`, migrate to per-task sessions, enable `.submit()`-based parallel node execution
+    - Why: `SharedSessionProvider` was a SQLite workaround; PostgreSQL's connection pool safely handles concurrent sessions
+    - Dependencies: Schema and Query Compatibility
+    - Status: 🔜 Not Started
+    - Notes:
+        - Remove `SharedSessionProvider` from workflow engine
+        - Each Prefect task creates its own session from the pool (standard UoW pattern)
+        - Replace manual topological sort with `.submit()` + Prefect-native future dependency resolution
+        - Source nodes and enricher nodes become concurrently executable where the DAG allows; linear pipelines remain linear (no forced parallelism)
+        - Prefect task caching: separate concern — requires making context dict serializable (remove live `AsyncSession`, connector instances, loggers from context); evaluate after migration
+
+- [ ] **Development and CI Environment**
+    - Effort: S
+    - What: Update local dev setup and CI pipeline for PostgreSQL
+    - Why: `sqlite+aiosqlite:///:memory:` test databases must be replaced
+    - Dependencies: Driver and Connection Config
+    - Status: 🔜 Not Started
+    - Notes:
+        - `docker-compose.yml`: PostgreSQL service for local development (replaces SQLite file)
+        - `conftest.py`: Update `db_session` fixture to use `pytest-postgresql` ephemeral instances
+        - GitHub Actions: Add `services: postgres:` block to test workflow
+        - `.env.example`: Document `DATABASE_URL`, `DATABASE_TEST_URL`
+        - Remove `data/db/` directory and SQLite file references from `.gitignore`, `alembic.ini`
+
+---
+
+### v0.3.1: Deployment Foundation
+**Goal**: Containerize the application and establish a repeatable deployment pipeline to Fly.io, making Narada hostable outside a local machine.
+
+**Context**: The database migration (v0.3.0) established PostgreSQL as the data layer. This milestone wraps the application in Docker and gets it running on a real host. Doing this before the UI build means every subsequent feature ships into a real hosted environment from day one — no deployment surprises when it's time to launch v0.6.0.
+
+**Why before Web UI**: The Web UI assumes a reachable hosted backend. Solving containerization and deployment as a standalone concern is cleaner than baking it into the UI milestone. The Dockerfile will be extended in v0.6.0 to bundle Vite production assets, but the deployment infrastructure — Fly.io config, secrets management, migrations-on-deploy — is established here.
+
+#### Containerization Epics
+
+- [ ] **Dockerfile and Docker Compose**
+    - Effort: S
+    - What: Multi-stage Dockerfile for the Python backend + docker-compose.yml for local development with PostgreSQL
+    - Why: Reproducible, portable build; local dev environment matches production topology
+    - Dependencies: Database Migration (v0.3.0)
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Dockerfile** (multi-stage):
+            - Stage 1 (`builder`): Python 3.14 slim + Poetry; install dependencies into `/venv`
+            - Stage 2 (`runtime`): copy `/venv` + `src/`; non-root `narada` user; expose port 8000
+            - No Vite assets at this stage — extended in v0.6.0 to add a `node` build stage
+        - **docker-compose.yml** (local development):
+            - `app` service: bind-mount `src/` for live reload (`uvicorn --reload`)
+            - `postgres` service: `postgres:16-alpine`, named volume for data persistence
+            - `.env` file supplies `DATABASE_URL`, API credentials
+            - Depends-on + healthcheck: app waits for postgres to be ready
+        - **Startup**: `alembic upgrade head` runs before `uvicorn` starts (entrypoint script)
+        - **.dockerignore**: exclude `.venv/`, `data/`, `*.pyc`, `.git`, `node_modules/`
+
+- [ ] **Environment Configuration Hardening**
+    - Effort: S
+    - What: Audit all configuration for env-var-driven config; document in `.env.example`
+    - Why: App has scattered hardcoded paths that break in containers
+    - Dependencies: Database Migration (v0.3.0)
+    - Status: 🔜 Not Started
+    - Notes:
+        - `DATABASE_URL` already added in v0.3.0 ✅
+        - API credentials: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `LASTFM_API_KEY`, `LASTFM_API_SECRET`
+        - Log config: `LOG_LEVEL` (default `INFO`); stdout in container (Fly.io aggregates)
+        - `.env.example`: document all required + optional variables with descriptions
+        - Startup validation: `pydantic-settings` fails fast with clear error if required vars are missing
+
+#### Credential Architecture Epics
+
+- [ ] **Spotify Token Persistence**
+    - Effort: S
+    - What: Move Spotify access + refresh tokens from `.spotify_cache` local file to a new `oauth_tokens` database table
+    - Why: Local file token storage is a hard blocker for containerization — containers have no persistent local filesystem. Tokens must survive restarts.
+    - Dependencies: Database Migration (v0.3.0)
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Root cause**: `SpotifyTokenManager` hardcodes `cache_path: Path = Path(".spotify_cache")` (`auth.py:77`); `_load_cache()`/`_save_cache()` read/write this file directly
+        - **New `oauth_tokens` table**: `service VARCHAR(32)`, `access_token TEXT`, `refresh_token TEXT`, `expires_at DATETIME`, `scope TEXT`, `updated_at DATETIME` — keyed by service name
+        - **`TokenStorage` protocol**: define in domain or infrastructure; `FileTokenStorage` (existing behavior, for local CLI) and `DatabaseTokenStorage` (new, for hosted); inject into `SpotifyTokenManager`
+        - **Local CLI**: `SPOTIFY_REDIRECT_URI = http://localhost:8888/callback` — browser-based initial auth still works locally via `FileTokenStorage`
+        - **Hosted environment**: `DatabaseTokenStorage` is used; initial auth requires the web OAuth flow (v0.6.0); until then, Spotify features gracefully degrade
+        - **Last.fm**: password-based mobile session, session key in-memory only — acceptable for hosted use; `LASTFM_PASSWORD` must be a managed secret (`fly secrets set`)
+
+- [ ] **Local Data Migration Tooling**
+    - Effort: S
+    - What: One-time script to export existing local SQLite data and import it to the hosted PostgreSQL database
+    - Why: The schema migrates in v0.3.0, but existing listening history, liked tracks, and play data live in the local SQLite file and would otherwise be lost
+    - Dependencies: Database Migration (v0.3.0), Fly.io Deployment
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Approach**: SQLAlchemy-based read from SQLite (source engine) → write to PostgreSQL (target engine); same `db_models.py` models, different connection strings
+        - **Tables to migrate**: `tracks`, `connector_tracks`, `track_mappings`, `track_metrics`, `track_likes`, `track_plays`, `connector_plays`, `playlists`, `connector_playlists`, `playlist_mappings`, `playlist_tracks`, `sync_checkpoints`
+        - **Order matters**: insert parent tables before child tables (tracks before track_mappings, etc.) to satisfy FK constraints
+        - **Idempotent**: use `INSERT ... ON CONFLICT DO NOTHING` so the script is safe to re-run
+        - **CLI command**: `narada db migrate-to-remote --source sqlite:///data/db/narada.db --target $DATABASE_URL`
+
+#### Deployment Epics
+
+- [ ] **Fly.io Deployment**
+    - Effort: M
+    - What: Deploy the containerized backend to Fly.io with managed PostgreSQL
+    - Why: Primary hosting target; hobby tier sufficient for personal use
+    - Dependencies: Dockerfile and Docker Compose
+    - Status: 🔜 Not Started
+    - Notes:
+        - `fly.toml`: app config, port 8000, health check on `/health`
+        - **Health check**: Add `/health` endpoint to FastAPI (200 + DB connectivity probe)
+        - **Database**: Fly.io Postgres (managed); app connects via internal private network `DATABASE_URL`
+        - **Secrets**: `fly secrets set SPOTIFY_CLIENT_ID=... LASTFM_API_KEY=...`
+        - **Migrations**: `alembic upgrade head` as release command — runs before new version receives traffic
+        - **HTTPS**: Automatic via Fly.io (no Let's Encrypt setup needed)
+        - **Volumes**: None — PostgreSQL is managed; logs go to stdout
+        - **Scaling**: Single machine, 256MB RAM; scale up only if needed
+
+- [ ] **Deployment Documentation**
+    - Effort: XS
+    - What: Single `DEPLOYMENT.md` covering local Docker dev, first Fly.io deploy, updates, and database backups
+    - Why: Reproducible deploys; useful reference when the app hasn't been touched in months
+    - Dependencies: Fly.io Deployment
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Sections**: Prerequisites → Local dev with Docker Compose → First deploy → Updating → PostgreSQL backups → Troubleshooting
+        - **Database backup**: `fly postgres connect` + `pg_dump` piped to a local file
+        - **Rolling updates**: `fly deploy` (zero-downtime redeploy for single-user)
+        - Keep it concise — if a step needs more than one command, something is wrong with the setup
+
+---
+
+### v0.4.0: Data Visibility Layer
 **Goal**: Expose rich metadata already in database to prepare for web interface - connector linkage, sync state, and freshness tracking.
 
 **Context**: Infrastructure exploration revealed extensive metadata exists (connector mappings, sync timestamps, freshness tracking) but lacks use case layer exposure. Web UI needs visibility into this data to show users which tracks/playlists are linked to which connectors, when data was last synced, and metadata staleness.
@@ -239,7 +437,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Foundation for web UI playlist browser
 
 
-### v0.3.1: User Experience and Reliability
+### v0.4.1: User Experience and Reliability
 **Goal**: Polish the user experience and improve system reliability
 
 #### Enhanced CLI Experience Epic
@@ -254,6 +452,27 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Use Typer's built-in completion support
         - Generate completion scripts for major shells
         - Include dynamic completion for workflows and connectors
+
+#### Type Safety Hardening Epic
+
+- [ ] **Audit and Resolve `# type: ignore` and `Any` Suppressions**
+    - Effort: M
+    - What: Systematic review of all pyright suppressions and `Any` annotations introduced during the v0.2.7 type cleanup, distinguishing legitimate architectural boundaries from papering over real type gaps
+    - Why: The basedpyright 0-warning baseline was achieved partly by relaxing strictness settings (`reportUnknownVariableType`, `reportUnknownArgumentType` etc.) and adding targeted `# pyright: ignore` comments. Some of these are correct (e.g. the `isinstance` guard on the workflow context dict, where the annotation is intentionally narrower than the runtime type). Others may indicate real architectural issues — missing TypedDicts, weak Pydantic models, or places where `Any` leaks across layer boundaries.
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Audit approach**: `grep -rn "type: ignore\|pyright: ignore\|Any" src/` to enumerate all suppressions; categorise each as (a) legitimate boundary, (b) gap to fix, or (c) remove entirely
+        - **Known legitimate suppressions** (do not remove):
+            - `prefect.py` — `isinstance` guard on workflow context dict (annotation is `dict[str, NodeResult]` but caller passes full context); guard is correct, annotation documents intent
+            - `domain/entities/operations.py` — `TYPE_CHECKING` import for Spotify `PersonalData` (unavoidable circular import)
+        - **Likely fixable gaps** to investigate:
+            - `dict[str, Any]` in connector response parsing not yet covered by Pydantic models (e.g. Spotify search results, playlist objects)
+            - `Any` in repository mapper layers where SQLAlchemy column types are widened
+            - `reportUnknownMemberType` suppressed on SQLAlchemy mapped columns
+        - **Strictness settings** (`pyrightconfig.json`): review which rules were relaxed and re-tighten where possible
+        - **Goal**: Maintain 0 errors/warnings baseline while raising the floor — fewer blanket suppressions, more targeted annotations or Pydantic models
+        - **Blocker for web UI**: FastAPI route handlers and Pydantic response schemas depend on correct types flowing from the application layer; unresolved `Any` leaks will surface as runtime serialisation errors
 
 #### Continuous Integration Epic
 
@@ -279,7 +498,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - **Dependency Security** (`.github/workflows/security.yml`):
             - poetry audit (known vulnerabilities)
             - safety check (dependency scanning)
-            - trivy (container scanning, for v0.5.0+)
+            - trivy (container scanning, for v0.6.0+)
         - **Pre-merge Requirements**:
             - All tests passing
             - Coverage threshold met
@@ -364,7 +583,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.4.0: Track Management Completion
+### v0.5.0: Track Management Completion
 **Goal**: Fill CRUD gaps for tracks to enable comprehensive track browsing in web interface.
 
 **Context**: Current track operations limited to filtered views (GetLikedTracksUseCase, GetPlayedTracksUseCase). Web UI needs generic track listing, pagination, search, and single track retrieval for track browser functionality.
@@ -434,10 +653,10 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.5.0: Web UI MVP
+### v0.6.0: Web UI MVP
 **Goal**: FastAPI service + React application for CRUD operations and workflow visualization (read-only)
 
-**Context**: v0.3.0 (Data Visibility) and v0.4.0 (Track Management) provide comprehensive use cases for tracks, playlists, connector mappings, and sync state. v0.5.0 wraps these with REST API and builds minimal web interface. Focus: read-only workflow visualization + execution, defer interactive editing to v0.6.0.
+**Context**: v0.4.0 (Data Visibility) and v0.5.0 (Track Management) provide comprehensive use cases for tracks, playlists, connector mappings, and sync state. v0.6.0 wraps these with REST API and builds minimal web interface. Focus: read-only workflow visualization + execution, defer interactive editing to v0.7.0.
 
 **Architecture**: Clean Architecture compliance - web layer is pure interface, zero business logic. All operations delegate to existing use cases.
 
@@ -452,7 +671,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Effort: M
     - What: Create FastAPI service with REST API endpoints using modern Pydantic v2 patterns
     - Why: Web interface needs programmatic access to all use cases
-    - Dependencies: v0.4.0 completion (track use cases)
+    - Dependencies: v0.5.0 completion (track use cases)
     - Status: 🔜 Not Started
     - Notes:
         - **Tech Stack**:
@@ -473,14 +692,36 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Automatic OpenAPI/Swagger documentation
         - **API Endpoints**:
             - `/api/playlists` - list, get, create, update, delete (uses existing playlist use cases)
-            - `/api/tracks` - list, get, search, stats (uses v0.4.0 use cases)
-            - `/api/status` - sync state, connector mappings, freshness (uses v0.3.0 use cases)
-            - `/api/workflows` - list, get, execute (read-only, uses existing workflow engine)
+            - `/api/tracks` - list, get, search, stats (uses v0.5.0 use cases)
+            - `/api/status` - sync state, connector mappings, freshness (uses v0.4.0 use cases)
+            - `/api/workflows` - list, get, execute (uses existing workflow engine)
+        - **Workflow Execution Model** (non-blocking):
+            - `POST /api/workflows/{id}/run` → launches workflow as `BackgroundTask`, returns `{"run_id": "..."}` immediately
+            - `GET /api/workflows/{run_id}/progress` → Server-Sent Events stream; new `SSEProgressProvider` subscribes to existing `AsyncProgressManager` (the `ProgressSubscriber` protocol is already display-agnostic; CLI uses `RichProgressProvider`)
+            - Prefect flows run in-process (`await run_workflow(...)`) — no Prefect server needed; validate that `@flow` functions work correctly when called from within a FastAPI event loop (Prefect 3 supports this, but `get_run_logger()` context must be verified)
+        - **Security baseline**:
+            - Basic rate limiting via `slowapi` middleware — prevents runaway scripts even in single-user mode
+            - CORS: `allow_origins = [settings.app_url]` for production (not `*`); localhost allowed in dev mode
         - **Architecture Alignment**:
             - Layered architecture: Router → Use Case → Repository
             - No business logic in routers (delegates to application layer)
             - Clean Architecture compliance (web layer is pure interface)
-        - **Authentication**: None for v0.5.0 (single-user), add in v1.0
+        - **Authentication**: None for v0.6.0 (single-user), add in v1.0
+
+- [ ] **Spotify OAuth Web Flow**
+    - Effort: M
+    - What: Replace the current browser-on-localhost OAuth flow with a proper hosted OAuth callback that works in a container
+    - Why: `SpotifyTokenManager._run_browser_auth()` uses `webbrowser.open()` and a blocking `HTTPServer` on `localhost:8888` — completely non-functional in a headless server. This is a hard blocker for any Spotify read/write functionality in the hosted app.
+    - Dependencies: FastAPI Application Setup, Spotify Token Persistence (v0.3.1)
+    - Status: 🔜 Not Started
+    - Notes:
+        - **New routes** (`src/api/auth/`):
+            - `GET /auth/spotify` — generates Spotify authorization URL and redirects user's browser to it
+            - `GET /auth/spotify/callback` — receives the OAuth code from Spotify, exchanges it for tokens, stores via `DatabaseTokenStorage` (from v0.3.1); redirects user to the app UI
+        - **Config**: `SPOTIFY_REDIRECT_URI = https://{FLY_APP_HOSTNAME}/auth/spotify/callback`; register this URI in Spotify Developer Dashboard (document in `DEPLOYMENT.md`)
+        - **`SpotifyTokenManager`**: already uses injected `TokenStorage` (from v0.3.1); no further changes needed — the web flow just calls `_save_cache()` via the DB storage backend
+        - **Graceful degradation**: endpoints requiring Spotify return `503 Service Unavailable` with a link to `/auth/spotify` if no valid token exists; read-only data (already imported) remains accessible
+        - **Local CLI**: unchanged — still uses `FileTokenStorage` + localhost server; the hosted OAuth callback is a web-only code path
 
 #### React Application Epics
 
@@ -634,55 +875,9 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Frontend: 60% overall (UI testing is expensive)
             - E2E: 100% critical user flows
 
-#### Deployment Infrastructure Epic
+#### Deployment Update
 
-- [ ] **Containerization & Local Development**
-    - Effort: M
-    - What: Simple Docker setup for FastAPI + React (hobbyist-friendly)
-    - Why: Reproducible development environment, easy deployment to Fly.io
-    - Dependencies: FastAPI Application Setup
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Single Dockerfile** (no multi-stage complexity):
-            - Base: Python 3.14 slim image
-            - Install Poetry dependencies
-            - Build Vite production assets (during image build)
-            - FastAPI serves both API + static React files
-            - Non-root user for security
-        - **docker-compose.yml** (local development only):
-            - Single service: app (FastAPI + SQLite)
-            - SQLite volume mount for persistence
-            - Port mapping: 8000:8000
-            - Environment: .env file for configuration
-        - **Development**:
-            - Run Vite dev server locally (npm run dev)
-            - Run FastAPI with uvicorn --reload (poetry run)
-            - No separate Docker services (keeps it simple)
-        - **Production**:
-            - Single container deployment to Fly.io
-            - SQLite volume attached (Fly.io supports this)
-            - HTTPS via Fly.io (automatic)
-            - Alembic migrations on startup
-        - **Database**:
-            - SQLite volume persistence
-            - Manual backup via `flyctl ssh console` + scp (simple enough for <10 users)
-
-- [ ] **Deployment Documentation**
-    - Effort: XS
-    - What: Single DEPLOYMENT.md guide for Fly.io hosting
-    - Why: Simple deployment for hobbyist project
-    - Dependencies: Containerization epic
-    - Status: 🔜 Not Started
-    - Notes:
-        - **DEPLOYMENT.md** (single consolidated guide):
-            - **Docker**: Build and run locally
-            - **Fly.io Deployment**: `fly launch` + `fly deploy` commands
-            - **Environment Variables**: How to set secrets in Fly.io
-            - **Database Backup**: Manual SQLite export/import via flyctl
-            - **HTTPS**: Automatic via Fly.io (no Let's Encrypt setup needed)
-            - **Auth Setup (v1.0)**: Email SMTP config, Spotify OAuth credentials
-        - **Hosting Platform**: Fly.io only (free tier, simple, supports SQLite)
-        - **No separate docs**: Operations, security, monitoring all in DEPLOYMENT.md
+Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install pnpm deps, run `vite build`, copy `dist/` into the runtime image. FastAPI serves the built static files via `StaticFiles`. `docker-compose.yml` and Fly.io config require no changes — the same deployment pipeline from v0.3.1 applies.
 
 #### Performance Optimization Epic
 
@@ -712,16 +907,16 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - **Browser Storage**:
                 - LocalStorage for user preferences only
                 - No IndexedDB, no Service Workers (PWA deferred)
-        - **Performance Targets** (realistic for SQLite + <10 users):
+        - **Performance Targets** (realistic for <10 users):
             - Time to Interactive (TTI): <5s
             - First Contentful Paint (FCP): <2s
-            - API response time: p95 <1s (SQLite is slower than PostgreSQL, OK)
+            - API response time: p95 <500ms (PostgreSQL on Fly.io internal network)
             - Lighthouse score: >70 (good enough for hobbyist project)
 
-### v0.6.0: Interactive Workflow Editor
+### v0.7.0: Interactive Workflow Editor
 **Goal**: Full editing capabilities with intuitive graphical interface
 
-**Context**: Deferred from v0.5.0 to ship web UI faster. v0.5.0 provides read-only workflow visualization + execution, which is sufficient for MVP. Users can edit workflow JSON files manually until v0.6.0 adds graphical editing.
+**Context**: Deferred from v0.6.0 to ship web UI faster. v0.6.0 provides read-only workflow visualization + execution, which is sufficient for MVP. Users can edit workflow JSON files manually until v0.7.0 adds graphical editing.
 
 #### Interactive Editing System Epics
 - [ ] **Drag-and-Drop Node Creation**
@@ -791,7 +986,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.7.0: LLM-Assisted Workflow Creation
+### v0.8.0: LLM-Assisted Workflow Creation
 **Goal**: Natural language workflow creation with LLM integration
 
 #### AI-Powered Creation Epics
@@ -872,7 +1067,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Effort: M
     - What: Simple, secure authentication for friends (<10 users)
     - Why: Basic auth for trusted users, OWASP security without enterprise complexity
-    - Dependencies: FastAPI Service (v0.5.0)
+    - Dependencies: FastAPI Service (v0.6.0)
     - Status: 🔜 Not Started
     - Notes:
         - **Authentication** (simplified for hobbyist scale):
@@ -921,7 +1116,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Effort: XS
     - What: Simple logging for hobbyist debugging (<10 users)
     - Why: Logs are sufficient for troubleshooting with trusted friends
-    - Dependencies: FastAPI Service (v0.5.0)
+    - Dependencies: FastAPI Service (v0.6.0)
     - Status: 🔜 Not Started
     - Notes:
         - **Monitoring Philosophy** (hobbyist reality):
@@ -962,33 +1157,9 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Support debugging tools
         - Include execution history
 
-#### Database Scaling Epic
+#### Database
 
-- [ ] **PostgreSQL Migration Path (Optional)**
-    - Effort: M
-    - What: Support PostgreSQL as alternative to SQLite for multi-user deployments
-    - Why: SQLite write concurrency limits (~1-10 concurrent writes), PostgreSQL scales to 100s of users
-    - Dependencies: v1.0.0 Multi-User Platform
-    - Status: 🔜 Not Started (evaluate based on actual load)
-    - Notes:
-        - **When to Migrate**:
-            - Trigger: >10 concurrent users experiencing write lock contention
-            - Symptom: "database is locked" errors under load
-            - Recommendation: Start with SQLite, migrate only if needed
-        - **Migration Strategy**:
-            - Repository pattern already abstracts database (no application code changes) ✅
-            - Change DATABASE_URL: `postgresql+asyncpg://user:pass@host/db`
-            - Alembic migrations work with both SQLite and PostgreSQL ✅
-            - Data migration: Export SQLite → import to PostgreSQL (script)
-        - **PostgreSQL Benefits**:
-            - Write concurrency: 100s of simultaneous transactions
-            - JSONB for semi-structured data (connector metadata)
-            - Full-text search (FTS) for track/playlist search
-            - Advanced indexing (GIN, BRIN for time-series play history)
-        - **Trade-offs**:
-            - SQLite: Zero-config, local file, perfect for single-user
-            - PostgreSQL: Requires server, adds complexity, scales better
-        - **Recommendation**: Document migration path, defer until actual need
+PostgreSQL migration completed in v0.3.0 as a prerequisite for remote hosting and web deployment. No additional database scaling work expected for <10 users at v1.0.0 scale. If write contention surfaces, evaluate read replicas or connection pooling (PgBouncer) before considering sharding.
 
 ---
 

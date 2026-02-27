@@ -4,7 +4,7 @@ Pure track representations and related value objects with zero external dependen
 """
 
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Protocol, Self, TypedDict, cast
 
 import attrs
 from attrs import define, field, validators
@@ -187,7 +187,7 @@ class ConnectorTrack:
     id: int | None = None
 
 
-@define(frozen=True)
+@define(frozen=True, slots=True)
 class ConnectorTrackMapping:
     """Cross-connected-service entity mapping with confidence scoring.
 
@@ -211,7 +211,50 @@ class ConnectorTrackMapping:
     metadata: dict[str, Any] = field(factory=dict)
 
 
-@define(frozen=True)
+class TrackListMetadata(TypedDict, total=False):
+    """Known metadata keys that flow through TrackList pipelines.
+
+    All keys are optional (total=False). Workflow nodes write subsets of these
+    keys as tracks flow through source → enricher → transform → destination.
+    """
+
+    # Enrichment data (written by enrichers, read by transforms)
+    metrics: dict[str, dict[int, Any]]  # metric_name → track_id → value
+    fresh_metric_ids: dict[str, list[int]]  # metric_name → freshly-fetched track IDs
+
+    # Source tracking (written by source nodes & combiners)
+    track_sources: dict[
+        int, dict[str, str]
+    ]  # track_id → {playlist_name, source, source_id}
+    operation: str  # "concatenate", "alternate", "get_played_tracks", etc.
+    source_count: int  # number of tracklists combined
+    source_playlist_name: str  # from Playlist → TrackList conversion
+    added_at_dates: dict[int, str]  # track_id → ISO date (from PlaylistEntry.added_at)
+
+
+# Valid keys for TrackList.metadata — used to constrain with_metadata/get_metadata
+type MetadataKey = Literal[
+    "metrics",
+    "fresh_metric_ids",
+    "track_sources",
+    "operation",
+    "source_count",
+    "source_playlist_name",
+    "added_at_dates",
+]
+
+
+class _PlaylistLike(Protocol):
+    """Structural type for Playlist → TrackList conversion (avoids circular import)."""
+
+    @property
+    def tracks(self) -> list[Track]: ...
+
+    @property
+    def name(self) -> str: ...
+
+
+@define(frozen=True, slots=True)
 class TrackList:
     """Ephemeral, immutable collection of tracks for processing pipelines.
 
@@ -220,7 +263,7 @@ class TrackList:
     """
 
     tracks: list[Track] = field(factory=list)
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: TrackListMetadata = field(factory=TrackListMetadata)
 
     def with_tracks(self, tracks: list[Track]) -> Self:
         """Create new TrackList with the given tracks."""
@@ -229,38 +272,26 @@ class TrackList:
             metadata=self.metadata.copy(),
         )
 
-    def with_metadata(self, key: str, value: Any) -> Self:
+    def with_metadata(self, key: MetadataKey, value: Any) -> Self:
         """Add metadata to the TrackList."""
-        new_metadata = self.metadata.copy()
+        new_metadata: dict[str, Any] = dict(self.metadata)
         new_metadata[key] = value
-        return self.__class__(tracks=self.tracks, metadata=new_metadata)
+        return self.__class__(
+            tracks=self.tracks,
+            metadata=cast(TrackListMetadata, cast(object, new_metadata)),
+        )
 
-    def get_metadata(self, key: str, default: Any = None) -> Any:
-        """Get metadata value with optional default.
-
-        Args:
-            key: Metadata key to retrieve
-            default: Default value if key doesn't exist
-
-        Returns:
-            Metadata value or default
-        """
+    def get_metadata(self, key: MetadataKey, default: Any = None) -> Any:
+        """Get metadata value with optional default."""
         return self.metadata.get(key, default)
 
-    def has_metadata(self, key: str) -> bool:
-        """Check if metadata key exists.
-
-        Args:
-            key: Metadata key to check
-
-        Returns:
-            True if key exists in metadata
-        """
+    def has_metadata(self, key: MetadataKey) -> bool:
+        """Check if metadata key exists."""
         return key in self.metadata
 
     @classmethod
-    def from_playlist(cls, playlist: Any) -> Self:  # Avoiding circular import
-        """Create TrackList from a Playlist."""
+    def from_playlist(cls, playlist: _PlaylistLike) -> Self:
+        """Create TrackList from a Playlist (or any object with .tracks and .name)."""
         return cls(
             tracks=playlist.tracks,
             metadata={"source_playlist_name": playlist.name},

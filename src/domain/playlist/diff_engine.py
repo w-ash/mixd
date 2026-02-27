@@ -7,10 +7,9 @@ re-identification of tracks that already have known Spotify mappings.
 """
 
 from enum import Enum
-from typing import Any, cast
+from typing import Any
 
 from attrs import define, field
-from toolz import curry
 
 from src.config import get_logger, settings
 from src.domain.entities.playlist import Playlist
@@ -186,7 +185,6 @@ def match_tracks_with_db_lookup(
     return matched, unmatched_current, unmatched_target
 
 
-@curry
 def calculate_remove_operations(
     unmatched_current_tracks: list[Track], current_playlist: Playlist
 ) -> list[PlaylistOperation]:
@@ -224,7 +222,6 @@ def calculate_remove_operations(
     return operations
 
 
-@curry
 def calculate_add_operations(
     unmatched_target_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
@@ -475,7 +472,6 @@ def calculate_lis_reorder_operations(
     return operations
 
 
-@curry
 def calculate_move_operations(
     matched_tracks: list[Track], current_playlist: Playlist, target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
@@ -502,7 +498,6 @@ def calculate_move_operations(
     return operations
 
 
-@curry
 def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
     """Estimate Spotify API calls needed to execute operations.
 
@@ -528,7 +523,6 @@ def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
     return max(1, api_calls)  # At least one call to check snapshot
 
 
-@curry
 def calculate_confidence_score(
     matched_tracks: list[Track], operations: list[PlaylistOperation]
 ) -> float:
@@ -571,27 +565,18 @@ def calculate_playlist_diff(
     ) = match_tracks_with_db_lookup(current_playlist.tracks, target_tracks)
 
     # Step 2: Calculate operations using functional composition
-    remove_operations: list[PlaylistOperation] = cast(
-        list[PlaylistOperation],
-        calculate_remove_operations(unmatched_current, current_playlist),
-    )
-    add_operations: list[PlaylistOperation] = cast(
-        list[PlaylistOperation],
-        calculate_add_operations(unmatched_target, target_tracks),
-    )
-    move_operations: list[PlaylistOperation] = cast(
-        list[PlaylistOperation],
-        calculate_move_operations(matched_tracks, current_playlist, target_tracks),
+    remove_operations = calculate_remove_operations(unmatched_current, current_playlist)
+    add_operations = calculate_add_operations(unmatched_target, target_tracks)
+    move_operations = calculate_move_operations(
+        matched_tracks, current_playlist, target_tracks
     )
 
     # Combine all operations
     all_operations = remove_operations + add_operations + move_operations
 
     # Step 3: Calculate metadata
-    api_calls: int = cast(int, estimate_api_calls(all_operations))
-    confidence: float = cast(
-        float, calculate_confidence_score(matched_tracks, all_operations)
-    )
+    api_calls = estimate_api_calls(all_operations)
+    confidence = calculate_confidence_score(matched_tracks, all_operations)
 
     return PlaylistDiff(
         operations=all_operations,
@@ -614,7 +599,7 @@ def sequence_operations_for_spotify(
     if not operations:
         return []
 
-    # Partition operations by type using toolz
+    # Partition operations by type
     def get_operation_priority(op: PlaylistOperation) -> int:
         """Return priority for operation sequencing (lower number = execute first)."""
         priority_map = {

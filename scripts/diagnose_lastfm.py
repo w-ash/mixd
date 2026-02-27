@@ -7,6 +7,7 @@ and retrieve track/user data correctly.
 Usage:
     poetry run python scripts/diagnose_lastfm.py
 """
+
 import asyncio
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient

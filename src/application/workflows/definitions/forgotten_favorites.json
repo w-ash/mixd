@@ -1,0 +1,67 @@
+{
+  "name": "Forgotten Favorites",
+  "description": "Tracks you once loved but haven't listened to in months — sorted by when you first discovered them",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "liked_tracks",
+      "type": "source.liked_tracks",
+      "config": {
+        "limit": 5000,
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays", "last_played_dates", "first_played_dates"],
+        "period_days": 365
+      },
+      "upstream": ["liked_tracks"]
+    },
+    {
+      "id": "filter_well_played",
+      "type": "filter.by_play_history",
+      "config": {
+        "min_plays": 5
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "filter_not_recent",
+      "type": "filter.by_play_history",
+      "config": {
+        "max_days_back": 180
+      },
+      "upstream": ["filter_well_played"]
+    },
+    {
+      "id": "sort_by_discovery",
+      "type": "sorter.by_first_played",
+      "config": {
+        "ascending": true
+      },
+      "upstream": ["filter_not_recent"]
+    },
+    {
+      "id": "select_top",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 30,
+        "method": "first"
+      },
+      "upstream": ["sort_by_discovery"]
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Forgotten Favorites {date}",
+        "description": "Tracks you played 5+ times but haven't touched in 6 months, sorted by when you first heard them",
+        "connector": "spotify"
+      },
+      "upstream": ["select_top"]
+    }
+  ]
+}

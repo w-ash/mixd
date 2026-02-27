@@ -130,7 +130,6 @@ class TestGetLikedTracksUseCase:
         assert result.execution_time_ms >= 0  # Can be 0 in fast tests
         assert len(result.errors) == 0
         assert result.tracklist.metadata["operation"] == "get_liked_tracks"
-        assert result.tracklist.metadata["sort_by"] == "liked_at_desc"
 
     async def test_execute_passes_sort_to_repository(self, mock_uow):
         """Test that sort_by parameter is passed to repository."""
@@ -214,8 +213,3 @@ class TestGetLikedTracksUseCase:
 
         metadata = result.tracklist.metadata
         assert metadata["operation"] == "get_liked_tracks"
-        assert metadata["connector_filter"] == "spotify"
-        assert metadata["sort_by"] == "liked_at_desc"
-        assert metadata["limit_applied"] == 100
-        assert "original_likes_count" in metadata
-        assert "track_count" in metadata

@@ -77,8 +77,6 @@ class GetPlayedTracksResult:
         """Summary statistics from the track retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),
-            "days_back": self.tracklist.metadata.get("days_back"),
-            "connector_filter": self.tracklist.metadata.get("connector_filter"),
             "execution_time_ms": self.execution_time_ms,
             "success": not self.errors,
         }
@@ -212,21 +210,11 @@ class GetPlayedTracksUseCase:
             period_end=None,
         )
 
-        # Create tracklist with play metrics metadata for composition with transforms
+        # Create tracklist with play metrics in canonical nested structure
         tracklist = TrackList(
             tracks=tracks,
             metadata={
                 "operation": "get_played_tracks",
-                "days_back": command.days_back,
-                "connector_filter": command.connector_filter,
-                "sort_by": command.sort_by,
-                "period_start": period_start.isoformat() if period_start else None,
-                "track_count": len(tracks),
-                "limit_applied": command.limit,
-                # Include play metrics for use by transforms like filter_by_play_history
-                "total_plays": play_metrics.get("total_plays", {}),
-                "last_played_dates": play_metrics.get("last_played_dates", {}),
-                # Also store in nested structure expected by some transforms
                 "metrics": {
                     "total_plays": play_metrics.get("total_plays", {}),
                     "last_played_dates": play_metrics.get("last_played_dates", {}),

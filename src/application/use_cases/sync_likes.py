@@ -26,6 +26,12 @@ logger = get_logger(__name__)
 # -------------------------------------------------------------------------
 
 
+def _get_connector(uow: UnitOfWorkProtocol, service: str) -> Any:
+    """Get service connector from UoW."""
+    provider = uow.get_service_connector_provider()
+    return provider.get_connector(service)
+
+
 class CheckpointManager:
     """Manages sync checkpoint operations (get, create, update)."""
 
@@ -163,7 +169,7 @@ class ImportSpotifyLikesUseCase:
         batches = 0
         cursor = None
 
-        spotify_connector = self._get_connector(uow, "spotify")
+        spotify_connector = _get_connector(uow, "spotify")
 
         while True:
             if command.max_imports and imported >= command.max_imports:
@@ -261,12 +267,6 @@ class ImportSpotifyLikesUseCase:
 
         return result
 
-    @staticmethod
-    def _get_connector(uow: UnitOfWorkProtocol, service: str) -> Any:
-        """Get service connector from UoW."""
-        provider = uow.get_service_connector_provider()
-        return provider.get_connector(service)
-
 
 @define(slots=True)
 class ExportLastFmLikesUseCase:
@@ -315,7 +315,7 @@ class ExportLastFmLikesUseCase:
         exported = 0
         filtered = 0
         errors = 0
-        lastfm = self._get_connector(uow, "lastfm")
+        lastfm = _get_connector(uow, "lastfm")
 
         for i in range(0, len(unsynced), batch_size):
             if command.max_exports and exported >= command.max_exports:
@@ -451,12 +451,6 @@ class ExportLastFmLikesUseCase:
                 error=str(e),
             )
 
-    @staticmethod
-    def _get_connector(uow: UnitOfWorkProtocol, service: str) -> Any:
-        """Get service connector from UoW."""
-        provider = uow.get_service_connector_provider()
-        return provider.get_connector(service)
-
 
 @define(slots=True)
 class GetSyncCheckpointStatusUseCase:
@@ -494,16 +488,14 @@ async def run_spotify_likes_import(
     max_imports: int | None = None,
 ) -> OperationResult:
     """Import Spotify liked tracks into local database."""
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+    from src.application.runner import execute_use_case
 
-    async with get_session() as session:
-        uow = get_unit_of_work(session)
-        command = ImportSpotifyLikesCommand(
-            user_id=user_id, limit=limit, max_imports=max_imports
-        )
-        use_case = ImportSpotifyLikesUseCase()
-        return await use_case.execute(command, uow)
+    command = ImportSpotifyLikesCommand(
+        user_id=user_id, limit=limit, max_imports=max_imports
+    )
+    return await execute_use_case(
+        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow)
+    )
 
 
 async def run_lastfm_likes_export(
@@ -513,19 +505,17 @@ async def run_lastfm_likes_export(
     override_date: datetime | None = None,
 ) -> OperationResult:
     """Export locally liked tracks to Last.fm as loved tracks."""
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+    from src.application.runner import execute_use_case
 
-    async with get_session() as session:
-        uow = get_unit_of_work(session)
-        command = ExportLastFmLikesCommand(
-            user_id=user_id,
-            batch_size=batch_size,
-            max_exports=max_exports,
-            override_date=override_date,
-        )
-        use_case = ExportLastFmLikesUseCase()
-        return await use_case.execute(command, uow)
+    command = ExportLastFmLikesCommand(
+        user_id=user_id,
+        batch_size=batch_size,
+        max_exports=max_exports,
+        override_date=override_date,
+    )
+    return await execute_use_case(
+        lambda uow: ExportLastFmLikesUseCase().execute(command, uow)
+    )
 
 
 async def get_sync_checkpoint_status(
@@ -533,13 +523,9 @@ async def get_sync_checkpoint_status(
     entity_type: Literal["likes", "plays"],
 ) -> SyncCheckpointStatus:
     """Get sync checkpoint status for UI display."""
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+    from src.application.runner import execute_use_case
 
-    async with get_session() as session:
-        uow = get_unit_of_work(session)
-        command = GetSyncCheckpointStatusCommand(
-            service=service, entity_type=entity_type
-        )
-        use_case = GetSyncCheckpointStatusUseCase()
-        return await use_case.execute(command, uow)
+    command = GetSyncCheckpointStatusCommand(service=service, entity_type=entity_type)
+    return await execute_use_case(
+        lambda uow: GetSyncCheckpointStatusUseCase().execute(command, uow)
+    )

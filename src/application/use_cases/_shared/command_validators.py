@@ -19,12 +19,30 @@ Example usage:
     ```
 """
 
-from typing import Any, cast
+from typing import Any
 
 import attrs
 from attrs import Attribute
 
 from src.config.constants import BusinessLimits
+from src.domain.entities.track import TrackList
+
+
+def validate_tracklist_has_tracks(
+    _instance: object, attribute: Attribute[TrackList], value: TrackList
+) -> None:
+    """Validates that TrackList contains tracks.
+
+    Args:
+        _instance: The attrs instance being validated
+        attribute: The field attribute being validated
+        value: The TrackList value to validate
+
+    Raises:
+        ValueError: If the TrackList has no tracks
+    """
+    if not value.tracks:
+        raise ValueError(f"{attribute.name} must contain tracks")
 
 
 def non_empty_string(_instance: Any, attribute: Attribute[Any], value: str) -> None:
@@ -137,46 +155,38 @@ def optional_in_choices(choices: list[str]) -> Any:
     return validator
 
 
-def tracklist_has_tracks_or_metadata(metadata_key: str = "connector_playlist") -> Any:
-    """Creates a validator that ensures TrackList has tracks or specific metadata.
+def tracklist_or_connector_playlist(
+    _instance: Any, attribute: Attribute[Any], value: Any
+) -> None:
+    """Validates that TrackList has tracks OR command has connector_playlist field.
 
-    This is useful for commands that accept either explicit tracks or metadata
-    that will be used to fetch tracks later.
+    Checks the command instance for a `connector_playlist` field as an alternative
+    to requiring tracks in the TrackList. This replaces the old pattern of smuggling
+    ConnectorPlaylist objects through TrackList metadata.
 
     Args:
-        metadata_key: The metadata key to check for when tracks are empty
+        _instance: The attrs command instance being validated
+        attribute: The field attribute being validated
+        value: The TrackList value to validate
 
-    Returns:
-        Validator function for attrs field
-
-    Example:
-        ```python
-        @define
-        class CreatePlaylistCommand:
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
-        ```
+    Raises:
+        TypeError: If value is not a TrackList
+        ValueError: If TrackList has no tracks and command has no connector_playlist
     """
+    from src.domain.entities.track import TrackList
 
-    def validator(_instance: Any, attribute: Attribute[Any], value: Any) -> None:
-        # Import here to avoid circular dependency
-        from src.domain.entities.track import TrackList
+    if not isinstance(value, TrackList):
+        raise TypeError(
+            f"{attribute.name} must be a TrackList, got {type(value).__name__}"
+        )
 
-        if not isinstance(value, TrackList):
-            raise TypeError(
-                f"{attribute.name} must be a TrackList, got {type(value).__name__}"
-            )
+    has_tracks = bool(value.tracks)
+    has_connector_playlist = bool(getattr(_instance, "connector_playlist", None))
 
-        has_tracks = bool(value.tracks)
-        has_metadata = bool(value.metadata and value.metadata.get(metadata_key))
-
-        if not (has_tracks or has_metadata):
-            raise ValueError(
-                f"{attribute.name} must have tracks or '{metadata_key}' in metadata"
-            )
-
-    return validator
+    if not (has_tracks or has_connector_playlist):
+        raise ValueError(
+            f"{attribute.name} must have tracks or command must have connector_playlist"
+        )
 
 
 def api_batch_size_validator(
@@ -200,10 +210,13 @@ def api_batch_size_validator(
         for part in setting_parts:
             max_value = getattr(max_value, part)
 
-        max_int = cast(int, max_value)  # settings values for batch sizes are ints
-        if value > max_int:
+        if not isinstance(max_value, int):
+            raise TypeError(
+                f"Expected int for settings.{max_batch_size_setting}, got {type(max_value).__name__}"
+            )
+        if value > max_value:
             raise ValueError(
-                f"{attribute.name} cannot exceed {max_int} (from settings.{max_batch_size_setting}), got {value}"
+                f"{attribute.name} cannot exceed {max_value} (from settings.{max_batch_size_setting}), got {value}"
             )
 
     return validator

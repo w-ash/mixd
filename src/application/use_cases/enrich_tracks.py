@@ -39,7 +39,6 @@ class EnrichmentConfig:
     connector: ConnectorType | None = None
     connector_instance: Any = None
     track_metric_names: list[str] = field(factory=list)
-    max_age_hours: float | None = None
 
     # Play history enrichment options
     metrics: list[str] = field(factory=lambda: ["total_plays", "last_played_dates"])

@@ -75,16 +75,10 @@ def delete(
 async def _list_stored_playlists() -> None:
     """List all stored playlists with metadata following DDD principles."""
     try:
-        # Import here to avoid circular dependencies
+        from src.application.runner import execute_use_case
         from src.application.use_cases.list_playlists import ListPlaylistsUseCase
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 
-        # Use proper DDD structure: Interface -> Application -> Domain -> Infrastructure
-        async with get_session() as session:
-            uow = DatabaseUnitOfWork(session)
-            use_case = ListPlaylistsUseCase(uow)
-            result = await use_case.execute()
+        result = await execute_use_case(lambda uow: ListPlaylistsUseCase(uow).execute())
 
         if not result.has_playlists:
             console.print("[yellow]No playlists found in your database.[/yellow]")
@@ -145,60 +139,73 @@ def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
 async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
     """Delete a playlist with confirmation unless forced."""
     try:
-        # Import here to avoid circular dependencies
-        from src.infrastructure.persistence.database import get_session
-        from src.infrastructure.persistence.repositories.playlist.core import (
-            PlaylistRepository,
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.delete_canonical_playlist import (
+            DeleteCanonicalPlaylistCommand,
+            DeleteCanonicalPlaylistUseCase,
+        )
+        from src.application.use_cases.read_canonical_playlist import (
+            ReadCanonicalPlaylistCommand,
+            ReadCanonicalPlaylistUseCase,
         )
 
-        async with get_session() as session:
-            repo = PlaylistRepository(session)
-
-            # Get playlist info for confirmation
-            try:
-                playlist = await repo.get_playlist_by_id(playlist_id)
-            except Exception as e:
-                typer.echo(
-                    f"Error: Playlist with ID {playlist_id} not found.", err=True
+        # Step 1: Fetch playlist info for confirmation prompt
+        try:
+            read_result = await execute_use_case(
+                lambda uow: ReadCanonicalPlaylistUseCase().execute(
+                    ReadCanonicalPlaylistCommand(playlist_id=str(playlist_id)), uow
                 )
-                raise typer.Exit(1) from e
+            )
+            playlist = read_result.playlist
+        except Exception as e:
+            typer.echo(f"Error: Playlist with ID {playlist_id} not found.", err=True)
+            raise typer.Exit(1) from e
 
-            # Confirmation unless forced
-            if not force:
-                console.print(
-                    Panel.fit(
-                        f"[bold]{playlist.name}[/bold]\n"
-                        + f"[dim]{playlist.description or 'No description'}[/dim]\n"
-                        + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
-                        title="[bold red]⚠️  Delete Playlist[/bold red]",
-                        border_style="red",
-                    )
+        if not playlist:
+            typer.echo(f"Error: Playlist with ID {playlist_id} not found.", err=True)
+            raise typer.Exit(1)  # noqa: TRY301
+
+        # Step 2: Confirmation unless forced
+        if not force:
+            console.print(
+                Panel.fit(
+                    f"[bold]{playlist.name}[/bold]\n"
+                    + f"[dim]{playlist.description or 'No description'}[/dim]\n"
+                    + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
+                    title="[bold red]⚠️  Delete Playlist[/bold red]",
+                    border_style="red",
                 )
+            )
 
-                if not Confirm.ask(
-                    "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
-                    + "[dim]This action cannot be undone.[/dim]"
-                ):
-                    console.print("[yellow]Delete cancelled.[/yellow]")
-                    return
+            if not Confirm.ask(
+                "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
+                + "[dim]This action cannot be undone.[/dim]"
+            ):
+                console.print("[yellow]Delete cancelled.[/yellow]")
+                return
 
-            # Perform deletion
-            deleted = await repo.delete_playlist(playlist_id)
+        # Step 3: Delete via use case
+        delete_result = await execute_use_case(
+            lambda uow: DeleteCanonicalPlaylistUseCase().execute(
+                DeleteCanonicalPlaylistCommand(
+                    playlist_id=str(playlist_id), force_delete=force
+                ),
+                uow,
+            )
+        )
 
-            if deleted:
-                console.print(
-                    Panel.fit(
-                        "[bold green]✓ Playlist Deleted[/bold green]\n"
-                        + f"[cyan]Name:[/cyan] {playlist.name}\n"
-                        + f"[cyan]ID:[/cyan] {playlist_id}",
-                        title="[bold green]🗑️  Deletion Complete[/bold green]",
-                        border_style="green",
-                    )
-                )
-            else:
-                typer.echo(f"Error: Failed to delete playlist {playlist_id}", err=True)
-                raise typer.Exit(1)  # noqa: TRY301
+        console.print(
+            Panel.fit(
+                "[bold green]✓ Playlist Deleted[/bold green]\n"
+                + f"[cyan]Name:[/cyan] {delete_result.deleted_playlist_name}\n"
+                + f"[cyan]ID:[/cyan] {delete_result.deleted_playlist_id}",
+                title="[bold green]🗑️  Deletion Complete[/bold green]",
+                border_style="green",
+            )
+        )
 
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"Error: Failed to delete playlist: {e}", err=True)
         raise typer.Exit(1) from e

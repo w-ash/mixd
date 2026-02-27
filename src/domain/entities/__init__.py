@@ -31,27 +31,26 @@ from .track import (
     Artist,
     ConnectorTrack,
     ConnectorTrackMapping,
+    MetadataKey,
     Track,
     TrackLike,
     TrackList,
+    TrackListMetadata,
     TrackMetric,
 )
 
 __all__ = [
-    # Track entities
     "Artist",
-    # Playlist entities
     "ConnectorPlaylist",
     "ConnectorPlaylistItem",
     "ConnectorTrack",
     "ConnectorTrackMapping",
     "ConnectorTrackPlay",
-    # Operation entities
+    "MetadataKey",
     "OperationResult",
     "PlayRecord",
     "Playlist",
     "PlaylistEntry",
-    # Summary metrics
     "SummaryMetric",
     "SummaryMetricCollection",
     "SyncCheckpoint",
@@ -60,11 +59,11 @@ __all__ = [
     "TrackContextFields",
     "TrackLike",
     "TrackList",
+    "TrackListMetadata",
     "TrackMetric",
     "TrackPlay",
     "WorkflowResult",
     "create_lastfm_play_record",
-    # Shared utilities
     "ensure_utc",
     "utc_now_factory",
 ]

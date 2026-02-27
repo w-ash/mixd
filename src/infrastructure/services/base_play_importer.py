@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from typing import Any, TypedDict
 from uuid import uuid4
 
-from src.application.utilities.results import ImportResultData, ResultFactory
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import (
@@ -20,6 +19,7 @@ from src.domain.repositories.interfaces import (
     PlaysRepositoryProtocol,
     UnitOfWorkProtocol,
 )
+from src.domain.results import ImportResultData, ResultFactory
 
 logger = get_logger(__name__)
 
@@ -425,7 +425,7 @@ class BasePlayImporter(ABC):
         Returns:
             OperationResult indicating successful import with statistics.
         """
-        from src.application.utilities.results import ImportResultData, ResultFactory
+        from src.domain.results import ImportResultData, ResultFactory
 
         # Create base import data structure
         import_data = ImportResultData(

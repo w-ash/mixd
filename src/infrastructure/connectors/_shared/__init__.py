@@ -2,7 +2,7 @@
 
 This module provides common functionality used across all connectors:
 - Error handling and retry logic
-- Consolidated metrics system
+- Metric registry for connector metrics
 - Matching provider base protocols and utilities
 """
 
@@ -22,16 +22,13 @@ from src.infrastructure.connectors._shared.isrc import (
     normalize_isrc,
     validate_isrc_format,
 )
-from src.infrastructure.connectors._shared.metrics import (
-    MetricResolveFn,
-    MetricResolverProtocol,
+from src.infrastructure.connectors._shared.metric_registry import (
+    MetricConfigProviderImpl,
     get_all_connectors_metrics,
     get_all_field_mappings,
     get_connector_metrics,
     get_field_name,
     get_metric_freshness,
-    get_metric_resolver,
-    register_connector_metrics,
     register_metric_config,
     register_metric_resolver,
 )
@@ -41,8 +38,7 @@ from src.infrastructure.connectors._shared.metrics import (
 __all__ = [
     "ErrorClassifier",
     "MatchProvider",
-    "MetricResolveFn",
-    "MetricResolverProtocol",
+    "MetricConfigProviderImpl",
     "classify_unknown_error",
     "create_and_log_failure",
     "get_all_connectors_metrics",
@@ -50,12 +46,10 @@ __all__ = [
     "get_connector_metrics",
     "get_field_name",
     "get_metric_freshness",
-    "get_metric_resolver",
     "handle_track_processing_failure",
     "log_failure_summary",
     "log_match_failure",
     "normalize_isrc",
-    "register_connector_metrics",
     "register_metric_config",
     "register_metric_resolver",
     "validate_isrc_format",

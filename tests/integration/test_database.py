@@ -226,11 +226,11 @@ async def test_database() -> bool:
 
             logger.success("✓ Cascading deletes verified - no orphaned records")
 
-        return True
-
-    except Exception as e:
-        logger.exception(f"Database test failed: {e}")
+    except Exception:
+        logger.opt(exception=True).error("Database test failed")
         return False
+    else:
+        return True
 
 
 def main() -> int:

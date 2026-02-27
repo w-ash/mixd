@@ -101,9 +101,8 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `playlist/` - Core playlist operations, connector mappings
     - `play/` - Play history and connector play operations
   - `persistence/database/` - SQLAlchemy models and database configuration
-  - `services/` - Infrastructure-level services (6 services)
+  - `services/` - Infrastructure-level services (5 services)
     - `base_play_importer.py` - Base class for play import implementations
-    - `metric_freshness_controller.py` - Controls metric cache freshness
     - `play_deduplication.py` - Deduplicates play history records
     - `play_import_registry.py` - Registry for play import strategies
     - `playlist_operation_service.py` - Low-level playlist operations
@@ -829,7 +828,7 @@ src/infrastructure/connectors/_shared/
 ├── failure_handling.py      # Match failure logging and utilities
 ├── isrc.py                  # Shared ISRC normalization/validation
 ├── matching_provider.py     # BaseMatchingProvider ABC (template method)
-├── metrics.py               # Metric resolver registry
+├── metric_registry.py       # Metric resolver registry
 ├── rate_limited_batch_processor.py
 └── retry_policies.py        # Tenacity retry configuration
 ```

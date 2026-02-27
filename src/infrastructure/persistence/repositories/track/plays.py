@@ -1,5 +1,6 @@
 """Track repository for play operations."""
 
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, override
@@ -8,7 +9,6 @@ from attrs import define
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
-from toolz import groupby
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
@@ -26,7 +26,7 @@ type PlayLookupKey = tuple[int | None, str, datetime | None, int | None]
 
 
 def _chunked[T](items: list[T], size: int) -> list[list[T]]:
-    """Split items into fixed-size chunks. Typed alternative to toolz.partition_all."""
+    """Split items into fixed-size chunks."""
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
@@ -164,7 +164,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         existing_keys: set[PlayLookupKey] = set()
 
         # Batch plays to avoid SQLite expression tree limit (max depth 1000)
-        # Using partition_all from toolz following CLAUDE.md functional patterns
         batch_size = (
             200  # Well under SQLite's 1000 limit, allows for other query complexity
         )
@@ -238,7 +237,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         Args:
             track_ids: List of track IDs to get play data for
-            metrics: List of metrics to calculate ["total_plays", "last_played_dates", "period_plays"]
+            metrics: List of metrics to calculate ["total_plays", "last_played_dates", "first_played_dates", "period_plays"]
             period_start: Start date for period-based metrics (optional)
             period_end: End date for period-based metrics (optional)
 
@@ -272,14 +271,16 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         query_result = await self.session.execute(base_query)
         plays: Sequence[DBTrackPlay] = query_result.scalars().all()
 
-        # Use toolz for efficient aggregation
-        plays_by_track = groupby(lambda p: p.track_id, plays)
+        plays_by_track: defaultdict[int | None, list[DBTrackPlay]] = defaultdict(list)
+        for play in plays:
+            plays_by_track[play.track_id].append(play)
 
         # Calculate total plays if requested
         if "total_plays" in metrics:
             result["total_plays"] = {
                 track_id: len(track_plays)
                 for track_id, track_plays in plays_by_track.items()
+                if track_id is not None
             }
 
         # Calculate last played dates if requested
@@ -293,6 +294,21 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             result["last_played_dates"] = {
                 track_id: get_last_played(track_plays)
                 for track_id, track_plays in plays_by_track.items()
+                if track_id is not None
+            }
+
+        # Calculate first played dates if requested
+        if "first_played_dates" in metrics:
+
+            def get_first_played(track_plays: list[DBTrackPlay]):
+                if not track_plays:
+                    return None
+                return min(play.played_at for play in track_plays)
+
+            result["first_played_dates"] = {
+                track_id: get_first_played(track_plays)
+                for track_id, track_plays in plays_by_track.items()
+                if track_id is not None
             }
 
         # Calculate period plays if requested
@@ -360,6 +376,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             result["period_plays"] = {
                 track_id: count_period_plays(track_plays)
                 for track_id, track_plays in plays_by_track.items()
+                if track_id is not None
             }
 
         # Ensure all requested track_ids are present in results

@@ -21,11 +21,6 @@ from .batch_results import (
     BatchItemStatus,
     BatchResult,
 )
-from .results import (
-    ImportResultData,
-    ResultFactory,
-    SyncResultData,
-)
 
 __all__ = [
     # New progress system
@@ -33,13 +28,10 @@ __all__ = [
     "BatchItemResult",
     "BatchItemStatus",
     "BatchResult",
-    "ImportResultData",
     "OperationStatus",
     "ProgressEvent",
     "ProgressOperation",
     "ProgressStatus",
-    "ResultFactory",
-    "SyncResultData",
     "create_progress_event",
     "create_progress_operation",
     "get_progress_manager",

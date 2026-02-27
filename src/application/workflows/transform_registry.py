@@ -17,11 +17,13 @@ interface, making the system extensible through new strategy implementations.
 """
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from src.application.transforms import (
+    filter_by_explicit,
     filter_by_metric_range,
     filter_by_play_history,
+    sort_by_date,
     sort_by_external_metrics,
     sort_by_play_history,
     weighted_shuffle,
@@ -32,34 +34,24 @@ from src.domain.transforms import (
     exclude_artists,
     exclude_tracks,
     filter_by_date_range,
+    filter_by_duration,
+    filter_by_liked_status,
     filter_duplicates,
     interleave,
+    intersect,
+    reverse_tracks,
     select_by_method,
+    select_by_percentage,
     sort_by_key_function,
 )
 from src.domain.transforms.core import Transform
 
 from .node_context import NodeContext
 
-# Transform factory: takes (context, config) and returns a transform.
-# Return type is Any because toolz @curry returns untyped objects; cast() at call site.
-type TransformFactory = Callable[[NodeContext, dict[str, Any]], Any]
-
-# === METRIC CLASSIFICATION SYSTEM ===
-
-# Centralized classification of all sortable metrics by data source
+# Application-layer knowledge: Track entity fields usable as sort keys
 TRACK_ATTRIBUTES = {"title", "album", "release_date", "duration_ms", "artist"}
 
-EXTERNAL_METRICS = {
-    "spotify_popularity",
-    "lastfm_user_playcount",
-    "lastfm_listeners",
-    "lastfm_global_playcount",
-    "danceability",
-    "energy",
-    "valence",
-}
-
+# Application-layer knowledge: internal play history DB aggregates
 PLAY_HISTORY_METRICS = {
     "total_plays",
     "plays_last_7_days",
@@ -69,20 +61,23 @@ PLAY_HISTORY_METRICS = {
 }
 
 
-def _get_metric_category(metric_name: str) -> str:
-    """Classify a metric by its data source category.
+def _classify_metric(metric_name: str) -> str:
+    """Classify metric by data source for transform routing.
 
-    Returns:
-        "track_attribute", "external_metric", "play_history", or "unknown"
+    Uses open-ended classification: anything not explicitly a track attribute
+    or play history metric is treated as an external connector metric.
+    Specific metric validation happens at the enrichment boundary
+    (node_factories.py validates against the connector registry).
     """
     if metric_name in TRACK_ATTRIBUTES:
         return "track_attribute"
-    elif metric_name in EXTERNAL_METRICS:
-        return "external_metric"
-    elif metric_name in PLAY_HISTORY_METRICS:
+    if metric_name in PLAY_HISTORY_METRICS:
         return "play_history"
-    else:
-        return "unknown"
+    return "external_metric"
+
+
+# Transform factory: takes (context, config) and returns a transform.
+type TransformFactory = Callable[[NodeContext, dict[str, Any]], Transform | TrackList]
 
 
 # === TRACK ATTRIBUTE RESOLUTION ===
@@ -125,7 +120,7 @@ def _route_metric_sorting(cfg: dict[str, Any]) -> Transform | TrackList:
         raise ValueError("metric_name is required for metric sorting")
 
     reverse = cfg.get("reverse", True)
-    category = _get_metric_category(metric_name)
+    category = _classify_metric(metric_name)
 
     if category == "track_attribute":
         # Route to pure key function sorting
@@ -140,30 +135,24 @@ def _route_metric_sorting(cfg: dict[str, Any]) -> Transform | TrackList:
 
     elif category == "external_metric":
         # Route to external metrics sorting (expects metrics in metadata)
-        # cast: @curry returns curry type; at runtime this is a Transform
-        return cast(
-            Transform | TrackList,
-            sort_by_external_metrics(
-                metric_name=metric_name,
-                reverse=reverse,
-            ),
+        return sort_by_external_metrics(
+            metric_name=metric_name,
+            reverse=reverse,
         )
 
     elif category == "play_history":
         # Route to specialized play history sorting
-        # cast: @curry returns curry type; at runtime this is a Transform
-        return cast(
-            Transform | TrackList,
-            sort_by_play_history(
-                reverse=reverse,
-                # Note: Play history sorting has its own time window parameters
-            ),
+        return sort_by_play_history(
+            reverse=reverse,
         )
 
     else:
-        # No fallbacks! Force proper classification of all metrics
-        raise ValueError(
-            f"Unknown metric '{metric_name}' - must be classified in TRACK_ATTRIBUTES, EXTERNAL_METRICS, or PLAY_HISTORY_METRICS"
+        # Open-ended: unrecognized metrics route to external metric sorting.
+        # If no upstream enricher populated the metric, sort is a graceful no-op
+        # (tracks without metrics sort to end).
+        return sort_by_external_metrics(
+            metric_name=metric_name,
+            reverse=reverse,
         )
 
 
@@ -189,6 +178,18 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformFactory]] = {
             min_value=cfg.get("min_value"),
             max_value=cfg.get("max_value"),
             include_missing=cfg.get("include_missing", False),
+        ),
+        "by_duration": lambda _ctx, cfg: filter_by_duration(
+            min_ms=cfg.get("min_ms"),
+            max_ms=cfg.get("max_ms"),
+            include_missing=cfg.get("include_missing", False),
+        ),
+        "by_liked_status": lambda _ctx, cfg: filter_by_liked_status(
+            service=cfg["service"],
+            is_liked=cfg.get("is_liked", True),
+        ),
+        "by_explicit": lambda _ctx, cfg: filter_by_explicit(
+            keep=cfg.get("keep", "all"),
         ),
         # Unified play history filter with clear time window modes
         "by_play_history": lambda _ctx, cfg: filter_by_play_history(
@@ -217,6 +218,19 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformFactory]] = {
             max_days_back=cfg.get("max_days_back"),
             reverse=cfg.get("reverse", True),
         ),
+        "by_added_at": lambda _ctx, cfg: sort_by_date(
+            date_source="added_at",
+            ascending=cfg.get("ascending", True),
+        ),
+        "by_first_played": lambda _ctx, cfg: sort_by_date(
+            date_source="first_played",
+            ascending=cfg.get("ascending", True),
+        ),
+        "by_last_played": lambda _ctx, cfg: sort_by_date(
+            date_source="last_played",
+            ascending=cfg.get("ascending", True),
+        ),
+        "reverse": lambda _ctx, _cfg: reverse_tracks(),
         # Weighted shuffle sorter with configurable strength
         "weighted_shuffle": lambda _ctx, cfg: weighted_shuffle(
             cfg.get("shuffle_strength", 0.5),
@@ -227,6 +241,10 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformFactory]] = {
             cfg.get("count", 10),
             cfg.get("method", "first"),
         ),
+        "percentage": lambda _ctx, cfg: select_by_percentage(
+            percentage=cfg["percentage"],
+            method=cfg.get("method", "first"),
+        ),
     },
     "combiner": {
         "merge_playlists": lambda ctx, cfg: concatenate(
@@ -236,6 +254,9 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformFactory]] = {
             ctx.collect_tracklists(cfg.get("order", [])),
         ),
         "interleave_playlists": lambda ctx, cfg: interleave(
+            ctx.collect_tracklists(cfg.get("sources", [])),
+        ),
+        "intersect_playlists": lambda ctx, cfg: intersect(
             ctx.collect_tracklists(cfg.get("sources", [])),
         ),
     },

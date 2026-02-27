@@ -155,7 +155,7 @@ class DatabaseUnitOfWork:
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""
-        from src.application.services.track_merge_service import TrackMergeService
+        from src.infrastructure.services.track_merge_service import TrackMergeService
 
         return TrackMergeService()
 

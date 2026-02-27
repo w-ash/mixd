@@ -29,7 +29,7 @@ class TestNodeContextIntegration:
         assert workflow_context.use_cases is not None
 
         # Test that providers have expected interfaces
-        assert hasattr(workflow_context.config, "get")
+        assert hasattr(workflow_context.config, "settings")
         assert hasattr(workflow_context.logger, "info")
         assert hasattr(workflow_context.connectors, "list_connectors")
         assert hasattr(
@@ -121,14 +121,9 @@ class TestNodeContextIntegration:
         # Create real workflow context
         workflow_context = create_workflow_context()
 
-        # Test config provider
-        config_value = workflow_context.config.get("NONEXISTENT_KEY", "default_value")
-        assert config_value == "default_value"
-
-        # Test with a key that might exist
-        database_url = workflow_context.config.get("DATABASE_URL", None)
-        # Should not crash, value can be None or a string
-        assert database_url is None or isinstance(database_url, str)
+        # Test config provider settings access
+        settings = workflow_context.config.settings
+        assert settings is not None
 
     @pytest.mark.asyncio
     async def test_node_context_extraction(self):

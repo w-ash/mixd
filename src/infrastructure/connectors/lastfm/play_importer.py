@@ -5,11 +5,9 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
-# Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, override
 
-from src.application.services.play_import_orchestrator import PlayImporterProtocol
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
 from src.domain.entities import (
@@ -19,6 +17,7 @@ from src.domain.entities import (
     SyncCheckpoint,
 )
 from src.domain.entities.progress import ProgressEmitter
+from src.domain.repositories import PlayImporterProtocol
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.services.base_play_importer import (

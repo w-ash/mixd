@@ -7,7 +7,7 @@ with zero external dependencies.
 All selection functions follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
 - Composition: Can be combined with other transforms via create_pipeline
-- Currying: Designed for partial application with toolz.curry
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 
@@ -97,9 +97,44 @@ def select_by_method(count: int, method: str = "first") -> Transform:
         raise ValueError(f"Invalid selection method: {method}")
 
     def transform(t: TrackList) -> TrackList:
-        result = cast(Transform, transform_fn)(t)
-        return result.with_metadata("selection_method", method).with_metadata(
-            "original_count", len(t.tracks)
-        )
+        return cast(Transform, transform_fn)(t)
+
+    return transform
+
+
+@optional_tracklist_transform
+def reverse_tracks() -> Transform:
+    """
+    Reverse the order of tracks.
+
+    Returns:
+        Transformation function
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        return t.with_tracks(list(reversed(t.tracks)))
+
+    return transform
+
+
+@optional_tracklist_transform
+def select_by_percentage(
+    percentage: float,
+    method: str = "first",
+) -> Transform:
+    """
+    Select a percentage of tracks.
+
+    Args:
+        percentage: Percentage of tracks to select (0-100)
+        method: Selection method ("first", "last", or "random")
+
+    Returns:
+        Transformation function
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        count = max(1, round(len(t.tracks) * percentage / 100))
+        return cast(TrackList, select_by_method(count, method, tracklist=t))
 
     return transform

@@ -7,13 +7,11 @@ with zero external dependencies.
 All combination functions follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
 - Composition: Can be combined with other transforms via create_pipeline
-- Currying: Designed for partial application with toolz.curry
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 
 from collections.abc import Callable
-
-from toolz import curry
 
 from src.domain.entities.track import Track, TrackList
 
@@ -21,7 +19,6 @@ from src.domain.entities.track import Track, TrackList
 Transform = Callable[[TrackList], TrackList]
 
 
-@curry
 def concatenate(
     tracklists: list[TrackList],
     tracklist: TrackList | None = None,
@@ -39,27 +36,27 @@ def concatenate(
 
     def transform(_: TrackList) -> TrackList:
         all_tracks: list[Track] = []
-        combined_track_sources: dict[str, str] = {}
+        combined_track_sources: dict[int, dict[str, str]] = {}
 
         for t in tracklists:
             all_tracks.extend(t.tracks)
             # Merge track source information from each tracklist
-            track_sources = t.metadata.get("track_sources", {})
+            track_sources: dict[int, dict[str, str]] = t.metadata.get(
+                "track_sources", {}
+            )
             combined_track_sources.update(track_sources)
 
-        return TrackList(
-            tracks=all_tracks,
-            metadata={
-                "operation": "concatenate",
-                "source_count": len(tracklists),
-                "track_sources": combined_track_sources,
-            },
+        result = TrackList(tracks=all_tracks)
+        return (
+            result
+            .with_metadata("operation", "concatenate")
+            .with_metadata("source_count", len(tracklists))
+            .with_metadata("track_sources", combined_track_sources)
         )
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform
 
 
-@curry
 def interleave(
     tracklists: list[TrackList],
     stop_on_empty: bool = False,
@@ -95,13 +92,48 @@ def interleave(
                     if stop_on_empty:
                         break
 
-        return TrackList(
-            tracks=interleaved_tracks,
-            metadata={
-                "operation": "alternate",
-                "source_count": len(tracklists),
-                "stop_on_empty": stop_on_empty,
-            },
+        result = TrackList(tracks=interleaved_tracks)
+        return result.with_metadata("operation", "alternate").with_metadata(
+            "source_count", len(tracklists)
+        )
+
+    return transform(tracklist or TrackList()) if tracklist is not None else transform
+
+
+def intersect(
+    tracklists: list[TrackList],
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """
+    Keep only tracks that appear in all tracklists (set intersection by track ID).
+
+    Preserves track order and instances from the first tracklist.
+
+    Args:
+        tracklists: List of tracklists to intersect
+        tracklist: Optional tracklist (usually ignored for combiners)
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+    """
+
+    def transform(_: TrackList) -> TrackList:
+        if not tracklists:
+            return TrackList()
+
+        # Start with IDs from first tracklist, intersect with each subsequent
+        common_ids = {t.id for t in tracklists[0].tracks if t.id is not None}
+        for tl in tracklists[1:]:
+            common_ids &= {t.id for t in tl.tracks if t.id is not None}
+
+        # Preserve track order and instances from first tracklist
+        result_tracks = [t for t in tracklists[0].tracks if t.id in common_ids]
+
+        result = TrackList(tracks=result_tracks)
+        return (
+            result
+            .with_metadata("operation", "intersect")
+            .with_metadata("source_count", len(tracklists))
         )
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform

@@ -1,0 +1,58 @@
+{
+  "id": "sort_lingering_by_lastfm_playcount",
+  "name": "Sort Lingering by LastFM Playcount",
+  "description": "Sort the Lingering playlist by Last.fm user play counts and create a ranked version",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "2fnw2JoFze5HT0NKerufvl",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "enrich",
+      "type": "enricher.lastfm",
+      "upstream": [
+        "source"
+      ]
+    },
+    {
+      "id": "filter_played",
+      "type": "filter.by_metric",
+      "config": {
+        "metric_name": "lastfm_user_playcount",
+        "min_value": 1,
+        "include_missing": false
+      },
+      "upstream": [
+        "enrich"
+      ]
+    },
+    {
+      "id": "sort",
+      "type": "sorter.by_metric",
+      "config": {
+        "metric_name": "lastfm_user_playcount",
+        "reverse": true
+      },
+      "upstream": [
+        "filter_played"
+      ]
+    },
+    {
+      "id": "destination",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Lingering Sorted by LastFM ({date})",
+        "description": "Lingering tracks sorted by Last.fm play count (most played first). Generated {datetime} with {track_count} tracks.",
+        "connector": "spotify"
+      },
+      "upstream": [
+        "sort"
+      ]
+    }
+  ]
+}

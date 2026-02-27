@@ -71,7 +71,6 @@ class GetLikedTracksResult:
         """Summary stats for the retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),
-            "connector_filter": self.tracklist.metadata.get("connector_filter"),
             "execution_time_ms": self.execution_time_ms,
             "success": not self.errors,
         }
@@ -185,16 +184,11 @@ class GetLikedTracksUseCase:
             tracks_dict[track_id] for track_id in track_ids if track_id in tracks_dict
         ]
 
-        # Create tracklist with metadata for composition
+        # Create tracklist with operational metadata
         tracklist = TrackList(
             tracks=tracks,
             metadata={
                 "operation": "get_liked_tracks",
-                "connector_filter": command.connector_filter,
-                "sort_by": command.sort_by,
-                "original_likes_count": len(track_likes),
-                "track_count": len(tracks),
-                "limit_applied": command.limit,
             },
         )
 

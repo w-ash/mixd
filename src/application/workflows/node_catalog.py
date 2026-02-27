@@ -117,6 +117,27 @@ _ = node(
     output_type="tracklist",
 )(make_node("filter", "by_play_history"))
 
+_ = node(
+    "filter.by_duration",
+    description="Filters tracks by duration range (milliseconds)",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("filter", "by_duration"))
+
+_ = node(
+    "filter.by_liked_status",
+    description="Filters tracks by liked status on a specific service",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("filter", "by_liked_status"))
+
+_ = node(
+    "filter.by_explicit",
+    description="Filters tracks by explicit content flag",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("filter", "by_explicit"))
+
 # === SORTER NODES ===
 _ = node(
     "sorter.by_metric",
@@ -139,6 +160,34 @@ _ = node(
     output_type="tracklist",
 )(make_node("sorter", "weighted_shuffle"))
 
+_ = node(
+    "sorter.by_added_at",
+    description="Sorts tracks by date added to source playlist",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "by_added_at"))
+
+_ = node(
+    "sorter.by_first_played",
+    description="Sorts tracks by date first played",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "by_first_played"))
+
+_ = node(
+    "sorter.by_last_played",
+    description="Sorts tracks by date most recently played",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "by_last_played"))
+
+_ = node(
+    "sorter.reverse",
+    description="Reverses current track order",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("sorter", "reverse"))
+
 # === SELECTOR NODES ===
 _ = node(
     "selector.limit_tracks",
@@ -146,6 +195,13 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(make_node("selector", "limit_tracks"))
+
+_ = node(
+    "selector.percentage",
+    description="Selects a percentage of tracks",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("selector", "percentage"))
 
 # === COMBINER NODES ===
 _ = node(
@@ -168,6 +224,13 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(make_node("combiner", "interleave_playlists"))
+
+_ = node(
+    "combiner.intersect_playlists",
+    description="Keeps only tracks common to all input sources",
+    input_type="tracklist",
+    output_type="tracklist",
+)(make_node("combiner", "intersect_playlists"))
 
 # === DESTINATION NODES ===
 _ = node(

@@ -11,13 +11,14 @@ Unlike pure domain transforms, these functions:
 """
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, cast
-
-from toolz import curry
 
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.filtering import filter_by_predicate
+
+from ._helpers import parse_datetime_safe
 
 logger = get_logger(__name__)
 
@@ -25,7 +26,6 @@ logger = get_logger(__name__)
 Transform = Callable[[TrackList], TrackList]
 
 
-@curry
 def filter_by_metric_range(
     metric_name: str,
     min_value: float | None = None,
@@ -80,25 +80,22 @@ def filter_by_metric_range(
         filter_func = cast(Transform, filter_by_predicate(is_in_range))
         result = filter_func(t)
 
-        # Add metadata about the filter operation
-        filtered_count = len(result.tracks)
-        return result.with_metadata(
-            "filter_metrics",
-            {
-                "metric_name": metric_name,
-                "min_value": min_value,
-                "max_value": max_value,
-                "include_missing": include_missing,
-                "original_count": len(t.tracks),
-                "filtered_count": filtered_count,
-                "removed_count": len(t.tracks) - filtered_count,
-            },
+        logger.debug(
+            "Metric range filter applied",
+            metric_name=metric_name,
+            min_value=min_value,
+            max_value=max_value,
+            include_missing=include_missing,
+            original_count=len(t.tracks),
+            filtered_count=len(result.tracks),
+            removed_count=len(t.tracks) - len(result.tracks),
         )
+
+        return result
 
     return transform(tracklist) if tracklist is not None else transform
 
 
-@curry
 def sort_by_external_metrics(
     metric_name: str,
     reverse: bool = True,
@@ -139,6 +136,114 @@ def sort_by_external_metrics(
         result = t.with_tracks(sorted_tracks)
 
         # The metrics are already in metadata, no need to duplicate them
+        return result
+
+    return transform(tracklist) if tracklist is not None else transform
+
+
+# Mapping from date_source parameter to metadata metric key
+_DATE_SOURCE_METRIC_KEYS = {
+    "first_played": "first_played_dates",
+    "last_played": "last_played_dates",
+}
+
+
+def sort_by_date(
+    date_source: str,
+    ascending: bool = True,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """Sort tracks by a date value from metadata.
+
+    Handles three date sources with consistent null-handling and type coercion:
+    - "added_at": When the track was added to its source playlist
+    - "first_played": When the track was first played (requires play history enrichment)
+    - "last_played": When the track was most recently played (requires play history enrichment)
+
+    Args:
+        date_source: One of "added_at", "first_played", "last_played"
+        ascending: If True, oldest first; if False, newest first
+        tracklist: Optional tracklist to transform immediately
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        if date_source == "added_at":
+            date_map = t.metadata.get("added_at_dates", {})
+        else:
+            metric_key = _DATE_SOURCE_METRIC_KEYS[date_source]
+            date_map = t.metadata.get("metrics", {}).get(metric_key, {})
+
+        # Tracks without dates sort to the end regardless of direction
+        sentinel = datetime.max.replace(tzinfo=UTC) if ascending else datetime.min.replace(tzinfo=UTC)
+
+        def date_key(track: Track) -> datetime:
+            if not track.id or track.id not in date_map:
+                return sentinel
+            value = date_map[track.id]
+            if isinstance(value, datetime):
+                return value if value.tzinfo else value.replace(tzinfo=UTC)
+            if isinstance(value, str):
+                return parse_datetime_safe(value) or sentinel
+            return sentinel
+
+        sorted_tracks = sorted(t.tracks, key=date_key, reverse=not ascending)
+
+        logger.debug(
+            "Date sort applied",
+            date_source=date_source,
+            ascending=ascending,
+            track_count=len(sorted_tracks),
+            tracks_with_dates=sum(
+                1 for track in t.tracks
+                if track.id and track.id in date_map
+            ),
+        )
+
+        return t.with_tracks(sorted_tracks)
+
+    return transform(tracklist) if tracklist is not None else transform
+
+
+def filter_by_explicit(
+    keep: str = "all",
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """Filter tracks by explicit content flag.
+
+    Requires upstream Spotify enrichment to populate the explicit_flag metric.
+
+    Args:
+        keep: Which tracks to keep - "explicit", "clean", or "all" (no-op)
+        tracklist: Optional tracklist to transform immediately
+
+    Returns:
+        Transformation function or transformed tracklist if provided
+    """
+
+    def transform(t: TrackList) -> TrackList:
+        if keep == "all":
+            return t
+
+        metrics = t.metadata.get("metrics", {}).get("explicit_flag", {})
+        want_explicit = keep == "explicit"
+
+        def matches(track: Track) -> bool:
+            if not track.id or track.id not in metrics:
+                return not want_explicit  # Missing data = assume clean
+            return bool(metrics[track.id]) == want_explicit
+
+        result = cast(Transform, filter_by_predicate(matches))(t)
+
+        logger.debug(
+            "Explicit filter applied",
+            keep=keep,
+            original_count=len(t.tracks),
+            filtered_count=len(result.tracks),
+        )
+
         return result
 
     return transform(tracklist) if tracklist is not None else transform

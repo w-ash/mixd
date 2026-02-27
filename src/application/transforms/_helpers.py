@@ -101,8 +101,7 @@ def get_play_metrics(
 ) -> tuple[dict[int, int], dict[int, datetime | str]]:
     """Extract play count and last played date metrics from tracklist metadata.
 
-    Handles both nested (metadata["metrics"][...]) and flat (metadata[...])
-    metadata structures for backward compatibility.
+    Reads from the canonical nested structure: metadata["metrics"][metric_name].
 
     Args:
         tracklist: TrackList with metadata containing play metrics
@@ -111,15 +110,9 @@ def get_play_metrics(
         Tuple of (play_counts_dict, last_played_dates_dict)
         where keys are track IDs and values are counts/dates
     """
-    # Try flat structure first, fall back to nested structure
-    play_counts = tracklist.metadata.get("total_plays", {}) or tracklist.metadata.get(
-        "metrics", {}
-    ).get("total_plays", {})
-
-    last_played_dates = tracklist.metadata.get(
-        "last_played_dates", {}
-    ) or tracklist.metadata.get("metrics", {}).get("last_played_dates", {})
-
+    metrics = tracklist.metadata.get("metrics", {})
+    play_counts = metrics.get("total_plays", {})
+    last_played_dates = metrics.get("last_played_dates", {})
     return play_counts, last_played_dates
 
 
@@ -128,10 +121,9 @@ def get_metric_value(
     metric_name: str,
     track_id: int,
 ) -> Any | None:
-    """Safely extract metric value from nested or flat metadata structures.
+    """Safely extract a single metric value from tracklist metadata.
 
-    Tries flat metadata structure first for performance, then falls back to
-    nested structure for backward compatibility.
+    Reads from the canonical nested structure: metadata["metrics"][metric_name][track_id].
 
     Args:
         tracklist: TrackList with metadata
@@ -141,12 +133,6 @@ def get_metric_value(
     Returns:
         Metric value if found, None otherwise
     """
-    # Try flat structure first (most common)
-    value = tracklist.metadata.get(metric_name, {}).get(track_id)
-    if value is not None:
-        return value
-
-    # Fall back to nested structure
     return tracklist.metadata.get("metrics", {}).get(metric_name, {}).get(track_id)
 
 

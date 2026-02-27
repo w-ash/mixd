@@ -23,9 +23,10 @@ from src.application.use_cases.update_canonical_playlist import (
 )
 from src.config import get_logger
 from src.domain.entities.track import TrackList
-from src.infrastructure.connectors import discover_connectors
-from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.domain.repositories import UnitOfWorkProtocol
+from src.infrastructure.connectors import (
+    discover_connectors,  # Phase 5: move to injected ConnectorRegistry
+)
 
 logger = get_logger(__name__)
 
@@ -46,13 +47,15 @@ async def run_playlist_backup(
         ValueError: If connector is unknown or playlist not found
         Exception: For other backup failures
     """
+    from src.application.runner import execute_use_case
+
     logger.info(
         "Starting playlist backup",
         connector=connector_name,
         playlist_id=playlist_id,
     )
 
-    # Discover available connectors
+    # Discover available connectors (Phase 5: replace with injected ConnectorRegistry)
     connectors = discover_connectors()
 
     if connector_name not in connectors:
@@ -61,9 +64,9 @@ async def run_playlist_backup(
             f"Unknown connector '{connector_name}'. Available: {available}"
         )
 
-    async with get_session() as session:
-        uow = get_unit_of_work(session)
-
+    async def _backup(
+        uow: UnitOfWorkProtocol,
+    ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
         # Step 1: Sync connector playlist (fetch + store in database)
         sync_service = ConnectorPlaylistSyncService()
         connector_playlist = await sync_service.sync_connector_playlist(
@@ -91,22 +94,13 @@ async def run_playlist_backup(
         except ValueError:
             logger.info("No existing local playlist found - will create new one")
 
-        # Step 3: Create TrackList with ConnectorPlaylist metadata
-        tracklist = TrackList(
-            tracks=[],  # Will be populated by use case
-            metadata={
-                "connector_playlist": connector_playlist,
-                "preserve_duplicates": True,
-                "include_playlist_metadata": True,
-            },
-        )
-
-        # Step 4: Create or update playlist
+        # Step 3: Create or update playlist with ConnectorPlaylist as typed field
         if existing_playlist:
             update_use_case = UpdateCanonicalPlaylistUseCase()
             update_command = UpdateCanonicalPlaylistCommand(
                 playlist_id=str(existing_playlist.id),
-                new_tracklist=tracklist,
+                new_tracklist=TrackList(),
+                connector_playlist=connector_playlist,
                 playlist_name=connector_playlist.name,
                 playlist_description=connector_playlist.description
                 or f"Updated from {connector_name}",
@@ -125,10 +119,12 @@ async def run_playlist_backup(
             create_use_case = CreateCanonicalPlaylistUseCase()
             create_command = CreateCanonicalPlaylistCommand(
                 name=connector_playlist.name,
-                tracklist=tracklist,
+                tracklist=TrackList(),
+                connector_playlist=connector_playlist,
+                connector_name=connector_name,
+                connector_id=playlist_id,
                 description=connector_playlist.description
                 or f"Imported from {connector_name}",
-                metadata={"connector": connector_name, "connector_id": playlist_id},
             )
             result = await create_use_case.execute(create_command, uow)
 
@@ -139,3 +135,5 @@ async def run_playlist_backup(
                 tracks_created=result.tracks_created,
             )
             return result
+
+    return await execute_use_case(_backup)

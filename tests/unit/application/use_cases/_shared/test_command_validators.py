@@ -17,7 +17,7 @@ from src.application.use_cases._shared.command_validators import (
     optional_in_choices,
     optional_positive_int,
     positive_int_in_range,
-    tracklist_has_tracks_or_metadata,
+    tracklist_or_connector_playlist,
 )
 from src.domain.entities.track import Artist, Track, TrackList
 
@@ -164,47 +164,56 @@ class TestOptionalInChoices:
             TestCommand(sort_by="invalid")
 
 
-class TestTracklistHasTracksOrMetadata:
-    """Tests for tracklist_has_tracks_or_metadata validator."""
+class TestTracklistOrConnectorPlaylist:
+    """Tests for tracklist_or_connector_playlist validator."""
 
-    def test_accepts_tracklist_with_connector_metadata(self):
-        """Should accept TrackList with connector_playlist metadata."""
+    def test_accepts_tracklist_with_tracks(self):
+        """Should accept TrackList with tracks even without connector_playlist."""
 
         @define
         class TestCommand:
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
+            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+            connector_playlist: object | None = None
 
-        tracklist = TrackList(
-            tracks=[],
-            metadata={"connector_playlist": {"id": "123", "connector": "spotify"}},
+        artist = Artist(name="Test Artist")
+        track = Track(title="Test", artists=[artist])
+        cmd = TestCommand(tracklist=TrackList(tracks=[track]))
+        assert len(cmd.tracklist.tracks) == 1
+
+    def test_accepts_empty_tracklist_with_connector_playlist(self):
+        """Should accept empty TrackList when connector_playlist field is set."""
+
+        @define
+        class TestCommand:
+            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+            connector_playlist: object | None = None
+
+        cmd = TestCommand(
+            tracklist=TrackList(),
+            connector_playlist=object(),  # Any truthy object
         )
-        cmd = TestCommand(tracklist=tracklist)
-        assert cmd.tracklist.metadata["connector_playlist"]["id"] == "123"
+        assert len(cmd.tracklist.tracks) == 0
 
-    def test_rejects_empty_tracklist_without_metadata(self):
-        """Should reject TrackList with no tracks and no connector metadata."""
+    def test_rejects_empty_tracklist_without_connector_playlist(self):
+        """Should reject empty TrackList when connector_playlist is None."""
 
         @define
         class TestCommand:
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
+            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+            connector_playlist: object | None = None
 
         with pytest.raises(
-            ValueError, match="must have tracks or 'connector_playlist' in metadata"
+            ValueError, match="must have tracks or command must have connector_playlist"
         ):
-            TestCommand(tracklist=TrackList(tracks=[]))
+            TestCommand(tracklist=TrackList())
 
     def test_rejects_non_tracklist_type(self):
         """Should reject non-TrackList types."""
 
         @define
         class TestCommand:
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
+            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+            connector_playlist: object | None = None
 
         with pytest.raises(TypeError, match="must be a TrackList"):
             TestCommand(tracklist=[])  # type: ignore
@@ -309,29 +318,3 @@ class TestIntegrationScenarios:
         # Invalid sort option
         with pytest.raises(ValueError, match="must be one of"):
             GetLikedTracksCommand(limit=100, sort_by="invalid")
-
-    def test_command_with_tracklist_validator(self):
-        """Should handle command with tracklist validator."""
-
-        @define(frozen=True, slots=True)
-        class CreatePlaylistCommand:
-            name: str = field(validator=non_empty_string)
-            tracklist: TrackList = field(
-                validator=tracklist_has_tracks_or_metadata("connector_playlist")
-            )
-
-        artist = Artist(name="Test Artist")
-        track = Track(title="Test", artists=[artist], duration_ms=180000)
-        tracklist = TrackList(tracks=[track])
-
-        cmd = CreatePlaylistCommand(name="My Playlist", tracklist=tracklist)
-        assert cmd.name == "My Playlist"
-        assert len(cmd.tracklist.tracks) == 1
-
-        # Invalid: empty name
-        with pytest.raises(ValueError, match="must be a non-empty string"):
-            CreatePlaylistCommand(name="", tracklist=tracklist)
-
-        # Invalid: empty tracklist without metadata
-        with pytest.raises(ValueError, match="must have tracks"):
-            CreatePlaylistCommand(name="My Playlist", tracklist=TrackList(tracks=[]))

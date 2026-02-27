@@ -67,7 +67,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
 | `enricher.lastfm` | Resolves tracks to Last.fm and fetches play counts | `username`: Optional Last.fm username<br>`batch_size`: Optional batch size for requests<br>`concurrency`: Optional concurrency limit |
-| `enricher.spotify` | Enriches tracks with Spotify popularity and explicit flags | `max_age_hours`: Optional freshness requirement for cached data |
+| `enricher.spotify` | Enriches tracks with Spotify popularity and explicit flags | (Freshness controlled via `FreshnessConfig` in settings) |
 | `enricher.play_history` | Enriches tracks with play counts and listening history from internal database | `metrics`: Array of metrics to include ["total_plays", "last_played_dates", "period_plays"]<br>`period_days`: Number of days back for period-based metrics |
 
 ### Filter Nodes

@@ -19,9 +19,7 @@ from src.domain.entities.track import Track, TrackList
 class ConfigProvider(Protocol):
     """Abstracts configuration access for testing and deployment flexibility."""
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve configuration value by key."""
-        ...
+    ...
 
 
 class LoggerProvider(Protocol):
@@ -136,6 +134,20 @@ class WorkflowContext(Protocol):
         """Database access."""
         ...
 
+    async def execute_service(self, service_fn: Any, /) -> Any:
+        """Execute an async operation with a UnitOfWork.
+
+        General-purpose method for service calls or any async function
+        that needs a UoW without the caller importing infrastructure.
+
+        Args:
+            service_fn: Async callable receiving a UoW and returning a result.
+
+        Returns:
+            Result from the service function.
+        """
+        ...
+
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
         """Execute business logic with automatic transaction management.
 
@@ -149,11 +161,62 @@ class WorkflowContext(Protocol):
         ...
 
 
-class TransformFunction(Protocol):
-    """Pure track list transformations for functional composition."""
+class MetricConfigProvider(Protocol):
+    """Abstracts metric registry access so application never imports infrastructure."""
 
-    def __call__(self, track_list: TrackList, context: dict[str, Any]) -> TrackList:
-        """Apply transformation to track list."""
+    def get_connector_metrics(self, connector: str) -> list[str]:
+        """Return metric names supported by a connector."""
+        ...
+
+    def get_field_name(self, metric: str) -> str:
+        """Map metric name to the connector field name."""
+        ...
+
+    def get_metric_freshness(self, metric: str) -> float:
+        """Return freshness period in hours for a metric."""
+        ...
+
+    def get_all_connectors_metrics(self) -> dict[str, list[str]]:
+        """Return all registered connectors and their metric names."""
+        ...
+
+    def get_all_field_mappings(self) -> dict[str, str]:
+        """Return mapping of all metric names to their field names."""
+        ...
+
+
+class TrackMetadataConnector(Protocol):
+    """Protocol for connectors that can fetch complete external track data.
+
+    Provides a unified interface for all connectors to retrieve complete track
+    records from external services. Defined at application/domain boundary so
+    application code can reference it without importing from infrastructure.
+    """
+
+    async def get_external_track_data(
+        self, tracks: list[Track]
+    ) -> dict[int, dict[str, Any]]:
+        """Retrieve complete track data from the external service for multiple tracks."""
+        ...
+
+
+class PlayImportServiceRegistryProtocol(Protocol):
+    """Protocol for the play import service registry.
+
+    Abstracts infrastructure registry so application code can request
+    importers and resolvers without importing concrete implementations.
+    """
+
+    async def create_play_importer(self, service: str, uow: Any) -> Any:
+        """Create a play importer for the specified service."""
+        ...
+
+    async def create_play_resolver(self, service: str, uow: Any | None = None) -> Any:
+        """Create a play resolver for the specified service."""
+        ...
+
+    def get_supported_services(self) -> list[str]:
+        """Get list of supported service identifiers."""
         ...
 
 
@@ -166,29 +229,3 @@ class NodeResult(TypedDict):
     """
 
     tracklist: TrackList
-
-
-class WorkflowNode(Protocol):
-    """Contract for workflow execution steps enabling declarative composition."""
-
-    async def execute(self, context: WorkflowContext, **kwargs: Any) -> Any:
-        """Execute workflow step with access to all dependencies."""
-        ...
-
-
-class WorkflowNodeFactory(Protocol):
-    """Creates workflow nodes for dynamic workflow construction from configuration."""
-
-    def create_source_node(self, node_type: str, **config: Any) -> WorkflowNode:
-        """Create data source node (playlist, album, library, play history)."""
-        ...
-
-    def create_transform_node(self, transform_name: str, **config: Any) -> WorkflowNode:
-        """Create transformation node (filter, sort, enrich, dedupe)."""
-        ...
-
-    def create_destination_node(
-        self, destination_type: str, **config: Any
-    ) -> WorkflowNode:
-        """Create output destination node (playlist update, file export)."""
-        ...

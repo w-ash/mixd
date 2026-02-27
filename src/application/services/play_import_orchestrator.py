@@ -8,24 +8,14 @@ This service contains generic business logic for the two-phase workflow while ac
 pluggable importer instances from the infrastructure layer.
 """
 
-from typing import Any, Protocol
+from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories import PlayImporterProtocol, UnitOfWorkProtocol
 
 logger = get_logger(__name__)
-
-
-class PlayImporterProtocol(Protocol):
-    """Protocol for play import services in infrastructure layer."""
-
-    async def import_plays(
-        self, uow: UnitOfWorkProtocol, **params: Any
-    ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
-        """Import plays and return result with connector plays for resolution."""
-        ...
 
 
 class PlayImportOrchestrator:
@@ -132,25 +122,16 @@ class PlayImportOrchestrator:
             "error_count": 0,
         }
 
-        # Resolve Spotify plays using existing clean resolver
-        if spotify_plays:
-            (
-                spotify_track_plays,
-                spotify_metrics,
-            ) = await self._resolve_spotify_plays_direct(spotify_plays, uow)
-            all_track_plays.extend(spotify_track_plays)
-            combined_metrics["resolved_plays"] += len(spotify_track_plays)
-            combined_metrics["error_count"] += spotify_metrics.get("error_count", 0)
-
-        # Resolve Last.fm plays using existing clean resolver
-        if lastfm_plays:
-            (
-                lastfm_track_plays,
-                lastfm_metrics,
-            ) = await self._resolve_lastfm_plays_direct(lastfm_plays, uow)
-            all_track_plays.extend(lastfm_track_plays)
-            combined_metrics["resolved_plays"] += len(lastfm_track_plays)
-            combined_metrics["error_count"] += lastfm_metrics.get("error_count", 0)
+        # Resolve plays per service using registry-provided resolvers
+        for service, plays in [("spotify", spotify_plays), ("lastfm", lastfm_plays)]:
+            if plays:
+                resolver = await self._get_play_resolver(service)
+                track_plays, metrics = await resolver.resolve_connector_plays(
+                    plays, uow
+                )
+                all_track_plays.extend(track_plays)
+                combined_metrics["resolved_plays"] += len(track_plays)
+                combined_metrics["error_count"] += metrics.get("error_count", 0)
 
         # Save all resolved track_plays to database
         if all_track_plays:
@@ -184,31 +165,14 @@ class PlayImportOrchestrator:
 
         return result
 
-    async def _resolve_spotify_plays_direct(
-        self,
-        spotify_plays: list[ConnectorTrackPlay],
-        uow: UnitOfWorkProtocol,
-    ) -> tuple[list[TrackPlay], dict[str, Any]]:
-        """Resolve Spotify plays using existing clean resolver directly."""
-        from src.infrastructure.connectors.spotify.play_resolver import (
-            SpotifyConnectorPlayResolver,
+    async def _get_play_resolver(self, service: str) -> Any:
+        """Get play resolver for a service from the infrastructure registry."""
+        from src.infrastructure.services.play_import_registry import (
+            get_play_import_registry,
         )
 
-        resolver = SpotifyConnectorPlayResolver()
-        return await resolver.resolve_connector_plays(spotify_plays, uow)
-
-    async def _resolve_lastfm_plays_direct(
-        self,
-        lastfm_plays: list[ConnectorTrackPlay],
-        uow: UnitOfWorkProtocol,
-    ) -> tuple[list[TrackPlay], dict[str, Any]]:
-        """Resolve Last.fm plays using existing clean resolver directly."""
-        from src.infrastructure.connectors.lastfm.play_resolver import (
-            LastfmConnectorPlayResolver,
-        )
-
-        resolver = LastfmConnectorPlayResolver()
-        return await resolver.resolve_connector_plays(lastfm_plays, uow)
+        registry = get_play_import_registry()
+        return await registry.create_play_resolver(service)
 
     def _create_empty_resolution_result(self) -> OperationResult:
         """Create empty resolution result when no plays to resolve."""

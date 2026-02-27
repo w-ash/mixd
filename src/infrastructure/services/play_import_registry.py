@@ -8,8 +8,7 @@ needing to know about specific connectors.
 from collections.abc import Callable
 from typing import Any
 
-from src.application.services.play_import_orchestrator import PlayImporterProtocol
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories import PlayImporterProtocol, UnitOfWorkProtocol
 
 
 class PlayImportServiceRegistry:

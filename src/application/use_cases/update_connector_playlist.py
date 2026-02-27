@@ -7,7 +7,7 @@ playlists while preserving track timestamps and minimizing API calls.
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import Attribute, define, field
+from attrs import define, field
 
 from src.application.use_cases._shared import (
     AppendOperationResult,
@@ -21,6 +21,7 @@ from src.application.use_cases._shared.command_validators import (
     api_batch_size_validator,
     non_empty_string,
     positive_int_in_range,
+    validate_tracklist_has_tracks,
 )
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
@@ -33,14 +34,6 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(
-    _instance: object, attribute: Attribute[TrackList], value: TrackList
-) -> None:
-    """Validates that TrackList contains tracks."""
-    if not value.tracks:
-        raise ValueError(f"{attribute.name} must contain tracks")
-
-
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistCommand:
     """Input parameters for updating a Spotify/Apple Music playlist.
@@ -50,7 +43,7 @@ class UpdateConnectorPlaylistCommand:
     """
 
     playlist_id: str = field(validator=non_empty_string)
-    new_tracklist: TrackList = field(validator=_validate_tracklist_has_tracks)
+    new_tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation

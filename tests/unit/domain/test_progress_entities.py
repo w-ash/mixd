@@ -389,7 +389,7 @@ class TestProgressCoordinator:
         """Test that starting duplicate operations fails."""
         await coordinator.start_operation(sample_operation)
 
-        with pytest.raises(ValueError, match="Operation .* is already being tracked"):
+        with pytest.raises(ValueError, match=r"Operation .* is already being tracked"):
             await coordinator.start_operation(sample_operation)
 
     @pytest.mark.asyncio

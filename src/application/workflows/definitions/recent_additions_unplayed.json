@@ -1,0 +1,69 @@
+{
+  "name": "Fresh Likes",
+  "description": "Recently added tracks you haven't explored yet — newest additions first",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "liked_tracks",
+      "type": "source.liked_tracks",
+      "config": {
+        "limit": 5000,
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays"],
+        "period_days": 365
+      },
+      "upstream": ["liked_tracks"]
+    },
+    {
+      "id": "filter_liked",
+      "type": "filter.by_liked_status",
+      "config": {
+        "service": "spotify",
+        "is_liked": true
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "filter_barely_played",
+      "type": "filter.by_play_history",
+      "config": {
+        "max_plays": 2,
+        "include_missing": true
+      },
+      "upstream": ["filter_liked"]
+    },
+    {
+      "id": "sort_by_added",
+      "type": "sorter.by_added_at",
+      "config": {
+        "ascending": false
+      },
+      "upstream": ["filter_barely_played"]
+    },
+    {
+      "id": "select_percentage",
+      "type": "selector.percentage",
+      "config": {
+        "percentage": 20,
+        "method": "first"
+      },
+      "upstream": ["sort_by_added"]
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Fresh Likes {date}",
+        "description": "Top 20% of recently liked tracks you barely played — time to explore",
+        "connector": "spotify"
+      },
+      "upstream": ["select_percentage"]
+    }
+  ]
+}

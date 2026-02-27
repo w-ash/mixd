@@ -190,7 +190,7 @@ class TestWeightedShuffleSorting:
         tracklist = TrackList(tracks=tracks)
 
         for invalid_strength in [-0.1, 1.1]:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError):  # noqa: PT012
                 sorter_fn = TRANSFORM_REGISTRY["sorter"]["weighted_shuffle"](
                     _ctx=None, cfg={"shuffle_strength": invalid_strength}
                 )

@@ -7,7 +7,7 @@ with zero external dependencies.
 All sorting functions follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
 - Composition: Can be combined with other transforms via create_pipeline
-- Currying: Designed for partial application with toolz.curry
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 

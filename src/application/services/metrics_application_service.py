@@ -7,23 +7,31 @@ formats, and persisting results for future use.
 
 from typing import Any
 
-from attrs import define
+from attrs import define, field
 
 from src.application.utilities.enhanced_database_batch_processor import (
     EnhancedDatabaseBatchProcessor,
 )
-from src.config import get_logger
-from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors._shared.metrics import (
-    get_connector_metrics,
-    get_field_name,
-    get_metric_freshness,
+from src.application.workflows.protocols import (
+    MetricConfigProvider,
+    TrackMetadataConnector,
 )
-from src.infrastructure.connectors.protocols import TrackMetadataConnector
+from src.config import get_logger
+from src.domain.entities.track import Track
+from src.domain.repositories import UnitOfWorkProtocol
 
 type _MetricsTuple = tuple[int, str, str, float | int | bool]
 
 logger = get_logger(__name__)
+
+
+def _default_metric_config() -> MetricConfigProvider:
+    """Provide default MetricConfigProvider from infrastructure."""
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
+
+    return MetricConfigProviderImpl()
 
 
 @define(slots=True)
@@ -34,6 +42,8 @@ class MetricsApplicationService:
     data from external connectors, and persisting results. Optimizes performance
     through freshness-based caching and batch operations for large datasets.
     """
+
+    _metric_config: MetricConfigProvider = field(factory=_default_metric_config)
 
     async def resolve_metrics(
         self,
@@ -52,7 +62,7 @@ class MetricsApplicationService:
 
         Args:
             track_ids: Internal track IDs to resolve metrics for.
-            metric_name: Name of the metric to resolve (e.g., 'danceability').
+            metric_name: Name of the metric to resolve (e.g., 'spotify_popularity').
             connector: External connector name ('spotify', 'lastfm', etc.).
             field_map: Maps metric names to connector field names.
             uow: Unit of work for database transaction management.
@@ -72,7 +82,7 @@ class MetricsApplicationService:
 
         async with uow:
             # Step 1: Get cached metrics that aren't stale
-            max_age_hours = get_metric_freshness(metric_name)
+            max_age_hours = self._metric_config.get_metric_freshness(metric_name)
             metrics_repo = uow.get_metrics_repository()
 
             cached_values = await metrics_repo.get_track_metrics(
@@ -193,14 +203,14 @@ class MetricsApplicationService:
         Args:
             track_ids: Internal track IDs to get metrics for.
             connector: External connector name ('spotify', 'lastfm', etc.).
-            metric_names: List of metric names to retrieve (e.g., ['popularity', 'danceability']).
+            metric_names: List of metric names to retrieve (e.g., ['spotify_popularity', 'lastfm_user_playcount']).
             uow: Unit of work for database transaction management.
             connector_instance: Optional connector instance for fresh metadata fetching.
 
         Returns:
             Tuple of (metrics_dict, fresh_ids_dict) where:
             - metrics_dict: Dictionary mapping metric names to track_id -> value mappings.
-              Example: {'popularity': {1: 85, 2: 92}, 'danceability': {1: 0.75, 2: 0.82}}
+              Example: {'spotify_popularity': {1: 85, 2: 92}, 'lastfm_user_playcount': {1: 75, 2: 120}}
             - fresh_ids_dict: Dictionary mapping metric names to sets of track IDs that
               were freshly fetched (not from cache) in this session.
         """
@@ -215,7 +225,7 @@ class MetricsApplicationService:
         )
 
         # Validate that all requested metrics are supported by this connector
-        available_metrics = get_connector_metrics(connector)
+        available_metrics = self._metric_config.get_connector_metrics(connector)
         unsupported_metrics = [m for m in metric_names if m not in available_metrics]
         if unsupported_metrics:
             logger.warning(
@@ -232,7 +242,7 @@ class MetricsApplicationService:
         # Build field map from registered metric configurations
         field_map: dict[str, str] = {}
         for metric_name in metric_names:
-            field_name = get_field_name(metric_name)
+            field_name = self._metric_config.get_field_name(metric_name)
             if field_name:
                 field_map[metric_name] = field_name
             else:
@@ -255,7 +265,7 @@ class MetricsApplicationService:
         async with uow:
             for metric_name in field_map:
                 # Check cache for fresh metrics
-                max_age_hours = get_metric_freshness(metric_name)
+                max_age_hours = self._metric_config.get_metric_freshness(metric_name)
                 metrics_repo = uow.get_metrics_repository()
 
                 cached_values = await metrics_repo.get_track_metrics(
@@ -386,6 +396,53 @@ class MetricsApplicationService:
         )
 
         return result, fresh_ids_per_metric
+
+    async def extract_track_metrics(
+        self, tracks: list[Track], uow: UnitOfWorkProtocol
+    ) -> None:
+        """Extract and save metrics from track connector metadata.
+
+        Groups tracks by connector type and batch processes their metadata
+        to extract structured metrics for analysis.
+
+        Args:
+            tracks: Tracks with potential connector metadata
+            uow: Transaction manager for database operations
+        """
+        if not tracks:
+            return
+
+        for (
+            connector,
+            available_metrics,
+        ) in self._metric_config.get_all_connectors_metrics().items():
+            tracks_with_metadata: list[Track] = []
+            fresh_metadata: dict[int, dict[str, Any]] = {}
+
+            for track in tracks:
+                if (
+                    track.id
+                    and track.connector_metadata
+                    and connector in track.connector_metadata
+                ):
+                    tracks_with_metadata.append(track)
+                    fresh_metadata[track.id] = track.connector_metadata[connector]
+
+            if fresh_metadata:
+                logger.info(
+                    f"Extracting {len(available_metrics)} metrics from {connector} for {len(tracks_with_metadata)} tracks",
+                    connector=connector,
+                    metrics=available_metrics,
+                    track_count=len(tracks_with_metadata),
+                )
+
+                await self.batch_process_fresh_metadata(
+                    fresh_metadata=fresh_metadata,
+                    connector=connector,
+                    available_metrics=available_metrics,
+                    field_map=self._metric_config.get_all_field_mappings(),
+                    uow=uow,
+                )
 
     async def batch_process_fresh_metadata(
         self,

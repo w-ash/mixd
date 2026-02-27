@@ -555,23 +555,21 @@ async def run_import(
     if progress_emitter is None:
         progress_emitter = NullProgressEmitter()
 
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+    from src.application.runner import execute_use_case
 
-    async with get_session() as session:
-        uow = get_unit_of_work(session)
-        command = ImportTracksCommand(
-            service=service,
-            mode=mode,
-            limit=limit,
-            user_id=user_id,
-            file_path=file_path,
-            confirm=confirm,
-            from_date=from_date,
-            to_date=to_date,
-            additional_options=additional_options,
-        )
+    command = ImportTracksCommand(
+        service=service,
+        mode=mode,
+        limit=limit,
+        user_id=user_id,
+        file_path=file_path,
+        confirm=confirm,
+        from_date=from_date,
+        to_date=to_date,
+        additional_options=additional_options,
+    )
 
-        use_case = ImportTracksUseCase()
-        result = await use_case.execute(command, uow, progress_emitter)
-        return result.operation_result
+    result = await execute_use_case(
+        lambda uow: ImportTracksUseCase().execute(command, uow, progress_emitter)
+    )
+    return result.operation_result

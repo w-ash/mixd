@@ -11,8 +11,6 @@ from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
-    ProviderMatchResult,
-    RawProviderMatch,
 )
 
 logger = get_logger(__name__)
@@ -124,15 +122,3 @@ def validate_track_for_method(
             details=error_details,
         )
     return None
-
-
-def merge_results(*results: ProviderMatchResult) -> ProviderMatchResult:
-    """Merge multiple ProviderMatchResult objects."""
-    matches: dict[int, RawProviderMatch] = {}
-    failures: list[MatchFailure] = []
-
-    for result in results:
-        matches.update(result.matches)
-        failures.extend(result.failures)
-
-    return ProviderMatchResult(matches=matches, failures=failures)

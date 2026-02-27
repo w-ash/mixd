@@ -22,20 +22,16 @@ from src.application.use_cases.enrich_tracks import (
     EnrichmentConfig,
     EnrichTracksCommand,
 )
-
-# match_tracks import removed - modern enricher uses TrackMetadataEnricher directly
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.domain.entities.track import TrackList
 
-# WorkflowRepositoryAdapter removed - dependencies now injected through protocols
 from .destination_nodes import DESTINATION_HANDLERS
 from .node_context import NodeContext
 from .node_registry import NodeFn
-from .protocols import LoggerProvider, NodeResult, WorkflowContext
+from .protocols import NodeResult
 from .transform_registry import TRANSFORM_REGISTRY
 
 # Registry type aliases: transform factories take (ctx, config) and return a TrackList→TrackList fn.
-# toolz has no stubs so registry values are inferred as `object`; these aliases enable cast().
 type _TransformFn = Callable[[TrackList], TrackList]
 type _TransformFactory = Callable[[Any, dict[str, Any]], _TransformFn]
 
@@ -59,10 +55,14 @@ def _get_connector_metric_names(
     Returns:
         List of metric names that can be resolved for this connector
     """
-    from src.infrastructure.connectors._shared.metrics import get_connector_metrics
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
+
+    metric_config = MetricConfigProviderImpl()
 
     # Get all metrics supported by this connector from the registry
-    available_metrics = get_connector_metrics(connector_name)
+    available_metrics = metric_config.get_connector_metrics(connector_name)
 
     if not available_metrics:
         logger.warning(f"No metrics registered for connector: {connector_name}")
@@ -77,29 +77,6 @@ def _get_connector_metric_names(
         # Try with connector prefix
         elif f"{connector_name}_{attr_name}" in available_metrics:
             metric_names.append(f"{connector_name}_{attr_name}")
-        # Try common mappings for legacy attribute names
-        elif connector_name == "lastfm":
-            if (
-                attr_name == "user_playcount"
-                and "lastfm_user_playcount" in available_metrics
-            ):
-                metric_names.append("lastfm_user_playcount")
-            elif (
-                attr_name == "global_playcount"
-                and "lastfm_global_playcount" in available_metrics
-            ):
-                metric_names.append("lastfm_global_playcount")
-            elif attr_name == "listeners" and "lastfm_listeners" in available_metrics:
-                metric_names.append("lastfm_listeners")
-            else:
-                logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
-        elif connector_name == "spotify":
-            if attr_name == "popularity" and "spotify_popularity" in available_metrics:
-                metric_names.append("spotify_popularity")
-            elif attr_name == "explicit" and "explicit_flag" in available_metrics:
-                metric_names.append("explicit_flag")
-            else:
-                logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
         else:
             logger.warning(f"Unknown attribute: {attr_name} for {connector_name}")
 
@@ -107,50 +84,6 @@ def _get_connector_metric_names(
         f"Mapped {len(requested_attributes)} attributes to {len(metric_names)} metrics for {connector_name}"
     )
     return metric_names
-
-
-# === CORE NODE FACTORY ===
-
-
-class WorkflowNodeFactory:
-    """Creates workflow processing nodes with shared dependencies and configuration.
-
-    Attributes:
-        context: Workflow execution environment with database connections and external services
-        logger: Logging instance for tracking node operations
-    """
-
-    context: WorkflowContext
-    logger: LoggerProvider
-
-    def __init__(self, context: WorkflowContext):
-        """Initialize factory with workflow execution context.
-
-        Args:
-            context: Execution environment with database connections and external services
-        """
-        self.context = context
-        self.logger = context.logger
-
-    def make_node(
-        self,
-        category: str,
-        node_type: str,
-        operation_name: str | None = None,
-    ) -> NodeFn:
-        """Create a track processing node from registered transform operations.
-
-        Args:
-            category: Transform category ("filter", "sort", "combiner", etc.)
-            node_type: Specific operation within category ("by_playcount", "union", etc.)
-            operation_name: Optional custom name for logging and debugging
-
-        Returns:
-            Async function that processes track collections
-        """
-        return _create_transform_node_impl(category, node_type, operation_name)
-
-    # === ENRICHER FACTORY ===
 
 
 # === DESTINATION FACTORY ===
@@ -216,8 +149,7 @@ def _create_transform_node_impl(
 
     # Get transform factory from registry.
     # cast() informs pyright of the runtime contract: registry values are factories that
-    # take (ctx, config) and return a TrackList→TrackList transform. toolz has no stubs,
-    # so the inferred type is `object`/`curry` without the cast.
+    # take (ctx, config) and return a TrackList→TrackList transform.
     transform_factory = cast(_TransformFactory, TRANSFORM_REGISTRY[category][node_type])
     operation = operation_name or f"{category}.{node_type}"
 
@@ -303,8 +235,6 @@ def create_enricher_node(config: dict[str, Any]) -> NodeFn:
         config: Configuration with required keys:
             - connector: External service name ("lastfm", "spotify")
             - attributes: List of metadata fields to extract
-            Optional:
-            - max_age_hours: How old cached data can be before refreshing
 
     Returns:
         Async function that enriches track collections with external metadata
@@ -317,7 +247,7 @@ def create_enricher_node(config: dict[str, Any]) -> NodeFn:
         raise ValueError("Enricher configuration must specify a 'connector' type")
 
     async def node_impl(
-        context: dict[str, Any], node_config: dict[str, Any]
+        context: dict[str, Any], _node_config: dict[str, Any]
     ) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
@@ -331,26 +261,6 @@ def create_enricher_node(config: dict[str, Any]) -> NodeFn:
 
         # Get use case dependencies
         use_cases = ctx.extract_use_cases()
-
-        # Get freshness configuration for this enricher
-        max_age_hours = node_config.get("max_age_hours")
-        if max_age_hours is None:
-            # Get default freshness requirement from config
-            if enricher_type.lower() == "lastfm":
-                max_age_hours = settings.freshness.lastfm_hours
-            elif enricher_type.lower() == "spotify":
-                max_age_hours = settings.freshness.spotify_hours
-            elif enricher_type.lower() == "musicbrainz":
-                max_age_hours = settings.freshness.musicbrainz_hours
-            else:
-                max_age_hours = None
-
-        if max_age_hours is not None:
-            logger.info(
-                f"Using data freshness requirement: {max_age_hours} hours for {enricher_type}"
-            )
-
-        # Use EnrichTracksUseCase - already extracted above
 
         # Get metric names from connector registry
         # The config may specify attribute names, but we need actual metric names
@@ -368,7 +278,6 @@ def create_enricher_node(config: dict[str, Any]) -> NodeFn:
             connector=enricher_type,
             connector_instance=connector_instance,
             track_metric_names=metric_names,
-            max_age_hours=max_age_hours,
         )
 
         enrichment_command = EnrichTracksCommand(

@@ -78,9 +78,6 @@ class MetricResolverProtocol(Protocol):
         ...
 
 
-# Global registry for metric resolvers
-metric_resolvers: dict[str, MetricResolverProtocol] = {}
-
 # ============================================================================
 # CONFIGURATION ACCESS FUNCTIONS
 # ============================================================================
@@ -130,41 +127,18 @@ def get_connector_metrics(connector_name: str) -> list[str]:
 def register_metric_resolver(
     metric_name: str, resolver: MetricResolverProtocol
 ) -> None:
-    """Register a metric resolver implementation.
-
-    Associates a metric name with a resolver implementation, allowing the
-    metric to be resolved across the application.
+    """Register a metric resolver and update the connector→metrics index.
 
     Args:
         metric_name: Name of the metric to register
         resolver: Implementation of MetricResolverProtocol that can resolve this metric
     """
-    metric_resolvers[metric_name] = resolver
-
-    # Also update connector metrics registry for reverse lookup
     if hasattr(resolver, "CONNECTOR") and resolver.CONNECTOR:
         connector = resolver.CONNECTOR
         if connector not in _connector_metrics:
             _connector_metrics[connector] = []
         if metric_name not in _connector_metrics[connector]:
             _connector_metrics[connector].append(metric_name)
-
-
-def get_metric_resolver(metric_name: str) -> MetricResolverProtocol | None:
-    """Get the registered resolver for a metric.
-
-    Args:
-        metric_name: Name of the metric
-
-    Returns:
-        Registered resolver or None if not found
-    """
-    return metric_resolvers.get(metric_name)
-
-
-def get_registered_metrics() -> list[str]:
-    """Get list of all registered metric names."""
-    return list(metric_resolvers.keys())
 
 
 def register_metric_config(
@@ -186,30 +160,6 @@ def register_metric_config(
         _metric_freshness[metric_name] = freshness_hours
 
 
-def register_connector_metrics(
-    connector_name: str, metric_configs: dict[str, dict[str, Any]]
-) -> None:
-    """Register all metrics for a connector in batch.
-
-    Args:
-        connector_name: Name of the connector
-        metric_configs: Dict mapping metric names to their configuration
-                       Each config can contain 'field_name' and 'freshness_hours'
-    """
-    if connector_name not in _connector_metrics:
-        _connector_metrics[connector_name] = []
-
-    for metric_name, config in metric_configs.items():
-        # Add to connector's metric list
-        if metric_name not in _connector_metrics[connector_name]:
-            _connector_metrics[connector_name].append(metric_name)
-
-        # Register configuration
-        register_metric_config(
-            metric_name, config.get("field_name"), config.get("freshness_hours")
-        )
-
-
 def get_all_connectors_metrics() -> dict[str, list[str]]:
     """Get mapping of all registered connectors to their metrics.
 
@@ -226,3 +176,27 @@ def get_all_field_mappings() -> dict[str, str]:
         Dict mapping metric names to connector field names
     """
     return dict(_field_mappings)
+
+
+class MetricConfigProviderImpl:
+    """Concrete implementation of MetricConfigProvider protocol.
+
+    Wraps the module-level registry functions so that application code
+    can receive this via dependency injection instead of importing the
+    infrastructure functions directly.
+    """
+
+    def get_connector_metrics(self, connector: str) -> list[str]:
+        return get_connector_metrics(connector)
+
+    def get_field_name(self, metric: str) -> str:
+        return get_field_name(metric)
+
+    def get_metric_freshness(self, metric: str) -> float:
+        return get_metric_freshness(metric)
+
+    def get_all_connectors_metrics(self) -> dict[str, list[str]]:
+        return get_all_connectors_metrics()
+
+    def get_all_field_mappings(self) -> dict[str, str]:
+        return get_all_field_mappings()

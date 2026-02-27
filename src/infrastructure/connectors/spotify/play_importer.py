@@ -5,17 +5,14 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
-# Removed: from collections.abc import Callable - no longer needed for progress callbacks
 from datetime import datetime
 from pathlib import Path
 from typing import Any, override
 
-from src.application.services.play_import_orchestrator import PlayImporterProtocol
-
-# Removed: ImportBatchProcessor - dead code, never used in implementation
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.repositories import PlayImporterProtocol
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.personal_data import (
     parse_spotify_personal_data,

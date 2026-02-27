@@ -1,9 +1,8 @@
 """Tests for Prefect workflow execution.
 
-Regression tests to ensure runtime guards are not removed during type cleanup.
+Tests that workflow result extraction and metrics aggregation work correctly
+with properly typed NodeResult task results.
 """
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,19 +21,10 @@ def sample_tracklist():
 
 
 class TestExtractWorkflowResult:
-    """Tests for extract_workflow_result handling mixed context dicts."""
+    """Tests for extract_workflow_result with typed task results."""
 
-    @pytest.mark.asyncio
-    async def test_ignores_non_task_context_entries(self, sample_tracklist):
-        """extract_workflow_result must tolerate non-NodeResult entries in context.
-
-        The context dict passed at runtime contains infrastructure objects
-        ("parameters", "use_cases", "connectors", etc.) alongside actual task
-        results. The metrics loop must skip entries that aren't NodeResult dicts.
-
-        Regression test: a previous type-cleanup agent removed the isinstance guard
-        from the metrics loop, causing KeyError on non-NodeResult entries.
-        """
+    def test_extracts_destination_tracklist(self, sample_tracklist):
+        """Destination task's tracklist becomes the final result tracks."""
         from src.application.workflows.prefect import extract_workflow_result
 
         workflow_def = {
@@ -45,32 +35,20 @@ class TestExtractWorkflowResult:
             ],
         }
 
-        # Context matches real workflow shape: mix of infrastructure and task results
-        context = {
-            "parameters": {"playlist_name": "test"},
-            "use_cases": MagicMock(),
-            "connectors": MagicMock(),
-            "config": {"some": "config"},
-            "logger": MagicMock(),
-            "workflow_name": "test_workflow",
+        task_results = {
             "src_1": {"tracklist": sample_tracklist},
             "dest_1": {"tracklist": sample_tracklist},
         }
 
-        # Must NOT raise KeyError — the core regression being tested
-        result = await extract_workflow_result.fn(
-            workflow_def, context, "test-run", 1.0
-        )
+        result = extract_workflow_result(workflow_def, task_results, "test-run", 1.0)
 
         assert result.tracks == sample_tracklist.tracks
         assert result.operation_name == "test_workflow"
 
-    @pytest.mark.asyncio
-    async def test_extracts_metrics_from_task_results(self, sample_tracklist):
+    def test_extracts_metrics_from_task_results(self, sample_tracklist):
         """Metrics should be extracted from task results that have tracklist entries."""
         from src.application.workflows.prefect import extract_workflow_result
 
-        # Tracklist with metrics in metadata
         tracklist_with_metrics = TrackList(
             tracks=sample_tracklist.tracks,
             metadata={"metrics": {"lastfm_plays": {1: 42, 2: 10}}},
@@ -80,21 +58,60 @@ class TestExtractWorkflowResult:
             "name": "metrics_test",
             "tasks": [
                 {"id": "enricher_1", "type": "enricher.lastfm", "upstream": ["src_1"]},
-                {"id": "dest_1", "type": "destination.playlist", "upstream": ["enricher_1"]},
+                {
+                    "id": "dest_1",
+                    "type": "destination.playlist",
+                    "upstream": ["enricher_1"],
+                },
                 {"id": "src_1", "type": "source.playlist"},
             ],
         }
 
-        context = {
-            "parameters": {},
+        task_results = {
             "src_1": {"tracklist": sample_tracklist},
             "enricher_1": {"tracklist": tracklist_with_metrics},
             "dest_1": {"tracklist": tracklist_with_metrics},
         }
 
-        result = await extract_workflow_result.fn(
-            workflow_def, context, "test-run", 1.0
-        )
+        result = extract_workflow_result(workflow_def, task_results, "test-run", 1.0)
 
         assert "lastfm_plays" in result.metrics
         assert result.metrics["lastfm_plays"][1] == 42
+
+
+class TestAggregateWorkflowMetrics:
+    """Tests for _aggregate_workflow_metrics helper."""
+
+    def test_aggregates_metrics_across_tasks(self, sample_tracklist):
+        """Metrics from multiple tasks are merged."""
+        from src.application.workflows.prefect import _aggregate_workflow_metrics
+
+        tl1 = TrackList(
+            tracks=sample_tracklist.tracks,
+            metadata={"metrics": {"plays": {1: 10}}},
+        )
+        tl2 = TrackList(
+            tracks=sample_tracklist.tracks,
+            metadata={"metrics": {"plays": {2: 20}, "popularity": {1: 80}}},
+        )
+
+        task_results = {
+            "task_a": {"tracklist": tl1},
+            "task_b": {"tracklist": tl2},
+        }
+
+        result = _aggregate_workflow_metrics(task_results)
+
+        assert result["plays"] == {1: 10, 2: 20}
+        assert result["popularity"] == {1: 80}
+
+    def test_empty_metrics_handled(self, sample_tracklist):
+        """Tasks without metrics in metadata produce empty result."""
+        from src.application.workflows.prefect import _aggregate_workflow_metrics
+
+        task_results = {
+            "task_1": {"tracklist": sample_tracklist},
+        }
+
+        result = _aggregate_workflow_metrics(task_results)
+        assert result == {}

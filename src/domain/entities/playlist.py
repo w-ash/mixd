@@ -81,10 +81,21 @@ class Playlist:
     def to_tracklist(self) -> TrackList:
         """Convert to TrackList for workflow processing.
 
-        Strips position metadata, returning just the tracks for use in
-        transformation pipelines.
+        Preserves temporal metadata (added_at dates) so downstream transforms
+        can filter/sort by when tracks were added to the playlist.
         """
-        return TrackList(tracks=self.tracks)
+        added_at_dates = {
+            entry.track.id: entry.added_at.isoformat()
+            for entry in self.entries
+            if entry.track.id is not None and entry.added_at is not None
+        }
+        return TrackList(
+            tracks=self.tracks,
+            metadata={
+                "source_playlist_name": self.name,
+                "added_at_dates": added_at_dates,
+            },
+        )
 
     @classmethod
     def from_tracklist(

@@ -19,7 +19,7 @@ from typing import Any, ClassVar, override
 
 from attrs import define, field
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import (
     ConnectorPlaylist,
     ConnectorTrack,
@@ -233,5 +233,10 @@ def get_connector_config() -> ConnectorConfig:
     }
 
 
-# Register all metric resolvers at once
-register_metrics(SpotifyMetricResolver(), SpotifyMetricResolver.FIELD_MAP)
+# Register all metric resolvers with freshness from settings
+_spotify_freshness = dict.fromkeys(
+    SpotifyMetricResolver.FIELD_MAP, settings.freshness.spotify_hours
+)
+register_metrics(
+    SpotifyMetricResolver(), SpotifyMetricResolver.FIELD_MAP, _spotify_freshness
+)

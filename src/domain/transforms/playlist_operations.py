@@ -7,20 +7,18 @@ domain transforms with zero external dependencies.
 All playlist operations follow functional programming principles:
 - Immutability: Return new Playlist instead of modifying existing ones
 - Composition: Can be combined with other transforms via create_pipeline
-- Currying: Designed for partial application with toolz.curry
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 
 from collections.abc import Callable
 
 from attrs import evolve
-from toolz import curry
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track
 
 
-@curry
 def calculate_track_list_diff(
     current_tracks: list[Track],
     target_tracks: list[Track],
@@ -97,7 +95,6 @@ def reorder_to_match_target(
     return reordered_tracks
 
 
-@curry
 def rename(
     new_name: str,
     playlist: Playlist | None = None,
@@ -119,7 +116,6 @@ def rename(
     return transform(playlist) if playlist is not None else transform
 
 
-@curry
 def set_description(
     description: str,
     playlist: Playlist | None = None,

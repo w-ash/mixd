@@ -64,7 +64,6 @@ class TestEnrichTracksUseCase:
             connector="spotify",
             connector_instance=Mock(),
             track_metric_names=["spotify_popularity"],
-            max_age_hours=24.0,
         )
 
     @pytest.fixture

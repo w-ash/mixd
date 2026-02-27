@@ -149,7 +149,7 @@ class TestEnricherNodeFactory:
         node_func = create_enricher_node(config)
 
         context = {"test": "context"}
-        node_config = {"max_age_hours": 24}
+        node_config = {}
 
         result = await node_func(context, node_config)
 
@@ -210,7 +210,7 @@ class TestHelperFunctions:
 
         # Mock the metrics registry
         with patch(
-            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+            "src.infrastructure.connectors._shared.metric_registry.get_connector_metrics"
         ) as mock_get_metrics:
             mock_get_metrics.return_value = [
                 "lastfm_user_playcount",
@@ -230,7 +230,7 @@ class TestHelperFunctions:
 
         # Mock empty metrics registry for unknown connector
         with patch(
-            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+            "src.infrastructure.connectors._shared.metric_registry.get_connector_metrics"
         ) as mock_get_metrics:
             mock_get_metrics.return_value = []
 
@@ -246,7 +246,7 @@ class TestHelperFunctions:
 
         # Mock the metrics registry for spotify
         with patch(
-            "src.infrastructure.connectors._shared.metrics.get_connector_metrics"
+            "src.infrastructure.connectors._shared.metric_registry.get_connector_metrics"
         ) as mock_get_metrics:
             mock_get_metrics.return_value = ["spotify_popularity", "explicit_flag"]
 
@@ -255,17 +255,3 @@ class TestHelperFunctions:
             assert (
                 "spotify_popularity" in metric_names
             )  # Should map popularity -> spotify_popularity
-
-
-class TestWorkflowNodeFactory:
-    """Test WorkflowNodeFactory class."""
-
-    def test_workflow_node_factory_make_node(self):
-        """Test WorkflowNodeFactory.make_node method."""
-        from src.application.workflows.node_factories import WorkflowNodeFactory
-
-        mock_context = MagicMock()
-        factory = WorkflowNodeFactory(mock_context)
-
-        node_func = factory.make_node("filter", "deduplicate")
-        assert callable(node_func)

@@ -15,10 +15,10 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 import typer
 
-from src.application.services.track_merge_service import TrackMergeService
 from src.config import get_logger
 from src.infrastructure.persistence.database import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.infrastructure.services.track_merge_service import TrackMergeService
 
 logger = get_logger(__name__)
 

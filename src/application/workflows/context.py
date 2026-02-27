@@ -4,19 +4,23 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
+from collections.abc import Callable, Coroutine
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.repositories import UnitOfWorkProtocol
+
 if TYPE_CHECKING:
     from loguru import Logger
 
 from src.config import get_logger
 
-# Repository interfaces imported only where needed by use case providers
-from src.infrastructure.connectors import discover_connectors
+# Approved infrastructure bridge: context.py is a DI container (like runner.py and
+# prefect.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession
+# are intentional wiring — this is the designated integration point for workflow DI.
 from src.infrastructure.persistence.database.db_connection import get_session
 
 # Repository factory functions will be imported locally where needed
@@ -49,25 +53,6 @@ class ConfigProviderImpl:
     def settings(self):
         """Direct access to settings for modern usage."""
         return self._settings
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve a configuration value by key.
-
-        This method is primarily for workflow-specific configuration,
-        not application settings. For application settings, use the
-        settings property directly.
-
-        Args:
-            key: Configuration key to look up
-            default: Value to return if key is not found
-
-        Returns:
-            Configuration value or default if not found
-        """
-        # This is for workflow-specific config, not app settings
-        # Currently returns default since no workflow config storage is implemented
-        _ = key  # Mark as intentionally unused for now
-        return default
 
 
 class LoggerProviderImpl:
@@ -136,6 +121,8 @@ class ConnectorRegistryImpl:
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""
+        from src.infrastructure.connectors import discover_connectors
+
         self._connectors = discover_connectors()
 
     def get_connector(self, name: str):
@@ -271,9 +258,6 @@ class UseCaseProviderImpl:
 
         return MatchAndIdentifyTracksUseCase()
 
-    async def get_match_tracks_use_case(self):
-        return await self.get_match_and_identify_tracks_use_case()
-
     async def get_update_canonical_playlist_use_case(self):
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistUseCase,
@@ -313,6 +297,34 @@ class ConcreteWorkflowContext:
     shared_session: Any = (
         None  # Optional shared session for workflow transaction boundaries
     )
+
+    async def execute_service[TResult](
+        self,
+        service_fn: Callable[[UnitOfWorkProtocol], Coroutine[Any, Any, TResult]],
+    ) -> TResult:
+        """Execute an arbitrary async operation with a UnitOfWork.
+
+        General-purpose method for running service calls, repository operations,
+        or any async function that needs a UoW — without the caller importing
+        infrastructure.
+
+        Args:
+            service_fn: Async callable receiving a UoW and returning a result.
+
+        Returns:
+            Result from the service function.
+        """
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+
+        if self.shared_session is not None:
+            uow = get_unit_of_work(self.shared_session)
+            return await service_fn(uow)
+        else:
+            async with self.session_provider.get_session() as session:
+                uow = get_unit_of_work(session)
+                return await service_fn(uow)
 
     async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
         """Execute a business logic use case with proper resource management.

@@ -43,10 +43,11 @@ class TaskResult(TypedDict):
 
 
 @task(
-    retries=3,
-    retry_delay_seconds=30,
     tags=["node"],
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
+    task_run_name="execute-{node_type}",
+    # No retries — source/enricher nodes retry via infrastructure tenacity policies;
+    # transform nodes are pure and deterministic (retrying won't help)
 )
 async def execute_node(
     node_type: str, context: dict[str, Any], config: dict[str, Any]
@@ -270,6 +271,7 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
 
             flow_logger.info("Workflow completed successfully")
 
+            context["_task_results"] = task_results
             return context
 
     # Return the decorated flow function
@@ -279,12 +281,40 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
 # --- Workflow execution ---
 
 
-@task(
-    name="extract_workflow_result",
-    description="Extract workflow result with metrics",
-    cache_policy=NONE,  # Disable caching due to non-serializable context objects
-)
-async def extract_workflow_result(  # noqa: RUF029
+def _aggregate_workflow_metrics(
+    task_results: dict[str, NodeResult],
+) -> dict[str, dict[int, Any]]:
+    """Aggregate metrics from all workflow task results.
+
+    Iterates through task results, extracting metrics from each tracklist's
+    metadata and merging them into a unified dict.
+    """
+    all_metrics: dict[str, dict[int, Any]] = {}
+
+    for task_id, result in task_results.items():
+        tracklist = result["tracklist"]
+        task_metrics: dict[str, dict[int, Any]] = tracklist.metadata.get("metrics", {})
+
+        for metric_name, values in task_metrics.items():
+            if values:
+                logger.debug(
+                    f"Metrics found in {task_id}",
+                    metric_name=metric_name,
+                    key_count=len(values),
+                )
+
+            if metric_name not in all_metrics:
+                all_metrics[metric_name] = {}
+            all_metrics[metric_name].update(values.copy())
+
+    logger.debug(
+        "Aggregated workflow metrics",
+        metric_names=list(all_metrics.keys()),
+    )
+    return all_metrics
+
+
+def extract_workflow_result(
     workflow_def: dict[str, Any],
     task_results: dict[str, NodeResult],
     flow_run_name: str,
@@ -333,58 +363,7 @@ async def extract_workflow_result(  # noqa: RUF029
     final_tracklist = destination_result["tracklist"]
     final_tracks = final_tracklist.tracks
 
-    # Extract all metrics from task results
-    all_metrics: dict[str, dict[int, Any]] = {}
-
-    for task_id, result in task_results.items():
-        # Guard: caller passes the full context dict which contains infrastructure
-        # entries (parameters, use_cases, connectors, logger, etc.) alongside actual
-        # NodeResult dicts. Only NodeResult entries have a "tracklist" key.
-        if not isinstance(result, dict) or "tracklist" not in result:  # pyright: ignore[reportUnnecessaryIsInstance]
-            continue
-        tracklist = result["tracklist"]
-        # metrics structure: {metric_name: {track_id: value}}
-        task_metrics: dict[str, dict[int, Any]] = tracklist.metadata.get("metrics", {})
-
-        # Log metrics information for debugging
-        for metric_name, values in task_metrics.items():
-            if values:
-                metric_keys = list(values.keys())
-                logger.debug(
-                    f"Metrics found in {task_id}",
-                    metric_name=metric_name,
-                    key_count=len(metric_keys),
-                    key_type=type(metric_keys[0]).__name__ if metric_keys else "N/A",
-                    sample_values_count=sum(1 for v in values.values() if v != 0),
-                )
-
-        # Add to all_metrics - make deep copy to ensure values are preserved
-        for metric_name, values in task_metrics.items():
-            if metric_name not in all_metrics:
-                all_metrics[metric_name] = {}
-            # Ensure we're not losing any values during update
-            all_metrics[metric_name].update(values.copy())
-
-    # Verify final metrics
-    if "spotify_popularity" in all_metrics:
-        sp_keys = list(all_metrics["spotify_popularity"].keys())
-        logger.debug(
-            "Final spotify_popularity metrics",
-            key_count=len(sp_keys),
-            key_type=type(sp_keys[0]).__name__ if sp_keys else "N/A",
-            sample_keys=sp_keys[:5],
-            sample_values=[
-                all_metrics["spotify_popularity"].get(k) for k in sp_keys[:5]
-            ]
-            if sp_keys
-            else [],
-        )
-
-    logger.debug(
-        "Final extracted metrics",
-        metric_names=list(all_metrics.keys()),
-        spotify_popularity_count=len(all_metrics.get("spotify_popularity", {})),
-    )
+    all_metrics = _aggregate_workflow_metrics(task_results)
 
     return WorkflowResult(
         tracks=final_tracks,
@@ -455,11 +434,14 @@ async def run_workflow(
             # Add metadata to context
             context["workflow_name"] = workflow_name
 
-            # Submit task and get result with actual execution time
+            # Extract typed task results from context; fall back to context for safety
+            task_results: dict[str, NodeResult] = context.pop("_task_results", context)
+
+            # Extract result with actual execution time
             flow_run_name = workflow.flow_run_name
-            result = await extract_workflow_result(
+            result = extract_workflow_result(
                 workflow_def,
-                context,
+                task_results,
                 flow_run_name,
                 execution_time,
             )

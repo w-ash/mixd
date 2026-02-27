@@ -6,6 +6,7 @@ Verifies multi-page fetching works by requesting more than 200 tracks.
 Usage:
     poetry run python scripts/test_lastfm_pagination.py
 """
+
 import asyncio
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient

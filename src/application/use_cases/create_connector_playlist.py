@@ -8,13 +8,14 @@ database. Manages transaction boundaries and provides detailed operation results
 from datetime import UTC, datetime
 from typing import Any
 
-from attrs import Attribute, define, field
+from attrs import define, field
 
 from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
 )
 from src.application.use_cases._shared.command_validators import (
     non_empty_string,
+    validate_tracklist_has_tracks,
 )
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
@@ -25,14 +26,6 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-def _validate_tracklist_has_tracks(
-    _instance: object, attribute: Attribute[TrackList], value: TrackList
-) -> None:
-    """Validates that TrackList contains tracks."""
-    if not value.tracks:
-        raise ValueError(f"{attribute.name} must contain tracks")
-
-
 @define(frozen=True, slots=True)
 class CreateConnectorPlaylistCommand:
     """Input data for creating a playlist on an external music service.
@@ -41,7 +34,7 @@ class CreateConnectorPlaylistCommand:
     on services like Spotify or Apple Music, with optional internal sync.
     """
 
-    tracklist: TrackList = field(validator=_validate_tracklist_has_tracks)
+    tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
     playlist_name: str = field(validator=non_empty_string)
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     playlist_description: str = "Created by Narada"

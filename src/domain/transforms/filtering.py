@@ -7,7 +7,7 @@ with zero external dependencies.
 All filters follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
 - Composition: Can be combined with other transforms via create_pipeline
-- Currying: Designed for partial application with toolz.curry
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 
@@ -50,29 +50,16 @@ def filter_duplicates() -> Transform:
     def transform(t: TrackList) -> TrackList:
         seen_ids: set[int] = set()
         unique_tracks: list[Track] = []
-        duplicates_removed = 0
-        original_count = len(t.tracks)
-        tracks_without_ids = 0
 
         for track in t.tracks:
             if track.id is None:
                 # If track has no ID, keep it (can't properly deduplicate)
                 unique_tracks.append(track)
-                tracks_without_ids += 1
             elif track.id not in seen_ids:
                 seen_ids.add(track.id)
                 unique_tracks.append(track)
-            else:
-                duplicates_removed += 1
 
-        result = t.with_tracks(unique_tracks)
-        # Add metadata for reporting
-        return (
-            result
-            .with_metadata("duplicates_removed", duplicates_removed)
-            .with_metadata("original_count", original_count)
-            .with_metadata("tracks_without_ids", tracks_without_ids)
-        )
+        return t.with_tracks(unique_tracks)
 
     return transform
 
@@ -170,3 +157,53 @@ def exclude_artists(
             return track.artists[0].name.lower() not in exclude_artists_set
 
     return cast(Transform, filter_by_predicate(not_artist_in_reference))
+
+
+@optional_tracklist_transform
+def filter_by_duration(
+    min_ms: int | None = None,
+    max_ms: int | None = None,
+    include_missing: bool = False,
+) -> Transform:
+    """
+    Filter tracks by duration range.
+
+    Args:
+        min_ms: Minimum duration in milliseconds (inclusive), or None for no minimum
+        max_ms: Maximum duration in milliseconds (inclusive), or None for no maximum
+        include_missing: Whether to include tracks without duration data
+
+    Returns:
+        Transformation function
+    """
+
+    def in_duration_range(track: Track) -> bool:
+        if track.duration_ms is None:
+            return include_missing
+        if min_ms is not None and track.duration_ms < min_ms:
+            return False
+        return not (max_ms is not None and track.duration_ms > max_ms)
+
+    return cast(Transform, filter_by_predicate(in_duration_range))
+
+
+@optional_tracklist_transform
+def filter_by_liked_status(
+    service: str,
+    is_liked: bool = True,
+) -> Transform:
+    """
+    Filter tracks by liked status on a specific service.
+
+    Args:
+        service: Service name to check (e.g., "spotify", "lastfm")
+        is_liked: If True, keep liked tracks; if False, keep non-liked tracks
+
+    Returns:
+        Transformation function
+    """
+
+    def matches_liked(track: Track) -> bool:
+        return track.is_liked_on(service) == is_liked
+
+    return cast(Transform, filter_by_predicate(matches_liked))

@@ -1,5 +1,7 @@
 {
-  "workflow_name": "Discovery Mix - Cross-Service Composition",
+  "id": "discovery_mix_composition",
+  "name": "Discovery Mix - Cross-Service Composition",
+  "version": "1.0",
   "description": "Ultra-DRY composition: Blend liked tracks and play history for discovery - demonstrates composition flexibility",
   "tasks": [
     {

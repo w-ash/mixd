@@ -12,35 +12,33 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.15"
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.46"}
-alembic = "^1.18.1"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.47"}
+alembic = "^1.18.4"
 httpx = "^0.28.1"
 loguru = "^0.7.3"
 python-dotenv = "^1.2.1"
-rich = "^14.3.1"
-typer = "^0.21.1"
+rich = "^14.3.3"
+typer = "^0.24.1"
 attrs = "^25.4.0"
-toolz = "^1.1.0"
-tenacity = "^9.1.2"
-prefect = "^3.6.13"
-aiosqlite = "^0.22.0"
+tenacity = "^9.1.4"
+prefect = "^3.6.19"
+aiosqlite = "^0.22.1"
 rapidfuzz = "^3.14.3"
-orjson = "^3.11.5"
-pydantic-settings = "^2.12.0"
+orjson = "^3.11.7"
+pydantic-settings = "^2.13.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
 pytest-asyncio = "^1.3.0"
 pytest-cov = "^7.0.0"
 pytest-xdist = "^3.8.0"
-ruff = "^0.14.14"
+ruff = "^0.15.4"
 pre-commit = "^4.5.1"
-basedpyright = "^1.37.2"
+basedpyright = "^1.38.2"
 vulture = "^2.14"
 interrogate = "^1.7.0"
-bandit = "^1.9.2"
-psutil = "^7.1.3"
-toolz-stubs = "^0.3.1"
+bandit = "^1.9.3"
+psutil = "^7.2.2"
 
 [tool.poetry.scripts]
 narada = "src.interface.cli.app:main"
@@ -50,7 +48,7 @@ test-db = "narada.data.test_database:main"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-# Ruff configuration for version 0.14.10+ with Python 3.14 support
+# Ruff configuration for version 0.15.4+ with Python 3.14 support
 [tool.ruff]
 # Basic settings
 line-length = 88
@@ -119,17 +117,33 @@ unfixable = []
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]   # Don't complain about unused imports in __init__ files
 "tests/**/*.py" = [
-    "S101",    # Allow assert in tests
-    "ARG001",  # Allow unused function arguments (fixtures, mocks) 
-    "ARG002",  # Allow unused method arguments (fixtures, mocks)
-    "RUF029",  # Allow async functions without await (test setup functions)
+    "S101",     # Allow assert in tests
+    "ARG001",   # Allow unused function arguments (fixtures, mocks)
+    "ARG002",   # Allow unused method arguments (fixtures, mocks)
+    "RUF029",   # Allow async functions without await (test setup functions)
+    "RUF059",   # Allow unused unpacked variables (destructured test results)
+    "RUF069",   # Allow float equality in assertions (exact test values)
     "ASYNC230", # Allow sync file operations in async test functions (test data)
-    "ERA001",  # Allow commented-out code in tests (documentation, debugging)
-    "N806",    # Allow uppercase variables for Mock classes
-    "PT011",   # Allow broad pytest.raises without match (simpler test patterns)
-    "B017",    # Allow pytest.raises(Exception) for general exception testing
-    "E721",    # Allow type() == comparisons for exact type checking in tests
-    "PLR2004"  # Allow magic numbers in tests (durations, counts, test data)
+    "ASYNC240", # Allow pathlib in async test fixtures (cleanup code)
+    "ERA001",   # Allow commented-out code in tests (documentation, debugging)
+    "N806",     # Allow uppercase variables for Mock classes
+    "PT011",    # Allow broad pytest.raises without match (simpler test patterns)
+    "B017",     # Allow pytest.raises(Exception) for general exception testing
+    "E721",     # Allow type() == comparisons for exact type checking in tests
+    "PLR2004",  # Allow magic numbers in tests (durations, counts, test data)
+    "F841",     # Allow assigned-but-unused variables (side-effect assertions)
+    "SIM117",   # Allow nested with statements (patch + pytest.raises readability)
+    "ARG005",   # Allow unused lambda arguments (mock callbacks)
+    "S311",     # Allow non-cryptographic random (test data generation)
+    "TRY002",   # Allow raising vanilla Exception (test error simulation)
+    "PLC1901",  # Allow comparison to empty string (explicit test assertions)
+    "S314",     # Allow XML parsing in tests (test data, not untrusted)
+    "S405",     # Allow xml.etree imports in tests (test data parsing)
+    "N818",     # Allow exception names without Error suffix (test helpers)
+    "SIM102",   # Allow nested ifs in tests (readability with complex conditions)
+    "SIM113",   # Allow manual counters in tests (as_completed doesn't support enumerate)
+    "RUF001",   # Allow unicode characters in test strings (intentional test data)
+    "RUF003",   # Allow unicode characters in test comments (readability)
 ]
 "src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
 "scripts/**/*.py" = [

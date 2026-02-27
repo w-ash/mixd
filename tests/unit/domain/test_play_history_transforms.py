@@ -49,7 +49,7 @@ class TestFilterByPlayHistory:
             Track(id=2, title="Unpopular", artists=[Artist(name="Artist 2")]),
         ]
 
-        metadata = {"total_plays": {1: 10, 2: 3}}
+        metadata = {"metrics": {"total_plays": {1: 10, 2: 3}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = filter_by_play_history(min_plays=5, tracklist=tracklist)
@@ -65,7 +65,7 @@ class TestFilterByPlayHistory:
             Track(id=3, title="High", artists=[Artist(name="Artist 3")]),
         ]
 
-        metadata = {"total_plays": {1: 2, 2: 5, 3: 15}}
+        metadata = {"metrics": {"total_plays": {1: 2, 2: 5, 3: 15}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = filter_by_play_history(min_plays=3, max_plays=10, tracklist=tracklist)
@@ -85,8 +85,10 @@ class TestFilterByPlayHistory:
         old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
 
         metadata = {
-            "total_plays": {1: 5, 2: 8},
-            "last_played_dates": {1: recent_date, 2: old_date},
+            "metrics": {
+                "total_plays": {1: 5, 2: 8},
+                "last_played_dates": {1: recent_date, 2: old_date},
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -104,11 +106,13 @@ class TestFilterByPlayHistory:
         ]
 
         metadata = {
-            "total_plays": {1: 3, 2: 7},
-            "last_played_dates": {
-                1: "2024-01-15T00:00:00+00:00",
-                2: "2024-07-15T00:00:00+00:00",
-            },
+            "metrics": {
+                "total_plays": {1: 3, 2: 7},
+                "last_played_dates": {
+                    1: "2024-01-15T00:00:00+00:00",
+                    2: "2024-07-15T00:00:00+00:00",
+                },
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -128,13 +132,13 @@ class TestFilterByPlayHistory:
         with pytest.raises(ValueError, match="Must specify at least one constraint"):
             filter_by_play_history(tracklist=tracklist)
 
-    def test_curry_partial_application(self):
-        """Test currying works correctly."""
+    def test_factory_mode_returns_callable(self):
+        """Test factory mode returns callable transform."""
         popular_filter = filter_by_play_history(min_plays=10)
         assert callable(popular_filter)
 
         tracks = [Track(id=1, title="Popular", artists=[Artist(name="Artist")])]
-        metadata = {"total_plays": {1: 15}}
+        metadata = {"metrics": {"total_plays": {1: 15}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = popular_filter(tracklist)
@@ -156,8 +160,10 @@ class TestFilterByPlayHistory:
         moderate_date = (datetime.now(UTC) - timedelta(days=100)).isoformat()
 
         metadata = {
-            "total_plays": {1: 5, 2: 8, 3: 1},
-            "last_played_dates": {1: old_date, 2: recent_date, 3: moderate_date},
+            "metrics": {
+                "total_plays": {1: 5, 2: 8, 3: 1},
+                "last_played_dates": {1: old_date, 2: recent_date, 3: moderate_date},
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -182,8 +188,10 @@ class TestFilterByPlayHistory:
         old_date = (datetime.now(UTC) - timedelta(days=100)).isoformat()
 
         metadata = {
-            "total_plays": {1: 10, 2: 15},
-            "last_played_dates": {1: recent_date, 2: old_date},
+            "metrics": {
+                "total_plays": {1: 10, 2: 15},
+                "last_played_dates": {1: recent_date, 2: old_date},
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -207,7 +215,7 @@ class TestSortByPlayHistory:
             Track(id=3, title="Medium Plays", artists=[Artist(name="Artist 3")]),
         ]
 
-        metadata = {"total_plays": {1: 5, 2: 20, 3: 12}}
+        metadata = {"metrics": {"total_plays": {1: 5, 2: 20, 3: 12}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = sort_by_play_history(reverse=True, tracklist=tracklist)
@@ -226,7 +234,7 @@ class TestSortByPlayHistory:
             Track(id=3, title="Medium Plays", artists=[Artist(name="Artist 3")]),
         ]
 
-        metadata = {"total_plays": {1: 5, 2: 20, 3: 12}}
+        metadata = {"metrics": {"total_plays": {1: 5, 2: 20, 3: 12}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = sort_by_play_history(reverse=False, tracklist=tracklist)
@@ -251,8 +259,14 @@ class TestSortByPlayHistory:
         old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
 
         metadata = {
-            "total_plays": {1: 10, 2: 25, 3: 15},  # Old track has highest total plays
-            "last_played_dates": {1: recent_date, 2: old_date, 3: recent_date2},
+            "metrics": {
+                "total_plays": {
+                    1: 10,
+                    2: 25,
+                    3: 15,
+                },  # Old track has highest total plays
+                "last_played_dates": {1: recent_date, 2: old_date, 3: recent_date2},
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -277,12 +291,14 @@ class TestSortByPlayHistory:
         ]
 
         metadata = {
-            "total_plays": {1: 8, 2: 12, 3: 6},
-            "last_played_dates": {
-                1: "2024-07-15T00:00:00+00:00",  # Summer (in range)
-                2: "2024-01-15T00:00:00+00:00",  # Winter (out of range)
-                3: "2024-06-15T00:00:00+00:00",  # Spring (in range)
-            },
+            "metrics": {
+                "total_plays": {1: 8, 2: 12, 3: 6},
+                "last_played_dates": {
+                    1: "2024-07-15T00:00:00+00:00",  # Summer (in range)
+                    2: "2024-01-15T00:00:00+00:00",  # Winter (out of range)
+                    3: "2024-06-15T00:00:00+00:00",  # Spring (in range)
+                },
+            }
         }
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
@@ -300,8 +316,8 @@ class TestSortByPlayHistory:
         assert result.tracks[1].id == 3  # Spring Track (6 plays, in range)
         assert result.tracks[2].id == 2  # Winter Track (0 plays, out of range)
 
-    def test_curry_partial_application(self):
-        """Test currying works correctly for sorting."""
+    def test_factory_mode_returns_callable(self):
+        """Test factory mode returns callable transform."""
         most_played_sorter = sort_by_play_history(reverse=True)
         assert callable(most_played_sorter)
 
@@ -309,7 +325,7 @@ class TestSortByPlayHistory:
             Track(id=1, title="Low", artists=[Artist(name="Artist 1")]),
             Track(id=2, title="High", artists=[Artist(name="Artist 2")]),
         ]
-        metadata = {"total_plays": {1: 5, 2: 15}}
+        metadata = {"metrics": {"total_plays": {1: 5, 2: 15}}}
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = most_played_sorter(tracklist)
@@ -325,7 +341,7 @@ class TestSortByPlayHistory:
             Track(id=None, title="No ID", artists=[Artist(name="Artist 3")]),
         ]
 
-        metadata = {"total_plays": {1: 10}}  # Only track 1 has play data
+        metadata = {"metrics": {"total_plays": {1: 10}}}  # Only track 1 has play data
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = sort_by_play_history(reverse=True, tracklist=tracklist)

@@ -1,7 +1,7 @@
 {
   "id": "sort_by_lastfm_user_playcount",
-  "name": "Sort by LastFM User Playcount",
-  "description": "Sort a Spotify playlist by Last.fm play counts and create a ranked version",
+  "name": "Sort Suspects by LastFM Playcount",
+  "description": "Sort the Suspects playlist by Last.fm user play counts and create a ranked version",
   "version": "1.2",
   "tasks": [
     {
@@ -20,6 +20,18 @@
       ]
     },
     {
+      "id": "filter_played",
+      "type": "filter.by_metric",
+      "config": {
+        "metric_name": "lastfm_user_playcount",
+        "min_value": 1,
+        "include_missing": false
+      },
+      "upstream": [
+        "enrich"
+      ]
+    },
+    {
       "id": "sort",
       "type": "sorter.by_metric",
       "config": {
@@ -27,15 +39,15 @@
         "reverse": true
       },
       "upstream": [
-        "enrich"
+        "filter_played"
       ]
     },
     {
       "id": "destination",
       "type": "destination.create_playlist",
       "config": {
-        "name": "Sorted by Play Count",
-        "description": "Tracks sorted by Last.fm play count (most played first)",
+        "name": "Suspects Sorted by LastFM ({date})",
+        "description": "Suspects sorted by Last.fm play count (most played first). Generated {datetime} with {track_count} tracks.",
         "connector": "spotify"
       },
       "upstream": [

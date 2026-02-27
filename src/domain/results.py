@@ -1,7 +1,8 @@
-"""Unified result factory to eliminate duplicate result creation patterns.
+"""Domain result data types for operation outcomes.
 
-This module provides standardized result creation for all service operations,
-replacing the duplicate result creation methods scattered across services.
+Pure data classes and factories for creating standardized operation results.
+These live in the domain layer because they depend only on domain types and
+are used by both application and infrastructure layers.
 """
 
 from datetime import datetime

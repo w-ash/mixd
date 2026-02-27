@@ -7,6 +7,7 @@ and retrieve data correctly.
 Usage:
     poetry run python scripts/diagnose_spotify.py
 """
+
 import asyncio
 
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient

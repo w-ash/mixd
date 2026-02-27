@@ -198,9 +198,8 @@ class MatchingConfig(BaseModel):
 class FreshnessConfig(BaseModel):
     """Data freshness configuration in hours."""
 
-    lastfm_hours: float = 0.01  # 1 hour
+    lastfm_hours: float = 1.0  # 1 hour
     spotify_hours: float = 24.0  # 24 hours
-    musicbrainz_hours: float = 168.0  # 1 week
 
 
 class Settings(BaseSettings):

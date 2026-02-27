@@ -8,6 +8,8 @@ from typing import Any, TypedDict
 
 from attrs import define, field
 
+from src.domain.entities.track import Track
+
 
 class MatchFailureReason(Enum):
     """Reasons why a track match attempt failed.
@@ -88,7 +90,7 @@ class ConfidenceEvidence:
 
 
 # Type aliases for clarity (defined before use)
-TracksById = dict[int, Any]  # Track type will be imported later
+TracksById = dict[int, Track]
 
 
 @define(frozen=True, slots=True)
@@ -102,7 +104,7 @@ class MatchResult:
     - Service data: Stored in connector_tracks.raw_metadata
     """
 
-    track: Any  # Track type will be imported later to avoid circular dependencies
+    track: Track
     success: bool
     connector_id: str = ""  # ID in the target system
     confidence: int = 0

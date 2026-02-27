@@ -1,0 +1,54 @@
+{
+  "name": "Common Ground",
+  "description": "Tracks that appear in two playlists — the overlap between your collections",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "playlist_a",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "PLAYLIST_A_ID"
+      }
+    },
+    {
+      "id": "playlist_b",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "PLAYLIST_B_ID"
+      }
+    },
+    {
+      "id": "find_common",
+      "type": "combiner.intersect_playlists",
+      "config": {
+        "sources": ["playlist_a", "playlist_b"]
+      },
+      "upstream": ["playlist_a", "playlist_b"]
+    },
+    {
+      "id": "filter_real_songs",
+      "type": "filter.by_duration",
+      "config": {
+        "min_ms": 60000,
+        "max_ms": 600000
+      },
+      "upstream": ["find_common"]
+    },
+    {
+      "id": "reverse_order",
+      "type": "sorter.reverse",
+      "config": {},
+      "upstream": ["filter_real_songs"]
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Common Ground {date}",
+        "description": "Tracks shared between both playlists, excluding interludes and epics",
+        "connector": "spotify"
+      },
+      "upstream": ["reverse_order"]
+    }
+  ]
+}

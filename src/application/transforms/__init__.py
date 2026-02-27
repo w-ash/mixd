@@ -6,11 +6,16 @@ can access TrackList metadata structures and external services.
 
 Modules:
 - play_history: Filter and sort by play counts and listening dates
-- metrics: Filter and sort by external metrics (Last.fm, Spotify popularity, etc.)
+- metric_transforms: Filter and sort by external metrics (Last.fm, Spotify popularity, etc.)
 - shuffle: Weighted shuffle blending original and random orderings
 """
 
-from .metrics import filter_by_metric_range, sort_by_external_metrics
+from .metric_transforms import (
+    filter_by_explicit,
+    filter_by_metric_range,
+    sort_by_date,
+    sort_by_external_metrics,
+)
 from .play_history import (
     filter_by_play_history,
     filter_by_time_criteria,
@@ -20,14 +25,13 @@ from .play_history import (
 from .shuffle import weighted_shuffle
 
 __all__ = [
-    # Metric transforms
+    "filter_by_explicit",
     "filter_by_metric_range",
-    # Play history transforms
     "filter_by_play_history",
     "filter_by_time_criteria",
+    "sort_by_date",
     "sort_by_external_metrics",
     "sort_by_play_history",
     "time_range_predicate",
-    # Shuffle transforms
     "weighted_shuffle",
 ]

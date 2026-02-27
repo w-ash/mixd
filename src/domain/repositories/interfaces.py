@@ -13,6 +13,7 @@ from src.domain.entities import (
     ConnectorPlaylist,
     ConnectorTrack,
     ConnectorTrackPlay,
+    OperationResult,
     Playlist,
     SyncCheckpoint,
     Track,
@@ -656,6 +657,21 @@ class TrackMergeServiceProtocol(Protocol):
         Returns:
             Winner track after merge.
         """
+        ...
+
+
+class PlayImporterProtocol(Protocol):
+    """Protocol for play import services in infrastructure layer.
+
+    Infrastructure classes implement this to provide service-specific play import
+    capabilities (Last.fm API, Spotify file export, etc.). Application layer
+    orchestrates via PlayImportOrchestrator without knowing the concrete service.
+    """
+
+    async def import_plays(
+        self, uow: UnitOfWorkProtocol, **params: Any
+    ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
+        """Import plays and return result with connector plays for resolution."""
         ...
 
 

@@ -31,12 +31,38 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
 )
 from src.config import get_logger
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
 
 from .node_context import NodeContext
 from .protocols import NodeResult
 
 logger = get_logger(__name__)
+
+
+def _build_source_tracklist(
+    tracks: list[Track], playlist_name: str, source: str, source_id: str
+) -> TrackList:
+    """Build a TrackList with track_sources metadata from playlist result.
+
+    Pure helper that eliminates the repeated pattern of building track source
+    maps and wrapping them in a TrackList with standard metadata.
+    """
+    track_source_map = {
+        track.id: {
+            "playlist_name": playlist_name,
+            "source": source,
+            "source_id": source_id,
+        }
+        for track in tracks
+        if track.id is not None
+    }
+    return TrackList(
+        tracks=tracks,
+        metadata={
+            "track_sources": track_source_map,
+            "operation": "playlist_source",
+        },
+    )
 
 
 async def playlist_source(
@@ -85,23 +111,8 @@ async def playlist_source(
             read_command,
         )
 
-        # Create tracklist with source information in metadata
-        track_source_map = {
-            track.id: {
-                "playlist_name": result.playlist.name,
-                "source": "canonical",
-                "source_id": playlist_id,
-            }
-            for track in result.playlist.tracks
-            if track.id is not None
-        }
-
-        tracklist_with_source = TrackList(
-            tracks=result.playlist.tracks,
-            metadata={
-                "track_sources": track_source_map,
-                "operation": "playlist_source",
-            },
+        tracklist_with_source = _build_source_tracklist(
+            result.playlist.tracks, result.playlist.name, "canonical", playlist_id
         )
 
         logger.info(
@@ -118,28 +129,26 @@ async def playlist_source(
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
         # Step 1: Sync connector playlist (fetch + store in database)
-        # Use the session provider to get UnitOfWork for the sync service
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
+        from src.domain.entities.playlist import ConnectorPlaylist
+        from src.domain.repositories import UnitOfWorkProtocol
 
         sync_service = ConnectorPlaylistSyncService()
-        session = workflow_context.session_provider.get_session()
 
-        async with session as db_session:
-            uow = get_unit_of_work(db_session)
-            try:
-                connector_playlist = await sync_service.sync_connector_playlist(
-                    connector, playlist_id, uow
-                )
-            except Exception as e:
-                logger.opt(exception=True).error(
-                    f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
-                    connector=connector,
-                    playlist_id=playlist_id,
-                    error_type=type(e).__name__,
-                )
-                raise
+        async def _sync(uow: UnitOfWorkProtocol) -> ConnectorPlaylist:
+            return await sync_service.sync_connector_playlist(
+                connector, playlist_id, uow
+            )
+
+        try:
+            connector_playlist = await workflow_context.execute_service(_sync)
+        except Exception as e:
+            logger.opt(exception=True).error(
+                f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
+                connector=connector,
+                playlist_id=playlist_id,
+                error_type=type(e).__name__,
+            )
+            raise
 
         if not connector_playlist or not connector_playlist.items:
             logger.warning(f"Playlist empty or not found: {playlist_id}")
@@ -162,31 +171,22 @@ async def playlist_source(
         else:
             logger.debug(f"No existing playlist found for {connector}:{playlist_id}")
 
-        # Step 3: Create ConnectorPlaylist-aware TrackList that preserves playlist structure
-        # This delegates to the use case layer for proper track processing
+        # Step 3: Pass ConnectorPlaylist as a typed command field
+        # The use case layer handles track processing from the ConnectorPlaylist
 
         logger.info(
             f"Processing ConnectorPlaylist with {len(connector_playlist.items)} items from {connector}"
         )
 
-        # Create a TrackList that includes playlist item metadata for the use case layer
-        tracklist = TrackList(
-            tracks=[],  # Will be populated by use case
-            metadata={
-                "connector_playlist": connector_playlist,
-                "preserve_duplicates": True,
-                "include_playlist_metadata": True,
-            },
-        )
-
-        # Step 6: Process playlist (update existing or create new)
+        # Step 4: Process playlist (update existing or create new)
 
         if existing_playlist:
             # Update existing canonical playlist
             logger.info(f"Updating existing canonical playlist {existing_playlist.id}")
             update_command = UpdateCanonicalPlaylistCommand(
                 playlist_id=str(existing_playlist.id),
-                new_tracklist=tracklist,
+                new_tracklist=TrackList(),
+                connector_playlist=connector_playlist,
                 playlist_name=connector_playlist.name,
                 playlist_description=connector_playlist.description
                 or f"Updated from {connector}",
@@ -197,23 +197,8 @@ async def playlist_source(
                 update_command,
             )
 
-            # Create tracklist with source information in metadata
-            track_source_map = {
-                track.id: {
-                    "playlist_name": result.playlist.name,
-                    "source": connector,
-                    "source_id": playlist_id,
-                }
-                for track in result.playlist.tracks
-                if track.id is not None
-            }
-
-            tracklist_with_source = TrackList(
-                tracks=result.playlist.tracks,
-                metadata={
-                    "track_sources": track_source_map,
-                    "operation": "playlist_source",
-                },
+            tracklist_with_source = _build_source_tracklist(
+                result.playlist.tracks, result.playlist.name, connector, playlist_id
             )
 
             logger.info(
@@ -231,10 +216,12 @@ async def playlist_source(
             logger.info(f"Creating new canonical playlist from {connector}")
             create_command = CreateCanonicalPlaylistCommand(
                 name=connector_playlist.name,
-                tracklist=tracklist,
+                tracklist=TrackList(),
+                connector_playlist=connector_playlist,
+                connector_name=connector,
+                connector_id=playlist_id,
                 description=connector_playlist.description
                 or f"Imported from {connector}",
-                metadata={"connector": connector, "connector_id": playlist_id},
             )
 
             result = await workflow_context.execute_use_case(
@@ -242,26 +229,8 @@ async def playlist_source(
                 create_command,
             )
 
-            # Connector mapping is created automatically by CreateCanonicalPlaylistUseCase
-            # when metadata contains connector and connector_id information
-
-            # Create tracklist with source information in metadata
-            track_source_map = {
-                track.id: {
-                    "playlist_name": result.playlist.name,
-                    "source": connector,
-                    "source_id": playlist_id,
-                }
-                for track in result.playlist.tracks
-                if track.id is not None
-            }
-
-            tracklist_with_source = TrackList(
-                tracks=result.playlist.tracks,
-                metadata={
-                    "track_sources": track_source_map,
-                    "operation": "playlist_source",
-                },
+            tracklist_with_source = _build_source_tracklist(
+                result.playlist.tracks, result.playlist.name, connector, playlist_id
             )
 
             logger.info(

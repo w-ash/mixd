@@ -30,13 +30,15 @@ from tenacity import AsyncRetrying
 from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import ConnectorTrack
+from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.error_classification import (
     ErrorClassifier,
     classify_unknown_error,
 )
-from src.infrastructure.connectors._shared.metrics import (
+from src.infrastructure.connectors._shared.metric_registry import (
     MetricResolveFn,
     MetricResolverProtocol,
+    register_metric_config,
     register_metric_resolver,
 )
 
@@ -107,7 +109,7 @@ class BaseMetricResolver:
         self,
         track_ids: list[int],
         metric_name: str,
-        uow: Any,  # UnitOfWorkProtocol - avoiding import for infrastructure layer
+        uow: UnitOfWorkProtocol,
         resolve_fn: MetricResolveFn,
     ) -> dict[int, Any]:
         """Retrieve metric values for multiple tracks from database.
@@ -254,6 +256,7 @@ class _DefaultClassifier:
 def register_metrics(
     metric_resolver: MetricResolverProtocol,
     field_map: dict[str, str],
+    freshness_map: dict[str, float] | None = None,
 ) -> None:
     """Register metric resolver for all metrics defined in field_map.
 
@@ -263,10 +266,9 @@ def register_metrics(
     Args:
         metric_resolver: Resolver instance that can fetch metric values
         field_map: Maps metric names to connector metadata field names
+        freshness_map: Optional per-metric freshness hours (from settings)
     """
-    from src.infrastructure.connectors._shared.metrics import register_metric_config
-
     for metric_name, field_name in field_map.items():
         register_metric_resolver(metric_name, metric_resolver)
-        # Register the field mapping so get_field_name() works correctly
-        register_metric_config(metric_name, field_name)
+        freshness_hours = freshness_map.get(metric_name) if freshness_map else None
+        register_metric_config(metric_name, field_name, freshness_hours)

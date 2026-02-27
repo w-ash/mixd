@@ -16,11 +16,11 @@ from src.application.services.metrics_application_service import (
 from src.application.use_cases._shared import OperationCounts, count_operation_types
 from src.application.use_cases._shared.command_validators import (
     non_empty_string,
-    tracklist_has_tracks_or_metadata,
+    tracklist_or_connector_playlist,
 )
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import Playlist, PlaylistEntry
+from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
 from src.domain.entities.track import Track, TrackList
 from src.domain.playlist import (
     PlaylistDiff,
@@ -31,10 +31,6 @@ from src.domain.playlist.execution_strategies import (
     get_execution_strategy,
 )
 from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors._shared.metrics import (
-    get_all_connectors_metrics,
-    get_all_field_mappings,
-)
 
 logger = get_logger(__name__)
 
@@ -55,9 +51,8 @@ class UpdateCanonicalPlaylistCommand:
     """
 
     playlist_id: str = field(validator=non_empty_string)
-    new_tracklist: TrackList = field(
-        validator=tracklist_has_tracks_or_metadata("connector_playlist")
-    )
+    new_tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+    connector_playlist: ConnectorPlaylist | None = None
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
@@ -162,17 +157,14 @@ class UpdateCanonicalPlaylistUseCase:
 
                 # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
                 source_data = command.new_tracklist
-                if (
-                    command.new_tracklist.metadata
-                    and command.new_tracklist.metadata.get("connector_playlist")
-                ):
+                if command.connector_playlist is not None:
                     from src.application.services.connector_playlist_processing_service import (
                         ConnectorPlaylistProcessingService,
                     )
 
                     processing_service = ConnectorPlaylistProcessingService()
                     source_data = await processing_service.process_connector_playlist(
-                        command.new_tracklist.metadata["connector_playlist"], uow
+                        command.connector_playlist, uow
                     )
 
                 # Convert source_data to Playlist if it's a TrackList
@@ -524,46 +516,5 @@ class UpdateCanonicalPlaylistUseCase:
     async def _extract_track_metrics(
         self, tracks: list[Track], uow: UnitOfWorkProtocol
     ) -> None:
-        """Extracts analytics metrics from track metadata for each music service.
-
-        Processes connector metadata (from Spotify, Last.fm, etc.) to extract
-        standardized metrics like popularity, energy, and danceability for storage.
-
-        Args:
-            tracks: Tracks containing connector metadata to process
-            uow: Database transaction manager
-        """
-        if not tracks:
-            return
-
-        # Group tracks by connector to batch process metadata
-        for connector, available_metrics in get_all_connectors_metrics().items():
-            # Find tracks that have metadata for this connector
-            tracks_with_metadata: list[Track] = []
-            fresh_metadata: dict[int, dict[str, Any]] = {}
-
-            for track in tracks:
-                if (
-                    track.id
-                    and track.connector_metadata
-                    and connector in track.connector_metadata
-                ):
-                    tracks_with_metadata.append(track)
-                    fresh_metadata[track.id] = track.connector_metadata[connector]
-
-            if fresh_metadata:
-                logger.info(
-                    f"Extracting {len(available_metrics)} metrics from {connector} for {len(tracks_with_metadata)} tracks",
-                    connector=connector,
-                    metrics=available_metrics,
-                    track_count=len(tracks_with_metadata),
-                )
-
-                # Use the metrics service to batch process the fresh metadata
-                _ = await self.metrics_service.batch_process_fresh_metadata(
-                    fresh_metadata=fresh_metadata,
-                    connector=connector,
-                    available_metrics=available_metrics,
-                    field_map=get_all_field_mappings(),
-                    uow=uow,
-                )
+        """Delegate metric extraction to the metrics service."""
+        await self.metrics_service.extract_track_metrics(tracks, uow)

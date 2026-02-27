@@ -5,7 +5,7 @@ stored in TrackList metadata. These transforms coordinate between domain entitie
 and application-layer play history enrichment.
 
 Unlike pure domain transforms, these functions:
-- Access metadata structures (metadata["total_plays"], metadata["last_played_dates"])
+- Access nested metadata structures (metadata["metrics"]["total_plays"], etc.)
 - Use logging for debugging datetime parsing issues
 - Depend on play history enrichment having occurred first
 - Handle complex time window logic with multiple date format parsing
@@ -14,8 +14,6 @@ Unlike pure domain transforms, these functions:
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-
-from toolz import curry, get_in
 
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
@@ -35,13 +33,12 @@ Transform = Callable[[TrackList], TrackList]
 # === Time Range Predicates ===
 
 
-@curry
 def time_range_predicate(
     days_back: int | None = None,
     after_date: datetime | None = None,
     before_date: datetime | None = None,
 ) -> Callable[[datetime | None], bool]:
-    """Create time-based predicates using toolz functional utilities.
+    """Create time-based predicates for date range filtering.
 
     Args:
         days_back: Number of days back from current time (overrides after_date)
@@ -69,7 +66,6 @@ def time_range_predicate(
     return time_predicate
 
 
-@curry
 def filter_by_time_criteria(
     metadata_key: str,
     days_back: int | None = None,
@@ -92,17 +88,19 @@ def filter_by_time_criteria(
         Transformation function or transformed tracklist if provided
     """
 
-    # Create time predicate using toolz
-    time_pred: Callable[[datetime | None], bool] = time_range_predicate(
-        days_back, after_date, before_date
-    )  # type: ignore[assignment]
+    time_pred = time_range_predicate(days_back, after_date, before_date)
 
     def track_time_predicate(track: Track, current_tracklist: TrackList) -> bool:
         if not track.id:
             return include_missing
 
-        # Use toolz get_in for safer nested access
-        time_data: Any = get_in([metadata_key, track.id], current_tracklist.metadata)
+        # Read from canonical nested metrics path
+        time_data: Any = (
+            current_tracklist.metadata
+            .get("metrics", {})
+            .get(metadata_key, {})
+            .get(track.id)
+        )
 
         if time_data is None:
             return include_missing
@@ -130,25 +128,23 @@ def filter_by_time_criteria(
         filter_func: Transform = filter_by_predicate(predicate_with_tracklist)  # type: ignore[assignment]
         result: TrackList = filter_func(t)
 
-        # Add filter metadata
-        return result.with_metadata(
-            "time_filter_applied",
-            {
-                "metadata_key": metadata_key,
-                "days_back": days_back,
-                "after_date": after_date.isoformat() if after_date else None,
-                "before_date": before_date.isoformat() if before_date else None,
-                "include_missing": include_missing,
-                "original_count": len(t.tracks),
-                "filtered_count": len(result.tracks),
-                "removed_count": len(t.tracks) - len(result.tracks),
-            },
+        logger.debug(
+            "Time criteria filter applied",
+            metadata_key=metadata_key,
+            days_back=days_back,
+            after_date=after_date.isoformat() if after_date else None,
+            before_date=before_date.isoformat() if before_date else None,
+            include_missing=include_missing,
+            original_count=len(t.tracks),
+            filtered_count=len(result.tracks),
+            removed_count=len(t.tracks) - len(result.tracks),
         )
+
+        return result
 
     return transform(tracklist) if tracklist is not None else transform
 
 
-@curry
 def filter_by_play_history(
     min_plays: int | None = None,
     max_plays: int | None = None,
@@ -257,33 +253,31 @@ def filter_by_play_history(
         ]
         result = t.with_tracks(filtered_tracks)
 
-        # Add comprehensive filter metadata with new parameter names
-        filter_metadata = {
-            "type": "play_history_filter",
-            "min_plays": min_plays,
-            "max_plays": max_plays,
-            "start_date": start_date,
-            "end_date": end_date,
-            "min_days_back": min_days_back,
-            "max_days_back": max_days_back,
-            "effective_after_date": effective_after.isoformat()
+        logger.debug(
+            "Play history filter applied",
+            min_plays=min_plays,
+            max_plays=max_plays,
+            start_date=start_date,
+            end_date=end_date,
+            min_days_back=min_days_back,
+            max_days_back=max_days_back,
+            effective_after_date=effective_after.isoformat()
             if effective_after
             else None,
-            "effective_before_date": effective_before.isoformat()
+            effective_before_date=effective_before.isoformat()
             if effective_before
             else None,
-            "include_missing": include_missing,
-            "original_count": len(t.tracks),
-            "filtered_count": len(filtered_tracks),
-            "removed_count": len(t.tracks) - len(filtered_tracks),
-        }
+            include_missing=include_missing,
+            original_count=len(t.tracks),
+            filtered_count=len(filtered_tracks),
+            removed_count=len(t.tracks) - len(filtered_tracks),
+        )
 
-        return result.with_metadata("play_filter_applied", filter_metadata)
+        return result
 
     return transform(tracklist) if tracklist is not None else transform
 
 
-@curry
 def sort_by_play_history(
     start_date: str | None = None,
     end_date: str | None = None,
@@ -377,38 +371,22 @@ def sort_by_play_history(
         )
         result = t.with_tracks(sorted_tracks)
 
-        # Add sorting metadata
-        track_play_counts = {
-            track.id: get_play_count_for_sorting(track)
-            for track in t.tracks
-            if track.id is not None
-        }
-
-        sort_metadata = {
-            "type": "play_history_sort",
-            "start_date": start_date,
-            "end_date": end_date,
-            "min_days_back": min_days_back,
-            "max_days_back": max_days_back,
-            "effective_after_date": effective_after.isoformat()
+        logger.debug(
+            "Play history sort applied",
+            start_date=start_date,
+            end_date=end_date,
+            min_days_back=min_days_back,
+            max_days_back=max_days_back,
+            effective_after_date=effective_after.isoformat()
             if effective_after
             else None,
-            "effective_before_date": effective_before.isoformat()
+            effective_before_date=effective_before.isoformat()
             if effective_before
             else None,
-            "reverse": reverse,
-            "track_count": len(t.tracks),
-        }
-
-        # Store play counts in metadata for reference
-        result = result.with_metadata(
-            "metrics",
-            {
-                **result.metadata.get("metrics", {}),
-                "sort_play_counts": track_play_counts,
-            },
+            reverse=reverse,
+            track_count=len(t.tracks),
         )
 
-        return result.with_metadata("play_sort_applied", sort_metadata)
+        return result
 
     return transform(tracklist) if tracklist is not None else transform

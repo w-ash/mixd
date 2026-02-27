@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 
 def _chunked[T](items: list[T], size: int) -> list[list[T]]:
-    """Split items into fixed-size chunks. Typed alternative to toolz.partition_all."""
+    """Split items into fixed-size chunks."""
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 

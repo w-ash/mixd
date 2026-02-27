@@ -8,15 +8,13 @@ composed together to form complex data processing pipelines.
 Transformations follow functional programming principles:
 - Immutability: All operations return new objects instead of modifying existing ones
 - Composition: Transformations can be combined to form complex pipelines
-- Currying: Functions are designed to work with partial application
+- Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects or external dependencies
 """
 
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, cast
-
-from toolz import compose_left, curry
+from typing import Any
 
 from src.domain.entities.track import TrackList
 
@@ -33,7 +31,7 @@ def optional_tracklist_transform(
     """
     Decorator that adds optional tracklist parameter to transform functions.
 
-    Transforms a function returning a Transform into a curried function that can:
+    Transforms a function returning a Transform into a dual-mode function that can:
     1. Execute immediately with tracklist: filter_duplicates(tracklist)
     2. Return transform for composition: filter_duplicates()
 
@@ -44,7 +42,7 @@ def optional_tracklist_transform(
         func: Function that returns a Transform (TrackList -> TrackList)
 
     Returns:
-        Curried function accepting optional tracklist parameter
+        Dual-mode function accepting optional tracklist parameter
 
     Example:
         @optional_tracklist_transform
@@ -61,7 +59,6 @@ def optional_tracklist_transform(
         pipeline = create_pipeline(filter_duplicates(), sort_by_title())
     """
 
-    @curry
     @wraps(func)
     def wrapper(
         *args: Any, tracklist: TrackList | None = None, **kwargs: Any
@@ -71,8 +68,7 @@ def optional_tracklist_transform(
         # Execute immediately if tracklist provided, otherwise return transform
         return transform(tracklist) if tracklist is not None else transform
 
-    # cast: toolz.curry wraps wrapper but is not typed as Callable — cast is safe here
-    return cast(Callable[..., Transform | TrackList], wrapper)
+    return wrapper
 
 
 # === Core Pipeline Functions ===
@@ -88,5 +84,11 @@ def create_pipeline(*operations: Transform) -> Transform:
     Returns:
         A single transformation function combining all operations
     """
-    result: Transform = compose_left(*operations)
-    return result
+
+    def pipeline(tracklist: TrackList) -> TrackList:
+        result = tracklist
+        for op in operations:
+            result = op(result)
+        return result
+
+    return pipeline

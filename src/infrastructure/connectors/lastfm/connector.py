@@ -20,7 +20,7 @@ from typing import Any, ClassVar, override
 
 from attrs import define, field
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.domain.entities import ConnectorTrack, PlayRecord, Track
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
@@ -229,5 +229,10 @@ def get_connector_config() -> ConnectorConfig:
     }
 
 
-# Register all metric resolvers at once
-register_metrics(LastFmMetricResolver(), LastFmMetricResolver.FIELD_MAP)
+# Register all metric resolvers with freshness from settings
+_lastfm_freshness = dict.fromkeys(
+    LastFmMetricResolver.FIELD_MAP, settings.freshness.lastfm_hours
+)
+register_metrics(
+    LastFmMetricResolver(), LastFmMetricResolver.FIELD_MAP, _lastfm_freshness
+)

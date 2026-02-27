@@ -7,7 +7,7 @@ without exposing Spotify internals to other layers.
 
 from typing import Any
 
-from src.application.services.play_import_orchestrator import PlayImporterProtocol
+from src.domain.repositories import PlayImporterProtocol
 
 
 class SpotifyServiceFactory:

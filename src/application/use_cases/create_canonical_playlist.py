@@ -15,17 +15,13 @@ from src.application.services.metrics_application_service import (
 )
 from src.application.use_cases._shared.command_validators import (
     non_empty_string,
-    tracklist_has_tracks_or_metadata,
+    tracklist_or_connector_playlist,
 )
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import Playlist, PlaylistEntry
+from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors._shared.metrics import (
-    get_all_connectors_metrics,
-    get_all_field_mappings,
-)
 
 logger = get_logger(__name__)
 
@@ -37,15 +33,19 @@ class CreateCanonicalPlaylistCommand:
     Args:
         name: Playlist display name
         tracklist: Collection of tracks to include
+        connector_playlist: Optional pre-fetched connector playlist data
+        connector_name: Source connector name (e.g., "spotify") for playlist mapping
+        connector_id: External playlist ID on the source connector
         description: Optional playlist description
-        metadata: Additional key-value data (connector IDs, etc.)
+        metadata: Additional key-value data passed through to Playlist.metadata
         timestamp: Creation timestamp (defaults to now)
     """
 
     name: str = field(validator=non_empty_string)
-    tracklist: TrackList = field(
-        validator=tracklist_has_tracks_or_metadata("connector_playlist")
-    )
+    tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+    connector_playlist: ConnectorPlaylist | None = None
+    connector_name: str | None = None
+    connector_id: str | None = None
     description: str | None = None
     metadata: dict[str, Any] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
@@ -97,6 +97,22 @@ class CreateCanonicalPlaylistUseCase:
         factory=MetricsApplicationService
     )
 
+    def _build_connector_identifiers(
+        self,
+        command: CreateCanonicalPlaylistCommand,
+        existing: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Build connector playlist identifiers from typed command fields."""
+        identifiers = dict(existing) if existing else {}
+        if command.connector_name is not None and command.connector_id is not None:
+            identifiers[command.connector_name] = command.connector_id
+            logger.info(
+                "Creating canonical playlist with connector mapping",
+                connector=command.connector_name,
+                connector_id=command.connector_id,
+            )
+        return identifiers
+
     async def execute(
         self, command: CreateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> CreateCanonicalPlaylistResult:
@@ -118,24 +134,21 @@ class CreateCanonicalPlaylistUseCase:
             "Starting canonical playlist creation",
             name=command.name,
             track_count=len(command.tracklist.tracks),
-            has_connector_playlist=bool(
-                command.tracklist.metadata
-                and command.tracklist.metadata.get("connector_playlist")
-            ),
+            has_connector_playlist=command.connector_playlist is not None,
         )
 
         async with uow:
             try:
                 # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
                 source_data = command.tracklist
-                if command.tracklist.has_metadata("connector_playlist"):
+                if command.connector_playlist is not None:
                     from src.application.services.connector_playlist_processing_service import (
                         ConnectorPlaylistProcessingService,
                     )
 
                     processing_service = ConnectorPlaylistProcessingService()
                     source_data = await processing_service.process_connector_playlist(
-                        command.tracklist.metadata["connector_playlist"], uow
+                        command.connector_playlist, uow
                     )
 
                 # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
@@ -160,22 +173,10 @@ class CreateCanonicalPlaylistUseCase:
                             persisted_entries.append(entry)
 
                     # Build final playlist with persisted entries
-                    connector_playlist_identifiers = (
-                        source_data.connector_playlist_identifiers.copy()
+                    connector_playlist_identifiers = self._build_connector_identifiers(
+                        command,
+                        existing=source_data.connector_playlist_identifiers,
                     )
-                    if (
-                        command.metadata
-                        and "connector" in command.metadata
-                        and "connector_id" in command.metadata
-                    ):
-                        connector_playlist_identifiers[
-                            command.metadata["connector"]
-                        ] = command.metadata["connector_id"]
-                        logger.info(
-                            "Creating canonical playlist with connector mapping",
-                            connector=command.metadata["connector"],
-                            connector_id=command.metadata["connector_id"],
-                        )
 
                     playlist = Playlist(
                         name=command.name,
@@ -198,20 +199,9 @@ class CreateCanonicalPlaylistUseCase:
                             persisted_tracks.append(track)
 
                     # Create playlist using from_tracklist() helper
-                    connector_playlist_identifiers: dict[str, str] = {}
-                    if (
-                        command.metadata
-                        and "connector" in command.metadata
-                        and "connector_id" in command.metadata
-                    ):
-                        connector_playlist_identifiers[
-                            command.metadata["connector"]
-                        ] = command.metadata["connector_id"]
-                        logger.info(
-                            "Creating canonical playlist with connector mapping",
-                            connector=command.metadata["connector"],
-                            connector_id=command.metadata["connector_id"],
-                        )
+                    connector_playlist_identifiers = self._build_connector_identifiers(
+                        command
+                    )
 
                     from src.domain.entities.track import TrackList
 
@@ -278,46 +268,5 @@ class CreateCanonicalPlaylistUseCase:
     async def _extract_track_metrics(
         self, tracks: list[Track], uow: UnitOfWorkProtocol
     ) -> None:
-        """Extract and save metrics from track connector metadata.
-
-        Groups tracks by connector type and batch processes their metadata
-        to extract structured metrics for analysis.
-
-        Args:
-            tracks: Tracks with potential connector metadata
-            uow: Transaction manager for database operations
-        """
-        if not tracks:
-            return
-
-        # Group tracks by connector to batch process metadata
-        for connector, available_metrics in get_all_connectors_metrics().items():
-            # Find tracks that have metadata for this connector
-            tracks_with_metadata: list[Track] = []
-            fresh_metadata: dict[int, dict[str, Any]] = {}
-
-            for track in tracks:
-                if (
-                    track.id
-                    and track.connector_metadata
-                    and connector in track.connector_metadata
-                ):
-                    tracks_with_metadata.append(track)
-                    fresh_metadata[track.id] = track.connector_metadata[connector]
-
-            if fresh_metadata:
-                logger.info(
-                    f"Extracting {len(available_metrics)} metrics from {connector} for {len(tracks_with_metadata)} tracks",
-                    connector=connector,
-                    metrics=available_metrics,
-                    track_count=len(tracks_with_metadata),
-                )
-
-                # Use the metrics service to batch process the fresh metadata
-                _ = await self.metrics_service.batch_process_fresh_metadata(
-                    fresh_metadata=fresh_metadata,
-                    connector=connector,
-                    available_metrics=available_metrics,
-                    field_map=get_all_field_mappings(),
-                    uow=uow,
-                )
+        """Delegate metric extraction to the metrics service."""
+        await self.metrics_service.extract_track_metrics(tracks, uow)

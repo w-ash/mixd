@@ -5,13 +5,13 @@ from datetime import UTC
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.application.services.track_merge_service import TrackMergeService
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
     DBTrackPlay,
 )
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
+from src.infrastructure.services.track_merge_service import TrackMergeService
 
 
 @pytest.mark.integration
