@@ -1,18 +1,9 @@
-"""MusicBrainz connector facade - Maintains backward compatibility.
+"""MusicBrainz connector facade.
 
-This module provides the main MusicBrainzConnector class that implements the
-BaseAPIConnector protocol while delegating to modular components. It maintains
-the same public interface as the original monolithic connector to ensure
-backward compatibility across the codebase.
-
-Key components:
-- MusicBrainzConnector: Main facade implementing connector protocols
-- Delegates to MusicBrainzAPIClient and conversion utilities
-- Maintains exact same public methods and signatures
-- Handles batch processing and connector protocol compliance
-
-The facade pattern allows the rest of the codebase to use MusicBrainzConnector
-without changes while benefiting from the new modular architecture underneath.
+Provides the main MusicBrainzConnector class that implements the BaseAPIConnector
+protocol while delegating to modular components. The facade pattern keeps a
+single public interface while the internal implementation is split across
+MusicBrainzAPIClient and conversion utilities.
 """
 
 from typing import Any, override

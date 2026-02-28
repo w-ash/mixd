@@ -7,5 +7,6 @@ globs: src/application/**
 - NEVER bypass UnitOfWork for database operations
 - Use case owns transaction boundaries: `async with uow:` ... `await uow.commit()`
 - All use cases run through `application/runner.py` → `execute_use_case()`
+- **Typed connector resolvers**: Use `resolve_playlist_connector()`, `resolve_liked_track_connector()`, `resolve_love_track_connector()` from `_shared/connector_resolver.py` — NOT raw `resolve_connector()` which returns `Any`. Capability protocols (`PlaylistConnector`, `LikedTrackConnector`, `LoveTrackConnector`) live in `workflows/protocols.py`.
 - Command/Result objects: `@define(frozen=True)`
 - Constructor injection for all dependencies

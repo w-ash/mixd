@@ -10,7 +10,6 @@ from .operations import (
     SyncCheckpointStatus,
     TrackContextFields,
     TrackPlay,
-    WorkflowResult,
     create_lastfm_play_record,
 )
 
@@ -62,7 +61,6 @@ __all__ = [
     "TrackListMetadata",
     "TrackMetric",
     "TrackPlay",
-    "WorkflowResult",
     "create_lastfm_play_record",
     "ensure_utc",
     "utc_now_factory",

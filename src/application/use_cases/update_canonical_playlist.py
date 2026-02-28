@@ -18,10 +18,11 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     tracklist_or_connector_playlist,
 )
+from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
-from src.domain.entities.track import Track, TrackList
+from src.domain.entities.track import TrackList
 from src.domain.playlist import (
     PlaylistDiff,
     calculate_playlist_diff,
@@ -151,9 +152,7 @@ class UpdateCanonicalPlaylistUseCase:
         async with uow:
             try:
                 # Step 1: Get current playlist state
-                current_playlist = await self._get_current_playlist(
-                    command.playlist_id, uow
-                )
+                current_playlist = await require_playlist(command.playlist_id, uow)
 
                 # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
                 source_data = command.new_tracklist
@@ -198,7 +197,7 @@ class UpdateCanonicalPlaylistUseCase:
 
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
-                        await self._extract_track_metrics(
+                        await self.metrics_service.extract_track_metrics(
                             processed_playlist.tracks, uow
                         )
                 else:
@@ -232,7 +231,7 @@ class UpdateCanonicalPlaylistUseCase:
 
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
-                        await self._extract_track_metrics(
+                        await self.metrics_service.extract_track_metrics(
                             processed_playlist.tracks, uow
                         )
 
@@ -272,32 +271,6 @@ class UpdateCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
-
-    async def _get_current_playlist(
-        self, playlist_id: str, uow: UnitOfWorkProtocol
-    ) -> Playlist:
-        """Loads playlist from database by its internal ID.
-
-        Args:
-            playlist_id: Internal database ID of playlist
-            uow: Database transaction manager
-
-        Returns:
-            Current playlist entity
-
-        Raises:
-            ValueError: If playlist_id is not a valid integer
-        """
-        playlist_repo = uow.get_playlist_repository()
-
-        try:
-            playlist = await playlist_repo.get_playlist_by_id(int(playlist_id))
-        except ValueError:
-            raise ValueError(
-                f"Invalid playlist ID '{playlist_id}' - must be a canonical playlist ID"
-            ) from None
-        else:
-            return playlist
 
     async def _execute_operations(
         self,
@@ -512,9 +485,3 @@ class UpdateCanonicalPlaylistUseCase:
             len(new_entries),
             OperationCounts(added=len(new_entries)),
         )
-
-    async def _extract_track_metrics(
-        self, tracks: list[Track], uow: UnitOfWorkProtocol
-    ) -> None:
-        """Delegate metric extraction to the metrics service."""
-        await self.metrics_service.extract_track_metrics(tracks, uow)

@@ -15,28 +15,22 @@ class TestWorkflowContext:
         from src.application.workflows.context import ConcreteWorkflowContext
 
         # Mock all dependencies
-        mock_config = MagicMock()
         mock_logger = MagicMock()
         mock_connectors = MagicMock()
-        # repositories removed in Clean Architecture migration
         mock_session_provider = MagicMock()
         mock_use_cases = MagicMock()
 
         # Create context
         context = ConcreteWorkflowContext(
-            config=mock_config,
             logger=mock_logger,
             connectors=mock_connectors,
-            # repositories parameter removed
             session_provider=mock_session_provider,
             use_cases=mock_use_cases,
         )
 
         # Verify all protocol methods are accessible
-        assert context.config is mock_config
         assert context.logger is mock_logger
         assert context.connectors is mock_connectors
-        # repositories attribute removed in Clean Architecture migration
         assert context.session_provider is mock_session_provider
 
     async def test_workflow_context_with_real_dependencies(self):
@@ -47,7 +41,6 @@ class TestWorkflowContext:
         context = create_workflow_context()
 
         # Verify real dependencies are connected
-        assert context.config is not None
         assert context.logger is not None
         assert context.connectors is not None
         # repositories attribute removed in Clean Architecture migration

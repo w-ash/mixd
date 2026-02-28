@@ -1,7 +1,6 @@
 """Configuration module for Narada.
 
-This module provides a clean, type-safe configuration system using Pydantic Settings
-with backward compatibility for existing code.
+This module provides a clean, type-safe configuration system using Pydantic Settings.
 
 Public API:
 ----------

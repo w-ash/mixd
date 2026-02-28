@@ -12,17 +12,6 @@ from src.application.workflows.node_context import NodeContext
 from src.domain.entities.track import Artist, Track, TrackList
 
 
-@pytest.fixture
-def sample_tracklist():
-    """Sample tracklist for context tests."""
-    return TrackList(
-        tracks=[
-            Track(id=1, title="Song A", artists=[Artist(name="A1")]),
-            Track(id=2, title="Song B", artists=[Artist(name="A2")]),
-        ]
-    )
-
-
 class TestExtractTracklist:
     """Tests for NodeContext.extract_tracklist."""
 

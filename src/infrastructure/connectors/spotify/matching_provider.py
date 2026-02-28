@@ -8,6 +8,7 @@ from typing import Any, override
 
 from src.config import get_logger
 from src.domain.entities import Track
+from src.domain.matching.algorithms import calculate_title_similarity
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -78,8 +79,8 @@ class SpotifyProvider(BaseMatchingProvider):
             # Call Spotify API
             try:
                 result = await self.connector_instance.search_by_isrc(track.isrc)
-                if result and result.get("id"):
-                    raw_match = self._create_raw_match(result, "isrc")
+                if result and result.id:
+                    raw_match = self._create_raw_match(result.model_dump(), "isrc")
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
@@ -143,14 +144,34 @@ class SpotifyProvider(BaseMatchingProvider):
                 )
                 continue
 
-            # Call Spotify API
+            # Call Spotify API — fetch multiple candidates and pick best by title similarity
             try:
                 artist_name = track.artists[0].name if track.artists else ""
-                result = await self.connector_instance.search_track(
+                candidates = await self.connector_instance.search_track(
                     artist_name, track.title
                 )
-                if result and result.get("id"):
-                    raw_match = self._create_raw_match(result, "artist_title")
+                if not candidates:
+                    failures.append(
+                        create_and_log_failure(
+                            track.id,
+                            MatchFailureReason.NO_RESULTS,
+                            self.service_name,
+                            "artist_title",
+                            f"No Spotify results for '{artist_name} - {track.title}'",
+                        )
+                    )
+                    continue
+
+                # Rank candidates by title similarity, pick the best match
+                best = max(
+                    candidates,
+                    key=lambda c: calculate_title_similarity(track.title, c.name),
+                )
+
+                if best.id:
+                    raw_match = self._create_raw_match(
+                        best.model_dump(), "artist_title"
+                    )
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
@@ -167,10 +188,10 @@ class SpotifyProvider(BaseMatchingProvider):
                     failures.append(
                         create_and_log_failure(
                             track.id,
-                            MatchFailureReason.NO_RESULTS,
+                            MatchFailureReason.INVALID_RESPONSE,
                             self.service_name,
                             "artist_title",
-                            f"No Spotify results for '{artist_name} - {track.title}'",
+                            "Best Spotify candidate missing track ID",
                         )
                     )
             except Exception as e:
@@ -201,13 +222,12 @@ class SpotifyProvider(BaseMatchingProvider):
             spotify_id = spotify_track["id"]
 
             # Extract service data without any business logic
+            artists = spotify_track.get("artists", [])
             service_data = {
                 "title": spotify_track.get("name"),
+                "artist": artists[0].get("name", "") if artists else "",
                 "album": spotify_track.get("album", {}).get("name"),
-                "artists": [
-                    artist.get("name", "")
-                    for artist in spotify_track.get("artists", [])
-                ],
+                "artists": [a.get("name", "") for a in artists],
                 "duration_ms": spotify_track.get("duration_ms"),
                 "release_date": spotify_track.get("album", {}).get("release_date"),
                 "popularity": spotify_track.get("popularity"),

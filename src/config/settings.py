@@ -26,13 +26,13 @@ class DatabaseConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """Logging configuration for console and file output."""
 
-    # Existing fields (backward compatible)
+    # Console and file output
     console_level: str = "INFO"
     file_level: str = "DEBUG"
     log_file: Path = Path("narada.log")
     real_time_debug: bool = True
 
-    # New optional fields with backward-compatible defaults
+    # Extended logging options
     diagnose_in_production: bool = (
         False  # Security: disable variable inspection in prod
     )
@@ -85,28 +85,21 @@ class APIConfig(BaseModel):
 
     # Retry configuration by error type
     lastfm_retry_count_rate_limit: int = 8  # Rate limit errors need more retries
-    lastfm_retry_count_network: int = 5  # Network/temporary errors
     lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
     lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
     lastfm_request_timeout: float = 30.0  # HTTP request timeout in seconds
-    lastfm_connection_timeout: float = 5.0  # Connection establishment timeout
-    lastfm_recent_tracks_min_limit: int = 1  # Min tracks per recent tracks API call
-    lastfm_recent_tracks_max_limit: int = 200  # Max tracks per recent tracks API call
 
     # Spotify API Configuration
     spotify_batch_size: int = 50
     spotify_large_batch_size: int = 100  # For operations that support larger batches
-    spotify_concurrency: int = 5
     spotify_retry_count: int = 3
     spotify_retry_base_delay: float = 0.5
     spotify_retry_max_delay: float = 30.0
     spotify_request_delay: float = 0.1
     spotify_request_timeout: int = 15  # HTTP request timeout in seconds
-    spotify_retries: int = 5  # Number of retries for failed requests
     spotify_market: str = "US"  # Default market for API requests
 
     # MusicBrainz API Configuration
-    musicbrainz_batch_size: int = 50
     musicbrainz_concurrency: int = 5
     musicbrainz_retry_count: int = 3
     musicbrainz_retry_base_delay: float = 1.0
@@ -117,7 +110,6 @@ class APIConfig(BaseModel):
 class BatchConfig(BaseModel):
     """Batch processing and progress reporting configuration."""
 
-    progress_log_frequency: int = 10
     move_log_threshold: int = 10  # Only log moves if count is below this threshold
     truncation_limit: int = 5  # Number of items to show before truncating lists
 

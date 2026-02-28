@@ -75,15 +75,15 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - Core playlist operations: create, read, update, delete canonical playlists
     - Connector operations: create/update connector playlists
     - Data operations: import play history, enrich tracks, sync likes
-    - Query operations: get liked/played tracks, match and identify tracks
+    - Query operations: list playlists, get liked/played tracks, match and identify tracks
   - `services/` - Application-level coordination services (7 services)
+    - `batch_file_import_service.py` - Batch file import orchestration
     - `connector_playlist_processing_service.py` - Playlist processing coordination
     - `connector_playlist_sync_service.py` - Cross-service playlist synchronization
     - `metrics_application_service.py` - Metrics collection and caching coordination
     - `play_import_orchestrator.py` - Play history import orchestration
     - `playlist_backup_service.py` - Playlist backup and restoration
     - `progress_manager.py` - Progress tracking and UI coordination
-    - `track_merge_service.py` - Canonical track merging operations
   - `transforms/` - Application-level transforms (metrics, shuffle, play_history, _helpers)
   - `utilities/` - Batch processing utilities (batch_results, enhanced_database_batch_processor, results)
   - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
@@ -101,13 +101,11 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `playlist/` - Core playlist operations, connector mappings
     - `play/` - Play history and connector play operations
   - `persistence/database/` - SQLAlchemy models and database configuration
-  - `services/` - Infrastructure-level services (5 services)
+  - `services/` - Infrastructure-level services (4 services)
     - `base_play_importer.py` - Base class for play import implementations
-    - `play_deduplication.py` - Deduplicates play history records
     - `play_import_registry.py` - Registry for play import strategies
-    - `playlist_operation_service.py` - Low-level playlist operations
     - `track_identity_service_impl.py` - Track identity resolution implementation
-  - `metadata_providers/` - Metadata provider protocols for external services
+    - `track_merge_service.py` - Canonical track merging operations
 - **Responsibilities**: 
   - **Implements repository contracts**: Provides concrete implementations that handle database queries and external service calls
   - **Handles technical transaction details**: Manages actual database connections, commits, rollbacks
@@ -231,6 +229,33 @@ class SpotifyTrackMatcher:
 ```
 
 **Benefits**: Algorithmic flexibility, easy testing, service extensibility
+
+### Connector Capability Protocols
+Typed narrow interfaces for specific connector operations. Instead of passing `Any` from the connector registry, call sites use capability protocols that describe what they need.
+
+```python
+# application/workflows/protocols.py — capability protocols
+class LikedTrackConnector(Protocol):
+    """Connector that can read liked/saved tracks."""
+    async def get_liked_tracks(self, limit: int = 50, cursor: str | None = None) -> ...: ...
+
+class LoveTrackConnector(Protocol):
+    """Connector that can love/like tracks."""
+    async def love_track(self, artist: str, title: str) -> bool: ...
+
+class PlaylistConnector(Protocol):
+    """Connector that supports playlist CRUD."""
+    async def get_playlist_details(self, playlist_id: str) -> ...: ...
+    async def execute_playlist_operations(self, ...) -> str | None: ...
+    async def create_playlist(self, name: str, tracks: list[Track], ...) -> str: ...
+
+# application/use_cases/_shared/connector_resolver.py — typed resolvers
+def resolve_liked_track_connector(uow) -> LikedTrackConnector: ...
+def resolve_love_track_connector(uow) -> LoveTrackConnector: ...
+def resolve_playlist_connector(service, uow) -> PlaylistConnector: ...
+```
+
+**Benefits**: Call sites get type-checked method access instead of `Any`, each use case depends only on the capability it needs (Interface Segregation), and per-UoW connector caching ensures one httpx pool per transaction scope with deterministic `aclose()` cleanup.
 
 ### Workflow Pattern
 Declarative transformation pipelines.
@@ -617,14 +642,23 @@ class DatabaseUnitOfWork:
     def __init__(self, session: AsyncSession):
         self._session = session
         self._committed = False
-    
+        self._connector_cache: dict[str, Any] = {}  # Per-UoW instance caching
+
     async def commit(self):
         await self._session.commit()
         self._committed = True
-    
+
     async def rollback(self):
         await self._session.rollback()
-    
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        # ... commit/rollback logic ...
+        # Close cached connector instances (httpx pools, etc.)
+        for connector in self._connector_cache.values():
+            if hasattr(connector, "aclose"):
+                await connector.aclose()
+        self._connector_cache.clear()
+
     def get_track_repository(self) -> TrackRepository:
         return TrackRepository(self._session)
 ```
@@ -857,7 +891,7 @@ src/infrastructure/connectors/_shared/
 - **Logging**: Loguru with JSON structured logging, context propagation via `get_logger(__name__).bind()`
 - **Error Handling**: Tenacity retry with exponential backoff, `ErrorClassifier` protocol per connector
 - **Progress**: Rich Live display with coordinated console logging via `RichProgressProvider`
-- **Testing**: 867 tests (<1min fast suite), `db_session` fixture with isolated temp databases
+- **Testing**: 1159 tests (<1min fast suite), `db_session` fixture with isolated temp databases
 - **Database Migrations**: Alembic with SQLAlchemy 2.0 auto-generation
 - **Security**: OAuth 2.0 for service APIs, local-first data storage, env vars for secrets
 

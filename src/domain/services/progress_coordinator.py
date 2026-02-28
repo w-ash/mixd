@@ -35,18 +35,6 @@ class OperationState:
         return self.operation.status == OperationStatus.RUNNING
 
 
-@define(slots=True)
-class ProgressRateLimit:
-    """Rate limiting configuration for progress events."""
-
-    max_events_per_second: float = 10.0  # Maximum events per second per operation
-    min_interval_seconds: float = field(init=False)
-
-    def __attrs_post_init__(self) -> None:
-        """Calculate minimum interval from rate limit."""
-        self.min_interval_seconds = 1.0 / self.max_events_per_second
-
-
 class ProgressCoordinator:
     """Domain service for coordinating progress events and operations.
 

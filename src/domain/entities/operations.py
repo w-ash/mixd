@@ -539,20 +539,6 @@ class OperationResult:
         return result
 
 
-@define(frozen=False)
-class WorkflowResult(OperationResult):
-    """Operation result specialized for workflow execution tracking.
-
-    Extends OperationResult with workflow-specific naming and factory methods
-    while maintaining compatibility with existing workflow code.
-    """
-
-    @property
-    def workflow_name(self) -> str:
-        """Returns workflow name for backward compatibility."""
-        return self.operation_name
-
-
 # Factory function for creating Last.fm play records with proper metadata
 def create_lastfm_play_record(
     artist_name: str,

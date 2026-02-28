@@ -23,38 +23,23 @@ class ListPlaylistsResult:
         return self.total_count > 0
 
 
+@define(slots=True)
 class ListPlaylistsUseCase:
-    """Use case for retrieving all stored playlists.
+    """Use case for retrieving all stored playlists."""
 
-    Follows DDD principles:
-    - Application layer coordinates the operation
-    - Uses dependency injection through UnitOfWork
-    - Returns domain entities
-    - No direct infrastructure dependencies
-    """
-
-    _unit_of_work: UnitOfWorkProtocol
-
-    def __init__(self, unit_of_work: UnitOfWorkProtocol) -> None:
-        """Initialize with unit of work for dependency injection.
-
-        Args:
-            unit_of_work: UnitOfWork instance providing repository access
-        """
-        self._unit_of_work = unit_of_work
-
-    async def execute(self) -> ListPlaylistsResult:
+    async def execute(self, uow: UnitOfWorkProtocol) -> ListPlaylistsResult:
         """Execute the playlist listing operation.
 
+        Args:
+            uow: Unit of work for repository access.
+
         Returns:
-            ListPlaylistsResult containing playlists and metadata
+            ListPlaylistsResult containing playlists and metadata.
         """
-        async with self._unit_of_work as uow:
-            # Get all playlists through the domain repository interface
+        async with uow:
             playlist_repo = uow.get_playlist_repository()
             playlists = await playlist_repo.list_all_playlists()
 
-            # Return structured result
             return ListPlaylistsResult(
                 playlists=playlists,
                 total_count=len(playlists),

@@ -8,12 +8,8 @@ from attrs import define, field
 import pytest
 
 from src.application.use_cases._shared.command_validators import (
-    and_,
     api_batch_size_validator,
-    instance_of,
-    non_empty_list,
     non_empty_string,
-    optional,
     optional_in_choices,
     optional_positive_int,
     positive_int_in_range,
@@ -54,20 +50,6 @@ class TestNonEmptyString:
 
         cmd = TestCommand(name="  My Playlist  ")
         assert cmd.name == "  My Playlist  "
-
-
-class TestNonEmptyList:
-    """Tests for non_empty_list validator."""
-
-    def test_rejects_empty_list(self):
-        """Should reject empty lists."""
-
-        @define
-        class TestCommand:
-            items: list[str] = field(validator=non_empty_list)
-
-        with pytest.raises(ValueError, match="must be a non-empty list"):
-            TestCommand(items=[])
 
 
 class TestPositiveIntInRange:
@@ -233,58 +215,6 @@ class TestApiBatchSizeValidator:
 
         with pytest.raises(ValueError, match="cannot exceed"):
             TestCommand(batch_size=999999)
-
-
-class TestValidatorCombiners:
-    """Tests for validator combiner utilities."""
-
-    def test_and_combines_validators(self):
-        """Should apply multiple validators with AND logic."""
-
-        @define
-        class TestCommand:
-            name: str = field(
-                validator=and_(
-                    instance_of(str),
-                    non_empty_string,
-                )
-            )
-
-        cmd = TestCommand(name="Valid Name")
-        assert cmd.name == "Valid Name"
-
-        with pytest.raises(ValueError):
-            TestCommand(name="")
-
-    def test_optional_allows_none(self):
-        """Should allow None when validator is wrapped with optional()."""
-
-        @define
-        class TestCommand:
-            description: str | None = field(validator=optional(non_empty_string))
-
-        cmd = TestCommand(description=None)
-        assert cmd.description is None
-
-        cmd2 = TestCommand(description="Has description")
-        assert cmd2.description == "Has description"
-
-        with pytest.raises(ValueError):
-            TestCommand(description="")
-
-    def test_instance_of_validates_type(self):
-        """Should validate instance type."""
-
-        @define
-        class TestCommand:
-            tracklist: TrackList = field(validator=instance_of(TrackList))
-
-        tracklist = TrackList(tracks=[])
-        cmd = TestCommand(tracklist=tracklist)
-        assert isinstance(cmd.tracklist, TrackList)
-
-        with pytest.raises(TypeError):
-            TestCommand(tracklist=[])  # type: ignore
 
 
 class TestIntegrationScenarios:

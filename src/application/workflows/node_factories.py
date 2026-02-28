@@ -123,7 +123,7 @@ def create_destination_node(destination_type: str) -> NodeFn:
 # === SHARED NODE IMPLEMENTATION ===
 
 
-def _create_transform_node_impl(
+def make_node(
     category: str, node_type: str, operation_name: str | None = None
 ) -> NodeFn:
     """Build a track collection transform node from registry configuration.
@@ -204,25 +204,6 @@ def _create_transform_node_impl(
                 return {"tracklist": result}
 
     return node_impl
-
-
-# Compatibility function for existing workflow code
-def make_node(
-    category: str, node_type: str, operation_name: str | None = None
-) -> NodeFn:
-    """Create a track collection transform node from registry configuration.
-
-    Convenience function for simple workflows that don't need shared dependencies.
-
-    Args:
-        category: Transform category ("filter", "sort", "combiner", etc.)
-        node_type: Specific operation within category ("by_playcount", "union", etc.)
-        operation_name: Optional custom name for logging and debugging
-
-    Returns:
-        Async function that processes track collections
-    """
-    return _create_transform_node_impl(category, node_type, operation_name)
 
 
 def create_enricher_node(config: dict[str, Any]) -> NodeFn:

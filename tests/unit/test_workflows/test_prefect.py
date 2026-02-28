@@ -4,20 +4,7 @@ Tests that workflow result extraction and metrics aggregation work correctly
 with properly typed NodeResult task results.
 """
 
-import pytest
-
-from src.domain.entities import Artist
-from src.domain.entities.track import Track, TrackList
-
-
-@pytest.fixture
-def sample_tracklist():
-    """Create a sample tracklist for testing."""
-    tracks = [
-        Track(id=1, title="Track A", artists=[Artist(name="Artist 1")]),
-        Track(id=2, title="Track B", artists=[Artist(name="Artist 2")]),
-    ]
-    return TrackList(tracks=tracks)
+from src.domain.entities.track import TrackList
 
 
 class TestExtractWorkflowResult:

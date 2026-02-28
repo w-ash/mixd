@@ -5,20 +5,22 @@ fetching missing metrics from external APIs, converting values to standardized
 formats, and persisting results for future use.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from attrs import define, field
 
 from src.application.utilities.enhanced_database_batch_processor import (
     EnhancedDatabaseBatchProcessor,
 )
-from src.application.workflows.protocols import (
-    MetricConfigProvider,
-    TrackMetadataConnector,
-)
 from src.config import get_logger
 from src.domain.entities.track import Track
 from src.domain.repositories import UnitOfWorkProtocol
+
+if TYPE_CHECKING:
+    from src.application.workflows.protocols import (
+        MetricConfigProvider,
+        TrackMetadataConnector,
+    )
 
 type _MetricsTuple = tuple[int, str, str, float | int | bool]
 
@@ -44,146 +46,6 @@ class MetricsApplicationService:
     """
 
     _metric_config: MetricConfigProvider = field(factory=_default_metric_config)
-
-    async def resolve_metrics(
-        self,
-        track_ids: list[int],
-        metric_name: str,
-        connector: str,
-        field_map: dict[str, str],
-        uow: UnitOfWorkProtocol,
-        connector_instance: TrackMetadataConnector | None = None,
-    ) -> dict[int, Any]:
-        """Resolves metric values for multiple tracks with cache-first strategy.
-
-        Checks cache for fresh metric values, fetches missing data from the specified
-        connector, converts values to float format, and persists new metrics.
-        Returns complete set of metric values for all requested tracks.
-
-        Args:
-            track_ids: Internal track IDs to resolve metrics for.
-            metric_name: Name of the metric to resolve (e.g., 'spotify_popularity').
-            connector: External connector name ('spotify', 'lastfm', etc.).
-            field_map: Maps metric names to connector field names.
-            uow: Unit of work for database transaction management.
-
-        Returns:
-            Dictionary mapping track IDs to their metric values.
-        """
-        if not track_ids:
-            return {}
-
-        logger.info(
-            f"Resolving {metric_name} metrics for {len(track_ids)} tracks",
-            connector=connector,
-            metric_name=metric_name,
-            track_count=len(track_ids),
-        )
-
-        async with uow:
-            # Step 1: Get cached metrics that aren't stale
-            max_age_hours = self._metric_config.get_metric_freshness(metric_name)
-            metrics_repo = uow.get_metrics_repository()
-
-            cached_values = await metrics_repo.get_track_metrics(
-                track_ids,
-                metric_type=metric_name,
-                connector=connector,
-                max_age_hours=max_age_hours,
-            )
-
-            # Step 2: Find tracks needing fresh data
-            missing_ids = [tid for tid in track_ids if tid not in cached_values]
-
-            if not missing_ids:
-                logger.info(f"All {len(track_ids)} metrics found in cache")
-                return cached_values
-
-            logger.info(
-                f"Found {len(missing_ids)} tracks with missing {metric_name} data",
-                track_count=len(track_ids),
-                missing_count=len(missing_ids),
-                missing_sample=missing_ids[:5],
-            )
-
-            # Step 3: Get field name from mapping
-            field_name = field_map.get(metric_name)
-            logger.debug(
-                f"Field mapping: {metric_name} -> {field_name} (field_map: {field_map})"
-            )
-            if not field_name:
-                logger.warning(f"No field mapping for {metric_name}")
-                return cached_values
-
-            # Step 4: Retrieve metadata for missing tracks
-            connector_repo = uow.get_connector_repository()
-            metadata = await connector_repo.get_connector_metadata(
-                missing_ids, connector, field_name
-            )
-
-            # Step 4.5: For tracks without stored metadata or with null field values, fetch from API
-            tracks_without_metadata = [
-                tid
-                for tid in missing_ids
-                if tid not in metadata or metadata.get(tid) is None
-            ]
-            if tracks_without_metadata:
-                logger.info(
-                    f"Fetching fresh metadata for {len(tracks_without_metadata)} tracks from {connector} API",
-                    missing_metadata_count=len(tracks_without_metadata),
-                    missing_metadata_sample=tracks_without_metadata[:5],
-                )
-
-                # Fetch fresh metadata from the external API
-                fresh_metadata = await self._fetch_fresh_metadata(
-                    track_ids=tracks_without_metadata,
-                    connector=connector,
-                    field_name=field_name,
-                    uow=uow,
-                    connector_instance=connector_instance,
-                )
-
-                # Merge fresh metadata with existing metadata
-                metadata.update(fresh_metadata)
-
-            # Step 5: Extract and convert metric values (preserve data types)
-            metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
-            for track_id, value in metadata.items():
-                if value is not None and not isinstance(value, dict):
-                    try:
-                        # Preserve original data types instead of forcing to float
-                        if isinstance(value, (bool, int, float)):
-                            # Keep booleans, integers, and floats as-is
-                            converted_value = value
-                            logger.debug(
-                                f"Preserved {type(value).__name__} value {value} for {metric_name}"
-                            )
-                        else:
-                            # Convert strings and other types to float (fallback)
-                            converted_value = float(value)
-                            logger.debug(
-                                f"Converted {type(value).__name__} value {value} to float for {metric_name}"
-                            )
-
-                        metrics_to_save.append((
-                            track_id,
-                            connector,
-                            metric_name,
-                            converted_value,
-                        ))
-                        cached_values[track_id] = value
-                    except ValueError, TypeError:
-                        logger.warning(
-                            f"Cannot convert {value} to numeric type for {metric_name}"
-                        )
-
-            # Step 6: Persist new metrics
-            if metrics_to_save:
-                saved_count = await metrics_repo.save_track_metrics(metrics_to_save)
-                await uow.commit()
-                logger.info(f"Saved {saved_count} new metrics for {metric_name}")
-
-        return cached_values
 
     async def get_external_track_metrics(
         self,

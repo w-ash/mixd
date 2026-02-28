@@ -4,10 +4,7 @@ Provides structured logging and composable utilities for failure handling
 across all matching providers while maintaining clean architecture principles.
 """
 
-from collections.abc import Callable
-
 from src.config import get_logger
-from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -99,26 +96,3 @@ def handle_track_processing_failure(
         details=str(error),
         exception_type=type(error).__name__,
     )
-
-
-def validate_track_for_method(
-    track: Track,
-    method: str,
-    service: str,
-    validator_func: Callable[[Track], bool],
-    error_reason: MatchFailureReason,
-    error_details: str,
-) -> MatchFailure | None:
-    """Validate a track for a specific method and return failure if invalid."""
-    if not track.id:
-        return None
-
-    if not validator_func(track):
-        return create_and_log_failure(
-            track_id=track.id,
-            reason=error_reason,
-            service=service,
-            method=method,
-            details=error_details,
-        )
-    return None

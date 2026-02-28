@@ -1,18 +1,9 @@
-"""Spotify connector facade - Maintains backward compatibility.
+"""Spotify connector facade.
 
-This module provides the main SpotifyConnector class that implements the
-BaseAPIConnector protocol while delegating to modular components. It maintains
-the same public interface as the original monolithic connector to ensure
-backward compatibility across the codebase.
-
-Key components:
-- SpotifyConnector: Main facade implementing connector protocols
-- Delegates to SpotifyAPIClient, SpotifyOperations, and conversion utilities
-- Maintains exact same public methods and signatures
-- Handles configuration, metrics registration, and protocol compliance
-
-The facade pattern allows the rest of the codebase to use SpotifyConnector
-without changes while benefiting from the new modular architecture underneath.
+Provides the main SpotifyConnector class that implements the BaseAPIConnector
+protocol while delegating to modular components. The facade pattern keeps a
+single public interface while the internal implementation is split across
+SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 """
 
 from typing import Any, ClassVar, override
@@ -37,6 +28,7 @@ from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
 )
+from src.infrastructure.connectors.spotify.models import SpotifyTrack
 from src.infrastructure.connectors.spotify.operations import SpotifyOperations
 
 # Track conversion registry removed - conversions handled directly in modules
@@ -91,6 +83,10 @@ class SpotifyConnector(BaseAPIConnector):
         self._client = SpotifyAPIClient()
         self._operations = SpotifyOperations(self._client)
 
+    async def aclose(self) -> None:
+        """Close underlying API client."""
+        await self._client.aclose()
+
     # Track Operations - Delegate to operations
 
     async def get_external_track_data(
@@ -128,13 +124,18 @@ class SpotifyConnector(BaseAPIConnector):
         """Fetch multiple tracks from Spotify in bulk."""
         return await self._operations.get_tracks_by_ids(track_ids)
 
-    async def search_by_isrc(self, isrc: str) -> dict[str, Any] | None:
+    async def search_by_isrc(self, isrc: str) -> SpotifyTrack | None:
         """Search for a track using ISRC identifier."""
         return await self._client.search_by_isrc(isrc)
 
-    async def search_track(self, artist: str, title: str) -> dict[str, Any] | None:
-        """Search for a track by artist and title."""
-        return await self._client.search_track(artist, title)
+    async def search_track(
+        self, artist: str, title: str, limit: int = 5
+    ) -> list[SpotifyTrack]:
+        """Search for tracks by artist and title.
+
+        Returns multiple candidates so callers can rank by similarity.
+        """
+        return await self._client.search_track(artist, title, limit)
 
     # Playlist Operations - Delegate to operations
 

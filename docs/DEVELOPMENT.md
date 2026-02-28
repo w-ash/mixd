@@ -258,53 +258,6 @@ class NewFeatureUseCase:
         self.repository = repository
 ```
 
-## Project Tracking
-
-### Using the WORK Template (2025 Best Practice)
-
-For tactical work tracking on individual epics/initiatives:
-
-```bash
-# Copy template to .claude/work/ (auto-loaded by Claude Code)
-cp WORK_TEMPLATE.md .claude/work/WORK.md
-```
-
-**Template Features (2025 Best Practices)**:
-- **ADR-Lite Format** - Structured architecture decision records for AI and humans
-- **AI Collaboration Tracking** - Agent logs, context boundaries, decision tracking
-- **Work Type Guidance** - Conditional sections for user-facing, backend, or devops work
-- **Smart Status Tags** - Progress, type, component, and version tracking
-
-**When to Use Each Section**:
-
-**For User-Facing Work** (`#user-facing`):
-- Fill in "User Stories & Scenarios" section
-- Emphasize examples in "User-Facing Changes & Examples"
-- Add "User Impact" to testing strategy
-
-**For Backend/Technical Work** (`#backend`, `#refactor`):
-- Fill in "System Behavior Contract" (what must not break)
-- Emphasize "Implementation Details" and architectural layers
-- Focus testing on regression and performance
-
-**For DevOps/Infrastructure** (`#devops`):
-- Fill in "Deployment Impact" section
-- Add "Rollback Strategy" for high-risk changes
-- Document downtime and risk assessment
-
-**AI Collaboration Sections**:
-1. **Agent Assistance Log** - Track which specialized agents helped (Explore, Plan, sqlalchemy-query-expert)
-2. **Context Boundaries** - Document critical files, concepts, and prerequisites for future sessions
-3. **AI-Assisted Decisions** - Maintain transparency on AI suggestions vs human decisions
-
-**After Completion**:
-```bash
-# Archive completed work (preserves context for future reference)
-mv .claude/work/WORK.md docs/work-archive/WORK-$(date +%Y%m%d)-epic-name.md
-```
-
-**Strategic Planning**: For roadmap and version planning, see `ROADMAP.md`
-
 ## Common Tasks
 
 ### CLI Command
@@ -668,20 +621,7 @@ Use Task to create minimal tenacity reproduction:
 
 ### Tracking Subagent Usage
 
-Document subagent consultations in WORK.md using enhanced format:
-
-```markdown
-| Agent | Task | Outcome | Decision | Context Files |
-|-------|------|---------|----------|---------------|
-| **Subagent**: architecture-guardian | Review refactor | No violations | ✅ Accepted | retry_policies.py |
-| **Subagent**: test-pyramid-architect | Test strategy | 6 unit, 3 integration | ✅ Implemented | test_sync_playlist.py |
-| **Task**: Ad-hoc | Minimal repro | Callbacks work | 🔍 Narrowed issue | /tmp/test_tenacity.py |
-| **Main**: Direct | Implement fix | 827 tests passing | ✅ Complete | Applied learnings |
-```
-
-**Key columns**:
-- **Agent**: Type (Subagent name, Task, Main)
-- **Decision**: ✅ Accepted / ⚠️ Modified / ❌ Rejected / 🔍 Narrowed
+Document subagent consultations using Claude Code's built-in task tracking.
 - **Context Files**: Critical files for future reference
 
 ---

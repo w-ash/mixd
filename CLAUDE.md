@@ -154,4 +154,5 @@ result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(cmd))
 - **Database** → docs/DATABASE.md
 - **Workflows** → docs/workflow_guide.md
 - **CLI Reference** → docs/API.md
-- **Active Work** → .claude/work/WORK.md
+- **Backlog** → docs/BACKLOG.md
+- **Ideas** → docs/IDEAS.md

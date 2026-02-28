@@ -109,8 +109,31 @@ class LikeRepositoryProtocol(Protocol):
         service: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
+        liked_at: datetime | None = None,
     ) -> Awaitable[TrackLike]:
-        """Save track like."""
+        """Save track like.
+
+        Args:
+            track_id: Internal track ID.
+            service: Service name ('spotify', 'lastfm', 'narada').
+            is_liked: Whether the track is liked.
+            last_synced: When this like was last synced.
+            liked_at: When the user originally liked the track. Falls back to now() if not provided.
+        """
+        ...
+
+    def save_track_likes_batch(
+        self,
+        likes: list[tuple[int, str, bool, datetime | None, datetime | None]],
+    ) -> Awaitable[list[TrackLike]]:
+        """Save multiple track likes in bulk.
+
+        Args:
+            likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+
+        Returns:
+            List of saved TrackLike domain objects.
+        """
         ...
 
     def get_all_liked_tracks(
@@ -122,6 +145,19 @@ class LikeRepositoryProtocol(Protocol):
             service: Service to get likes from
             is_liked: Filter by like status
             sort_by: Optional sorting method (liked_at_desc, liked_at_asc, title_asc, random)
+        """
+        ...
+
+    def get_liked_status_batch(
+        self,
+        track_ids: list[int],
+        services: list[str],
+    ) -> Awaitable[dict[int, dict[str, bool]]]:
+        """Check like status for multiple tracks across services.
+
+        Returns:
+            Mapping of track_id → {service: is_liked}.
+            Missing entries mean no like record exists (treat as False).
         """
         ...
 
@@ -216,21 +252,28 @@ class ConnectorRepositoryProtocol(Protocol):
     def get_connector_mappings(
         self, track_ids: list[int], connector: str | None = None
     ) -> Awaitable[dict[int, dict[str, str]]]:
-        """Get mappings between tracks and external connectors.
+        """Get primary mappings between tracks and external connectors.
+
+        Returns only primary mappings — for tracks with multiple connector IDs
+        (e.g., Spotify relinking), only the active/current ID is returned.
 
         Args:
             track_ids: Track IDs to get mappings for.
             connector: Optional connector name to filter by.
 
         Returns:
-            Dictionary mapping track_id to connector mapping information.
+            Dictionary mapping track_id to {connector_name: external_id} for primary mappings.
         """
         ...
 
     def get_connector_metadata(
         self, track_ids: list[int], connector: str, metadata_field: str | None = None
     ) -> Awaitable[dict[int, Any]]:
-        """Get connector metadata for tracks.
+        """Get connector metadata for tracks from primary mappings only.
+
+        Returns metadata from the primary mapping for each track-connector pair.
+        For relinked tracks with multiple mappings, only the active mapping's
+        metadata is returned.
 
         Args:
             track_ids: Track IDs to get metadata for.
@@ -238,7 +281,7 @@ class ConnectorRepositoryProtocol(Protocol):
             metadata_field: Optional specific metadata field to retrieve.
 
         Returns:
-            Dictionary mapping track_id to metadata.
+            Dictionary mapping track_id to metadata from primary mapping.
         """
         ...
 
@@ -292,8 +335,23 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def batch_ensure_primary_mappings(
+        self, primaries: list[tuple[int, str, str]]
+    ) -> Awaitable[int]:
+        """Set primary mappings for multiple track-connector pairs in bulk.
+
+        Each tuple is (track_id, connector_name, connector_track_identifier).
+
+        Args:
+            primaries: List of (track_id, connector_name, connector_track_identifier).
+
+        Returns:
+            Number of mappings successfully promoted to primary.
+        """
+        ...
+
     def set_primary_mapping(
-        self, track_id: int, connector_track_id: int, connector_name: str
+        self, track_id: int, connector_name: str, connector_track_id: int
     ) -> Awaitable[bool]:
         """Set the primary mapping for a track-connector pair.
 
@@ -303,8 +361,8 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Args:
             track_id: Internal canonical track ID
-            connector_track_id: Database ID of the connector track (not external ID)
             connector_name: Name of the connector (e.g., "spotify")
+            connector_track_id: Database ID of the connector track (not external ID)
 
         Returns:
             True if the primary mapping was successfully updated, False otherwise
@@ -441,38 +499,6 @@ class ConnectorPlayRepositoryProtocol(Protocol):
 
         Returns:
             tuple[int, int]: (inserted_count, duplicate_count)
-        """
-        ...
-
-    def get_unresolved_connector_plays(
-        self,
-        connector: str | None = None,
-        limit: int | None = None,
-    ) -> Awaitable[list[ConnectorTrackPlay]]:
-        """Get connector plays that haven't been resolved to canonical tracks yet.
-
-        Args:
-            connector: Optional connector name to filter by (e.g., "lastfm", "spotify")
-            limit: Optional limit on number of plays to return
-
-        Returns:
-            List of unresolved ConnectorTrackPlay domain objects ordered by played_at
-        """
-        ...
-
-    def mark_plays_resolved(
-        self,
-        connector_play_ids: list[int],
-        resolved_track_id: int,
-    ) -> Awaitable[int]:
-        """Mark connector plays as resolved to a canonical track.
-
-        Args:
-            connector_play_ids: List of connector play database IDs
-            resolved_track_id: Canonical track ID they resolve to
-
-        Returns:
-            Number of connector plays successfully marked as resolved
         """
         ...
 

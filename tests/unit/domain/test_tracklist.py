@@ -86,20 +86,6 @@ class TestTrackListMetadataRoundTrip:
         assert enriched.metadata["metrics"]["total_plays"][1] == 10
         assert tl.metadata == {}  # original untouched
 
-    def test_get_metadata_returns_value(self):
-        tl = TrackList(tracks=[], metadata={"key": "val"})
-        assert tl.get_metadata("key") == "val"
-
-    def test_get_metadata_returns_default_for_missing(self):
-        tl = TrackList(tracks=[])
-        assert tl.get_metadata("missing") is None
-        assert tl.get_metadata("missing", 42) == 42
-
-    def test_has_metadata(self):
-        tl = TrackList(tracks=[], metadata={"present": True})
-        assert tl.has_metadata("present") is True
-        assert tl.has_metadata("absent") is False
-
     def test_fresh_metric_ids_pattern(self):
         """Enrichers also write fresh_metric_ids alongside metrics."""
         tl = TrackList(tracks=_make_tracks(2))
@@ -130,23 +116,6 @@ class TestPlaylistTrackListConversion:
 
         assert tl.metadata["source_playlist_name"] == "Test"
         assert tl.metadata["added_at_dates"] == {}
-
-    def test_from_playlist_preserves_tracks(self):
-        tracks = _make_tracks(2)
-        entries = [PlaylistEntry(track=t) for t in tracks]
-        playlist = Playlist(name="My Playlist", entries=entries)
-
-        tl = TrackList.from_playlist(playlist)
-
-        assert len(tl.tracks) == 2
-        assert tl.tracks == tracks
-
-    def test_from_playlist_carries_source_name(self):
-        playlist = Playlist(name="My Playlist", entries=[])
-
-        tl = TrackList.from_playlist(playlist)
-
-        assert tl.metadata["source_playlist_name"] == "My Playlist"
 
     def test_from_tracklist_creates_playlist_with_entries(self):
         tracks = _make_tracks(2)

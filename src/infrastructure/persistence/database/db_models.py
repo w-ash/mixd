@@ -278,7 +278,7 @@ class DBTrackLike(BaseEntity):
 
     # Core fields
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
-    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'internal'
+    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'narada'
     is_liked: Mapped[bool] = mapped_column(Boolean, default=True)
     liked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -323,7 +323,7 @@ class DBTrackPlay(BaseEntity):
 
     # Core fields
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
-    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'internal'
+    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'narada'
     played_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

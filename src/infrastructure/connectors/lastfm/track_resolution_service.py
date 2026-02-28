@@ -9,13 +9,14 @@ Follows the exact same proven pattern as Spotify resolution but adapted for Last
 """
 
 from collections.abc import Callable
-from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import Artist, PlayRecord, Track
+from src.domain.matching.algorithms import calculate_title_similarity
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
+from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.spotify import SpotifyConnector
 
 logger = get_logger(__name__)
@@ -31,11 +32,17 @@ class LastfmTrackResolutionService:
     """
 
     spotify_connector: SpotifyConnector
+    lastfm_client: LastFMAPIClient
     match_evaluation_service: TrackMatchEvaluationService
 
-    def __init__(self, spotify_connector: SpotifyConnector | None = None):
-        """Initialize with optional Spotify connector for discovery enhancement."""
+    def __init__(
+        self,
+        spotify_connector: SpotifyConnector | None = None,
+        lastfm_client: LastFMAPIClient | None = None,
+    ):
+        """Initialize with optional Spotify connector and Last.fm client for enrichment."""
         self.spotify_connector = spotify_connector or SpotifyConnector()
+        self.lastfm_client = lastfm_client or LastFMAPIClient()
         self.match_evaluation_service = TrackMatchEvaluationService()
 
     async def resolve_plays_to_canonical_tracks(
@@ -231,6 +238,12 @@ class LastfmTrackResolutionService:
                             f"🆕 Created new track: {artist_name} - {track_name} (ID: {canonical_track.id})"
                         )
 
+                        # Step 2.5: Enrich from Last.fm track.getInfo (duration, album)
+                        canonical_track = await self._enrich_from_lastfm_track_info(
+                            canonical_track, artist_name, track_name, uow
+                        )
+                        existing_canonical_tracks[identifier] = canonical_track
+
                         # Step 3: Enhanced Spotify Discovery
                         spotify_found = await self._attempt_spotify_discovery(
                             canonical_track, artist_name, track_name, uow
@@ -376,6 +389,43 @@ class LastfmTrackResolutionService:
         else:
             return canonical_track
 
+    async def _enrich_from_lastfm_track_info(
+        self, track: Track, artist_name: str, track_name: str, uow: UnitOfWorkProtocol
+    ) -> Track:
+        """Enrich a skeletal track with Last.fm track.getInfo data (duration, album)."""
+        try:
+            info = await self.lastfm_client.get_track_info_comprehensive(
+                artist_name, track_name
+            )
+            if not info:
+                return track
+
+            new_album = track.album or info.lastfm_album_name
+            new_duration = track.duration_ms or info.lastfm_duration
+
+            if new_album == track.album and new_duration == track.duration_ms:
+                return track  # Nothing new to save
+
+            enriched = Track(
+                id=track.id,
+                title=track.title,
+                artists=track.artists,
+                album=new_album,
+                duration_ms=new_duration,
+                isrc=track.isrc,
+            )
+            saved = await uow.get_track_repository().save_track(enriched)
+            logger.debug(
+                f"Enriched from track.getInfo: {artist_name} - {track_name} (duration={new_duration}, album={new_album})"
+            )
+        except Exception as e:
+            logger.debug(
+                f"track.getInfo enrichment failed for {artist_name} - {track_name}: {e}"
+            )
+            return track
+        else:
+            return saved
+
     async def _attempt_spotify_discovery(
         self,
         canonical_track: Track,
@@ -385,29 +435,40 @@ class LastfmTrackResolutionService:
     ) -> bool:
         """Enhanced Step 3: Attempt Spotify discovery using domain matching algorithms."""
         try:
-            # Search for track on Spotify
-            spotify_track = await self.spotify_connector.search_track(
+            # Search for track on Spotify — pick best candidate by title similarity
+            candidates = await self.spotify_connector.search_track(
                 artist_name, track_name
             )
 
-            if not spotify_track:
+            if not candidates:
                 return False
 
-            spotify_id = spotify_track.get("id")
+            best = max(
+                candidates,
+                key=lambda c: calculate_title_similarity(track_name, c.name),
+            )
+
+            spotify_id = best.id
 
             if not spotify_id:
                 return False
+
+            # Convert to dict for service_data and metadata storage
+            best_dict = best.model_dump()
+
+            # Extract primary artist from typed model
+            primary_artist = best.artists[0].name if best.artists else ""
 
             # Create RawProviderMatch structure for domain matching evaluation
             raw_match = RawProviderMatch(
                 connector_id=spotify_id,
                 match_method="artist_title",  # This is a search-based match
                 service_data={
-                    "title": spotify_track.get("name", ""),
-                    "artist": self._extract_primary_artist(spotify_track),
-                    "duration_ms": spotify_track.get("duration_ms"),
+                    "title": best.name,
+                    "artist": primary_artist,
+                    "duration_ms": best.duration_ms,
                     "id": spotify_id,
-                    **spotify_track,  # Include all Spotify metadata
+                    **best_dict,  # Include all Spotify metadata
                 },
             )
 
@@ -424,12 +485,33 @@ class LastfmTrackResolutionService:
                     spotify_id,
                     "lastfm_discovery",
                     confidence=match_result.confidence,
-                    metadata=spotify_track,
+                    metadata=best_dict,
                     confidence_evidence=match_result.evidence.as_dict()
                     if match_result.evidence
                     else None,
                     # auto_set_primary=True is the default, so mapping will be set as primary automatically
                 )
+
+                # Backfill canonical track with Spotify metadata if still skeletal
+                if (
+                    not canonical_track.duration_ms
+                    or not canonical_track.isrc
+                    or not canonical_track.album
+                ):
+                    enriched = Track(
+                        id=canonical_track.id,
+                        title=canonical_track.title,
+                        artists=canonical_track.artists,
+                        album=canonical_track.album
+                        or (best.album.name if best.album else None),
+                        duration_ms=canonical_track.duration_ms or best.duration_ms,
+                        isrc=canonical_track.isrc
+                        or (best.external_ids.isrc if best.external_ids else None),
+                    )
+                    await uow.get_track_repository().save_track(enriched)
+                    logger.debug(
+                        f"Backfilled from Spotify: {artist_name} - {track_name} (duration={enriched.duration_ms}, isrc={enriched.isrc}, album={enriched.album})"
+                    )
 
                 logger.debug(
                     f"Spotify discovery success: {artist_name} - {track_name} -> {spotify_id} "
@@ -448,15 +530,6 @@ class LastfmTrackResolutionService:
                 f"Spotify discovery failed for {artist_name} - {track_name}: {e}"
             )
             return False
-
-    def _extract_primary_artist(self, spotify_track: dict[str, Any]) -> str:
-        """Extract primary artist name from Spotify track data."""
-        artists_raw = spotify_track.get("artists", [])
-        artists: list[dict[str, Any]] = [a for a in artists_raw if isinstance(a, dict)]
-        if artists:
-            name = artists[0].get("name", "")
-            return name if isinstance(name, str) else ""
-        return ""
 
     def _create_lastfm_connector_id(self, artist_name: str, track_name: str) -> str:
         """Create Last.fm connector ID from artist/title (since Last.fm doesn't have stable IDs)."""

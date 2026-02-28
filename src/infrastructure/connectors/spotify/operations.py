@@ -98,25 +98,23 @@ class SpotifyOperations:
 
             try:
                 # Use bulk tracks API - single call for up to 50 tracks
-                tracks_response = await self.client.get_tracks_bulk(batch_ids)
+                validated_tracks = await self.client.get_tracks_bulk(batch_ids)
 
-                if tracks_response and "tracks" in tracks_response:
-                    for track in tracks_response["tracks"]:
-                        if track and "id" in track:
-                            current_id = track["id"]
-                            results[current_id] = track
+                if validated_tracks:
+                    for track in validated_tracks:
+                        current_id = track.id
+                        # Convert to dict for downstream compatibility
+                        track_dict = track.model_dump()
+                        results[current_id] = track_dict
 
-                            # Handle Spotify relinking: if track has linked_from,
-                            # also map the original track ID to this data
-                            linked_from = track.get("linked_from")
-                            if linked_from and "id" in linked_from:
-                                original_id = linked_from["id"]
-                                results[original_id] = track
-                                logger.debug(
-                                    f"Relinked track found: {original_id} -> {current_id}"
-                                )
-                        else:
-                            logger.warning("Received null track in batch response")
+                        # Handle Spotify relinking: if track has linked_from,
+                        # also map the original track ID to this data
+                        if track.linked_from:
+                            original_id = track.linked_from.id
+                            results[original_id] = track_dict
+                            logger.debug(
+                                f"Relinked track found: {original_id} -> {current_id}"
+                            )
 
             except Exception as e:
                 logger.error(
@@ -162,45 +160,48 @@ class SpotifyOperations:
 
     async def get_playlist_with_all_tracks(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch a Spotify playlist with all tracks using pagination."""
-        # Get initial playlist data
-        raw_playlist = await self.client.get_playlist(playlist_id)
-        if not isinstance(raw_playlist, dict):
+        # Get initial playlist data (returns validated SpotifyPlaylist)
+        playlist = await self.client.get_playlist(playlist_id)
+        if playlist is None:
             raise TypeError(f"Invalid playlist response for ID {playlist_id}")
 
         # Handle pagination to get all tracks
-        tracks = raw_playlist["tracks"]
-        all_items = tracks["items"]
+        tracks_page = playlist.tracks
+        all_items = list(tracks_page.items)
 
         # Paginate until we get all tracks
-        while tracks and tracks.get("next"):
-            tracks = await self.client.get_next_page(tracks)
-            if tracks is not None and "items" in tracks:
-                all_items.extend(tracks["items"])
+        while tracks_page and tracks_page.next:
+            next_page = await self.client.get_next_page(tracks_page)
+            if next_page is not None:
+                all_items.extend(next_page.items)
+                tracks_page = next_page
             else:
                 logger.warning("Received invalid tracks data during pagination")
                 break
 
-        # Convert basic playlist metadata
-        connector_playlist = convert_spotify_playlist_to_connector(raw_playlist)
+        # Convert basic playlist metadata (needs raw dict for conversion)
+        connector_playlist = convert_spotify_playlist_to_connector(
+            playlist.model_dump()
+        )
 
         # Process each track item with its metadata
         playlist_items: list[ConnectorPlaylistItem] = []
         for idx, item in enumerate(all_items):
-            if item.get("track") is not None:
-                track = item["track"]
-                added_at = item.get("added_at")
+            if item.track is not None:
+                track = item.track
+                track_dict = track.model_dump()
 
                 # Create ConnectorPlaylistItem with track ID and metadata
                 playlist_item = ConnectorPlaylistItem(
-                    connector_track_identifier=track["id"],
+                    connector_track_identifier=track.id,
                     position=idx,
-                    added_at=added_at,
-                    added_by_id=item.get("added_by", {}).get("id"),
+                    added_at=item.added_at,
+                    added_by_id=item.added_by.id or None,
                     extras={
-                        "is_local": item.get("is_local", False),
-                        **extract_track_metadata_for_playlist_item(track),
-                        "added_at": added_at,  # Store in extras for easy access
-                        "full_track_data": track,  # Store complete track data to avoid additional API calls
+                        "is_local": item.is_local,
+                        **extract_track_metadata_for_playlist_item(track_dict),
+                        "added_at": item.added_at,
+                        "full_track_data": track_dict,
                     },
                 )
                 playlist_items.append(playlist_item)
@@ -238,7 +239,7 @@ class SpotifyOperations:
             if not playlist:
                 _raise_playlist_creation_error()
 
-            playlist_id = playlist["id"]
+            playlist_id = playlist.id
 
             # Add tracks in batches if any
             if spotify_track_uris:
@@ -470,23 +471,24 @@ class SpotifyOperations:
                 _raise_playlist_not_found_error(playlist_id)
 
             # Extract owner information
-            owner = playlist_info.get("owner", {})
-            owner_name = owner.get("display_name") or owner.get("id")
-
-            return {
-                "id": playlist_info["id"],
-                "name": playlist_info.get("name", ""),
-                "description": playlist_info.get("description", ""),
-                "owner_name": owner_name,
-                "owner_id": owner.get("id"),
-                "is_public": playlist_info.get("public", False),
-                "collaborative": playlist_info.get("collaborative", False),
-                "follower_count": playlist_info.get("followers", {}).get("total"),
-            }
+            owner_name = playlist_info.owner.display_name or playlist_info.owner.id
 
         except Exception as e:
             logger.error(f"Error fetching playlist details: {e}")
             raise
+        else:
+            return {
+                "id": playlist_info.id,
+                "name": playlist_info.name,
+                "description": playlist_info.description or "",
+                "owner_name": owner_name,
+                "owner_id": playlist_info.owner.id,
+                "is_public": playlist_info.public or False,
+                "collaborative": playlist_info.collaborative,
+                "follower_count": playlist_info.followers.total
+                if playlist_info.followers
+                else None,
+            }
 
     # Bulk Operations Support
 
@@ -536,9 +538,7 @@ class SpotifyOperations:
             return {
                 "tracks_added": len(spotify_track_uris),
                 "api_calls_made": api_calls_made,
-                "snapshot_id": playlist_info.get("snapshot_id")
-                if playlist_info
-                else None,
+                "snapshot_id": playlist_info.snapshot_id if playlist_info else None,
                 "last_modified": datetime.now(UTC).isoformat(),
             }
 

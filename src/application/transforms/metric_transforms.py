@@ -177,7 +177,11 @@ def sort_by_date(
             date_map = t.metadata.get("metrics", {}).get(metric_key, {})
 
         # Tracks without dates sort to the end regardless of direction
-        sentinel = datetime.max.replace(tzinfo=UTC) if ascending else datetime.min.replace(tzinfo=UTC)
+        sentinel = (
+            datetime.max.replace(tzinfo=UTC)
+            if ascending
+            else datetime.min.replace(tzinfo=UTC)
+        )
 
         def date_key(track: Track) -> datetime:
             if not track.id or track.id not in date_map:
@@ -197,8 +201,7 @@ def sort_by_date(
             ascending=ascending,
             track_count=len(sorted_tracks),
             tracks_with_dates=sum(
-                1 for track in t.tracks
-                if track.id and track.id in date_map
+                1 for track in t.tracks if track.id and track.id in date_map
             ),
         )
 

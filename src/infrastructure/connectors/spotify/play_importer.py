@@ -79,12 +79,12 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
             batch_size=typed_params.get("batch_size"),
         )
 
-        # Use migrated sophisticated import logic with typed parameters
-        result = await self._import_from_file_migrated(
-            file_path=Path(file_path),  # Convert to Path object
+        # Import directly using base class template method
+        result = await self.import_data(
+            file_path=Path(file_path),
             import_batch_id=typed_params.get("import_batch_id"),
             progress_emitter=progress_emitter,
-            uow=uow,  # Use the UnitOfWork passed directly to import_plays
+            uow=uow,
         )
 
         # Get the connector plays using base class method
@@ -97,29 +97,6 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         )
 
         return result, connector_plays
-
-    # === MIGRATED SOPHISTICATED LOGIC FROM ORIGINAL IMPORTER ===
-
-    async def _import_from_file_migrated(
-        self,
-        file_path: Path,
-        import_batch_id: str | None = None,
-        progress_emitter: ProgressEmitter | None = None,
-        uow: Any | None = None,
-    ) -> OperationResult:
-        """Import play data from Spotify JSON export file.
-
-        MIGRATED from original SpotifyImportService with sophisticated processing.
-        """
-        if progress_emitter is None:
-            progress_emitter = NullProgressEmitter()
-
-        return await self.import_data(
-            file_path=file_path,
-            import_batch_id=import_batch_id,
-            progress_emitter=progress_emitter,
-            uow=uow,
-        )
 
     @override
     async def _fetch_data(
@@ -201,52 +178,15 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
         if not raw_data:
             return []
 
-        # Process raw data directly into ConnectorTrackPlay objects
-        connector_plays: list[ConnectorTrackPlay] = []
-        for record in raw_data:
-            # Extract Spotify-specific data from SpotifyPlayRecord attributes
-            connector_play = ConnectorTrackPlay(
-                service="spotify",
-                track_name=record.track_name,
-                artist_name=record.artist_name,
-                album_name=record.album_name,
-                played_at=record.timestamp,
-                ms_played=record.ms_played,
-                service_metadata={
-                    "track_uri": record.track_uri,
-                    "platform": record.platform,
-                    "country": record.country,
-                    "reason_start": record.reason_start,
-                    "reason_end": record.reason_end,
-                    "shuffle": record.shuffle,
-                    "skipped": record.skipped,
-                    "offline": record.offline,
-                    "incognito_mode": record.incognito_mode,
-                },
-                api_page=None,  # Not applicable for file imports
-                raw_data={
-                    "timestamp": record.timestamp.isoformat(),
-                    "track_uri": record.track_uri,
-                    "track_name": record.track_name,
-                    "artist_name": record.artist_name,
-                    "album_name": record.album_name,
-                    "ms_played": record.ms_played,
-                    "platform": record.platform,
-                    "country": record.country,
-                    "reason_start": record.reason_start,
-                    "reason_end": record.reason_end,
-                    "shuffle": record.shuffle,
-                    "skipped": record.skipped,
-                    "offline": record.offline,
-                    "incognito_mode": record.incognito_mode,
-                },
-                import_timestamp=import_timestamp,  # Use the provided import_timestamp
-                import_source="spotify_export",
-                import_batch_id=batch_id,  # Use the provided batch_id
+        # Process raw data directly into ConnectorTrackPlay objects using factory
+        return [
+            ConnectorTrackPlay.create_from_spotify_record(
+                record,
+                import_timestamp=import_timestamp,
+                import_batch_id=batch_id,
             )
-            connector_plays.append(connector_play)
-
-        return connector_plays
+            for record in raw_data
+        ]
 
     @override
     async def _save_data(

@@ -56,6 +56,7 @@ class DatabaseUnitOfWork:
 
     _session: AsyncSession
     _committed: bool
+    _connector_cache: dict[str, Any]
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session.
@@ -65,6 +66,7 @@ class DatabaseUnitOfWork:
         """
         self._session = session
         self._committed = False
+        self._connector_cache = {}
 
     async def __aenter__(self) -> Self:
         """Enter async context manager."""
@@ -85,6 +87,11 @@ class DatabaseUnitOfWork:
             await self.rollback()
         elif not self._committed:
             await self.commit()
+        # Close cached connector instances
+        for connector in self._connector_cache.values():
+            if hasattr(connector, "aclose"):
+                await connector.aclose()
+        self._connector_cache.clear()
 
     async def commit(self) -> None:
         """Explicitly commit the current transaction."""
@@ -139,19 +146,25 @@ class DatabaseUnitOfWork:
         return TrackIdentityServiceImpl(track_repo, connector_repo)
 
     def get_service_connector_provider(self) -> Any:
-        """Get service connector provider for accessing individual music service connectors."""
+        """Get service connector provider with per-UoW instance caching."""
         from src.infrastructure.connectors import discover_connectors
 
-        class SimpleServiceConnectorProvider:
-            """Simple service connector provider that accesses the CONNECTORS registry."""
+        cache = self._connector_cache
+
+        class CachingConnectorProvider:
+            """Connector provider that caches instances for the UoW's lifetime."""
 
             def get_connector(self, service_name: str):
+                if service_name in cache:
+                    return cache[service_name]
                 connectors = discover_connectors()
                 if service_name not in connectors:
                     raise ValueError(f"Unknown connector: {service_name}")
-                return connectors[service_name]["factory"]({})
+                instance = connectors[service_name]["factory"]({})
+                cache[service_name] = instance
+                return instance
 
-        return SimpleServiceConnectorProvider()
+        return CachingConnectorProvider()
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

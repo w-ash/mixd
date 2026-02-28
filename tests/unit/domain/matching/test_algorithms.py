@@ -6,6 +6,7 @@ These tests verify the pure business logic of track matching and confidence scor
 import pytest
 
 from src.config import settings
+from src.domain.matching import ConfidenceEvidence, MatchResult
 from src.domain.matching.algorithms import (
     calculate_confidence,
     calculate_title_similarity,
@@ -174,3 +175,72 @@ class TestCalculateConfidence:
 
         assert 0 <= confidence <= 100  # Must stay within bounds
         assert evidence.final_score == confidence
+
+
+@pytest.mark.unit
+class TestConfidenceEvidence:
+    """Test ConfidenceEvidence type."""
+
+    def test_as_dict(self):
+        """Test conversion to dictionary."""
+        evidence = ConfidenceEvidence(
+            base_score=90,
+            title_score=-5.0,
+            artist_score=-2.5,
+            duration_score=-1.0,
+            title_similarity=0.85,
+            artist_similarity=0.92,
+            duration_diff_ms=2000,
+            final_score=82,
+        )
+
+        result = evidence.as_dict()
+
+        assert result["base_score"] == 90
+        assert result["title_score"] == -5.0
+        assert result["artist_score"] == -2.5
+        assert result["duration_score"] == -1.0
+        assert result["title_similarity"] == 0.85
+        assert result["artist_similarity"] == 0.92
+        assert result["duration_diff_ms"] == 2000
+        assert result["final_score"] == 82
+
+    def test_immutable(self):
+        """Test that ConfidenceEvidence is immutable."""
+        evidence = ConfidenceEvidence(base_score=90)
+
+        with pytest.raises(AttributeError):
+            evidence.base_score = 95  # Should not be allowed
+
+
+@pytest.mark.unit
+class TestMatchResult:
+    """Test MatchResult type."""
+
+    def test_match_result_creation(self):
+        """Test creating a MatchResult."""
+        evidence = ConfidenceEvidence(base_score=90, final_score=85)
+
+        result = MatchResult(
+            track="mock_track",  # Using string for test
+            success=True,
+            connector_id="spotify:123",
+            confidence=85,
+            match_method="isrc",
+            service_data={"title": "Test"},
+            evidence=evidence,
+        )
+
+        assert result.success is True
+        assert result.connector_id == "spotify:123"
+        assert result.confidence == 85
+        assert result.match_method == "isrc"
+        assert result.service_data == {"title": "Test"}
+        assert result.evidence == evidence
+
+    def test_immutable(self):
+        """Test that MatchResult is immutable."""
+        result = MatchResult(track="mock", success=True)
+
+        with pytest.raises(AttributeError):
+            result.success = False  # Should not be allowed

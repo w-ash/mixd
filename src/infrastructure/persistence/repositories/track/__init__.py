@@ -16,12 +16,6 @@ from src.infrastructure.persistence.repositories.track.metrics import (
 )
 from src.infrastructure.persistence.repositories.track.plays import TrackPlayRepository
 
-# TrackRepositories backward compatibility import removed to break circular dependency
-# Use individual repository factories from factories module instead
-
-# Clean Architecture compliant - individual repository imports only
-# Use cases should depend on specific repository protocols they need
-
 # Export individual repositories for direct import
 __all__ = [
     "SyncCheckpointRepository",

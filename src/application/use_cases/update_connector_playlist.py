@@ -16,6 +16,7 @@ from src.application.use_cases._shared import (
     classify_database_error,
     count_operation_types,
     create_connector_playlist_items_from_tracks,
+    resolve_playlist_connector,
 )
 from src.application.use_cases._shared.command_validators import (
     api_batch_size_validator,
@@ -23,6 +24,7 @@ from src.application.use_cases._shared.command_validators import (
     positive_int_in_range,
     validate_tracklist_has_tracks,
 )
+from src.application.workflows.protocols import PlaylistConnector
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
@@ -108,31 +110,8 @@ class UpdateConnectorPlaylistUseCase:
     Updates local database after successful external API calls.
     """
 
-    def _get_connector_instance(
-        self, connector_name: str, uow: UnitOfWorkProtocol
-    ) -> Any:
-        """Get connector instance from provider with validation.
-
-        Args:
-            connector_name: Name of connector to retrieve
-            uow: Unit of work providing connector access
-
-        Returns:
-            Connector instance
-
-        Raises:
-            ValueError: If connector not available
-        """
-        connector_provider = uow.get_service_connector_provider()
-        connector = connector_provider.get_connector(connector_name)
-
-        if not connector:
-            raise ValueError(f"Connector '{connector_name}' not available")
-
-        return connector
-
     async def _validate_playlist_pre_execution(
-        self, connector: Any, playlist_id: str
+        self, connector: PlaylistConnector, playlist_id: str
     ) -> None:
         """Validate playlist exists before executing operations.
 
@@ -161,7 +140,7 @@ class UpdateConnectorPlaylistUseCase:
 
     async def _validate_playlist_post_execution(
         self,
-        connector: Any,
+        connector: PlaylistConnector,
         playlist_id: str,
         snapshot_id: str | None,
         operations_count: int,
@@ -600,8 +579,8 @@ class UpdateConnectorPlaylistUseCase:
             }
 
         try:
-            # Get connector and validate it exists
-            connector = self._get_connector_instance(command.connector, uow)
+            # Get connector and validate it supports playlist operations
+            connector = resolve_playlist_connector(command.connector, uow)
             counts = count_operation_types(sequenced_operations)
 
             logger.info(
@@ -844,7 +823,7 @@ class UpdateConnectorPlaylistUseCase:
             )
 
         # Execute append operation via connector
-        connector_instance = self._get_connector_instance(command.connector, uow)
+        connector_instance = resolve_playlist_connector(command.connector, uow)
 
         # Append tracks to external playlist
         api_metadata = await connector_instance.append_tracks_to_playlist(
@@ -880,9 +859,9 @@ class UpdateConnectorPlaylistUseCase:
             logger.info("Skipping metadata update in dry run mode")
             return
 
-        connector_instance = self._get_connector_instance(command.connector, uow)
+        connector_instance = resolve_playlist_connector(command.connector, uow)
 
-        metadata_updates = {}
+        metadata_updates: dict[str, str] = {}
         if command.playlist_name:
             metadata_updates["name"] = command.playlist_name
         if command.playlist_description:
@@ -918,7 +897,7 @@ class UpdateConnectorPlaylistUseCase:
             Newly created local playlist entity.
         """
         # Get connector instance to fetch playlist details
-        connector_instance = self._get_connector_instance(connector, uow)
+        connector_instance = resolve_playlist_connector(connector, uow)
 
         # Fetch playlist metadata from external service
         connector_playlist_info = await connector_instance.get_playlist_details(

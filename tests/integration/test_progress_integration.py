@@ -314,7 +314,7 @@ class TestProgressSystemExample:
         rich_provider = RichProgressProvider()
 
         # Subscribe provider to manager
-        await progress_manager.subscribe(rich_provider)
+        subscriber_id = await progress_manager.subscribe(rich_provider)
 
         async with rich_provider:  # Start progress display
             # Simulate batch processing operation
@@ -360,7 +360,7 @@ class TestProgressSystemExample:
             assert final_operation.duration_seconds > 0
 
         # Cleanup
-        await progress_manager.shutdown()
+        await progress_manager.unsubscribe(subscriber_id)
 
         # Verify system cleaned up properly
         assert progress_manager.subscriber_count == 0

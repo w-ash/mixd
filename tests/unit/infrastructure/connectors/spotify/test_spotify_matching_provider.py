@@ -1,0 +1,340 @@
+"""Tests for SpotifyProvider matching provider.
+
+Tests ISRC matching, artist/title matching, raw match creation,
+and ISRC-to-artist/title fallback behavior.
+"""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from src.domain.entities import Artist, Track
+from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors.spotify.matching_provider import SpotifyProvider
+
+
+def _make_track(
+    track_id: int,
+    title: str = "Test Song",
+    artist: str = "Test Artist",
+    duration_ms: int | None = 240_000,
+    isrc: str | None = None,
+) -> Track:
+    """Create a Track with sensible defaults for testing."""
+    return Track(
+        title=title,
+        artists=[Artist(name=artist)],
+        duration_ms=duration_ms,
+        isrc=isrc,
+    ).with_id(track_id)
+
+
+def _make_spotify_track_model(
+    track_id: str = "sp_123",
+    name: str = "Test Song",
+    artist_name: str = "Test Artist",
+    duration_ms: int = 240_000,
+    isrc: str | None = None,
+) -> MagicMock:
+    """Create a mock SpotifyTrack Pydantic model."""
+    mock = MagicMock()
+    mock.id = track_id
+    mock.name = name
+    mock.model_dump.return_value = {
+        "id": track_id,
+        "name": name,
+        "artists": [{"name": artist_name}],
+        "duration_ms": duration_ms,
+        "album": {"name": "Test Album", "release_date": "2024-01-01"},
+        "popularity": 50,
+        "external_ids": {"isrc": isrc} if isrc else {},
+    }
+    return mock
+
+
+def _make_provider() -> tuple[SpotifyProvider, AsyncMock]:
+    """Create a SpotifyProvider with a mocked connector."""
+    connector = AsyncMock()
+    provider = SpotifyProvider(connector_instance=connector)
+    return provider, connector
+
+
+@pytest.mark.unit
+class TestSpotifyProviderMatchByISRC:
+    """Test ISRC-based matching via Spotify API."""
+
+    @pytest.mark.asyncio
+    async def test_successful_isrc_search_returns_match(self):
+        """Successful ISRC search should produce a match."""
+        provider, connector = _make_provider()
+        track = _make_track(1, isrc="USRC11111111")
+        spotify_result = _make_spotify_track_model(
+            track_id="sp_abc", isrc="USRC11111111"
+        )
+        connector.search_by_isrc.return_value = spotify_result
+
+        matches, failures = await provider._match_by_isrc([track])
+
+        assert 1 in matches
+        assert matches[1]["connector_id"] == "sp_abc"
+        assert matches[1]["match_method"] == "isrc"
+        assert len(failures) == 0
+        connector.search_by_isrc.assert_called_once_with("USRC11111111")
+
+    @pytest.mark.asyncio
+    async def test_no_results_returns_failure(self):
+        """No Spotify results for ISRC should produce NO_RESULTS failure."""
+        provider, connector = _make_provider()
+        track = _make_track(1, isrc="USRC00000000")
+        connector.search_by_isrc.return_value = None
+
+        matches, failures = await provider._match_by_isrc([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.NO_RESULTS
+        assert failures[0].track_id == 1
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_failure(self):
+        """API exception during ISRC search should produce API_ERROR failure."""
+        provider, connector = _make_provider()
+        track = _make_track(1, isrc="USRC11111111")
+        connector.search_by_isrc.side_effect = RuntimeError("Connection timeout")
+
+        matches, failures = await provider._match_by_isrc([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.API_ERROR
+        assert failures[0].exception_type == "RuntimeError"
+
+    @pytest.mark.asyncio
+    async def test_track_without_id_skipped(self):
+        """Tracks without database ID should be silently skipped."""
+        provider, connector = _make_provider()
+        track = Track(
+            title="Song", artists=[Artist(name="Artist")], isrc="USRC11111111"
+        )
+
+        matches, failures = await provider._match_by_isrc([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 0
+
+    @pytest.mark.asyncio
+    async def test_track_without_isrc_returns_no_isrc_failure(self):
+        """Track missing ISRC should produce NO_ISRC failure."""
+        provider, connector = _make_provider()
+        track = _make_track(1, isrc=None)
+
+        matches, failures = await provider._match_by_isrc([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.NO_ISRC
+
+
+@pytest.mark.unit
+class TestSpotifyProviderMatchByArtistTitle:
+    """Test artist/title-based matching via Spotify API."""
+
+    @pytest.mark.asyncio
+    async def test_successful_search_picks_best_candidate(self):
+        """Should pick the candidate with highest title similarity."""
+        provider, connector = _make_provider()
+        track = _make_track(1, title="Karma Police", artist="Radiohead")
+
+        # Return two candidates — exact match and a partial match
+        exact = _make_spotify_track_model(
+            track_id="sp_exact", name="Karma Police", artist_name="Radiohead"
+        )
+        partial = _make_spotify_track_model(
+            track_id="sp_partial", name="Karma Police - Live", artist_name="Radiohead"
+        )
+        connector.search_track.return_value = [partial, exact]
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert 1 in matches
+        assert matches[1]["connector_id"] == "sp_exact"
+        assert matches[1]["match_method"] == "artist_title"
+
+    @pytest.mark.asyncio
+    async def test_no_results_returns_failure(self):
+        """Empty search results should produce NO_RESULTS failure."""
+        provider, connector = _make_provider()
+        track = _make_track(1, title="Obscure Song", artist="Unknown Artist")
+        connector.search_track.return_value = []
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.NO_RESULTS
+
+    @pytest.mark.asyncio
+    async def test_api_error_handled_gracefully(self):
+        """API exception during search should produce API_ERROR failure."""
+        provider, connector = _make_provider()
+        track = _make_track(1)
+        connector.search_track.side_effect = RuntimeError("Rate limited")
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.API_ERROR
+
+    @pytest.mark.asyncio
+    async def test_track_without_metadata_returns_failure(self):
+        """Track without artist or title should produce NO_METADATA failure."""
+        provider, connector = _make_provider()
+        track = Track(title="", artists=[Artist(name="Artist")]).with_id(1)
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert len(matches) == 0
+        assert len(failures) == 1
+        assert failures[0].reason == MatchFailureReason.NO_METADATA
+
+
+@pytest.mark.unit
+class TestSpotifyProviderCreateRawMatch:
+    """Test raw match creation from Spotify API response data."""
+
+    def test_extracts_correct_fields(self):
+        """Should extract all relevant fields from Spotify track data."""
+        provider, _ = _make_provider()
+        spotify_data = {
+            "id": "sp_123",
+            "name": "Test Song",
+            "artists": [{"name": "Artist 1"}, {"name": "Artist 2"}],
+            "duration_ms": 240_000,
+            "album": {"name": "Test Album", "release_date": "2024-01-01"},
+            "popularity": 75,
+            "external_ids": {"isrc": "USRC11111111"},
+        }
+
+        result = provider._create_raw_match(spotify_data, "isrc")
+
+        assert result is not None
+        assert result["connector_id"] == "sp_123"
+        assert result["match_method"] == "isrc"
+        assert result["service_data"]["title"] == "Test Song"
+        assert result["service_data"]["artist"] == "Artist 1"
+        assert result["service_data"]["artists"] == ["Artist 1", "Artist 2"]
+        assert result["service_data"]["duration_ms"] == 240_000
+        assert result["service_data"]["album"] == "Test Album"
+        assert result["service_data"]["isrc"] == "USRC11111111"
+        assert result["service_data"]["popularity"] == 75
+
+    def test_handles_missing_optional_fields(self):
+        """Should handle missing optional fields gracefully."""
+        provider, _ = _make_provider()
+        spotify_data = {
+            "id": "sp_minimal",
+            "name": "Minimal Track",
+            "artists": [],
+            "duration_ms": None,
+        }
+
+        result = provider._create_raw_match(spotify_data, "artist_title")
+
+        assert result is not None
+        assert result["connector_id"] == "sp_minimal"
+        assert result["service_data"]["artist"] == ""
+        assert result["service_data"]["artists"] == []
+        assert result["service_data"]["duration_ms"] is None
+
+    def test_returns_none_on_exception(self):
+        """Should return None if data extraction fails."""
+        provider, _ = _make_provider()
+        # Missing required 'id' key
+        bad_data: dict[str, object] = {"name": "No ID"}
+
+        result = provider._create_raw_match(bad_data, "isrc")
+
+        assert result is None
+
+
+@pytest.mark.unit
+class TestSpotifyProviderISRCFallback:
+    """Test ISRC-to-artist/title fallback behavior (Step 1 fix)."""
+
+    @pytest.mark.asyncio
+    async def test_failed_isrc_tracks_fall_back_to_artist_title(self):
+        """Tracks that fail ISRC matching should be retried via artist/title."""
+        provider, connector = _make_provider()
+
+        # Track has both ISRC and artist/title
+        track = _make_track(
+            1, title="Paranoid Android", artist="Radiohead", isrc="USRC11111111"
+        )
+
+        # ISRC search returns nothing
+        connector.search_by_isrc.return_value = None
+
+        # Artist/title search succeeds
+        fallback_result = _make_spotify_track_model(
+            track_id="sp_fallback", name="Paranoid Android", artist_name="Radiohead"
+        )
+        connector.search_track.return_value = [fallback_result]
+
+        result = await provider.fetch_raw_matches_for_tracks([track])
+
+        assert len(result.matches) == 1
+        assert 1 in result.matches
+        assert result.matches[1]["connector_id"] == "sp_fallback"
+        assert result.matches[1]["match_method"] == "artist_title"
+
+    @pytest.mark.asyncio
+    async def test_successful_isrc_tracks_not_retried(self):
+        """Tracks that succeed via ISRC should NOT be sent to artist/title."""
+        provider, connector = _make_provider()
+
+        track = _make_track(1, title="Song", artist="Artist", isrc="USRC11111111")
+
+        # ISRC search succeeds
+        spotify_result = _make_spotify_track_model(track_id="sp_isrc")
+        connector.search_by_isrc.return_value = spotify_result
+
+        result = await provider.fetch_raw_matches_for_tracks([track])
+
+        assert len(result.matches) == 1
+        assert result.matches[1]["match_method"] == "isrc"
+        connector.search_track.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mixed_isrc_and_non_isrc_tracks(self):
+        """Mixed batch: ISRC success + ISRC failure (fallback) + non-ISRC."""
+        provider, connector = _make_provider()
+
+        track_isrc_success = _make_track(1, title="A", artist="X", isrc="ISRC_OK")
+        track_isrc_fail = _make_track(2, title="B", artist="Y", isrc="ISRC_FAIL")
+        track_no_isrc = _make_track(3, title="C", artist="Z")
+
+        # ISRC: track 1 succeeds, track 2 fails
+        async def isrc_side_effect(isrc: str):
+            if isrc == "ISRC_OK":
+                return _make_spotify_track_model(track_id="sp_1")
+            return None
+
+        connector.search_by_isrc.side_effect = isrc_side_effect
+
+        # Artist/title: tracks 2 and 3 succeed
+        async def search_side_effect(artist: str, title: str):
+            return [_make_spotify_track_model(track_id=f"sp_{title}", name=title)]
+
+        connector.search_track.side_effect = search_side_effect
+
+        result = await provider.fetch_raw_matches_for_tracks([
+            track_isrc_success,
+            track_isrc_fail,
+            track_no_isrc,
+        ])
+
+        assert len(result.matches) == 3
+        assert result.matches[1]["match_method"] == "isrc"
+        assert result.matches[2]["match_method"] == "artist_title"
+        assert result.matches[3]["match_method"] == "artist_title"

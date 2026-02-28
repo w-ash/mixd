@@ -89,10 +89,6 @@ class ConfidenceEvidence:
         }
 
 
-# Type aliases for clarity (defined before use)
-TracksById = dict[int, Track]
-
-
 @define(frozen=True, slots=True)
 class MatchResult:
     """Result of track identity resolution with clean separation of concerns.

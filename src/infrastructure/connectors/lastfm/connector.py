@@ -1,18 +1,9 @@
-"""Last.fm connector facade - Maintains backward compatibility.
+"""Last.fm connector facade.
 
-This module provides the main LastFMConnector class that implements the
-BaseAPIConnector protocol while delegating to modular components. It maintains
-the same public interface as the original monolithic connector to ensure
-backward compatibility across the codebase.
-
-Key components:
-- LastFMConnector: Main facade implementing connector protocols
-- Delegates to LastFMAPIClient, LastFMOperations, and conversion utilities
-- Maintains exact same public methods and signatures
-- Handles configuration, metrics registration, and protocol compliance
-
-The facade pattern allows the rest of the codebase to use LastFMConnector
-without changes while benefiting from the new modular architecture underneath.
+Provides the main LastFMConnector class that implements the BaseAPIConnector
+protocol while delegating to modular components. The facade pattern keeps a
+single public interface while the internal implementation is split across
+LastFMAPIClient, LastFMOperations, and conversion utilities.
 """
 
 from datetime import datetime
@@ -83,7 +74,11 @@ class LastFMConnector(BaseAPIConnector):
 
         return lastfm_config.get(key, base_config)
 
-    # Public API Methods (maintained for backward compatibility)
+    async def aclose(self) -> None:
+        """Close underlying API client."""
+        await self._client.aclose()
+
+    # Public API Methods
 
     async def get_track_info_by_mbid(self, mbid: str) -> LastFMTrackInfo:
         """Get comprehensive track information by MusicBrainz ID."""

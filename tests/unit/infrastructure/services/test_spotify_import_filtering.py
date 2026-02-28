@@ -7,7 +7,9 @@ listens and skips/partial plays.
 
 import pytest
 
-from src.infrastructure.connectors.spotify.utilities import should_include_play
+from src.infrastructure.connectors.spotify.play_resolver import (
+    should_include_spotify_play as should_include_play,
+)
 
 
 @pytest.mark.unit

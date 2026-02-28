@@ -7,7 +7,7 @@ recovery, and database session management for long-running playlist operations.
 """
 
 import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any
 
 from prefect import flow, tags, task
 from prefect.cache_policies import NONE
@@ -16,7 +16,7 @@ from prefect.logging import get_run_logger
 # Use Narada's standard logger for module-level logging; Prefect tasks use get_run_logger()
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config.logging import get_logger
-from src.domain.entities.operations import WorkflowResult
+from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressStatus,
@@ -32,14 +32,6 @@ logger = get_logger(__name__)
 # --- Progress tracking integration ---
 
 # --- Node execution ---
-
-
-class TaskResult(TypedDict):
-    """Prefect task execution result structure."""
-
-    success: bool
-    result: Any
-    error: NotRequired[str]
 
 
 @task(
@@ -205,7 +197,6 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
                 "parameters": parameters,
                 "use_cases": workflow_context.use_cases,  # Database operations and business logic
                 "connectors": workflow_context.connectors,
-                "config": workflow_context.config,
                 "logger": workflow_context.logger,
                 "session_provider": shared_session_provider,  # Use shared session
                 "shared_session": shared_session,  # Direct access for nodes that need it
@@ -319,7 +310,7 @@ def extract_workflow_result(
     task_results: dict[str, NodeResult],
     flow_run_name: str,
     execution_time: float,
-) -> WorkflowResult:
+) -> OperationResult:
     """Extracts final tracklist and aggregates metrics from all workflow tasks.
 
     Finds the destination task (playlist creation/update) to get the final filtered
@@ -365,7 +356,7 @@ def extract_workflow_result(
 
     all_metrics = _aggregate_workflow_metrics(task_results)
 
-    return WorkflowResult(
+    return OperationResult(
         tracks=final_tracks,
         metrics=all_metrics,
         operation_name=workflow_def.get("name", flow_run_name),
@@ -379,7 +370,7 @@ async def run_workflow(
     workflow_def: dict[str, Any],
     progress_manager: AsyncProgressManager | None = None,
     **parameters: object,
-) -> tuple[dict[str, Any], WorkflowResult]:
+) -> tuple[dict[str, Any], OperationResult]:
     """Executes complete playlist workflow from JSON definition to final result.
 
     Main entry point for workflow execution. Builds Prefect flow from definition,

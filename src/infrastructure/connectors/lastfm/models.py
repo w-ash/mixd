@@ -45,6 +45,12 @@ class LastFMBaseModel(BaseModel):
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
+    @field_validator("mbid", mode="before", check_fields=False)
+    @classmethod
+    def empty_mbid_to_none(cls, v: str | None) -> str | None:
+        """Last.fm sends "" for missing MBIDs — coerce to None at the boundary."""
+        return v or None
+
 
 class LastFMNamedModel(BaseModel):
     """Base model for Last.fm models that use field aliases (populate_by_name=True)."""
@@ -52,6 +58,12 @@ class LastFMNamedModel(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(
         extra="ignore", populate_by_name=True
     )
+
+    @field_validator("mbid", mode="before", check_fields=False)
+    @classmethod
+    def empty_mbid_to_none(cls, v: str | None) -> str | None:
+        """Last.fm sends "" for missing MBIDs — coerce to None at the boundary."""
+        return v or None
 
 
 class LastFMArtist(LastFMNamedModel):
@@ -191,8 +203,4 @@ class LastFMTrackInfoData(LastFMBaseModel):
         except ValueError, TypeError:
             return None
 
-    @field_validator("mbid", mode="before")
-    @classmethod
-    def empty_mbid_to_none(cls, v: str | None) -> str | None:
-        """Last.fm sends "" for missing MBIDs."""
-        return v or None
+    # mbid coercion inherited from LastFMBaseModel

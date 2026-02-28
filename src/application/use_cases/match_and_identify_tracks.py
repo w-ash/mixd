@@ -20,6 +20,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 
 # Note: TrackMappingService and spotify_track_lookup removed - redundant with SpotifyConnector behavior
 
+
 logger = get_logger(__name__)
 
 
@@ -37,7 +38,7 @@ class MatchAndIdentifyTracksCommand:
 
     tracklist: TrackList
     connector: str
-    connector_instance: Any
+    connector_instance: Any  # ServiceConnectorProvider.get_connector() returns Any
     max_age_hours: float | None = None
     additional_options: dict[str, Any] = field(factory=dict)
 

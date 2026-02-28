@@ -21,7 +21,6 @@ Example usage:
 
 from typing import Any
 
-import attrs
 from attrs import Attribute
 
 from src.config.constants import BusinessLimits
@@ -58,21 +57,6 @@ def non_empty_string(_instance: Any, attribute: Attribute[Any], value: str) -> N
     """
     if not value or not value.strip():
         raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")
-
-
-def non_empty_list(_instance: Any, attribute: Attribute[Any], value: list[Any]) -> None:
-    """Validates that a list field is non-empty.
-
-    Args:
-        instance: The attrs instance being validated
-        attribute: The field attribute being validated
-        value: The list value to validate
-
-    Raises:
-        ValueError: If the list is empty
-    """
-    if not value:
-        raise ValueError(f"{attribute.name} must be a non-empty list")
 
 
 def positive_int_in_range(
@@ -220,65 +204,3 @@ def api_batch_size_validator(
             )
 
     return validator
-
-
-# Convenience validators using attrs.validators combinators
-def and_(*validators: Any) -> Any:
-    """Combines multiple validators with AND logic.
-
-    All validators must pass for validation to succeed.
-
-    Args:
-        *validators: Variable number of validator functions
-
-    Returns:
-        Combined validator function
-
-    Example:
-        ```python
-        @define
-        class Command:
-            id: str = field(
-                validator=and_(attrs.validators.instance_of(str), non_empty_string)
-            )
-        ```
-    """
-    return attrs.validators.and_(*validators)
-
-
-def optional(validator: Any) -> Any:
-    """Makes a validator optional (allows None).
-
-    Args:
-        validator: The validator to make optional
-
-    Returns:
-        Optional validator that allows None
-
-    Example:
-        ```python
-        @define
-        class Command:
-            description: str | None = field(validator=optional(non_empty_string))
-        ```
-    """
-    return attrs.validators.optional(validator)
-
-
-def instance_of(type_: type) -> Any:
-    """Validates that a field is an instance of a specific type.
-
-    Args:
-        type_: The expected type
-
-    Returns:
-        Instance validator
-
-    Example:
-        ```python
-        @define
-        class Command:
-            tracklist: TrackList = field(validator=instance_of(TrackList))
-        ```
-    """
-    return attrs.validators.instance_of(type_)  # pyright: ignore[reportUnknownVariableType]

@@ -138,22 +138,6 @@ class Playlist:
         """Create new playlist with updated entries."""
         return evolve(self, entries=entries)
 
-    def sort_by_added_at(self, reverse: bool = False) -> Self:
-        """Sort playlist entries by when tracks were added.
-
-        Args:
-            reverse: If True, newest first. If False, oldest first.
-
-        Returns:
-            New Playlist with sorted entries
-        """
-        sorted_entries = sorted(
-            self.entries,
-            key=lambda e: e.added_at or datetime.min.replace(tzinfo=UTC),
-            reverse=reverse,
-        )
-        return self.with_entries(sorted_entries)
-
     def with_connector_playlist_id(
         self,
         connector: str,
@@ -197,29 +181,6 @@ class Playlist:
             New Playlist with updated metadata
         """
         return evolve(self, metadata=metadata)
-
-    def get_metadata(self, key: str, default: Any = None) -> Any:
-        """Get metadata value with optional default.
-
-        Args:
-            key: Metadata key to retrieve
-            default: Default value if key doesn't exist
-
-        Returns:
-            Metadata value or default
-        """
-        return self.metadata.get(key, default)
-
-    def has_metadata(self, key: str) -> bool:
-        """Check if metadata key exists.
-
-        Args:
-            key: Metadata key to check
-
-        Returns:
-            True if key exists in metadata
-        """
-        return key in self.metadata
 
 
 @define(frozen=True, slots=True)

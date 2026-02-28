@@ -12,14 +12,12 @@ from attrs import define
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 
-from .protocols import ConnectorProvider, NodeResult, UseCaseProvider, WorkflowContext
+from .protocols import NodeResult, UseCaseProvider, WorkflowContext
 
 logger = get_logger(__name__)
 
 # Domain types
 type TaskID = str
-type DataPath = str | list[str]
-type ContextData = dict[str, Any]
 
 
 @define(frozen=True, slots=True)
@@ -116,14 +114,14 @@ class NodeContext:
             raise ValueError("Use case provider not found in context")
         return use_cases
 
-    def get_connector(self, connector_name: str) -> ConnectorProvider:
+    def get_connector(self, connector_name: str) -> Any:
         """Get connector instance with validation.
 
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
 
         Returns:
-            ConnectorProvider instance
+            Connector instance (service-specific, heterogeneous interfaces)
 
         Raises:
             ValueError: If connector registry or specific connector not found

@@ -19,7 +19,11 @@ from src.domain.repositories.interfaces import (
     PlaysRepositoryProtocol,
     UnitOfWorkProtocol,
 )
-from src.domain.results import ImportResultData, ResultFactory
+from src.domain.results import (
+    ImportResultData,
+    create_error_result,
+    create_import_result,
+)
 
 logger = get_logger(__name__)
 
@@ -241,12 +245,11 @@ class BasePlayImporter(ABC):
         except Exception as e:
             # Standardized error handling with full exception details
             error_msg = f"{self.operation_name} failed: {e}"
-            logger.error(
+            logger.opt(exception=True).error(
                 error_msg,
                 batch_id=batch_id,
                 error=str(e),
                 error_type=type(e).__name__,
-                exc_info=True,  # Include full traceback
             )
 
             await progress_emitter.complete_operation(
@@ -425,8 +428,6 @@ class BasePlayImporter(ABC):
         Returns:
             OperationResult indicating successful import with statistics.
         """
-        from src.domain.results import ImportResultData, ResultFactory
-
         # Create base import data structure
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
@@ -439,7 +440,7 @@ class BasePlayImporter(ABC):
         # Allow subclasses to enrich with service-specific statistics
         enriched_data = self._enrich_import_data(import_data, raw_data, processed_data)
 
-        return ResultFactory.create_import_result(
+        return create_import_result(
             operation_name=self.operation_name,
             import_data=enriched_data,
         )
@@ -481,7 +482,7 @@ class BasePlayImporter(ABC):
             imported_count=0,
             batch_id=batch_id,
         )
-        return ResultFactory.create_import_result(
+        return create_import_result(
             operation_name=self.operation_name,
             import_data=import_data,
         )
@@ -496,7 +497,7 @@ class BasePlayImporter(ABC):
         Returns:
             OperationResult indicating import failure with error details.
         """
-        return ResultFactory.create_error_result(
+        return create_error_result(
             operation_name=self.operation_name,
             error_message=error_msg,
             batch_id=batch_id,

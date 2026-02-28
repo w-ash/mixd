@@ -8,10 +8,12 @@ This replaces the business logic previously scattered across:
 - Infrastructure components that were incorrectly making business decisions
 """
 
-from src.config import settings
+from src.config import get_logger, settings
 from src.domain.entities import Track
 from src.domain.matching.algorithms import calculate_confidence
 from src.domain.matching.types import MatchResult, MatchResultsById, RawProviderMatch
+
+logger = get_logger(__name__)
 
 
 class TrackMatchEvaluationService:
@@ -141,10 +143,6 @@ class TrackMatchEvaluationService:
                 results[track.id] = match_result
             else:
                 # Log rejected matches with key details for debugging
-                from src.config import get_logger
-
-                logger = get_logger(__name__)
-
                 # Get threshold from configuration
                 if match_result.match_method == "isrc":
                     threshold = settings.matching.threshold_isrc
@@ -166,10 +164,6 @@ class TrackMatchEvaluationService:
                 )
 
         # Log evaluation summary with contextual insights
-        from src.config import get_logger
-
-        logger = get_logger(__name__)
-
         total_tracks = len(tracks)
         raw_matches_found = len(raw_matches)
         accepted_matches = len(results)
@@ -201,48 +195,3 @@ class TrackMatchEvaluationService:
             )
 
         return results
-
-    def get_connector_threshold(self, connector: str) -> int:
-        """Get confidence threshold for a specific connector.
-
-        Business rule that may vary by connector based on data quality expectations.
-
-        Args:
-            connector: Name of external service
-
-        Returns:
-            Minimum confidence threshold for accepting matches
-        """
-        # Get connector-specific thresholds from configuration
-        thresholds = {
-            "spotify": settings.matching.threshold_spotify,
-            "lastfm": settings.matching.threshold_lastfm,
-            "musicbrainz": settings.matching.threshold_musicbrainz,
-        }
-        return thresholds.get(connector, settings.matching.threshold_default)
-
-    def get_supported_match_methods(self) -> list[str]:
-        """Get list of supported match methods with business priority order.
-
-        Returns:
-            List of match methods in order of business preference (highest confidence first)
-        """
-        return ["isrc", "mbid", "artist_title"]
-
-    def get_match_method_priority(self, match_method: str) -> int:
-        """Get business priority score for a match method.
-
-        Used when multiple match methods are available to choose the best one.
-
-        Args:
-            match_method: Method used for matching
-
-        Returns:
-            Priority score (higher is better)
-        """
-        priorities = {
-            "isrc": 100,  # Highest priority - ISRC is authoritative
-            "mbid": 90,  # High priority - MusicBrainz is reliable
-            "artist_title": 70,  # Lower priority - fuzzy matching
-        }
-        return priorities.get(match_method, 0)

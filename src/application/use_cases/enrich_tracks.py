@@ -14,6 +14,7 @@ from attrs import define, field
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+from src.application.workflows.protocols import TrackMetadataConnector
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
@@ -37,7 +38,7 @@ class EnrichmentConfig:
 
     # External metadata enrichment options
     connector: ConnectorType | None = None
-    connector_instance: Any = None
+    connector_instance: TrackMetadataConnector | None = None
     track_metric_names: list[str] = field(factory=list)
 
     # Play history enrichment options
@@ -136,89 +137,90 @@ class EnrichTracksUseCase:
 
         start_time = time.time()
 
-        with logger.contextualize(
-            operation="enrich_tracks_use_case",
-            enrichment_type=command.enrichment_config.enrichment_type,
-            track_count=len(command.tracklist.tracks),
-        ):
-            logger.info(
-                f"Starting {command.enrichment_config.enrichment_type} enrichment "
-                + f"for {len(command.tracklist.tracks)} tracks"
-            )
-
-            # Validate tracks have database IDs (required for enrichment)
-            valid_tracks = [t for t in command.tracklist.tracks if t.id is not None]
-            if not valid_tracks:
-                logger.warning("No tracks with database IDs - unable to enrich")
-                execution_time_ms = int((time.time() - start_time) * 1000)
-                return EnrichTracksResult(
-                    enriched_tracklist=command.tracklist,
-                    metrics_added={},
-                    track_count=len(command.tracklist.tracks),
-                    enriched_count=0,
-                    execution_time_ms=execution_time_ms,
-                    errors=["No tracks with database IDs available for enrichment"],
-                )
-
-            # Filter out tracks without IDs and log the discrepancy
-            filtered_count = len(command.tracklist.tracks) - len(valid_tracks)
-            if filtered_count > 0:
+        async with uow:
+            with logger.contextualize(
+                operation="enrich_tracks_use_case",
+                enrichment_type=command.enrichment_config.enrichment_type,
+                track_count=len(command.tracklist.tracks),
+            ):
                 logger.info(
-                    f"Filtered out {filtered_count} tracks without database IDs"
+                    f"Starting {command.enrichment_config.enrichment_type} enrichment "
+                    + f"for {len(command.tracklist.tracks)} tracks"
                 )
 
-            def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
-                raise ValueError(f"Unknown enrichment type: {enrichment_type}")
-
-            # Create filtered tracklist for processing
-            filtered_tracklist = TrackList(
-                tracks=valid_tracks, metadata=command.tracklist.metadata
-            )
-
-            try:
-                # Delegate to appropriate enrichment strategy
-                if command.enrichment_config.enrichment_type == "external_metadata":
-                    result = await self._enrich_external_metadata(
-                        filtered_tracklist, command.enrichment_config, uow
-                    )
-                elif command.enrichment_config.enrichment_type == "play_history":
-                    result = await self._enrich_play_history(
-                        filtered_tracklist, command.enrichment_config, uow
-                    )
-                else:
-                    _raise_unknown_enrichment_type_error(
-                        command.enrichment_config.enrichment_type
+                # Validate tracks have database IDs (required for enrichment)
+                valid_tracks = [t for t in command.tracklist.tracks if t.id is not None]
+                if not valid_tracks:
+                    logger.warning("No tracks with database IDs - unable to enrich")
+                    execution_time_ms = int((time.time() - start_time) * 1000)
+                    return EnrichTracksResult(
+                        enriched_tracklist=command.tracklist,
+                        metrics_added={},
+                        track_count=len(command.tracklist.tracks),
+                        enriched_count=0,
+                        execution_time_ms=execution_time_ms,
+                        errors=["No tracks with database IDs available for enrichment"],
                     )
 
-                execution_time_ms = int((time.time() - start_time) * 1000)
-                enriched_count = sum(len(metrics) for metrics in result[1].values())
+                # Filter out tracks without IDs and log the discrepancy
+                filtered_count = len(command.tracklist.tracks) - len(valid_tracks)
+                if filtered_count > 0:
+                    logger.info(
+                        f"Filtered out {filtered_count} tracks without database IDs"
+                    )
 
-                logger.info(
-                    f"Successfully enriched tracks with {enriched_count} total metric values"
+                def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
+                    raise ValueError(f"Unknown enrichment type: {enrichment_type}")
+
+                # Create filtered tracklist for processing
+                filtered_tracklist = TrackList(
+                    tracks=valid_tracks, metadata=command.tracklist.metadata
                 )
 
-                return EnrichTracksResult(
-                    enriched_tracklist=result[0],
-                    metrics_added=result[1],
-                    track_count=len(command.tracklist.tracks),
-                    enriched_count=enriched_count,
-                    execution_time_ms=execution_time_ms,
-                    errors=[],
-                )
+                try:
+                    # Delegate to appropriate enrichment strategy
+                    if command.enrichment_config.enrichment_type == "external_metadata":
+                        result = await self._enrich_external_metadata(
+                            filtered_tracklist, command.enrichment_config, uow
+                        )
+                    elif command.enrichment_config.enrichment_type == "play_history":
+                        result = await self._enrich_play_history(
+                            filtered_tracklist, command.enrichment_config, uow
+                        )
+                    else:
+                        _raise_unknown_enrichment_type_error(
+                            command.enrichment_config.enrichment_type
+                        )
 
-            except Exception as e:
-                execution_time_ms = int((time.time() - start_time) * 1000)
-                error_msg = f"Track enrichment failed: {e}"
-                logger.error(error_msg)
+                    execution_time_ms = int((time.time() - start_time) * 1000)
+                    enriched_count = sum(len(metrics) for metrics in result[1].values())
 
-                return EnrichTracksResult(
-                    enriched_tracklist=command.tracklist,
-                    metrics_added={},
-                    track_count=len(command.tracklist.tracks),
-                    enriched_count=0,
-                    execution_time_ms=execution_time_ms,
-                    errors=[error_msg],
-                )
+                    logger.info(
+                        f"Successfully enriched tracks with {enriched_count} total metric values"
+                    )
+
+                    return EnrichTracksResult(
+                        enriched_tracklist=result[0],
+                        metrics_added=result[1],
+                        track_count=len(command.tracklist.tracks),
+                        enriched_count=enriched_count,
+                        execution_time_ms=execution_time_ms,
+                        errors=[],
+                    )
+
+                except Exception as e:
+                    execution_time_ms = int((time.time() - start_time) * 1000)
+                    error_msg = f"Track enrichment failed: {e}"
+                    logger.error(error_msg)
+
+                    return EnrichTracksResult(
+                        enriched_tracklist=command.tracklist,
+                        metrics_added={},
+                        track_count=len(command.tracklist.tracks),
+                        enriched_count=0,
+                        execution_time_ms=execution_time_ms,
+                        errors=[error_msg],
+                    )
 
     async def _enrich_external_metadata(
         self, tracklist: TrackList, config: EnrichmentConfig, uow: UnitOfWorkProtocol
@@ -242,6 +244,10 @@ class EnrichTracksUseCase:
         if config.connector is None:
             raise ValueError(
                 "Connector must be specified for external metadata enrichment"
+            )
+        if config.connector_instance is None:
+            raise ValueError(
+                "Connector instance must be provided for external metadata enrichment"
             )
 
         # Get track metric names directly from configuration
@@ -361,7 +367,7 @@ class EnrichTracksUseCase:
         self,
         tracklist: TrackList,
         connector: str,
-        connector_instance: Any,
+        connector_instance: TrackMetadataConnector,
         uow: UnitOfWorkProtocol,
     ) -> None:
         """Ensure tracks have connector mappings by coordinating with the identity resolution system.

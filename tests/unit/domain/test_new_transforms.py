@@ -49,7 +49,7 @@ class TestReverseTransform:
 class TestFilterByDuration:
     def test_min_duration(self):
         tracks = [
-            _make_track(1, duration_ms=30_000),   # 30s
+            _make_track(1, duration_ms=30_000),  # 30s
             _make_track(2, duration_ms=120_000),  # 2min
             _make_track(3, duration_ms=300_000),  # 5min
         ]
@@ -95,7 +95,10 @@ class TestFilterByDuration:
         assert [t.id for t in result.tracks] == [1, 2]
 
     def test_no_constraints_keeps_all(self):
-        tracks = [_make_track(1, duration_ms=30_000), _make_track(2, duration_ms=600_000)]
+        tracks = [
+            _make_track(1, duration_ms=30_000),
+            _make_track(2, duration_ms=600_000),
+        ]
         result = filter_by_duration(tracklist=TrackList(tracks=tracks))
         assert len(result.tracks) == 2
 
@@ -104,7 +107,7 @@ class TestFilterByDuration:
 class TestFilterByLikedStatus:
     def _liked_track(self, id: int, service: str = "spotify") -> Track:
         track = _make_track(id)
-        return track.with_like_status(service, is_liked=True)
+        return track.with_connector_metadata(service, {"is_liked": True})
 
     def _unliked_track(self, id: int) -> Track:
         return _make_track(id)
@@ -191,13 +194,17 @@ class TestSelectByPercentage:
 
     def test_minimum_one_track(self):
         tracks = [_make_track(i) for i in range(1, 101)]  # 100 tracks
-        result = select_by_percentage(percentage=0.1, tracklist=TrackList(tracks=tracks))
+        result = select_by_percentage(
+            percentage=0.1, tracklist=TrackList(tracks=tracks)
+        )
         # 100 * 0.001 = 0.1 -> max(1, round(0.1)) = 1
         assert len(result.tracks) >= 1
 
     def test_100_percent(self):
         tracks = [_make_track(i) for i in range(1, 6)]
-        result = select_by_percentage(percentage=100, tracklist=TrackList(tracks=tracks))
+        result = select_by_percentage(
+            percentage=100, tracklist=TrackList(tracks=tracks)
+        )
         assert len(result.tracks) == 5
 
     def test_method_last(self):

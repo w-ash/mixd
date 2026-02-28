@@ -47,6 +47,24 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         return await self.find_by(conditions)
 
+    @db_operation("get_liked_status_batch")
+    async def get_liked_status_batch(
+        self,
+        track_ids: list[int],
+        services: list[str],
+    ) -> dict[int, dict[str, bool]]:
+        """Check like status for multiple tracks across services in 1 query."""
+        if not track_ids:
+            return {}
+        likes = await self.find_by([
+            self.model_class.track_id.in_(track_ids),
+            self.model_class.service.in_(services),
+        ])
+        result: dict[int, dict[str, bool]] = {}
+        for like in likes:
+            result.setdefault(like.track_id, {})[like.service] = like.is_liked
+        return result
+
     @db_operation("get_all_liked_tracks")
     async def get_all_liked_tracks(
         self,
@@ -140,18 +158,21 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         service: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
+        liked_at: datetime | None = None,
     ) -> TrackLike:
         """Save a track like for a service."""
         now = datetime.now(UTC)
 
         # Prepare new values
-        update_values = {
+        update_values: dict[str, object] = {
             "is_liked": is_liked,
             "updated_at": now,
         }
 
         if is_liked:
-            update_values["liked_at"] = now
+            update_values["liked_at"] = liked_at or now
+        else:
+            update_values["liked_at"] = None  # Clear on unlike
 
         if last_synced:
             update_values["last_synced"] = last_synced
@@ -161,3 +182,41 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             lookup_attrs={"track_id": track_id, "service": service},
             create_attrs=update_values,
         )
+
+    @db_operation("save_track_likes_batch")
+    async def save_track_likes_batch(
+        self,
+        likes: list[tuple[int, str, bool, datetime | None, datetime | None]],
+    ) -> list[TrackLike]:
+        """Save multiple track likes in bulk.
+
+        Args:
+            likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+
+        Returns:
+            List of saved TrackLike domain objects.
+        """
+        now = datetime.now(UTC)
+        entities: list[dict[str, object]] = []
+
+        for track_id, service, is_liked, last_synced, liked_at in likes:
+            entity: dict[str, object] = {
+                "track_id": track_id,
+                "service": service,
+                "is_liked": is_liked,
+                "updated_at": now,
+                "liked_at": (liked_at or now) if is_liked else None,
+            }
+            if last_synced:
+                entity["last_synced"] = last_synced
+            entities.append(entity)
+
+        if not entities:
+            return []
+
+        result = await self.bulk_upsert(
+            entities=entities,
+            lookup_keys=["track_id", "service"],
+        )
+        # bulk_upsert returns list[TDomainModel] when return_models=True (default)
+        return result if isinstance(result, list) else []

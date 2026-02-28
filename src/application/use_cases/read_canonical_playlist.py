@@ -10,6 +10,7 @@ from typing import Any
 from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
+from src.application.use_cases._shared.playlist_resolver import resolve_playlist
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -97,7 +98,12 @@ class ReadCanonicalPlaylistUseCase:
 
         async with uow:
             try:
-                playlist = await self._get_playlist(command, uow)
+                playlist = await resolve_playlist(
+                    command.playlist_id,
+                    uow,
+                    connector=command.connector or "spotify",
+                    raise_if_not_found=False,
+                )
 
                 # Calculate execution metrics
                 execution_time = int(
@@ -133,36 +139,3 @@ class ReadCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
-
-    async def _get_playlist(
-        self, command: ReadCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
-    ) -> Playlist | None:
-        """Queries database for playlist by ID, trying internal ID then external ID.
-
-        First attempts to parse playlist_id as integer for internal database lookup.
-        If that fails, treats it as external service ID and queries by connector.
-
-        Args:
-            command: Contains playlist_id and optional connector name
-            uow: Database transaction handler for repository access
-
-        Returns:
-            Playlist | None: The requested playlist with tracks and metadata, or None if not found
-        """
-        playlist_repo = uow.get_playlist_repository()
-
-        try:
-            # Try to get by internal ID first
-            playlist = await playlist_repo.get_playlist_by_id(int(command.playlist_id))
-        except ValueError:
-            # If not an integer, try as connector ID
-            connector_name = (
-                command.connector or "spotify"
-            )  # Default for backward compatibility
-
-            playlist = await playlist_repo.get_playlist_by_connector(
-                connector_name, command.playlist_id, raise_if_not_found=False
-            )
-            return playlist
-        else:
-            return playlist

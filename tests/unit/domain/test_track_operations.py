@@ -8,6 +8,15 @@ from datetime import UTC, datetime
 
 import pytest
 
+from src.domain.entities import (
+    OperationResult,
+    PlayRecord,
+    SyncCheckpoint,
+    TrackContextFields,
+    TrackPlay,
+    create_lastfm_play_record,
+    ensure_utc,
+)
 from src.domain.entities.track import (
     Artist,
     ConnectorTrackMapping,
@@ -85,24 +94,6 @@ class TestTrackEntity:
 
         with pytest.raises(ValueError, match="Invalid database ID"):
             track.with_id(-1)
-
-    def test_track_like_status_operations(self):
-        """Test like status business logic."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
-        timestamp = datetime.now(UTC)
-
-        # Add like status
-        liked_track = track.with_like_status("spotify", True, timestamp)
-
-        # Check like status
-        assert liked_track.is_liked_on("spotify") is True
-        assert liked_track.is_liked_on("lastfm") is False
-        assert liked_track.get_liked_timestamp("spotify") == timestamp
-        assert liked_track.get_liked_timestamp("lastfm") is None
-
-        # Remove like status
-        unliked_track = liked_track.with_like_status("spotify", False)
-        assert unliked_track.is_liked_on("spotify") is False
 
     def test_track_connector_metadata_operations(self):
         """Test connector metadata business logic."""
@@ -263,3 +254,166 @@ class TestConnectorTrackMappingEntity:
                     match_method="isrc",
                     confidence=invalid_confidence,
                 )
+
+
+@pytest.mark.unit
+class TestSyncCheckpoint:
+    """Test SyncCheckpoint entity behavior."""
+
+    def test_sync_checkpoint_creation_and_update(self):
+        """Test SyncCheckpoint creation and immutable updates."""
+        checkpoint = SyncCheckpoint(
+            user_id="user123", service="spotify", entity_type="likes"
+        )
+
+        assert checkpoint.user_id == "user123"
+        assert checkpoint.service == "spotify"
+        assert checkpoint.entity_type == "likes"
+
+        # Test update returns new instance
+        timestamp = datetime.now(UTC)
+        updated = checkpoint.with_update(timestamp, "cursor123")
+        assert updated.last_timestamp == timestamp
+        assert updated.cursor == "cursor123"
+        assert checkpoint.last_timestamp is None  # Original unchanged
+
+
+@pytest.mark.unit
+class TestPlayRecord:
+    """Test PlayRecord and factory functions."""
+
+    def test_play_record_creation(self):
+        """Test PlayRecord creation with all fields."""
+        played_at = datetime.now(UTC)
+        record = PlayRecord(
+            artist_name="Artist",
+            track_name="Song",
+            played_at=played_at,
+            service="spotify",
+            album_name="Album",
+            ms_played=240000,
+        )
+
+        assert record.artist_name == "Artist"
+        assert record.track_name == "Song"
+        assert record.played_at == played_at
+        assert record.service == "spotify"
+        assert record.album_name == "Album"
+        assert record.ms_played == 240000
+
+    def test_create_lastfm_play_record(self):
+        """Test LastFM play record creation factory function."""
+        scrobbled_at = datetime.now(UTC)
+        record = create_lastfm_play_record(
+            artist_name="Artist",
+            track_name="Song",
+            scrobbled_at=scrobbled_at,
+            album_name="Album",
+            lastfm_track_url="https://last.fm/track/123",
+            mbid="123-456-789",
+            loved=True,
+        )
+
+        assert record.artist_name == "Artist"
+        assert record.track_name == "Song"
+        assert record.played_at == scrobbled_at
+        assert record.service == "lastfm"
+        assert record.album_name == "Album"
+        assert (
+            record.service_metadata[TrackContextFields.LASTFM_TRACK_URL]
+            == "https://last.fm/track/123"
+        )
+        assert record.service_metadata["mbid"] == "123-456-789"
+        assert record.service_metadata["loved"] is True
+
+
+@pytest.mark.unit
+class TestTrackPlayEntity:
+    """Test TrackPlay entity behavior."""
+
+    def test_track_play_metadata_extraction(self):
+        """Test TrackPlay metadata extraction."""
+        context = {
+            TrackContextFields.TRACK_NAME: "Song Title",
+            TrackContextFields.ARTIST_NAME: "Artist Name",
+            TrackContextFields.ALBUM_NAME: "Album Name",
+        }
+
+        track_play = TrackPlay(
+            track_id=123,
+            service="spotify",
+            played_at=datetime.now(UTC),
+            ms_played=240000,
+            context=context,
+        )
+
+        metadata = track_play.to_track_metadata()
+        assert metadata["title"] == "Song Title"
+        assert metadata["artist"] == "Artist Name"
+        assert metadata["album"] == "Album Name"
+        assert metadata["duration_ms"] == 240000
+
+    def test_track_play_to_track(self):
+        """Test converting TrackPlay to Track."""
+        context = {
+            TrackContextFields.TRACK_NAME: "Song Title",
+            TrackContextFields.ARTIST_NAME: "Artist Name",
+            TrackContextFields.ALBUM_NAME: "Album Name",
+        }
+
+        track_play = TrackPlay(
+            track_id=123,
+            service="spotify",
+            played_at=datetime.now(UTC),
+            ms_played=240000,
+            context=context,
+        )
+
+        track = track_play.to_track()
+        assert track.title == "Song Title"
+        assert track.artists[0].name == "Artist Name"
+        assert track.album == "Album Name"
+        assert track.duration_ms == 240000
+        assert track.id == 123
+
+
+@pytest.mark.unit
+class TestOperationResultEntity:
+    """Test OperationResult behavior."""
+
+    def test_operation_result_per_track_metrics(self):
+        """Test OperationResult per-track metric access."""
+        artist = Artist(name="Artist")
+        tracks = [
+            Track(title="Song 1", artists=[artist]).with_id(1),
+            Track(title="Song 2", artists=[artist]).with_id(2),
+        ]
+
+        result = OperationResult(
+            tracks=tracks, operation_name="test_operation", execution_time=1.5
+        )
+
+        result.metrics["status"] = {1: "processed", 2: "processed"}
+        assert result.get_metric(1, "status") == "processed"
+        assert result.get_metric(3, "status", "not_found") == "not_found"
+
+
+@pytest.mark.unit
+class TestEnsureUtc:
+    """Test UTC timezone enforcement utility."""
+
+    def test_ensure_utc_none_input(self):
+        """Test None passes through."""
+        assert ensure_utc(None) is None
+
+    def test_ensure_utc_naive_datetime(self):
+        """Test naive datetime is converted to UTC."""
+        naive_dt = datetime(2023, 1, 1, 12, 0, 0, tzinfo=None)  # noqa: DTZ001
+        utc_dt = ensure_utc(naive_dt)
+        assert utc_dt.tzinfo == UTC
+
+    def test_ensure_utc_already_utc(self):
+        """Test already-UTC datetime passes through unchanged."""
+        already_utc = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
+        result = ensure_utc(already_utc)
+        assert result == already_utc

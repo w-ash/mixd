@@ -54,7 +54,10 @@ class TestTransformRegistry:
         """Selector category contains expected operations."""
         from src.application.workflows.transform_registry import TRANSFORM_REGISTRY
 
-        assert set(TRANSFORM_REGISTRY["selector"].keys()) == {"limit_tracks", "percentage"}
+        assert set(TRANSFORM_REGISTRY["selector"].keys()) == {
+            "limit_tracks",
+            "percentage",
+        }
 
     def test_combiner_operations(self):
         """Combiner category contains expected operations."""

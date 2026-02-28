@@ -16,7 +16,6 @@ from src.infrastructure.connectors._shared.failure_handling import (
     handle_track_processing_failure,
     log_failure_summary,
     log_match_failure,
-    validate_track_for_method,
 )
 from src.infrastructure.connectors._shared.isrc import (
     normalize_isrc,
@@ -53,5 +52,4 @@ __all__ = [
     "register_metric_config",
     "register_metric_resolver",
     "validate_isrc_format",
-    "validate_track_for_method",
 ]

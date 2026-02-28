@@ -7,7 +7,6 @@ re-identification of tracks that already have known Spotify mappings.
 """
 
 from enum import Enum
-from typing import Any
 
 from attrs import define, field
 
@@ -40,33 +39,6 @@ class PlaylistOperation:
     old_position: int | None = None
     spotify_uri: str | None = None
 
-    def to_spotify_format(self) -> dict[str, Any]:
-        """Convert operation to Spotify Web API request parameters.
-
-        Returns:
-            Dictionary with parameters for Spotify playlist modification endpoints.
-        """
-        if self.operation_type == PlaylistOperationType.ADD:
-            return {
-                "uris": [self.spotify_uri] if self.spotify_uri else [],
-                "position": self.position,
-            }
-        elif self.operation_type == PlaylistOperationType.REMOVE:
-            return {
-                "tracks": [{"uri": self.spotify_uri}] if self.spotify_uri else [],
-                "positions": [self.old_position]
-                if self.old_position is not None
-                else [],
-            }
-        elif self.operation_type == PlaylistOperationType.MOVE:
-            return {
-                "range_start": self.old_position,
-                "insert_before": self.position,
-                "range_length": 1,
-            }
-        else:
-            raise ValueError(f"Unsupported operation type: {self.operation_type}")
-
 
 @define(frozen=True, slots=True)
 class PlaylistDiff:
@@ -77,8 +49,6 @@ class PlaylistDiff:
     """
 
     operations: list[PlaylistOperation] = field(factory=list)
-    unchanged_tracks: list[Track] = field(factory=list)
-    api_call_estimate: int = 0
     confidence_score: float = 1.0  # How confident we are in the match quality
 
     @property
@@ -575,13 +545,10 @@ def calculate_playlist_diff(
     all_operations = remove_operations + add_operations + move_operations
 
     # Step 3: Calculate metadata
-    api_calls = estimate_api_calls(all_operations)
     confidence = calculate_confidence_score(matched_tracks, all_operations)
 
     return PlaylistDiff(
         operations=all_operations,
-        unchanged_tracks=matched_tracks,
-        api_call_estimate=api_calls,
         confidence_score=confidence,
     )
 

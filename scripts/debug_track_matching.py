@@ -101,14 +101,6 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
         # Step 4: Execute matching (same as workflow)
         console.print("\n[yellow]Step 4: Executing identity resolution...[/yellow]")
         try:
-            # Enable more detailed logging for matching
-            import logging
-
-            logging.getLogger("src.domain.matching").setLevel(logging.DEBUG)
-            logging.getLogger("src.infrastructure.matching_providers").setLevel(
-                logging.DEBUG
-            )
-
             use_case = MatchAndIdentifyTracksUseCase()
             result = await use_case.execute(command, uow)
 
@@ -134,8 +126,8 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
             # Show identity mappings
             if result.identity_mappings:
                 console.print("\n[green]✅ Identity Mappings Found:[/green]")
-                for track_id, match_result in result.identity_mappings.items():
-                    console.print(f"   Track {track_id}:")
+                for matched_id, match_result in result.identity_mappings.items():
+                    console.print(f"   Track {matched_id}:")
                     console.print(
                         f"     • Success: [green]{match_result.success}[/green]"
                     )

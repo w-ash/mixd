@@ -13,7 +13,6 @@ from typing import Any, Literal
 from rich.prompt import Prompt
 import typer
 
-from src.application.services.progress_manager import AsyncProgressManagerAdapter
 from src.application.use_cases.import_play_history import run_import
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
@@ -128,11 +127,9 @@ def run_import_with_progress(
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
 
-            # Create adapter to implement ProgressEmitter protocol
+            # AsyncProgressManager structurally satisfies ProgressEmitter
             progress_adapter: ProgressEmitter = (
-                AsyncProgressManagerAdapter(progress_manager)
-                if progress_manager
-                else NullProgressEmitter()
+                progress_manager or NullProgressEmitter()
             )
 
             return await run_import(

@@ -11,10 +11,11 @@ No authentication required — MusicBrainz read-only endpoints are public.
 
 import asyncio
 import time
-from typing import Any, ClassVar, override
+from typing import ClassVar, override
 
 from attrs import define, field
 import httpx
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.http_client import (
@@ -46,7 +47,7 @@ class MusicBrainzAPIClient(BaseAPIClient):
     _client: httpx.AsyncClient = field(init=False, repr=False)
     _last_request_time: float = field(default=0.0, init=False, repr=False)
     _request_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
-    _retry_policy: Any = field(init=False, repr=False)
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Initialize httpx client and retry policy."""

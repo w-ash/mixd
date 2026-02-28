@@ -12,6 +12,8 @@ from attrs import define, field
 
 from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
+    persist_unsaved_tracks,
+    resolve_playlist_connector,
 )
 from src.application.use_cases._shared.command_validators import (
     non_empty_string,
@@ -20,7 +22,7 @@ from src.application.use_cases._shared.command_validators import (
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Track, TrackList
+from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -193,8 +195,7 @@ class CreateConnectorPlaylistUseCase:
         """
         try:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
-            connector_provider = uow.get_service_connector_provider()
-            connector = connector_provider.get_connector(command.connector)
+            connector = resolve_playlist_connector(command.connector, uow)
 
             # Create playlist via external API
             logger.info(
@@ -220,12 +221,11 @@ class CreateConnectorPlaylistUseCase:
                 "external_url": f"https://{command.connector}.com/playlist/{external_playlist_id}",
             }
 
-            # Add connector-specific metadata if available
-            if hasattr(connector, "get_playlist_metadata"):
+            # Add connector-specific metadata if available (optional method)
+            get_metadata = getattr(connector, "get_playlist_metadata", None)
+            if get_metadata is not None:
                 try:
-                    connector_metadata = await connector.get_playlist_metadata(
-                        external_playlist_id
-                    )
+                    connector_metadata = await get_metadata(external_playlist_id)
                     external_metadata.update(connector_metadata)
                 except Exception as metadata_error:
                     logger.warning(
@@ -291,30 +291,15 @@ class CreateConnectorPlaylistUseCase:
         async with uow:
             try:
                 # Step 1: Ensure all tracks have database IDs via upsert
-                track_repo = uow.get_track_repository()
-                persisted_tracks: list[Track] = []
-
-                for track in command.tracklist.tracks:
-                    # Save track if it doesn't have an ID (not yet persisted)
-                    if track.id is None:
-                        try:
-                            saved_track = await track_repo.save_track(track)
-                            persisted_tracks.append(saved_track)
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to persist track {track.title}: {e}"
-                            )
-                            persisted_tracks.append(
-                                track
-                            )  # Keep original if persist fails
-                    else:
-                        # Track already persisted, use as-is
-                        persisted_tracks.append(track)
+                try:
+                    persisted_tracks = await persist_unsaved_tracks(
+                        command.tracklist.tracks, uow
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to persist some tracks: {e}")
+                    persisted_tracks = list(command.tracklist.tracks)
 
                 # Step 2: Create internal playlist with connector mapping
-                # Convert persisted tracks to TrackList then to Playlist with entries
-                from src.domain.entities.track import TrackList
-
                 tracklist = TrackList(tracks=persisted_tracks)
                 playlist = Playlist.from_tracklist(
                     name=command.playlist_name,

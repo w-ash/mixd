@@ -140,14 +140,6 @@ class NodeRegistry:
         """List all registered nodes."""
         return {cid: meta for cid, (_, meta) in self._registry.items()}
 
-    def get_by_category(self, category: NodeType) -> dict[str, NodeMetadata]:
-        """Get nodes filtered by category."""
-        return {
-            cid: meta
-            for cid, (_, meta) in self._registry.items()
-            if meta["category"] == category
-        }
-
     @staticmethod
     def get_valid_categories() -> set[NodeType]:
         """Get all valid node categories."""
@@ -171,4 +163,3 @@ node = registry.node
 # Export utility functions with clear names
 get_node = registry.get_node
 list_nodes = registry.list_nodes
-get_nodes_by_category = registry.get_by_category

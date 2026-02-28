@@ -1,10 +1,8 @@
 """Repository for connector play operations."""
 
-from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
-from sqlalchemy import select, update
-from sqlalchemy.engine import CursorResult
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -121,119 +119,6 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         inserted_count = len(play_data) if isinstance(result, list) else result
         logger.info(f"Successfully inserted {inserted_count} new connector plays")
         return (inserted_count, duplicate_count)
-
-    @db_operation("get_unresolved_connector_plays")
-    async def get_unresolved_connector_plays(
-        self,
-        connector: str | None = None,
-        limit: int | None = None,
-    ) -> list[ConnectorTrackPlay]:
-        """Get connector plays that haven't been resolved to canonical tracks yet.
-
-        Args:
-            connector: Optional connector name to filter by
-            limit: Optional limit on number of plays to return
-
-        Returns:
-            List of unresolved ConnectorTrackPlay domain objects ordered by played_at
-        """
-        # Build query for unresolved plays
-        query = select(self.model_class).where(
-            self.model_class.resolved_track_id.is_(None)
-        )
-
-        if connector:
-            query = query.where(self.model_class.connector_name == connector)
-
-        # Order by played_at for consistent processing
-        query = query.order_by(self.model_class.played_at)
-
-        if limit:
-            query = query.limit(limit)
-
-        result = await self.session.execute(query)
-        db_plays = result.scalars().all()
-
-        # Convert to ConnectorTrackPlay domain objects
-        connector_plays: list[ConnectorTrackPlay] = []
-        for db_play in db_plays:
-            # Extract fields from raw_metadata
-            raw_metadata = db_play.raw_metadata or {}
-            artist_name = raw_metadata.get("artist_name", "Unknown")
-            track_name = raw_metadata.get("track_name", "Unknown")
-            album_name = raw_metadata.get("album_name")
-            service_metadata = raw_metadata.get("service_metadata", {})
-            api_page = raw_metadata.get("api_page")
-
-            # Create ConnectorTrackPlay from database record
-            connector_play = ConnectorTrackPlay(
-                artist_name=artist_name,
-                track_name=track_name,
-                played_at=db_play.played_at,
-                service=db_play.connector_name,
-                album_name=album_name,
-                ms_played=db_play.ms_played,
-                service_metadata=service_metadata,
-                api_page=api_page,
-                raw_data={
-                    k: v
-                    for k, v in raw_metadata.items()
-                    if k
-                    not in [
-                        "artist_name",
-                        "track_name",
-                        "album_name",
-                        "service_metadata",
-                        "api_page",
-                    ]
-                },
-                import_timestamp=db_play.import_timestamp,
-                import_source=db_play.import_source,
-                import_batch_id=db_play.import_batch_id,
-                resolved_track_id=db_play.resolved_track_id,
-                resolved_at=db_play.resolved_at,
-                id=db_play.id,
-            )
-            connector_plays.append(connector_play)
-
-        logger.debug(f"Found {len(connector_plays)} unresolved connector plays")
-        return connector_plays
-
-    @db_operation("mark_plays_resolved")
-    async def mark_plays_resolved(
-        self,
-        connector_play_ids: list[int],
-        resolved_track_id: int,
-    ) -> int:
-        """Mark connector plays as resolved to a canonical track.
-
-        Args:
-            connector_play_ids: List of connector play database IDs
-            resolved_track_id: Canonical track ID they resolve to
-
-        Returns:
-            Number of connector plays successfully marked as resolved
-        """
-        if not connector_play_ids:
-            return 0
-
-        # Update resolved plays in bulk
-        stmt = (
-            update(self.model_class)
-            .where(self.model_class.id.in_(connector_play_ids))
-            .values(
-                resolved_track_id=resolved_track_id,
-                resolved_at=datetime.now(UTC),
-            )
-        )
-
-        result = cast(CursorResult[Any], await self.session.execute(stmt))
-        updated_count = result.rowcount
-
-        logger.info(
-            f"Marked {updated_count} connector plays as resolved to track {resolved_track_id}"
-        )
-        return updated_count
 
     async def _find_existing_connector_plays(
         self, plays: list[ConnectorTrackPlay]

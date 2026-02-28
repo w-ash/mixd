@@ -24,7 +24,6 @@ tenacity = "^9.1.4"
 prefect = "^3.6.19"
 aiosqlite = "^0.22.1"
 rapidfuzz = "^3.14.3"
-orjson = "^3.11.7"
 pydantic-settings = "^2.13.1"
 
 [tool.poetry.group.dev.dependencies]
@@ -148,9 +147,11 @@ unfixable = []
 "src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
 "scripts/**/*.py" = [
     "ASYNC230", # Allow sync file operations in async scripts
+    "ASYNC250", # Allow blocking input() in async scripts (interactive CLI prompts)
     "ARG001",   # Allow unused arguments in scripts
     "RUF029",   # Allow async functions without await in scripts
-    "PLR2004"   # Allow magic numbers in utility scripts
+    "PLR2004",  # Allow magic numbers in utility scripts
+    "TRY300",   # Allow return in try blocks (simplicity over pedantry in scripts)
 ]
 
 # Import sorting configuration

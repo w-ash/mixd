@@ -4,17 +4,14 @@ from .algorithms import (
     calculate_confidence,
     calculate_title_similarity,
 )
-from .protocols import MatchingService, MatchProvider, TrackData
-from .types import ConfidenceEvidence, MatchResult, MatchResultsById, TracksById
+from .protocols import MatchProvider
+from .types import ConfidenceEvidence, MatchResult, MatchResultsById
 
 __all__ = [
     "ConfidenceEvidence",
     "MatchProvider",
     "MatchResult",
     "MatchResultsById",
-    "MatchingService",
-    "TrackData",
-    "TracksById",
     "calculate_confidence",
     "calculate_title_similarity",
 ]

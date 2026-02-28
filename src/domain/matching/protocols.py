@@ -6,29 +6,9 @@ external implementations, following the dependency inversion principle.
 
 from typing import Any, Protocol
 
-from .types import MatchResultsById, ProviderMatchResult
+from src.domain.entities import Track
 
-
-class MatchingService(Protocol):
-    """Protocol for services that can match tracks to external services."""
-
-    async def match_tracks(
-        self,
-        track_list: Any,  # TrackList type - avoiding import
-        connector: str,
-        connector_instance: Any,
-    ) -> MatchResultsById:
-        """Match tracks to an external service.
-
-        Args:
-            track_list: List of tracks to match
-            connector: Name of the external service
-            connector_instance: Service connector implementation
-
-        Returns:
-            Dictionary mapping track IDs to match results
-        """
-        ...
+from .types import ProviderMatchResult
 
 
 class MatchProvider(Protocol):
@@ -43,7 +23,7 @@ class MatchProvider(Protocol):
 
     async def fetch_raw_matches_for_tracks(
         self,
-        tracks: list[Any],
+        tracks: list[Track],
         **additional_options: Any,
     ) -> ProviderMatchResult:
         """Fetch raw matches for tracks from external service.
@@ -64,33 +44,4 @@ class MatchProvider(Protocol):
     @property
     def service_name(self) -> str:
         """Service identifier (e.g., 'spotify', 'lastfm')."""
-        ...
-
-
-class TrackData(Protocol):
-    """Protocol for track data objects used in matching."""
-
-    @property
-    def title(self) -> str | None:
-        """Track title."""
-        ...
-
-    @property
-    def artists(self) -> list[Any]:
-        """List of artist objects or names."""
-        ...
-
-    @property
-    def duration_ms(self) -> int | None:
-        """Track duration in milliseconds."""
-        ...
-
-    @property
-    def isrc(self) -> str | None:
-        """International Standard Recording Code."""
-        ...
-
-    @property
-    def id(self) -> int | None:
-        """Internal track ID."""
         ...

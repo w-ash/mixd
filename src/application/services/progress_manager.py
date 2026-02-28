@@ -6,7 +6,6 @@ ProgressCoordinator domain service for business rule enforcement.
 """
 
 import asyncio
-import contextlib
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -266,34 +265,6 @@ class AsyncProgressManager:
 
         return cleanup_count
 
-    async def shutdown(self) -> None:
-        """Gracefully shutdown the progress manager.
-
-        Cancels any pending notification tasks and clears subscribers.
-        """
-        self._logger.info("Shutting down AsyncProgressManager")
-
-        # Cancel any pending notification tasks
-        for task in self._event_tasks:
-            if not task.done():
-                _ = task.cancel()
-
-        # Wait for tasks to complete cancellation
-        for task in self._event_tasks:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
-
-        # Clear subscribers
-        async with self._subscriber_lock:
-            subscriber_count = len(self._subscribers)
-            self._subscribers.clear()
-
-        self._logger.info(
-            "AsyncProgressManager shutdown complete",
-            cancelled_tasks=len(self._event_tasks),
-            removed_subscribers=subscriber_count,
-        )
-
     async def _notify_subscribers(self, notification_type: str, *args: Any) -> None:
         """Notify all active subscribers with error isolation.
 
@@ -369,11 +340,6 @@ class AsyncProgressManager:
         """Get current number of active subscribers."""
         return len(self._subscribers)
 
-    @property
-    def coordinator(self) -> ProgressCoordinator:
-        """Access to underlying domain coordinator (for testing/debugging)."""
-        return self._coordinator
-
 
 # Singleton instance for application-wide progress tracking
 _global_progress_manager: AsyncProgressManager | None = None
@@ -392,54 +358,3 @@ def get_progress_manager() -> AsyncProgressManager:
     if _global_progress_manager is None:
         _global_progress_manager = AsyncProgressManager()
     return _global_progress_manager
-
-
-def set_progress_manager(manager: AsyncProgressManager) -> None:
-    """Set a custom global progress manager instance.
-
-    Useful for testing or custom configuration scenarios.
-
-    Args:
-        manager: Progress manager instance to use globally
-    """
-    global _global_progress_manager
-    _global_progress_manager = manager
-
-
-async def shutdown_global_progress_manager() -> None:
-    """Shutdown the global progress manager if it exists.
-
-    Should be called during application shutdown to clean up resources.
-    """
-    global _global_progress_manager
-    if _global_progress_manager is not None:
-        await _global_progress_manager.shutdown()
-        _global_progress_manager = None
-
-
-# --- Protocol Adapter ---
-
-
-@define(slots=True)
-class AsyncProgressManagerAdapter:
-    """Adapter that makes AsyncProgressManager implement ProgressEmitter protocol.
-
-    Provides a clean interface for dependency injection while maintaining type safety.
-    Eliminates the need for None checks and union types throughout the codebase.
-    """
-
-    _manager: AsyncProgressManager
-
-    async def start_operation(self, operation: ProgressOperation) -> str:
-        """Start tracking an operation via the progress manager."""
-        return await self._manager.start_operation(operation)
-
-    async def emit_progress(self, event: ProgressEvent) -> None:
-        """Emit a progress event via the progress manager."""
-        await self._manager.emit_progress(event)
-
-    async def complete_operation(
-        self, operation_id: str, final_status: OperationStatus
-    ) -> None:
-        """Complete an operation via the progress manager."""
-        await self._manager.complete_operation(operation_id, final_status)

@@ -13,13 +13,9 @@ into WorkflowContext, which provides unified access to all workflow dependencies
 
 from typing import Any, Protocol, TypedDict
 
+from src.domain.entities import ConnectorTrack
 from src.domain.entities.track import Track, TrackList
-
-
-class ConfigProvider(Protocol):
-    """Abstracts configuration access for testing and deployment flexibility."""
-
-    ...
+from src.domain.playlist.diff_engine import PlaylistOperation
 
 
 class LoggerProvider(Protocol):
@@ -42,22 +38,10 @@ class LoggerProvider(Protocol):
         ...
 
 
-class ConnectorProvider(Protocol):
-    """Abstracts music service connections for unified cross-service operations."""
-
-    async def get_tracks(self, **kwargs: Any) -> list[Track]:
-        """Retrieve tracks from external music service."""
-        ...
-
-    async def get_playlists(self, **kwargs: Any) -> list[Any]:
-        """Retrieve playlists from external music service."""
-        ...
-
-
 class ConnectorRegistry(Protocol):
     """Dynamic access to multiple music service connectors (Spotify, Last.fm, MusicBrainz)."""
 
-    def get_connector(self, name: str) -> ConnectorProvider:
+    def get_connector(self, name: str) -> Any:
         """Get specific music service connector."""
         ...
 
@@ -89,10 +73,6 @@ class UseCaseProvider(Protocol):
         """Get use case for enriching tracks with cross-service metadata."""
         ...
 
-    async def get_match_and_identify_tracks_use_case(self) -> Any:
-        """Get use case for matching and identifying tracks between music services."""
-        ...
-
     async def get_read_canonical_playlist_use_case(self) -> Any:
         """Get use case for reading master playlist definitions."""
         ...
@@ -108,11 +88,6 @@ class UseCaseProvider(Protocol):
 
 class WorkflowContext(Protocol):
     """Central dependency container enabling complex cross-service operations."""
-
-    @property
-    def config(self) -> ConfigProvider:
-        """Configuration access."""
-        ...
 
     @property
     def logger(self) -> LoggerProvider:
@@ -200,24 +175,47 @@ class TrackMetadataConnector(Protocol):
         ...
 
 
-class PlayImportServiceRegistryProtocol(Protocol):
-    """Protocol for the play import service registry.
+class LikedTrackConnector(Protocol):
+    """Connector that can read a user's liked/saved tracks."""
 
-    Abstracts infrastructure registry so application code can request
-    importers and resolvers without importing concrete implementations.
-    """
+    async def get_liked_tracks(
+        self, limit: int = 50, cursor: str | None = None
+    ) -> tuple[list[ConnectorTrack], str | None]: ...
 
-    async def create_play_importer(self, service: str, uow: Any) -> Any:
-        """Create a play importer for the specified service."""
-        ...
 
-    async def create_play_resolver(self, service: str, uow: Any | None = None) -> Any:
-        """Create a play resolver for the specified service."""
-        ...
+class LoveTrackConnector(Protocol):
+    """Connector that can love/like tracks on behalf of a user."""
 
-    def get_supported_services(self) -> list[str]:
-        """Get list of supported service identifiers."""
-        ...
+    async def love_track(self, artist: str, title: str) -> bool: ...
+
+
+class PlaylistConnector(Protocol):
+    """Connector that supports playlist CRUD operations."""
+
+    async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]: ...
+    async def execute_playlist_operations(
+        self,
+        playlist_id: str,
+        operations: list[PlaylistOperation],
+        snapshot_id: str | None = None,
+        track_repo: Any = None,
+    ) -> str | None: ...
+    async def append_tracks_to_playlist(
+        self,
+        playlist_id: str,
+        tracks: list[Any],
+    ) -> dict[str, Any]: ...
+    async def update_playlist_metadata(
+        self,
+        playlist_id: str,
+        metadata_updates: dict[str, str],
+    ) -> None: ...
+    async def create_playlist(
+        self,
+        name: str,
+        tracks: list[Track],
+        description: str | None = None,
+    ) -> str: ...
 
 
 class NodeResult(TypedDict):

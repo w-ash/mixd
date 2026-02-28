@@ -8,19 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.domain.entities.track import Artist, Track, TrackList
-
-
-@pytest.fixture
-def sample_tracklist():
-    """Sample tracklist for destination tests."""
-    return TrackList(
-        tracks=[
-            Track(id=1, title="Song A", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Song B", artists=[Artist(name="Artist 2")]),
-        ]
-    )
-
 
 @pytest.fixture
 def mock_context():

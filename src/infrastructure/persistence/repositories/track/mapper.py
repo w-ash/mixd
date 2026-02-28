@@ -22,55 +22,16 @@ logger = get_logger(__name__)
 PromotePrimaryMappingFn = Callable[[int, str, int], Awaitable[bool]]
 
 
-def _make_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
-    """Create a callback that promotes a connector mapping to primary via SQL.
+def _get_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
+    """Get a callback that promotes a connector mapping to primary.
 
-    This factory keeps write logic out of TrackMapper's transformation methods.
-    The returned closure executes two UPDATE statements (demote all → promote one),
-    matching TrackConnectorRepository.set_primary_mapping.
-
-    Args:
-        session: Active async session for executing UPDATEs.
-
-    Returns:
-        Async callback: (track_id, connector_name, connector_track_db_id) -> success.
+    Lazy import avoids circular dependency (connector.py imports mapper.py).
     """
+    from src.infrastructure.persistence.repositories.track.connector import (
+        TrackConnectorRepository,
+    )
 
-    async def _promote(
-        track_id: int, connector_name: str, connector_track_db_id: int
-    ) -> bool:
-        from sqlalchemy import update
-
-        try:
-            # Step 1: Demote all mappings for this track+connector to non-primary
-            _ = await session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_name == connector_name,
-                )
-                .values(is_primary=False)
-            )
-
-            # Step 2: Promote the specified mapping to primary
-            result = await session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_track_id == connector_track_db_id,
-                )
-                .values(is_primary=True)
-            )
-        except Exception as e:
-            logger.error(
-                f"Promote primary mapping failed: track_id={track_id}, "
-                + f"connector={connector_name}, connector_track_db_id={connector_track_db_id}: {e}"
-            )
-            return False
-        else:
-            return result.rowcount > 0  # type: ignore[union-attr]
-
-    return _promote
+    return TrackConnectorRepository(session).set_primary_mapping
 
 
 @define(frozen=True, slots=True)
@@ -91,7 +52,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         if not db_model:
             return None
         promote_primary_fn = (
-            _make_promote_primary_fn(session) if session is not None else None
+            _get_promote_primary_fn(session) if session is not None else None
         )
         return await TrackMapper._to_domain_with_session(
             db_model, promote_primary_fn=promote_primary_fn
@@ -251,6 +212,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         """
         try:
             promoted_count = 0
+            log = logger.bind(track_id=track_id)
 
             for connector_name, mapping in fallback_mappings.items():
                 conn_track = await TrackMapper._get_connector_track(mapping)
@@ -260,32 +222,30 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                     )
                     if success:
                         promoted_count += 1
-                        logger.info(
-                            f"Promoted connector mapping to primary: track_id={track_id}, "
-                            + f"connector={connector_name}, "
-                            + f"connector_track_db_id={conn_track.id}, "
-                            + f"external_id={conn_track.connector_track_identifier}"
+                        log.info(
+                            "Promoted connector mapping to primary",
+                            connector=connector_name,
+                            connector_track_db_id=conn_track.id,
+                            external_id=conn_track.connector_track_identifier,
                         )
                     else:
-                        logger.warning(
-                            f"Failed to promote connector mapping to primary: track_id={track_id}, "
-                            + f"connector={connector_name}, "
-                            + f"connector_track_db_id={conn_track.id}"
+                        log.warning(
+                            "Failed to promote connector mapping to primary",
+                            connector=connector_name,
+                            connector_track_db_id=conn_track.id,
                         )
                 else:
-                    logger.warning(
-                        f"Cannot promote — connector track unavailable: track_id={track_id}, "
-                        + f"connector={connector_name}"
+                    log.warning(
+                        "Cannot promote — connector track unavailable",
+                        connector=connector_name,
                     )
 
             if promoted_count > 0:
-                logger.info(
-                    f"Promoted {promoted_count} connector mapping(s) to primary for track {track_id}"
-                )
+                log.info(f"Promoted {promoted_count} connector mapping(s) to primary")
 
-        except Exception as e:
-            logger.error(
-                f"Connector mapping promotion failed for track {track_id}: {e}"
+        except Exception:
+            logger.opt(exception=True).error(
+                f"Connector mapping promotion failed for track {track_id}"
             )
             # Don't re-raise — promotion is best-effort and shouldn't interrupt the read path
 

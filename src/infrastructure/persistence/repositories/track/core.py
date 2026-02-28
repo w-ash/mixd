@@ -1,8 +1,7 @@
 """Core track repository implementation for basic track operations."""
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
-from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -35,32 +34,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     # -------------------------------------------------------------------------
-    # ENHANCED QUERY METHODS
-    # -------------------------------------------------------------------------
-
-    def select_with_relations(self) -> Select[tuple[Any, ...]]:
-        """Create select statement with standard relations loaded."""
-        return self.with_default_relationships(self.select())
-
-    # -------------------------------------------------------------------------
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
-
-    @db_operation("get_track")
-    async def get_track(self, id_type: str, id_value: str) -> Track:
-        """Get track by any identifier type."""
-        if id_type not in self._TRACK_ID_TYPES:
-            raise ValueError(f"Unsupported ID type: {id_type}")
-
-        if id_type == "internal":
-            # Use get_by_id for internal IDs
-            return await self.get_by_id(int(id_value))
-
-        # Use find_one_by for other ID types
-        track = await self.find_one_by({self._TRACK_ID_TYPES[id_type]: id_value})
-        if not track:
-            raise ValueError(f"Track with {id_type}={id_value} not found")
-        return track
 
     @db_operation("find_tracks_by_ids")
     async def find_tracks_by_ids(self, track_ids: list[int]) -> dict[int, Track]:

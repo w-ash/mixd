@@ -12,12 +12,9 @@ Unlike pure domain transforms, these functions:
 """
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.filtering import filter_by_predicate
 
 from ._helpers import (
     calculate_time_window,
@@ -29,120 +26,6 @@ logger = get_logger(__name__)
 
 # Type alias for transformation functions
 Transform = Callable[[TrackList], TrackList]
-
-# === Time Range Predicates ===
-
-
-def time_range_predicate(
-    days_back: int | None = None,
-    after_date: datetime | None = None,
-    before_date: datetime | None = None,
-) -> Callable[[datetime | None], bool]:
-    """Create time-based predicates for date range filtering.
-
-    Args:
-        days_back: Number of days back from current time (overrides after_date)
-        after_date: Include items after this date (inclusive)
-        before_date: Include items before this date (exclusive)
-
-    Returns:
-        Predicate function that tests if a datetime falls within the range
-    """
-    # Determine time boundaries
-    if days_back is not None:
-        start_time = datetime.now(UTC) - timedelta(days=days_back)
-        end_time = before_date or datetime.now(UTC)
-    else:
-        start_time = after_date
-        end_time = before_date
-
-    def time_predicate(dt: datetime | None) -> bool:
-        if dt is None:
-            return False
-        if start_time and dt < start_time:
-            return False
-        return not (end_time and dt >= end_time)
-
-    return time_predicate
-
-
-def filter_by_time_criteria(
-    metadata_key: str,
-    days_back: int | None = None,
-    after_date: datetime | None = None,
-    before_date: datetime | None = None,
-    include_missing: bool = True,
-    tracklist: TrackList | None = None,
-) -> Callable[[TrackList], TrackList] | TrackList:
-    """Filter tracks by time-based criteria using existing predicate pattern.
-
-    Args:
-        metadata_key: Key in tracklist metadata containing time data (e.g. "last_played_dates")
-        days_back: Number of days back from current time (overrides after_date)
-        after_date: Include tracks with time after this date
-        before_date: Include tracks with time before this date
-        include_missing: Whether to include tracks without time data
-        tracklist: Optional tracklist to transform immediately
-
-    Returns:
-        Transformation function or transformed tracklist if provided
-    """
-
-    time_pred = time_range_predicate(days_back, after_date, before_date)
-
-    def track_time_predicate(track: Track, current_tracklist: TrackList) -> bool:
-        if not track.id:
-            return include_missing
-
-        # Read from canonical nested metrics path
-        time_data: Any = (
-            current_tracklist.metadata
-            .get("metrics", {})
-            .get(metadata_key, {})
-            .get(track.id)
-        )
-
-        if time_data is None:
-            return include_missing
-
-        # Parse datetime using helper
-        parsed_time = parse_datetime_safe(time_data)
-        if parsed_time is None:
-            logger.debug(
-                "Failed to parse time data",
-                time_data=time_data,
-                metadata_key=metadata_key,
-            )
-            return include_missing
-
-        return time_pred(parsed_time)
-
-    def transform(t: TrackList) -> TrackList:
-        """Apply time-based filtering using existing predicate infrastructure."""
-
-        # Create predicate function that captures current tracklist
-        def predicate_with_tracklist(track: Track) -> bool:
-            return track_time_predicate(track, t)
-
-        # Use existing filter_by_predicate with our time predicate
-        filter_func: Transform = filter_by_predicate(predicate_with_tracklist)  # type: ignore[assignment]
-        result: TrackList = filter_func(t)
-
-        logger.debug(
-            "Time criteria filter applied",
-            metadata_key=metadata_key,
-            days_back=days_back,
-            after_date=after_date.isoformat() if after_date else None,
-            before_date=before_date.isoformat() if before_date else None,
-            include_missing=include_missing,
-            original_count=len(t.tracks),
-            filtered_count=len(result.tracks),
-            removed_count=len(t.tracks) - len(result.tracks),
-        )
-
-        return result
-
-    return transform(tracklist) if tracklist is not None else transform
 
 
 def filter_by_play_history(

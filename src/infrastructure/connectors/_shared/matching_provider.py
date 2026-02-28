@@ -129,10 +129,21 @@ class BaseMatchingProvider(ABC):
             if isrc_tracks:
                 isrc_matches, isrc_failures = await self._match_by_isrc(isrc_tracks)
 
-            # Filter out tracks already matched by ISRC from artist/title candidates
+            # Fallback: failed ISRC tracks with valid artist/title get a second chance
+            failed_isrc_tracks = [
+                t
+                for t in isrc_tracks
+                if t.id not in isrc_matches and self._has_artist_and_title(t)
+            ]
+            if failed_isrc_tracks:
+                logger.info(
+                    f"Falling back to artist/title for {len(failed_isrc_tracks)} failed ISRC tracks"
+                )
+
+            # Filter out tracks already matched by ISRC, then add failed ISRC fallbacks
             remaining_tracks = [
                 t for t in artist_title_tracks if t.id not in isrc_matches
-            ]
+            ] + failed_isrc_tracks
 
             # Process remaining tracks by artist/title
             artist_title_matches: dict[int, RawProviderMatch] = {}

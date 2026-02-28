@@ -4,7 +4,7 @@ Pure track representations and related value objects with zero external dependen
 """
 
 from datetime import datetime
-from typing import Any, Literal, Protocol, Self, TypedDict, cast
+from typing import Any, Literal, Self, TypedDict, cast
 
 import attrs
 from attrs import define, field, validators
@@ -80,37 +80,9 @@ class Track:
         new_metadata[connector] = {**new_metadata.get(connector, {}), **metadata}
         return attrs.evolve(self, connector_metadata=new_metadata)
 
-    def with_like_status(
-        self,
-        service: str,
-        is_liked: bool,
-        timestamp: datetime | None = None,
-    ) -> Self:
-        """Create a new track with updated like status for the specified service."""
-        new_metadata = self.connector_metadata.copy()
-        service_meta = new_metadata.get(service, {}).copy()
-
-        service_meta["is_liked"] = is_liked
-        if timestamp:
-            service_meta["liked_at"] = timestamp.isoformat()
-
-        new_metadata[service] = service_meta
-        return attrs.evolve(self, connector_metadata=new_metadata)
-
     def is_liked_on(self, service: str) -> bool:
         """Check if track is liked/loved on the specified service."""
         return bool(self.connector_metadata.get(service, {}).get("is_liked", False))
-
-    def get_liked_timestamp(self, service: str) -> datetime | None:
-        """Get the timestamp when track was liked on the service."""
-        iso_timestamp = self.connector_metadata.get(service, {}).get("liked_at")
-        if not iso_timestamp:
-            return None
-
-        try:
-            return datetime.fromisoformat(iso_timestamp)
-        except ValueError:
-            return None
 
     def get_connector_attribute(
         self,
@@ -151,7 +123,7 @@ class TrackLike:
     """Immutable representation of a track like/love interaction."""
 
     track_id: int
-    service: str  # 'spotify', 'lastfm', 'internal'
+    service: str  # 'spotify', 'lastfm', 'narada'
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None
@@ -244,16 +216,6 @@ type MetadataKey = Literal[
 ]
 
 
-class _PlaylistLike(Protocol):
-    """Structural type for Playlist → TrackList conversion (avoids circular import)."""
-
-    @property
-    def tracks(self) -> list[Track]: ...
-
-    @property
-    def name(self) -> str: ...
-
-
 @define(frozen=True, slots=True)
 class TrackList:
     """Ephemeral, immutable collection of tracks for processing pipelines.
@@ -279,20 +241,4 @@ class TrackList:
         return self.__class__(
             tracks=self.tracks,
             metadata=cast(TrackListMetadata, cast(object, new_metadata)),
-        )
-
-    def get_metadata(self, key: MetadataKey, default: Any = None) -> Any:
-        """Get metadata value with optional default."""
-        return self.metadata.get(key, default)
-
-    def has_metadata(self, key: MetadataKey) -> bool:
-        """Check if metadata key exists."""
-        return key in self.metadata
-
-    @classmethod
-    def from_playlist(cls, playlist: _PlaylistLike) -> Self:
-        """Create TrackList from a Playlist (or any object with .tracks and .name)."""
-        return cls(
-            tracks=playlist.tracks,
-            metadata={"source_playlist_name": playlist.name},
         )

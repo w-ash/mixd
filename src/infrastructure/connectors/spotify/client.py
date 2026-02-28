@@ -15,6 +15,7 @@ from typing import Any, ClassVar, override
 from attrs import define, field
 import httpx
 from loguru import logger as _loguru_logger
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
@@ -24,6 +25,12 @@ from src.infrastructure.connectors._shared.retry_policies import (
 )
 from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyPaginatedPlaylistItems,
+    SpotifyPlaylist,
+    SpotifySnapshotResponse,
+    SpotifyTrack,
+)
 
 logger = get_logger(__name__).bind(service="spotify_client")
 
@@ -48,7 +55,7 @@ class SpotifyAPIClient(BaseAPIClient):
     )
 
     _token_manager: SpotifyTokenManager = field(init=False, repr=False)
-    _retry_policy: Any = field(init=False, repr=False)
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
     _client: httpx.AsyncClient = field(init=False, repr=False)
 
     @property
@@ -88,11 +95,14 @@ class SpotifyAPIClient(BaseAPIClient):
     # Track API Methods
     # -------------------------------------------------------------------------
 
-    async def get_tracks_bulk(self, track_ids: list[str]) -> dict[str, Any] | None:
+    async def get_tracks_bulk(self, track_ids: list[str]) -> list[SpotifyTrack] | None:
         """Fetch multiple tracks from Spotify (up to 50 per request)."""
-        return await self._api_call(
+        data = await self._api_call(
             "get_spotify_tracks_bulk", self._get_tracks_bulk_impl, track_ids
         )
+        if not data or "tracks" not in data:
+            return None
+        return [SpotifyTrack.model_validate(t) for t in data["tracks"] if t]
 
     async def _get_tracks_bulk_impl(
         self, track_ids: list[str]
@@ -115,11 +125,12 @@ class SpotifyAPIClient(BaseAPIClient):
     # Search API Methods
     # -------------------------------------------------------------------------
 
-    async def search_by_isrc(self, isrc: str) -> dict[str, Any] | None:
+    async def search_by_isrc(self, isrc: str) -> SpotifyTrack | None:
         """Search for a track using ISRC identifier."""
-        return await self._api_call(
+        data = await self._api_call(
             "search_spotify_by_isrc", self._search_by_isrc_impl, isrc
         )
+        return SpotifyTrack.model_validate(data) if data else None
 
     async def _search_by_isrc_impl(self, isrc: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
@@ -141,15 +152,23 @@ class SpotifyAPIClient(BaseAPIClient):
             return None
         return tracks[0]
 
-    async def search_track(self, artist: str, title: str) -> dict[str, Any] | None:
-        """Search for a track by artist and title."""
-        return await self._api_call(
-            "search_spotify_track", self._search_track_impl, artist, title
+    async def search_track(
+        self, artist: str, title: str, limit: int = 5
+    ) -> list[SpotifyTrack]:
+        """Search for tracks by artist and title.
+
+        Returns multiple candidates so callers can rank by similarity.
+        """
+        result = await self._api_call(
+            "search_spotify_track", self._search_track_impl, artist, title, limit
         )
+        if not result:
+            return []
+        return [SpotifyTrack.model_validate(t) for t in result]
 
     async def _search_track_impl(
-        self, artist: str, title: str
-    ) -> dict[str, Any] | None:
+        self, artist: str, title: str, limit: int = 5
+    ) -> list[dict[str, Any]]:
         """Pure implementation without retry logic."""
         query = f"artist:{artist} track:{title}"
         logger.debug(f"Searching Spotify with query: {query}")
@@ -158,24 +177,24 @@ class SpotifyAPIClient(BaseAPIClient):
             params={
                 "q": query,
                 "type": "track",
-                "limit": 1,
+                "limit": min(limit, 50),
                 "market": self.market,
             },
         )
         _ = response.raise_for_status()
         data = response.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        return tracks[0] if tracks else None
+        return data.get("tracks", {}).get("items", [])
 
     # -------------------------------------------------------------------------
     # Playlist Read Methods
     # -------------------------------------------------------------------------
 
-    async def get_playlist(self, playlist_id: str) -> dict[str, Any] | None:
+    async def get_playlist(self, playlist_id: str) -> SpotifyPlaylist | None:
         """Fetch a Spotify playlist with basic metadata."""
-        return await self._api_call(
+        data = await self._api_call(
             "get_spotify_playlist", self._get_playlist_impl, playlist_id
         )
+        return SpotifyPlaylist.model_validate(data) if data else None
 
     async def _get_playlist_impl(self, playlist_id: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
@@ -188,15 +207,16 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def get_playlist_tracks(
         self, playlist_id: str, limit: int = 100, offset: int = 0
-    ) -> dict[str, Any] | None:
+    ) -> SpotifyPaginatedPlaylistItems | None:
         """Fetch tracks from a Spotify playlist with pagination."""
-        return await self._api_call(
+        data = await self._api_call(
             "get_spotify_playlist_tracks",
             self._get_playlist_tracks_impl,
             playlist_id,
             limit,
             offset,
         )
+        return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
 
     async def _get_playlist_tracks_impl(
         self, playlist_id: str, limit: int = 100, offset: int = 0
@@ -214,28 +234,23 @@ class SpotifyAPIClient(BaseAPIClient):
         return response.json()
 
     async def get_next_page(
-        self, current_page: dict[str, Any]
-    ) -> dict[str, Any] | None:
+        self, current_page: SpotifyPaginatedPlaylistItems
+    ) -> SpotifyPaginatedPlaylistItems | None:
         """Fetch next page of paginated Spotify API results."""
-        if not current_page or not current_page.get("next"):
+        if not current_page.next:
             return None
 
-        return await self._api_call(
-            "get_spotify_next_page", self._get_next_page_impl, current_page
+        data = await self._api_call(
+            "get_spotify_next_page", self._get_next_page_impl, current_page.next
         )
+        return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
 
-    async def _get_next_page_impl(
-        self, current_page: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def _get_next_page_impl(self, next_url: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic.
 
         Spotify's "next" cursor is an absolute URL. httpx uses absolute URLs
         as-is when a base_url is set, so self._client handles them correctly.
         """
-        next_url = current_page.get("next")
-        if not next_url:
-            return None
-
         response = await self._client.get(next_url)
         _ = response.raise_for_status()
         return response.json()
@@ -246,15 +261,16 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def create_playlist(
         self, name: str, description: str = "", public: bool = False
-    ) -> dict[str, Any] | None:
+    ) -> SpotifyPlaylist | None:
         """Create a new empty Spotify playlist for the current user."""
-        return await self._api_call(
+        data = await self._api_call(
             "create_spotify_playlist",
             self._create_playlist_impl,
             name,
             description,
             public,
         )
+        return SpotifyPlaylist.model_validate(data) if data else None
 
     async def _create_playlist_impl(
         self, name: str, description: str = "", public: bool = False
@@ -272,7 +288,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def playlist_add_items(
         self, playlist_id: str, items: list[str], position: int | None = None
-    ) -> dict[str, Any] | None:
+    ) -> SpotifySnapshotResponse | None:
         """Add items to a Spotify playlist.
 
         Args:
@@ -281,15 +297,16 @@ class SpotifyAPIClient(BaseAPIClient):
             position: Optional position to insert at
 
         Returns:
-            API response with new snapshot_id, None if error
+            Validated snapshot response, None if error
         """
-        return await self._api_call(
+        data = await self._api_call(
             "add_spotify_playlist_items",
             self._playlist_add_items_impl,
             playlist_id,
             items,
             position,
         )
+        return SpotifySnapshotResponse.model_validate(data) if data else None
 
     async def _playlist_add_items_impl(
         self, playlist_id: str, items: list[str], position: int | None = None
@@ -311,7 +328,7 @@ class SpotifyAPIClient(BaseAPIClient):
         playlist_id: str,
         items: list[dict[str, Any]],
         snapshot_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> SpotifySnapshotResponse | None:
         """Remove specific occurrences of items from a Spotify playlist.
 
         Args:
@@ -320,15 +337,16 @@ class SpotifyAPIClient(BaseAPIClient):
             snapshot_id: Optional snapshot ID for conflict detection
 
         Returns:
-            API response with new snapshot_id, None if error
+            Validated snapshot response, None if error
         """
-        return await self._api_call(
+        data = await self._api_call(
             "remove_specific_spotify_playlist_items",
             self._playlist_remove_specific_occurrences_of_items_impl,
             playlist_id,
             items,
             snapshot_id,
         )
+        return SpotifySnapshotResponse.model_validate(data) if data else None
 
     async def _playlist_remove_specific_occurrences_of_items_impl(
         self,
@@ -356,7 +374,7 @@ class SpotifyAPIClient(BaseAPIClient):
         insert_before: int,
         range_length: int = 1,
         snapshot_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> SpotifySnapshotResponse | None:
         """Reorder items in a Spotify playlist.
 
         Args:
@@ -367,9 +385,9 @@ class SpotifyAPIClient(BaseAPIClient):
             snapshot_id: Optional snapshot ID for conflict detection
 
         Returns:
-            API response with new snapshot_id, None if error
+            Validated snapshot response, None if error
         """
-        return await self._api_call(
+        data = await self._api_call(
             "reorder_spotify_playlist_items",
             self._playlist_reorder_items_impl,
             playlist_id,
@@ -378,6 +396,7 @@ class SpotifyAPIClient(BaseAPIClient):
             range_length,
             snapshot_id,
         )
+        return SpotifySnapshotResponse.model_validate(data) if data else None
 
     async def _playlist_reorder_items_impl(
         self,
@@ -405,7 +424,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def playlist_replace_items(
         self, playlist_id: str, items: list[str]
-    ) -> dict[str, Any] | None:
+    ) -> SpotifySnapshotResponse | None:
         """Replace all items in a Spotify playlist.
 
         Args:
@@ -413,14 +432,15 @@ class SpotifyAPIClient(BaseAPIClient):
             items: List of track URIs to set as playlist contents
 
         Returns:
-            API response with new snapshot_id, None if error
+            Validated snapshot response, None if error
         """
-        return await self._api_call(
+        data = await self._api_call(
             "replace_spotify_playlist_items",
             self._playlist_replace_items_impl,
             playlist_id,
             items,
         )
+        return SpotifySnapshotResponse.model_validate(data) if data else None
 
     async def _playlist_replace_items_impl(
         self, playlist_id: str, items: list[str]

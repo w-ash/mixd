@@ -4,28 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.domain.entities.track import Artist, Track, TrackList
-
-
-@pytest.fixture
-def sample_tracklist():
-    """Create a sample tracklist for testing."""
-    tracks = [
-        Track(
-            title="Test Song 1",
-            artists=[Artist(name="Artist 1")],
-            album="Test Album",
-            duration_ms=180000,
-        ),
-        Track(
-            title="Test Song 2",
-            artists=[Artist(name="Artist 2")],
-            album="Test Album 2",
-            duration_ms=200000,
-        ),
-    ]
-    return TrackList(tracks=tracks)
-
 
 @pytest.mark.unit
 class TestNodeFactories:

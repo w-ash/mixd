@@ -129,44 +129,6 @@ class TestLikeUseCases:
         assert result.operation_name == "Last.fm Likes Export"
         mock_unit_of_work.__aenter__.assert_called_once()
 
-    def test_use_cases_have_no_constructor_dependencies(
-        self, import_use_case, export_use_case
-    ):
-        """Test that use cases follow Clean Architecture with no constructor dependencies."""
-        # Import use case should have no constructor dependencies
-        assert hasattr(import_use_case, "execute")
-        assert not hasattr(import_use_case, "_dependencies")
-
-        # Export use case should have no constructor dependencies
-        assert hasattr(export_use_case, "execute")
-        assert not hasattr(export_use_case, "_dependencies")
-
-    def test_use_cases_use_unit_of_work_parameter_injection(
-        self, import_use_case, export_use_case
-    ):
-        """Test that use cases use UnitOfWork parameter injection pattern."""
-        import inspect
-
-        # Import use case should take UoW as parameter
-        import_sig = inspect.signature(import_use_case.execute)
-        assert "uow" in import_sig.parameters
-
-        # Export use case should take UoW as parameter
-        export_sig = inspect.signature(export_use_case.execute)
-        assert "uow" in export_sig.parameters
-
-    def test_commands_are_immutable(self):
-        """Test that command objects are immutable."""
-        import_cmd = ImportSpotifyLikesCommand(user_id="test", limit=50)
-        export_cmd = ExportLastFmLikesCommand(user_id="test", batch_size=20)
-
-        # Commands should be frozen (immutable)
-        with pytest.raises(AttributeError):
-            import_cmd.user_id = "modified"  # Should fail - frozen
-
-        with pytest.raises(AttributeError):
-            export_cmd.user_id = "modified"  # Should fail - frozen
-
 
 class TestOperationResultForLikeOperations:
     """Test OperationResult for like import/export operations with summary metrics."""

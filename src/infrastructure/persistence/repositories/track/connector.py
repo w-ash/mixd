@@ -4,6 +4,10 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
+# pyright: reportImportCycles=false
+# Intentional lazy import cycle: mapper.py lazily imports this module to delegate
+# primary mapping promotion to set_primary_mapping() (avoids duplicating SQL logic).
+
 from datetime import UTC, datetime
 from typing import Any, cast, override
 
@@ -17,6 +21,7 @@ from src.config.constants import BusinessLimits
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
+    DBTrack,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.base_repo import (
@@ -31,56 +36,56 @@ logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
-class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, dict[str, Any]]):
+class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
     """Converts external service track data between database and domain formats."""
 
     @override
     @staticmethod
-    async def to_domain(db_model: DBConnectorTrack) -> dict[str, Any]:
-        """Convert database connector track to dictionary format.
+    async def to_domain(db_model: DBConnectorTrack) -> ConnectorTrack:
+        """Convert database connector track to domain ConnectorTrack.
 
         Args:
             db_model: Database model instance.
 
         Returns:
-            Dictionary with track data from external service.
+            ConnectorTrack domain entity.
         """
-        return {
-            "id": db_model.id,
-            "connector_name": db_model.connector_name,
-            "connector_track_identifier": db_model.connector_track_identifier,
-            "title": db_model.title,
-            "artists": db_model.artists,
-            "album": db_model.album,
-            "duration_ms": db_model.duration_ms,
-            "release_date": db_model.release_date,
-            "isrc": db_model.isrc,
-            "raw_metadata": db_model.raw_metadata,
-            "last_updated": db_model.last_updated,
-        }
+        return ConnectorTrack(
+            id=db_model.id,
+            connector_name=db_model.connector_name,
+            connector_track_identifier=db_model.connector_track_identifier,
+            title=db_model.title,
+            artists=[Artist(name=n) for n in db_model.artists.get("names", [])],
+            album=db_model.album,
+            duration_ms=db_model.duration_ms,
+            release_date=db_model.release_date,
+            isrc=db_model.isrc,
+            raw_metadata=db_model.raw_metadata or {},
+            last_updated=db_model.last_updated,
+        )
 
     @override
     @staticmethod
-    def to_db(domain_model: dict[str, Any]) -> DBConnectorTrack:
-        """Convert dictionary to database connector track.
+    def to_db(domain_model: ConnectorTrack) -> DBConnectorTrack:
+        """Convert ConnectorTrack domain entity to database model.
 
         Args:
-            domain_model: Dictionary with track data.
+            domain_model: ConnectorTrack domain entity.
 
         Returns:
             Database model instance ready for persistence.
         """
         return DBConnectorTrack(
-            connector_name=domain_model.get("connector_name"),
-            connector_track_identifier=domain_model.get("connector_track_identifier"),
-            title=domain_model.get("title"),
-            artists=domain_model.get("artists"),
-            album=domain_model.get("album"),
-            duration_ms=domain_model.get("duration_ms"),
-            release_date=domain_model.get("release_date"),
-            isrc=domain_model.get("isrc"),
-            raw_metadata=domain_model.get("raw_metadata"),
-            last_updated=domain_model.get("last_updated", datetime.now(UTC)),
+            connector_name=domain_model.connector_name,
+            connector_track_identifier=domain_model.connector_track_identifier,
+            title=domain_model.title,
+            artists={"names": [a.name for a in domain_model.artists]},
+            album=domain_model.album,
+            duration_ms=domain_model.duration_ms,
+            release_date=domain_model.release_date,
+            isrc=domain_model.isrc,
+            raw_metadata=domain_model.raw_metadata,
+            last_updated=domain_model.last_updated,
         )
 
     @override
@@ -144,7 +149,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
         return ["track", "connector_track"]
 
 
-class ConnectorTrackRepository(BaseRepository[DBConnectorTrack, dict[str, Any]]):
+class ConnectorTrackRepository(BaseRepository[DBConnectorTrack, ConnectorTrack]):
     """Manages external service track data storage and retrieval."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -190,6 +195,34 @@ class TrackConnectorRepository:
         self.mapping_repo = TrackMappingRepository(session)
         self.track_repo = TrackRepository(session)
 
+    @staticmethod
+    def _build_connector_track_dict(
+        connector_name: str,
+        identifier: str,
+        title: str,
+        artists: list[Artist],
+        album: str | None,
+        duration_ms: int | None,
+        release_date: datetime | None,
+        isrc: str | None,
+        raw_metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Build a dict suitable for bulk_upsert of connector tracks."""
+        return {
+            "connector_name": connector_name,
+            "connector_track_identifier": identifier,
+            "title": title,
+            "artists": {"names": [a.name for a in artists]}
+            if artists
+            else {"names": []},
+            "album": album,
+            "duration_ms": duration_ms,
+            "release_date": release_date,
+            "isrc": isrc,
+            "raw_metadata": raw_metadata or {},
+            "last_updated": datetime.now(UTC),
+        }
+
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(
         self, connections: list[tuple[str, str]]
@@ -226,9 +259,11 @@ class TrackConnectorRepository:
 
             # Create useful lookups
             ct_id_to_external_id = {
-                ct["id"]: ct["connector_track_identifier"] for ct in connector_tracks
+                ct.id: ct.connector_track_identifier
+                for ct in connector_tracks
+                if ct.id is not None
             }
-            ct_ids = [ct["id"] for ct in connector_tracks]
+            ct_ids = [ct.id for ct in connector_tracks if ct.id is not None]
 
             # Find mappings
             mappings = await self.mapping_repo.find_by([
@@ -306,20 +341,19 @@ class TrackConnectorRepository:
             # Prepare connector track data
             connector_track_key = (connector, connector_id)
             if connector_track_key not in connector_track_keys:
-                connector_tracks_data.append({
-                    "connector_name": connector,
-                    "connector_track_identifier": connector_id,
-                    "title": track.title,
-                    "artists": {"names": [a.name for a in track.artists]}
-                    if track.artists
-                    else {"names": []},
-                    "album": track.album,
-                    "duration_ms": track.duration_ms,
-                    "release_date": track.release_date,
-                    "isrc": track.isrc,
-                    "raw_metadata": metadata or {},
-                    "last_updated": datetime.now(UTC),
-                })
+                connector_tracks_data.append(
+                    self._build_connector_track_dict(
+                        connector,
+                        connector_id,
+                        track.title,
+                        track.artists,
+                        track.album,
+                        track.duration_ms,
+                        track.release_date,
+                        track.isrc,
+                        metadata,
+                    )
+                )
                 connector_track_keys.add(connector_track_key)
 
             # Create updated track object
@@ -332,46 +366,21 @@ class TrackConnectorRepository:
 
             updated_tracks.append(updated_track)
 
-        # Bulk upsert connector tracks
-        connector_tracks_result = await self.connector_repo.bulk_upsert(
-            connector_tracks_data,
-            lookup_keys=["connector_name", "connector_track_identifier"],
-            return_models=True,  # Add this parameter to ensure we get models back
+        # Bulk upsert connector tracks (return_models=True always returns list)
+        connector_tracks = cast(
+            list[ConnectorTrack],
+            await self.connector_repo.bulk_upsert(
+                connector_tracks_data,
+                lookup_keys=["connector_name", "connector_track_identifier"],
+                return_models=True,
+            ),
         )
 
-        # Handle the case where bulk_upsert returns an integer count instead of models
-        if isinstance(connector_tracks_result, int):
-            # If we got an integer result, we need to fetch the tracks explicitly
-            connector_name_ids: list[tuple[str, str]] = [
-                (data["connector_name"], data["connector_track_identifier"])
-                for data in connector_tracks_data
-            ]
-
-            # Build query to find all connector tracks by name and ID pairs
-            stmt = select(self.connector_repo.model_class).where(
-                self.connector_repo.model_class.connector_name.in_([
-                    c[0] for c in connector_name_ids
-                ]),
-                self.connector_repo.model_class.connector_track_identifier.in_([
-                    c[1] for c in connector_name_ids
-                ]),
-            )
-
-            # Fetch the connector tracks
-            result = await self.session.execute(stmt)
-            connector_tracks: list[dict[str, Any]] = []
-            for row in result.scalars().all():
-                domain_model = await self.connector_repo.mapper.to_domain(row)
-                if domain_model:
-                    connector_tracks.append(domain_model)
-        else:
-            # Use the returned models directly
-            connector_tracks = connector_tracks_result
-
         # Create connector ID to DB ID mapping
-        connector_id_map = {
-            (ct["connector_name"], ct["connector_track_identifier"]): ct["id"]
+        connector_id_map: dict[tuple[str, str], int] = {
+            (ct.connector_name, ct.connector_track_identifier): ct.id
             for ct in connector_tracks
+            if ct.id is not None
         }
 
         # Prepare mapping data
@@ -454,6 +463,10 @@ class TrackConnectorRepository:
                 result_track.id, connector, connector_id
             )
 
+        # Sync denormalized ID columns on canonical track so fast-path lookups work
+        if result_track.id:
+            await self._sync_denormalized_id(result_track.id, connector, connector_id)
+
         return result_track
 
     @db_operation("ingest_external_tracks_bulk")
@@ -479,35 +492,45 @@ class TrackConnectorRepository:
 
         # 1. Bulk upsert all connector tracks
         connector_track_data: list[dict[str, Any]] = [
-            {
-                "connector_name": connector,
-                "connector_track_identifier": track.connector_track_identifier,
-                "title": track.title,
-                "artists": {"names": [a.name for a in track.artists]}
-                if track.artists
-                else {"names": []},
-                "album": track.album,
-                "duration_ms": track.duration_ms,
-                "release_date": track.release_date,
-                "isrc": track.isrc,
-                "raw_metadata": track.raw_metadata or {},
-                "last_updated": datetime.now(UTC),
-            }
+            self._build_connector_track_dict(
+                connector,
+                track.connector_track_identifier,
+                track.title,
+                track.artists,
+                track.album,
+                track.duration_ms,
+                track.release_date,
+                track.isrc,
+                track.raw_metadata,
+            )
             for track in tracks
         ]
 
-        connector_tracks = await self.connector_repo.bulk_upsert(
-            connector_track_data,
-            lookup_keys=["connector_name", "connector_track_identifier"],
+        connector_tracks = cast(
+            list[ConnectorTrack],
+            await self.connector_repo.bulk_upsert(
+                connector_track_data,
+                lookup_keys=["connector_name", "connector_track_identifier"],
+            ),
         )
 
         # 2. Create a lookup dict for connector tracks
-        connector_track_lookup: dict[str, dict[str, Any]] = {}
-        if isinstance(connector_tracks, list):
-            for ct in connector_tracks:
-                connector_track_lookup[ct["connector_track_identifier"]] = ct
+        connector_track_lookup = {
+            ct.connector_track_identifier: ct for ct in connector_tracks
+        }
 
-        # 3. Create or find domain tracks
+        # 3. Bulk-fetch all existing mappings for these connector tracks (N queries → 1)
+        all_ct_db_ids = [
+            ct.id for ct in connector_track_lookup.values() if ct.id is not None
+        ]
+        existing_mappings_list = await self.mapping_repo.find_by([
+            self.mapping_repo.model_class.connector_track_id.in_(all_ct_db_ids),
+        ])
+        existing_mapping_by_ct_id: dict[int, dict[str, Any]] = {
+            m["connector_track_id"]: m for m in existing_mappings_list
+        }
+
+        # 4. Create or find domain tracks
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, Any]] = []
         metrics_data: list[tuple[int | None, Any]] = []
@@ -526,14 +549,13 @@ class TrackConnectorRepository:
             representative_track = track_group[0]
 
             # Get the connector track ID from the lookup
-            connector_track_id = connector_track_lookup[connector_track_identifier][
-                "id"
-            ]
+            ct_entry = connector_track_lookup[connector_track_identifier]
+            connector_track_id = ct_entry.id
+            if connector_track_id is None:
+                continue
 
-            # Try to find existing mapping first
-            mapping = await self.mapping_repo.find_one_by({
-                "connector_track_id": connector_track_id,
-            })
+            # Check pre-fetched mappings instead of per-item query
+            mapping = existing_mapping_by_ct_id.get(connector_track_id)
 
             if mapping:
                 # Track exists, retrieve it
@@ -608,30 +630,41 @@ class TrackConnectorRepository:
                 return_models=False,
             )
 
-            # 6. Set primary mappings properly (one per track-connector pair)
-            # Group by track_id to ensure only one primary per track-connector
-            tracks_by_id: dict[int, list[Track]] = {}
+            # 6. Set primary mappings in bulk (one per track-connector pair)
+            primaries_set: dict[int, str] = {}
             for track in domain_tracks:
-                if track.id is not None:
-                    if track.id not in tracks_by_id:
-                        tracks_by_id[track.id] = []
-                    tracks_by_id[track.id].append(track)
+                if track.id is not None and track.id not in primaries_set:
+                    cid = track.connector_track_identifiers.get(connector)
+                    if cid:
+                        primaries_set[track.id] = cid
 
-            # For each canonical track, set one primary mapping for this connector
-            for track_id, track_instances in tracks_by_id.items():
-                # Use the first track instance to determine the connector ID
-                first_track = track_instances[0]
-                connector_id = first_track.connector_track_identifiers.get(connector)
-                if connector_id:
-                    _ = await self.ensure_primary_mapping(
-                        track_id, connector, connector_id
-                    )
+            primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
+            if primaries:
+                _ = await self.batch_ensure_primary_mappings(primaries)
 
         # Note: Metrics processing moved to MetricsApplicationService
         # This repository focuses on track ingestion only
         # Metrics extraction is handled at the application layer
 
         return domain_tracks
+
+    async def _sync_denormalized_id(
+        self, track_id: int, connector: str, connector_id: str
+    ) -> None:
+        """Sync denormalized ID column on DBTrack after a mapping is created.
+
+        When a track gains a new Spotify or MusicBrainz mapping, the fast-path
+        lookup columns (spotify_id, mbid) on DBTrack must be updated so that
+        save_track() deduplication and _TRACK_ID_TYPES lookups find the track.
+        """
+        column_map = {"spotify": "spotify_id", "musicbrainz": "mbid"}
+        column_name = column_map.get(connector)
+        if column_name:
+            await self.session.execute(
+                update(DBTrack)
+                .where(DBTrack.id == track_id)
+                .values(**{column_name: connector_id})
+            )
 
     @db_operation("get_connector_mappings")
     async def get_connector_mappings(
@@ -651,7 +684,7 @@ class TrackConnectorRepository:
         if not track_ids:
             return {}
 
-        # Build efficient join between mappings and connector tracks
+        # Build efficient join between mappings and connector tracks (primary only)
         stmt = (
             select(
                 self.mapping_repo.model_class.track_id,
@@ -665,6 +698,7 @@ class TrackConnectorRepository:
             )
             .where(
                 self.mapping_repo.model_class.track_id.in_(track_ids),
+                self.mapping_repo.model_class.is_primary.is_(True),
             )
         )
 
@@ -702,7 +736,7 @@ class TrackConnectorRepository:
         if not track_ids:
             return {}
 
-        # Build efficient join query
+        # Build efficient join query (primary mappings only)
         stmt = (
             select(
                 self.mapping_repo.model_class.track_id,
@@ -715,6 +749,7 @@ class TrackConnectorRepository:
             )
             .where(
                 self.mapping_repo.model_class.track_id.in_(track_ids),
+                self.mapping_repo.model_class.is_primary.is_(True),
                 self.connector_repo.model_class.connector_name == connector,
             )
         )
@@ -748,44 +783,32 @@ class TrackConnectorRepository:
         if not track_ids:
             return {}
 
-        try:
-            from sqlalchemy import func, select
+        from sqlalchemy import func
 
-            from src.infrastructure.persistence.database.db_models import DBTrackMetric
+        from src.infrastructure.persistence.database.db_models import DBTrackMetric
 
-            # Query for the most recent collected_at timestamp for each track
-            stmt = (
-                select(
-                    DBTrackMetric.track_id,
-                    func.max(DBTrackMetric.collected_at).label("latest_collected_at"),
-                )
-                .where(
-                    DBTrackMetric.track_id.in_(track_ids),
-                    DBTrackMetric.connector_name == connector,
-                )
-                .group_by(DBTrackMetric.track_id)
+        stmt = (
+            select(
+                DBTrackMetric.track_id,
+                func.max(DBTrackMetric.collected_at).label("latest_collected_at"),
             )
+            .where(
+                DBTrackMetric.track_id.in_(track_ids),
+                DBTrackMetric.connector_name == connector,
+            )
+            .group_by(DBTrackMetric.track_id)
+        )
 
-            result = await self.session.execute(stmt)
-            rows = result.fetchall()
-
-            timestamps: dict[int, datetime] = {}
-            for row in rows:
-                track_id = row[0]
-                collected_at = row[1]
-
-                # Ensure UTC timezone for consistency - database stores UTC timestamps
-                # If no timezone info, assume it's already UTC (our standard)
-                if collected_at and collected_at.tzinfo is None:
-                    collected_at = collected_at.replace(tzinfo=UTC)
-
-                timestamps[track_id] = collected_at
-
-        except Exception as e:
-            logger.error(f"Failed to get metadata timestamps: {e}")
-            return {}
-        else:
-            return timestamps
+        result = await self.session.execute(stmt)
+        return {
+            track_id: (
+                collected_at.replace(tzinfo=UTC)
+                if collected_at.tzinfo is None
+                else collected_at
+            )
+            for track_id, collected_at in result.fetchall()
+            if collected_at
+        }
 
     @db_operation("ensure_primary_mapping")
     async def ensure_primary_mapping(
@@ -810,17 +833,15 @@ class TrackConnectorRepository:
             "connector_track_identifier": connector_id,
         })
 
-        if not connector_track or "id" not in connector_track:
+        if not connector_track or connector_track.id is None:
             logger.warning(f"Connector track not found: {connector}:{connector_id}")
             return False
 
-        return await self.set_primary_mapping(
-            track_id, connector_track["id"], connector
-        )
+        return await self.set_primary_mapping(track_id, connector, connector_track.id)
 
     @db_operation("set_primary_mapping")
     async def set_primary_mapping(
-        self, track_id: int, connector_track_id: int, connector_name: str
+        self, track_id: int, connector_name: str, connector_track_id: int
     ) -> bool:
         """Mark one external track as the primary mapping for a service.
 
@@ -829,12 +850,18 @@ class TrackConnectorRepository:
 
         Args:
             track_id: Internal canonical track ID.
-            connector_track_id: Database ID of the external track record.
             connector_name: Service name (e.g., "spotify").
+            connector_track_id: Database ID of the external track record.
 
         Returns:
             True if primary mapping was successfully updated.
         """
+        log = logger.bind(
+            track_id=track_id,
+            connector=connector_name,
+            connector_track_id=connector_track_id,
+        )
+
         try:
             # Step 1: Reset all primaries for this track-connector pair
             _ = await self.session.execute(
@@ -861,23 +888,81 @@ class TrackConnectorRepository:
 
             success = result.rowcount > 0
             if success:
-                logger.debug(
-                    f"Set primary mapping: track_id={track_id}, "
-                    + f"connector_track_id={connector_track_id}, "
-                    + f"connector={connector_name}"
-                )
+                log.debug("Set primary mapping")
             else:
-                logger.warning(
-                    "Failed to set primary mapping - no matching record found: "
-                    + f"track_id={track_id}, connector_track_id={connector_track_id}, "
-                    + f"connector={connector_name}"
-                )
+                log.warning("Failed to set primary mapping - no matching record found")
 
-        except Exception as e:
-            logger.error(
-                f"Error setting primary mapping for track_id={track_id}, "
-                + f"connector_track_id={connector_track_id}, connector={connector_name}: {e}"
-            )
+        except Exception:
+            log.opt(exception=True).error("Error setting primary mapping")
             return False
         else:
             return success
+
+    @db_operation("batch_ensure_primary_mappings")
+    async def batch_ensure_primary_mappings(
+        self,
+        primaries: list[tuple[int, str, str]],
+    ) -> int:
+        """Set primary mappings for multiple track-connector pairs in bulk.
+
+        Replaces per-track ensure_primary_mapping() loops with fewer queries.
+        Each tuple is (track_id, connector_name, connector_track_identifier).
+
+        Args:
+            primaries: List of (track_id, connector_name, connector_track_identifier).
+
+        Returns:
+            Number of mappings successfully promoted to primary.
+        """
+        if not primaries:
+            return 0
+
+        # Single bulk query: find all connector track DB IDs
+        connector_ids = list({cid for _, _, cid in primaries})
+        connectors = list({cn for _, cn, _ in primaries})
+
+        ct_records = await self.connector_repo.find_by([
+            self.connector_repo.model_class.connector_name.in_(connectors),
+            self.connector_repo.model_class.connector_track_identifier.in_(
+                connector_ids
+            ),
+        ])
+        ct_id_map: dict[tuple[str, str], int] = {
+            (ct.connector_name, ct.connector_track_identifier): ct.id
+            for ct in ct_records
+            if ct.id is not None
+        }
+
+        # Step 1: Bulk reset all primaries for affected track-connector pairs
+        track_ids = [tid for tid, _, _ in primaries]
+        for connector_name in connectors:
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id.in_(track_ids),
+                    DBTrackMapping.connector_name == connector_name,
+                )
+                .values(is_primary=False)
+            )
+
+        # Step 2: Set new primaries (per-row — SQLite lacks multi-column IN for UPDATE)
+        promoted = 0
+        for track_id, connector_name, connector_id in primaries:
+            ct_db_id = ct_id_map.get((connector_name, connector_id))
+            if ct_db_id is None:
+                continue
+            result = cast(
+                CursorResult[Any],
+                await self.session.execute(
+                    update(DBTrackMapping)
+                    .where(
+                        DBTrackMapping.track_id == track_id,
+                        DBTrackMapping.connector_track_id == ct_db_id,
+                    )
+                    .values(is_primary=True)
+                ),
+            )
+            if result.rowcount > 0:
+                promoted += 1
+
+        return promoted

@@ -78,7 +78,7 @@ async def _list_stored_playlists() -> None:
         from src.application.runner import execute_use_case
         from src.application.use_cases.list_playlists import ListPlaylistsUseCase
 
-        result = await execute_use_case(lambda uow: ListPlaylistsUseCase(uow).execute())
+        result = await execute_use_case(lambda uow: ListPlaylistsUseCase().execute(uow))
 
         if not result.has_playlists:
             console.print("[yellow]No playlists found in your database.[/yellow]")

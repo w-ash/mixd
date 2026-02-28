@@ -359,7 +359,11 @@ class TestClientSmokeViaRealHttpx:
             result = await client.get_tracks_bulk(["abc123"])
             await client.aclose()
 
-        assert result == payload
+        # get_tracks_bulk now returns validated list[SpotifyTrack]
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].id == "abc123"
+        assert result[0].name == "Test Track"
 
     @pytest.mark.asyncio
     async def test_spotify_error_response_returns_none_via_hook(self, spotify_settings):

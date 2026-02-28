@@ -18,9 +18,7 @@ from .metric_transforms import (
 )
 from .play_history import (
     filter_by_play_history,
-    filter_by_time_criteria,
     sort_by_play_history,
-    time_range_predicate,
 )
 from .shuffle import weighted_shuffle
 
@@ -28,10 +26,8 @@ __all__ = [
     "filter_by_explicit",
     "filter_by_metric_range",
     "filter_by_play_history",
-    "filter_by_time_criteria",
     "sort_by_date",
     "sort_by_external_metrics",
     "sort_by_play_history",
-    "time_range_predicate",
     "weighted_shuffle",
 ]

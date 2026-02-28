@@ -11,9 +11,9 @@ from typing import Any, Never
 from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
+from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import Playlist
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -116,7 +116,7 @@ class DeleteCanonicalPlaylistUseCase:
         async with uow:
             try:
                 # Step 1: Get current playlist to ensure it exists and collect metadata
-                playlist = await self._get_playlist(command.playlist_id, uow)
+                playlist = await require_playlist(command.playlist_id, uow)
 
                 # Step 2: Check for external connections and warn if needed
                 warnings: list[str] = []
@@ -187,37 +187,3 @@ class DeleteCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
-
-    async def _get_playlist(
-        self, playlist_id: str, uow: UnitOfWorkProtocol
-    ) -> Playlist:
-        """Retrieves a playlist by internal ID or external connector ID.
-
-        Attempts to find playlist by internal database ID first, then falls back
-        to searching by Spotify connector ID if the input is not numeric.
-
-        Args:
-            playlist_id: Internal database ID (numeric) or external service ID.
-            uow: Unit of work for repository access.
-
-        Returns:
-            The found playlist entity.
-
-        Raises:
-            ValueError: If no playlist found with the given ID.
-        """
-        playlist_repo = uow.get_playlist_repository()
-
-        try:
-            # Try to get by internal ID first
-            playlist = await playlist_repo.get_playlist_by_id(int(playlist_id))
-        except ValueError:
-            # If not an integer, try as connector ID
-            playlist = await playlist_repo.get_playlist_by_connector(
-                "spotify", playlist_id, raise_if_not_found=True
-            )
-            if playlist is None:
-                raise ValueError(f"Playlist with ID {playlist_id} not found") from None
-            return playlist
-        else:
-            return playlist

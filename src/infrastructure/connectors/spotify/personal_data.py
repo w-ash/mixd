@@ -33,7 +33,13 @@ class SpotifyPlayRecord:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
-        """Parse Spotify personal data JSON record."""
+        """Parse Spotify personal data JSON record.
+
+        Core fields (ts, spotify_track_uri, track/artist/album names, ms_played)
+        remain strict — records without these are genuinely invalid.
+        Behavioral metadata fields use safe defaults since they're optional
+        in real Spotify exports.
+        """
         return cls(
             timestamp=datetime.fromisoformat(data["ts"]),
             track_uri=data["spotify_track_uri"],
@@ -41,14 +47,14 @@ class SpotifyPlayRecord:
             artist_name=data["master_metadata_album_artist_name"],
             album_name=data["master_metadata_album_album_name"],
             ms_played=data["ms_played"],
-            platform=data["platform"],
-            country=data["conn_country"],
-            reason_start=data["reason_start"],
-            reason_end=data["reason_end"],
-            shuffle=data["shuffle"],
-            skipped=data["skipped"],
-            offline=data["offline"],
-            incognito_mode=data["incognito_mode"],
+            platform=data.get("platform", "unknown"),
+            country=data.get("conn_country", "unknown"),
+            reason_start=data.get("reason_start", "unknown"),
+            reason_end=data.get("reason_end", "unknown"),
+            shuffle=data.get("shuffle", False) or False,
+            skipped=data.get("skipped", False) or False,
+            offline=data.get("offline", False) or False,
+            incognito_mode=data.get("incognito_mode", False) or False,
         )
 
 
@@ -65,8 +71,15 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
         if item.get("spotify_track_uri") and item.get("master_metadata_track_name"):
             try:
                 records.append(SpotifyPlayRecord.from_json(item))
-            except (KeyError, ValueError) as e:
-                logger.warning(f"Skipping malformed record: {e}")
+            except (KeyError, ValueError, TypeError) as e:
+                logger.warning(
+                    "Skipping malformed Spotify record",
+                    error=str(e),
+                    track_name=item.get("master_metadata_track_name", "unknown"),
+                    artist_name=item.get(
+                        "master_metadata_album_artist_name", "unknown"
+                    ),
+                )
                 continue
 
     logger.info(f"Parsed {len(records)} play records")

@@ -130,10 +130,8 @@ def intersect(
         result_tracks = [t for t in tracklists[0].tracks if t.id in common_ids]
 
         result = TrackList(tracks=result_tracks)
-        return (
-            result
-            .with_metadata("operation", "intersect")
-            .with_metadata("source_count", len(tracklists))
+        return result.with_metadata("operation", "intersect").with_metadata(
+            "source_count", len(tracklists)
         )
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform

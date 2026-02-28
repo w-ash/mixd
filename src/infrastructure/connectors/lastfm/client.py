@@ -17,8 +17,8 @@ from typing import Any, ClassVar, override
 
 from attrs import define, field
 import httpx
-from loguru import logger as _loguru_logger
 from pydantic import ValidationError
+from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
@@ -88,7 +88,7 @@ class LastFMAPIClient(BaseAPIClient):
     lastfm_username: str | None = field(default=None)
     _session_key: str | None = field(default=None, init=False, repr=False)
     _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
-    _retry_policy: Any = field(init=False, repr=False)
+    _retry_policy: AsyncRetrying = field(init=False, repr=False)
     _client: httpx.AsyncClient = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -375,15 +375,18 @@ class LastFMAPIClient(BaseAPIClient):
         total_pages = 1
 
         while page <= total_pages and len(all_tracks) < limit:
-            try:
-                with _loguru_logger.contextualize(operation="get_lastfm_recent_tracks"):
-                    tracks, total_pages = await self._retry_policy(
-                        self._get_recent_tracks_impl, user, page, from_time, to_time
-                    )
-            except (LastFMAPIError, httpx.HTTPStatusError, httpx.RequestError) as e:
-                logger.warning(f"Failed to get recent tracks page {page}: {e}")
+            result = await self._api_call(
+                "get_lastfm_recent_tracks",
+                self._get_recent_tracks_impl,
+                user,
+                page,
+                from_time,
+                to_time,
+            )
+            if result is None:
                 break
 
+            tracks, total_pages = result
             all_tracks.extend(tracks)
             if not tracks:  # Empty page → stop early
                 break

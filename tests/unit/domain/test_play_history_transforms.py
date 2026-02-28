@@ -7,36 +7,8 @@ import pytest
 from src.application.transforms.play_history import (
     filter_by_play_history,
     sort_by_play_history,
-    time_range_predicate,
 )
 from src.domain.entities.track import Artist, Track, TrackList
-
-
-@pytest.mark.unit
-class TestTimeRangePredicate:
-    """Test time range predicate creation."""
-
-    def test_days_back_predicate(self):
-        """Test predicate with min_days_back parameter."""
-        predicate = time_range_predicate(days_back=30)
-
-        recent_date = datetime.now(UTC) - timedelta(days=15)
-        old_date = datetime.now(UTC) - timedelta(days=60)
-
-        assert predicate(recent_date) is True
-        assert predicate(old_date) is False
-
-    def test_absolute_date_predicate(self):
-        """Test predicate with absolute dates."""
-        start_date = datetime(2024, 1, 1, tzinfo=UTC)
-        end_date = datetime(2024, 3, 31, tzinfo=UTC)
-        predicate = time_range_predicate(after_date=start_date, before_date=end_date)
-
-        in_range = datetime(2024, 2, 15, tzinfo=UTC)
-        before_range = datetime(2023, 12, 15, tzinfo=UTC)
-
-        assert predicate(in_range) is True
-        assert predicate(before_range) is False
 
 
 class TestFilterByPlayHistory:

@@ -16,7 +16,7 @@ from src.application.use_cases._shared.command_validators import (
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
-from src.domain.entities.track import TrackLike, TrackList
+from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -157,21 +157,15 @@ class GetLikedTracksUseCase:
 
         # Get all liked tracks (filtered by service if specified)
         if command.connector_filter:
-            # Get likes for specific service
+            # Get likes for specific connector service
             track_likes = await like_repo.get_all_liked_tracks(
                 service=command.connector_filter, is_liked=True, sort_by=command.sort_by
             )
         else:
-            # Get likes across all services
-            # Note: This may return duplicates if a track is liked on multiple services
-            # Users can apply filter_duplicates transform if needed
-            all_services = ["spotify", "lastfm"]  # Could be made configurable
-            track_likes: list[TrackLike] = []
-            for service in all_services:
-                service_likes = await like_repo.get_all_liked_tracks(
-                    service=service, is_liked=True, sort_by=command.sort_by
-                )
-                track_likes.extend(service_likes)
+            # Query canonical "narada" service — the source of truth for all likes
+            track_likes = await like_repo.get_all_liked_tracks(
+                service="narada", is_liked=True, sort_by=command.sort_by
+            )
 
         # Extract track IDs and apply limit
         track_ids = [like.track_id for like in track_likes]

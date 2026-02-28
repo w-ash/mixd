@@ -91,7 +91,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
             )
             # Individual failures are already logged by providers via log_match_failure()
 
-        # Return only matches for backward compatibility
+        # Return only matches
         # Calling code (MatchAndIdentifyTracksUseCase) only expects successful matches
         return result.matches
 

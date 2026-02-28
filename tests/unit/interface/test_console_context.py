@@ -20,7 +20,6 @@ class TestSimpleConsoleContext:
         context = SimpleConsoleContext(console)
 
         assert context.console is console
-        assert context.live_console is console  # Backward compatibility
         assert context.get_progress_manager() is None
 
     def test_console_access(self):
@@ -55,7 +54,6 @@ class TestProgressDisplayContext:
 
         assert context.provider is mock_provider
         assert context.console is mock_console
-        assert context.live_console is mock_console  # Backward compatibility
         assert context.progress_manager is mock_manager
 
     def test_console_from_provider(self):
@@ -81,19 +79,6 @@ class TestProgressDisplayContext:
 
         progress_manager = context.get_progress_manager()
         assert progress_manager is mock_manager
-
-    def test_backward_compatibility(self):
-        """Test that backward compatibility properties work."""
-        mock_provider = Mock()
-        mock_console = Console()
-        mock_provider.get_console.return_value = mock_console
-        mock_manager = Mock()
-
-        context = ProgressDisplayContext(mock_provider, mock_manager)
-
-        # Verify backward compatibility properties
-        assert context.live_console is context.console
-        assert context.live_console is mock_console
 
 
 class TestContextClassComparison:
@@ -143,5 +128,3 @@ class TestContextClassComparison:
             assert hasattr(context.console, "print")
             assert hasattr(context.console, "status")
             assert hasattr(context.console, "rule")
-            # Test backward compatibility
-            assert context.live_console is context.console

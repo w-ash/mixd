@@ -21,15 +21,12 @@ class TestNodeContextIntegration:
         workflow_context = create_workflow_context()
 
         # Verify all required providers exist
-        assert workflow_context.config is not None
         assert workflow_context.logger is not None
         assert workflow_context.connectors is not None
         assert workflow_context.use_cases is not None
         assert workflow_context.session_provider is not None
-        assert workflow_context.use_cases is not None
 
         # Test that providers have expected interfaces
-        assert hasattr(workflow_context.config, "settings")
         assert hasattr(workflow_context.logger, "info")
         assert hasattr(workflow_context.connectors, "list_connectors")
         assert hasattr(
@@ -48,17 +45,14 @@ class TestNodeContextIntegration:
             "parameters": {"test_param": "test_value"},
             "use_cases": workflow_context.use_cases,
             "connectors": workflow_context.connectors,
-            "config": workflow_context.config,
             "logger": workflow_context.logger,
             "session_provider": workflow_context.session_provider,
-            "repositories": workflow_context.use_cases,
         }
 
         # Verify all required keys are present
         required_keys = [
             "use_cases",
             "connectors",
-            "config",
             "logger",
             "session_provider",
         ]
@@ -115,15 +109,6 @@ class TestNodeContextIntegration:
         if "spotify" in connectors:
             spotify_connector = workflow_context.connectors.get_connector("spotify")
             assert spotify_connector is not None
-
-    def test_config_provider_functionality(self):
-        """Test that config provider works correctly."""
-        # Create real workflow context
-        workflow_context = create_workflow_context()
-
-        # Test config provider settings access
-        settings = workflow_context.config.settings
-        assert settings is not None
 
     @pytest.mark.asyncio
     async def test_node_context_extraction(self):

@@ -25,34 +25,12 @@ from src.infrastructure.persistence.database.db_connection import get_session
 
 # Repository factory functions will be imported locally where needed
 from .protocols import (
-    ConfigProvider,
     ConnectorRegistry,
     DatabaseSessionProvider,
     LoggerProvider,
     UseCaseProvider,
     WorkflowContext,
 )
-
-
-class ConfigProviderImpl:
-    """Provides access to application configuration values.
-
-    Provides workflow access to application settings through a clean interface
-    that avoids direct coupling to the config module structure.
-    """
-
-    _settings: Any
-
-    def __init__(self):
-        """Initialize the configuration provider."""
-        from src.config import settings
-
-        self._settings = settings
-
-    @property
-    def settings(self):
-        """Direct access to settings for modern usage."""
-        return self._settings
 
 
 class LoggerProviderImpl:
@@ -113,35 +91,40 @@ class ConnectorRegistryImpl:
     """Registry for music service API connectors.
 
     Manages access to connectors for music services like Spotify, Last.fm,
-    and MusicBrainz. Automatically discovers available connectors and provides
-    factory access to create configured connector instances.
+    and MusicBrainz. Automatically discovers available connectors and caches
+    instances so repeated calls return the same connector (same httpx pool).
     """
 
     _connectors: dict[str, Any]
+    _cache: dict[str, Any]
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""
         from src.infrastructure.connectors import discover_connectors
 
         self._connectors = discover_connectors()
+        self._cache = {}
 
     def get_connector(self, name: str):
-        """Create a connector instance for the specified music service.
+        """Get (or create) a connector instance for the specified music service.
 
         Args:
             name: Name of the connector (e.g., 'spotify', 'lastfm')
 
         Returns:
-            Configured connector instance
+            Configured connector instance (cached per registry lifetime)
 
         Raises:
             ValueError: If connector name is not registered
         """
+        if name in self._cache:
+            return self._cache[name]
         if name not in self._connectors:
             raise ValueError(f"Unknown connector: {name}")
 
-        connector_config = self._connectors[name]
-        return connector_config["factory"]({})
+        instance = self._connectors[name]["factory"]({})
+        self._cache[name] = instance
+        return instance
 
     def list_connectors(self) -> list[str]:
         """List names of all available music service connectors.
@@ -251,13 +234,6 @@ class UseCaseProviderImpl:
 
         return EnrichTracksUseCase()
 
-    async def get_match_and_identify_tracks_use_case(self):
-        from src.application.use_cases.match_and_identify_tracks import (
-            MatchAndIdentifyTracksUseCase,
-        )
-
-        return MatchAndIdentifyTracksUseCase()
-
     async def get_update_canonical_playlist_use_case(self):
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistUseCase,
@@ -289,7 +265,6 @@ class ConcreteWorkflowContext:
     access, and business logic use cases.
     """
 
-    config: ConfigProvider
     logger: LoggerProvider
     connectors: ConnectorRegistry
     use_cases: UseCaseProvider
@@ -386,14 +361,12 @@ def create_workflow_context(
     Returns:
         Configured workflow context ready for use
     """
-    config = ConfigProviderImpl()
     logger = LoggerProviderImpl()
     connectors = ConnectorRegistryImpl()
     session_provider = DatabaseSessionProviderImpl()
     use_cases = UseCaseProviderImpl(shared_session)
 
     return ConcreteWorkflowContext(
-        config=config,
         logger=logger,
         connectors=connectors,
         use_cases=use_cases,
