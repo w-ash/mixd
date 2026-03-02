@@ -1,55 +1,15 @@
 """Pure functional playlist transformation operations.
 
 This module contains immutable, side-effect free functions that operate on
-Playlist entities and perform playlist-level transformations. These are pure
-domain transforms with zero external dependencies.
+Track entities and perform playlist-level reordering. These are pure domain
+transforms with zero external dependencies.
 
 All playlist operations follow functional programming principles:
-- Immutability: Return new Playlist instead of modifying existing ones
-- Composition: Can be combined with other transforms via create_pipeline
-- Dual-mode: Transform factories can execute immediately or return composable functions
+- Immutability: Return new lists instead of modifying existing ones
 - Purity: No side effects, logging, or external dependencies
 """
 
-from collections.abc import Callable
-
-from attrs import evolve
-
-from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track
-
-
-def calculate_track_list_diff(
-    current_tracks: list[Track],
-    target_tracks: list[Track],
-) -> tuple[list[Track], list[Track], list[Track]]:
-    """Calculate pure diff between track lists without database operations.
-
-    Pure functional transform that identifies added, removed, and common tracks
-    based on track identity. Repository layer handles database-aware matching.
-
-    Args:
-        current_tracks: Current ordered list of tracks
-        target_tracks: Target ordered list of tracks
-
-    Returns:
-        Tuple of (tracks_to_remove, tracks_to_add, tracks_in_common)
-    """
-    # Create sets for efficient lookup by track ID
-    current_ids = {track.id for track in current_tracks if track.id is not None}
-    target_ids = {track.id for track in target_tracks if track.id is not None}
-
-    # Calculate set differences
-    ids_to_remove = current_ids - target_ids
-    ids_to_add = target_ids - current_ids
-    ids_in_common = current_ids & target_ids
-
-    # Convert back to track lists maintaining order
-    tracks_to_remove = [t for t in current_tracks if t.id in ids_to_remove]
-    tracks_to_add = [t for t in target_tracks if t.id in ids_to_add]
-    tracks_in_common = [t for t in current_tracks if t.id in ids_in_common]
-
-    return tracks_to_remove, tracks_to_add, tracks_in_common
 
 
 def reorder_to_match_target(
@@ -93,45 +53,3 @@ def reorder_to_match_target(
             reordered_tracks.append(target_track)
 
     return reordered_tracks
-
-
-def rename(
-    new_name: str,
-    playlist: Playlist | None = None,
-) -> Callable[[Playlist], Playlist] | Playlist:
-    """
-    Set playlist name.
-
-    Args:
-        new_name: New playlist name
-        playlist: Optional playlist to transform immediately
-
-    Returns:
-        Transformation function or transformed playlist if provided
-    """
-
-    def transform(p: Playlist) -> Playlist:
-        return evolve(p, name=new_name)
-
-    return transform(playlist) if playlist is not None else transform
-
-
-def set_description(
-    description: str,
-    playlist: Playlist | None = None,
-) -> Callable[[Playlist], Playlist] | Playlist:
-    """
-    Set playlist description.
-
-    Args:
-        description: New playlist description
-        playlist: Optional playlist to transform immediately
-
-    Returns:
-        Transformation function or transformed playlist if provided
-    """
-
-    def transform(p: Playlist) -> Playlist:
-        return evolve(p, description=description)
-
-    return transform(playlist) if playlist is not None else transform

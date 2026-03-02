@@ -17,10 +17,8 @@ from src.domain.entities.track import Track
 from src.domain.repositories import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
-    from src.application.workflows.protocols import (
-        MetricConfigProvider,
-        TrackMetadataConnector,
-    )
+    from src.application.connector_protocols import TrackMetadataConnector
+    from src.application.workflows.protocols import MetricConfigProvider
 
 type _MetricsTuple = tuple[int, str, str, float | int | bool]
 
@@ -114,9 +112,6 @@ class MetricsApplicationService:
             logger.warning("No valid field mappings found for any requested metrics")
             return {}, {}
 
-        # PRE-FETCH STRATEGY: SQLite-safe concurrent processing
-        import asyncio
-
         result: dict[str, dict[int, Any]] = {}
         fresh_ids_per_metric: dict[str, set[int]] = {}
 
@@ -148,99 +143,94 @@ class MetricsApplicationService:
 
                 cached_values_per_metric[metric_name] = cached_values
 
-        # Phase 2: Concurrent API operations (with fresh database sessions)
-        if missing_tracks_per_metric:
-            # Collect results from concurrent metric resolution
-            metric_results: list[tuple[str, dict[int, Any]]] = []
+            # Pre-load tracks that will need API calls (while UoW is still open)
+            tracks_for_api: list[Track] = []
+            if missing_tracks_per_metric:
+                all_missing_ids: set[int] = set()
+                for ids in missing_tracks_per_metric.values():
+                    all_missing_ids.update(ids)
+                track_repo = uow.get_track_repository()
+                tracks_dict = await track_repo.find_tracks_by_ids(list(all_missing_ids))
+                tracks_for_api = list(tracks_dict.values())
 
-            async def resolve_single_metric_no_db(
-                metric_name: str, field_value: str
-            ) -> None:
-                """Resolve a single metric and append to shared results list."""
-                try:
-                    missing_ids = missing_tracks_per_metric.get(metric_name, [])
-                    if not missing_ids:
-                        return
+        # Phase 2: Single API fetch for all missing tracks, then extract per-metric
+        if missing_tracks_per_metric and connector_instance:
+            fresh_metadata: dict[int, dict[str, Any]] = {}
 
-                    # Create fresh UOW for concurrent database operations
-                    from src.infrastructure.persistence.database.db_connection import (
-                        get_session,
+            if tracks_for_api:
+                # Filter out tracks with no connector identity (avoids wasted API calls)
+                tracks_with_identity = [
+                    t
+                    for t in tracks_for_api
+                    if connector in t.connector_track_identifiers
+                ]
+                skipped = len(tracks_for_api) - len(tracks_with_identity)
+                if skipped:
+                    logger.debug(
+                        f"Skipping {skipped} tracks with no {connector} identity mapping",
+                        connector=connector,
+                        skipped_count=skipped,
                     )
-                    from src.infrastructure.persistence.repositories.factories import (
-                        get_unit_of_work,
+
+                if tracks_with_identity:
+                    try:
+                        fresh_metadata = (
+                            await connector_instance.get_external_track_data(
+                                tracks_with_identity
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to fetch metrics from {connector} API: {e}"
+                        )
+
+            # Extract each metric's field from the shared metadata
+            all_metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
+            for metric_name, field_name in field_map.items():
+                if metric_name not in missing_tracks_per_metric:
+                    continue
+                for track_id in missing_tracks_per_metric[metric_name]:
+                    metadata = fresh_metadata.get(track_id)
+                    if not metadata:
+                        continue
+                    value = metadata.get(field_name)
+                    if value is None:
+                        continue
+                    try:
+                        if isinstance(value, (bool, int, float)):
+                            converted_value = value
+                        else:
+                            converted_value = float(value)
+
+                        all_metrics_to_save.append((
+                            track_id,
+                            connector,
+                            metric_name,
+                            converted_value,
+                        ))
+
+                        # Update cached values
+                        if metric_name not in cached_values_per_metric:
+                            cached_values_per_metric[metric_name] = {}
+                        cached_values_per_metric[metric_name][track_id] = value
+
+                        # Track as freshly fetched
+                        if metric_name not in fresh_ids_per_metric:
+                            fresh_ids_per_metric[metric_name] = set()
+                        fresh_ids_per_metric[metric_name].add(track_id)
+
+                    except ValueError, TypeError:
+                        logger.warning(f"Cannot convert {value} for {metric_name}")
+
+            # Phase 3: Single database transaction to bulk save
+            if all_metrics_to_save:
+                async with uow:
+                    metrics_repo = uow.get_metrics_repository()
+                    saved_count = await metrics_repo.save_track_metrics(
+                        all_metrics_to_save
                     )
-
-                    async with get_session() as fresh_session:
-                        fresh_uow = get_unit_of_work(fresh_session)
-                        fresh_values = await self._resolve_metrics_no_db(
-                            track_ids=missing_ids,
-                            metric_name=metric_name,
-                            connector=connector,
-                            field_name=field_value,
-                            uow=fresh_uow,
-                            connector_instance=connector_instance,
-                        )
-                        metric_results.append((metric_name, fresh_values))
-                except Exception as exc:
-                    logger.error(f"Error resolving metric {metric_name}: {exc}")
-
-            # Execute all API calls concurrently with structured concurrency
-            metrics_to_resolve = [
-                (mn, fv)
-                for mn, fv in field_map.items()
-                if mn in missing_tracks_per_metric
-            ]
-
-            if metrics_to_resolve:
-                async with asyncio.TaskGroup() as tg:
-                    for metric_name, field_value in metrics_to_resolve:
-                        _ = tg.create_task(
-                            resolve_single_metric_no_db(metric_name, field_value)
-                        )
-
-                # Collect fresh data for bulk save
-                all_metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
-                for metric_name, fresh_values in metric_results:
-                    for track_id, value in fresh_values.items():
-                        if value is not None:
-                            try:
-                                # Preserve original data types
-                                if isinstance(value, (bool, int, float)):
-                                    converted_value = value
-                                else:
-                                    converted_value = float(value)
-
-                                all_metrics_to_save.append((
-                                    track_id,
-                                    connector,
-                                    metric_name,
-                                    converted_value,
-                                ))
-
-                                # Update cached values
-                                if metric_name not in cached_values_per_metric:
-                                    cached_values_per_metric[metric_name] = {}
-                                cached_values_per_metric[metric_name][track_id] = value
-
-                                # Track as freshly fetched
-                                if metric_name not in fresh_ids_per_metric:
-                                    fresh_ids_per_metric[metric_name] = set()
-                                fresh_ids_per_metric[metric_name].add(track_id)
-
-                            except ValueError, TypeError:
-                                logger.warning(
-                                    f"Cannot convert {value} for {metric_name}"
-                                )
-
-                # Phase 3: Single database transaction to bulk save
-                if all_metrics_to_save:
-                    async with uow:
-                        metrics_repo = uow.get_metrics_repository()
-                        saved_count = await metrics_repo.save_track_metrics(
-                            all_metrics_to_save
-                        )
-                        await uow.commit()
-                        logger.info(f"Bulk saved {saved_count} new metrics")
+                    await uow.commit()
+                    logger.info(f"Bulk saved {saved_count} new metrics")
 
         # Combine cached and fresh values
         for metric_name in field_map:
@@ -399,172 +389,3 @@ class MetricsApplicationService:
             return saved_count
 
         return 0
-
-    async def _fetch_fresh_metadata(
-        self,
-        track_ids: list[int],
-        connector: str,
-        field_name: str,
-        uow: UnitOfWorkProtocol,
-        connector_instance: TrackMetadataConnector | None = None,
-    ) -> dict[int, Any]:
-        """Fetch fresh metadata from external API for tracks missing stored data.
-
-        Args:
-            track_ids: Internal track IDs needing fresh metadata.
-            connector: External connector name ('spotify', 'lastfm', etc.).
-            field_name: Specific field to extract from metadata.
-            uow: Unit of work for database access.
-            connector_instance: Connector instance for API calls.
-
-        Returns:
-            Dictionary mapping track_id to extracted field values.
-        """
-        if not track_ids or not connector_instance:
-            return {}
-
-        logger.info(
-            f"Fetching fresh metadata for {len(track_ids)} tracks from {connector} API",
-            connector=connector,
-            field_name=field_name,
-            track_count=len(track_ids),
-        )
-
-        # Step 1: Get connector mappings (track_id -> external_id)
-        connector_repo = uow.get_connector_repository()
-        mappings = await connector_repo.get_connector_mappings(
-            track_ids=track_ids,
-            connector=connector,
-        )
-
-        if not mappings:
-            logger.warning(f"No {connector} mappings found for any tracks")
-            return {}
-
-        # Step 2: Extract external IDs and create reverse mapping
-        external_ids: list[str] = []
-        external_id_to_track_id: dict[str, int] = {}
-
-        for track_id, connector_mappings in mappings.items():
-            external_id = connector_mappings.get(connector)
-            if external_id:
-                external_ids.append(external_id)
-                external_id_to_track_id[external_id] = track_id
-
-        if not external_ids:
-            logger.warning(f"No {connector} external IDs found in mappings")
-            return {}
-
-        logger.info(f"Found {len(external_ids)} {connector} IDs to fetch")
-
-        # Step 3: Get Track domain objects for API call
-        track_repo = uow.get_track_repository()
-        tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
-        tracks = list(tracks_dict.values())
-
-        if not tracks:
-            logger.warning(f"No Track objects found for IDs: {track_ids}")
-            return {}
-
-        # Step 4: Fetch fresh metadata using unified protocol interface
-        try:
-            # Use the unified TrackMetadataConnector protocol
-            fresh_metadata = await connector_instance.get_external_track_data(tracks)
-
-        except Exception as e:
-            logger.error(f"Failed to fetch metadata from {connector} API: {e}")
-            return {}
-
-        if not fresh_metadata:
-            logger.warning(f"No metadata returned from {connector} API")
-            return {}
-
-        # Step 5: Extract field values from metadata (already keyed by track.id)
-        field_values: dict[int, Any] = {}
-        for track_id, metadata in fresh_metadata.items():
-            if metadata:
-                field_value = metadata.get(field_name)
-                if field_value is not None:
-                    field_values[track_id] = field_value
-
-        logger.info(
-            f"Successfully extracted {len(field_values)} {field_name} values from {connector} API",
-            extracted_count=len(field_values),
-            requested_count=len(track_ids),
-        )
-
-        return field_values
-
-    async def _resolve_metrics_no_db(
-        self,
-        track_ids: list[int],
-        metric_name: str,
-        connector: str,
-        field_name: str,
-        uow: UnitOfWorkProtocol,
-        connector_instance: TrackMetadataConnector | None = None,
-    ) -> dict[int, Any]:
-        """Resolve metrics from external API without database transactions.
-
-        This method handles the API portion of metric resolution, designed for
-        concurrent execution without SQLite lock contention. Database operations
-        are handled separately by the caller.
-
-        Args:
-            track_ids: Internal track IDs needing fresh metadata.
-            metric_name: Name of the metric to resolve.
-            connector: External connector name.
-            field_name: Field name in connector metadata.
-            uow: Unit of work for read-only database access.
-            connector_instance: Connector instance for API calls.
-
-        Returns:
-            Dictionary mapping track IDs to metric values.
-        """
-        if not track_ids or not connector_instance:
-            return {}
-
-        logger.debug(
-            f"Fetching {metric_name} for {len(track_ids)} tracks from {connector} API",
-            metric_name=metric_name,
-            connector=connector,
-            track_count=len(track_ids),
-        )
-
-        # Read-only database operations (safe for concurrency)
-        async with uow:
-            # Get tracks for API call
-            track_repo = uow.get_track_repository()
-            tracks_dict = await track_repo.find_tracks_by_ids(track_ids)
-            tracks = list(tracks_dict.values())
-
-        if not tracks:
-            logger.warning(f"No Track objects found for IDs: {track_ids}")
-            return {}
-
-        # API call (no database involvement - safe for concurrency)
-        try:
-            fresh_metadata = await connector_instance.get_external_track_data(tracks)
-        except Exception as e:
-            logger.error(f"Failed to fetch {metric_name} from {connector} API: {e}")
-            return {}
-
-        if not fresh_metadata:
-            logger.warning(f"No {metric_name} metadata returned from {connector} API")
-            return {}
-
-        # Extract field values from metadata
-        field_values: dict[int, Any] = {}
-        for track_id, metadata in fresh_metadata.items():
-            if metadata:
-                field_value = metadata.get(field_name)
-                if field_value is not None:
-                    field_values[track_id] = field_value
-
-        logger.debug(
-            f"Extracted {len(field_values)} {metric_name} values from {connector} API",
-            extracted_count=len(field_values),
-            requested_count=len(track_ids),
-        )
-
-        return field_values

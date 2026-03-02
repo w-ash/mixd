@@ -58,22 +58,18 @@ def mock_uow():
 class TestFetchData:
     """Test _fetch_data() file validation and parsing."""
 
-    @pytest.mark.asyncio
     async def test_missing_file_path_raises_value_error(self, importer):
         with pytest.raises(ValueError, match="file_path is required"):
             await importer._fetch_data()
 
-    @pytest.mark.asyncio
     async def test_nonexistent_file_raises_file_not_found(self, importer):
         with pytest.raises(FileNotFoundError, match="not found"):
             await importer._fetch_data(file_path=Path("/nonexistent/file.json"))
 
-    @pytest.mark.asyncio
     async def test_directory_path_raises_value_error(self, importer, tmp_path: Path):
         with pytest.raises(ValueError, match="not a file"):
             await importer._fetch_data(file_path=tmp_path)
 
-    @pytest.mark.asyncio
     async def test_valid_file_returns_records(self, importer, tmp_path: Path):
         import json
 
@@ -102,7 +98,6 @@ class TestFetchData:
         assert len(records) == 1
         assert isinstance(records[0], SpotifyPlayRecord)
 
-    @pytest.mark.asyncio
     async def test_string_path_converted_to_pathlib(self, importer, tmp_path: Path):
         """String file paths should be auto-converted to Path objects."""
         import json
@@ -135,7 +130,6 @@ class TestFetchData:
 class TestProcessData:
     """Test _process_data() transformation to ConnectorTrackPlay."""
 
-    @pytest.mark.asyncio
     async def test_empty_data_returns_empty_list(self, importer):
         result = await importer._process_data(
             raw_data=[],
@@ -144,7 +138,6 @@ class TestProcessData:
         )
         assert result == []
 
-    @pytest.mark.asyncio
     async def test_record_transformed_to_connector_play(self, importer, sample_record):
         import_ts = datetime(2024, 7, 1, tzinfo=UTC)
         result = await importer._process_data(
@@ -166,7 +159,6 @@ class TestProcessData:
         assert play.import_timestamp == import_ts
         assert play.import_source == "spotify_export"
 
-    @pytest.mark.asyncio
     async def test_service_metadata_populated(self, importer, sample_record):
         result = await importer._process_data(
             raw_data=[sample_record],
@@ -183,7 +175,6 @@ class TestProcessData:
         assert play.service_metadata["shuffle"] is False
         assert play.service_metadata["incognito_mode"] is False
 
-    @pytest.mark.asyncio
     async def test_connector_fields_auto_derived(self, importer, sample_record):
         """connector_name and connector_track_identifier are set by __attrs_post_init__."""
         result = await importer._process_data(
@@ -196,7 +187,6 @@ class TestProcessData:
         assert play.connector_name == "spotify"
         assert play.connector_track_identifier == "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
 
-    @pytest.mark.asyncio
     async def test_multiple_records_processed(self, importer):
         records = [
             SpotifyPlayRecord(
@@ -231,7 +221,6 @@ class TestProcessData:
 class TestSaveData:
     """Test _save_data() delegation to connector play repository."""
 
-    @pytest.mark.asyncio
     async def test_save_delegates_to_connector_play_repository(
         self, importer, mock_uow
     ):
@@ -244,13 +233,11 @@ class TestSaveData:
         assert inserted == 1
         assert dupes == 0
 
-    @pytest.mark.asyncio
     async def test_save_empty_list_returns_zero(self, importer, mock_uow):
         inserted, dupes = await importer._save_data([], mock_uow)
         assert inserted == 0
         assert dupes == 0
 
-    @pytest.mark.asyncio
     async def test_save_without_uow_raises(self, importer):
         with pytest.raises(RuntimeError, match="UnitOfWork required"):
             await importer._save_data([MagicMock()], None)
@@ -259,7 +246,6 @@ class TestSaveData:
 class TestHandleCheckpoints:
     """Test _handle_checkpoints() — should be a no-op for file-based imports."""
 
-    @pytest.mark.asyncio
     async def test_checkpoints_is_noop(self, importer):
         # Should complete without error or side effects
         await importer._handle_checkpoints(raw_data=["some", "data"])
@@ -268,12 +254,10 @@ class TestHandleCheckpoints:
 class TestImportPlays:
     """Test the import_plays() protocol method (end-to-end with mocks)."""
 
-    @pytest.mark.asyncio
     async def test_missing_file_path_raises(self, importer, mock_uow):
         with pytest.raises(ValueError, match="file_path is required"):
             await importer.import_plays(mock_uow)
 
-    @pytest.mark.asyncio
     async def test_returns_result_and_connector_plays(
         self, importer, mock_uow, tmp_path: Path
     ):

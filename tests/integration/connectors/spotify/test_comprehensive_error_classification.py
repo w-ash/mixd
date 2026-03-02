@@ -39,7 +39,6 @@ def make_network_error(message: str = "Connection refused") -> httpx.ConnectErro
 
 
 @pytest.mark.slow
-@pytest.mark.integration
 class TestComprehensiveErrorClassification:
     """Comprehensive HTTP status code coverage testing with all Spotify API error scenarios."""
 
@@ -73,7 +72,6 @@ class TestComprehensiveErrorClassification:
             (416, "Range Not Satisfiable"),
         ],
     )
-    @pytest.mark.asyncio
     async def test_permanent_http_errors_no_retry_comprehensive(
         self, spotify_client, status_code, description
     ):
@@ -98,7 +96,6 @@ class TestComprehensiveErrorClassification:
         assert duration < 2.0, f"Permanent error took too long: {duration}s"
 
     # NOT FOUND ERRORS (404) - Should NOT retry, immediate failure
-    @pytest.mark.asyncio
     async def test_not_found_error_no_retry(self, spotify_client):
         """Test 404 Not Found causes immediate failure with no retries."""
         error = make_httpx_error(404, "Not Found - resource doesn't exist")
@@ -116,7 +113,6 @@ class TestComprehensiveErrorClassification:
         assert duration < 2.0, f"Not found error took too long: {duration}s"
 
     # RATE LIMIT ERRORS (429) - Should retry 2-3 times with backoff
-    @pytest.mark.asyncio
     async def test_rate_limit_error_retries(self, spotify_client):
         """Test 429 Too Many Requests triggers retries with proper backoff."""
         error = make_httpx_error(429, "Too Many Requests - rate limit exceeded")
@@ -146,7 +142,6 @@ class TestComprehensiveErrorClassification:
             (511, "Network Authentication Required"),
         ],
     )
-    @pytest.mark.asyncio
     async def test_temporary_server_errors_retry_comprehensive(
         self, spotify_client, status_code, description
     ):
@@ -174,7 +169,6 @@ class TestComprehensiveErrorClassification:
             "DNS resolution failed for api.spotify.com",
         ],
     )
-    @pytest.mark.asyncio
     async def test_network_errors_retried_as_temporary(
         self, spotify_client, error_message
     ):
@@ -198,7 +192,6 @@ class TestComprehensiveErrorClassification:
         )
 
     # SUCCESS AFTER RETRIES - Test resilience patterns
-    @pytest.mark.asyncio
     async def test_success_after_temporary_failure(self, spotify_client):
         """Test successful recovery after temporary failures."""
         success_data = {"tracks": [{"id": "test_track", "name": "Test Track"}]}
@@ -256,7 +249,6 @@ class TestComprehensiveErrorClassification:
             ),
         ],
     )
-    @pytest.mark.asyncio
     async def test_all_methods_error_handling_comprehensive(
         self, spotify_client, method_name, method_args, impl_name
     ):

@@ -1,4 +1,4 @@
-"""Unified factory for creating ALL Spotify services.
+"""Factory functions for creating Spotify services.
 
 Contains Spotify-specific factory logic isolated in the spotify connector directory.
 Implements clean architecture by providing creation functions for all Spotify services
@@ -10,32 +10,24 @@ from typing import Any
 from src.domain.repositories import PlayImporterProtocol
 
 
-class SpotifyServiceFactory:
-    """Unified factory for creating all Spotify services.
+def create_play_importer() -> PlayImporterProtocol:
+    """Create Spotify-specific play importer.
 
-    Encapsulates ALL Spotify-specific service creation logic, allowing easy
-    extension for future services while maintaining clean architecture boundaries.
+    Returns:
+        Configured SpotifyPlayImporter implementing PlayImporterProtocol
     """
+    from .play_importer import SpotifyPlayImporter
 
-    @staticmethod
-    async def create_play_importer() -> PlayImporterProtocol:
-        """Create Spotify-specific play importer.
+    return SpotifyPlayImporter()
 
-        Returns:
-            Configured SpotifyPlayImporter implementing PlayImporterProtocol
-        """
-        from .play_importer import SpotifyPlayImporter
 
-        return SpotifyPlayImporter()
+def create_play_resolver() -> Any:
+    """Create Spotify-specific play resolver.
 
-    @staticmethod
-    async def create_play_resolver() -> Any:
-        """Create Spotify-specific play resolver.
+    Returns:
+        Configured SpotifyConnectorPlayResolver
+    """
+    from .connector import SpotifyConnector
+    from .play_resolver import SpotifyConnectorPlayResolver
 
-        Returns:
-            Configured SpotifyConnectorPlayResolver
-        """
-        from .connector import SpotifyConnector
-        from .play_resolver import SpotifyConnectorPlayResolver
-
-        return SpotifyConnectorPlayResolver(spotify_connector=SpotifyConnector())
+    return SpotifyConnectorPlayResolver(spotify_connector=SpotifyConnector())

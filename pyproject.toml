@@ -195,15 +195,21 @@ suppress-none-returning = true
 # — ruff ISC001/ISC002 don't catch the parenthesized multi-line pattern that basedpyright does.
 
 # Testing configuration (pytest 9+ native TOML)
-[tool.pytest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--strict-markers --tb=short -m 'not diagnostic and not slow and not performance'"
 markers = [
-    "integration: marks tests as integration tests",
-    "slow: marks tests as slow (takes >1 second)",
-    "performance: marks tests that validate performance characteristics",
-    "diagnostic: marks tests used for diagnosing issues (not part of regular suite)",
+    # Test Pyramid Layers (applied via pytestmark in conftest.py)
+    "unit: unit tests - pure logic, no external dependencies (<100ms)",
+    "integration: integration tests - real DB, mocked APIs (<1s)",
+    "e2e: end-to-end tests - full system, critical user flows (<10s)",
+    # Execution Filtering (skipped by default via addopts)
+    "slow: tests that take longer than 1 second",
+    "performance: performance and load testing with timing assertions",
+    "diagnostic: diagnostic and profiling tests - for investigation only (skip by default)",
 ]
 
 [tool.coverage.run]

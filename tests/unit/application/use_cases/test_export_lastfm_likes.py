@@ -14,24 +14,8 @@ from src.application.use_cases.sync_likes import (
     ExportLastFmLikesUseCase,
 )
 from src.domain.entities import SyncCheckpoint, TrackLike
-from src.domain.entities.track import Artist, Track
-
-
-def _make_track(track_id: int, title: str = "Song", has_artists: bool = True) -> Track:
-    """Create a test track."""
-    artists = [Artist(name="Artist")] if has_artists else []
-    # Tracks without artists can't be created with Track validator,
-    # so we'll handle this differently in the test
-    if not has_artists:
-        # Use a MagicMock for tracks that need empty artists
-        return Track(
-            id=track_id, title=f"{title} {track_id}", artists=[Artist(name="Artist")]
-        )
-    return Track(
-        id=track_id,
-        title=f"{title} {track_id}",
-        artists=artists,
-    )
+from tests.fixtures import make_track
+from tests.fixtures.mocks import make_mock_uow
 
 
 def _make_like(track_id: int) -> TrackLike:
@@ -52,23 +36,12 @@ def mock_checkpoint():
 @pytest.fixture
 def mock_uow(mock_checkpoint):
     """Mock UnitOfWork with all required repositories."""
-    uow = AsyncMock()
+    uow = make_mock_uow()
 
     # Checkpoint repo
-    checkpoint_repo = AsyncMock()
+    checkpoint_repo = uow.get_checkpoint_repository()
     checkpoint_repo.get_sync_checkpoint.return_value = mock_checkpoint
     checkpoint_repo.save_sync_checkpoint.return_value = mock_checkpoint
-    uow.get_checkpoint_repository = MagicMock(return_value=checkpoint_repo)
-
-    # Like repo
-    like_repo = AsyncMock()
-    like_repo.get_unsynced_likes.return_value = []
-    like_repo.get_all_liked_tracks.return_value = []
-    uow.get_like_repository = MagicMock(return_value=like_repo)
-
-    # Track repo
-    track_repo = AsyncMock()
-    uow.get_track_repository = MagicMock(return_value=track_repo)
 
     # Service connector provider
     mock_lastfm = AsyncMock()
@@ -80,7 +53,6 @@ def mock_uow(mock_checkpoint):
     return uow
 
 
-@pytest.mark.unit
 class TestExportLastFmLikesCommand:
     """Test command construction and validation."""
 
@@ -105,7 +77,6 @@ class TestExportLastFmLikesCommand:
             cmd.user_id = "modified"
 
 
-@pytest.mark.unit
 class TestExportLastFmLikesUseCase:
     """Test use case execution paths."""
 
@@ -129,8 +100,8 @@ class TestExportLastFmLikesUseCase:
     async def test_happy_path_exports_unsynced_tracks(self, mock_uow):
         """Test successful export of unsynced liked tracks."""
         likes = [_make_like(1), _make_like(2)]
-        track1 = _make_track(1, "Loved Song")
-        track2 = _make_track(2, "Another Song")
+        track1 = make_track(1, "Loved Song")
+        track2 = make_track(2, "Another Song")
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
@@ -155,7 +126,7 @@ class TestExportLastFmLikesUseCase:
     async def test_connector_returns_false_counts_as_skipped(self, mock_uow):
         """Test that connector returning False is tracked as skipped."""
         likes = [_make_like(1)]
-        track1 = _make_track(1, "Rejected")
+        track1 = make_track(1, "Rejected")
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
@@ -188,7 +159,7 @@ class TestExportLastFmLikesUseCase:
         # Return one track per call so the inner loop can check max_exports
         track_repo = mock_uow.get_track_repository()
         track_repo.find_tracks_by_ids.side_effect = [
-            {i: _make_track(i)} for i in range(1, 6)
+            {i: make_track(i)} for i in range(1, 6)
         ]
 
         lastfm = mock_uow.get_service_connector_provider().get_connector()
@@ -210,7 +181,7 @@ class TestExportLastFmLikesUseCase:
     async def test_exception_during_love_captured_as_error(self, mock_uow):
         """Test that connector exceptions are captured, not propagated."""
         likes = [_make_like(1)]
-        track1 = _make_track(1, "Error Track")
+        track1 = make_track(1, "Error Track")
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
@@ -244,7 +215,7 @@ class TestExportLastFmLikesUseCase:
         like_repo.get_all_liked_tracks.return_value = all_likes
 
         # Return tracks for the unsynced batch
-        tracks = {i: _make_track(i) for i in range(8, 11)}
+        tracks = {i: make_track(i) for i in range(8, 11)}
         track_repo = mock_uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = tracks
 

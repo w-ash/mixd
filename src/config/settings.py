@@ -16,6 +16,8 @@ from typing import Any, ClassVar, cast
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
+
 
 class DatabaseConfig(BaseModel):
     """Database connection configuration."""
@@ -110,7 +112,6 @@ class APIConfig(BaseModel):
 class BatchConfig(BaseModel):
     """Batch processing and progress reporting configuration."""
 
-    move_log_threshold: int = 10  # Only log moves if count is below this threshold
     truncation_limit: int = 5  # Number of items to show before truncating lists
 
 
@@ -163,11 +164,6 @@ class MatchingConfig(BaseModel):
     threshold_artist_title: int = 50  # Reduced from 70 to handle version differences
     threshold_default: int = 50
 
-    # Connector-specific threshold overrides
-    threshold_spotify: int = 75
-    threshold_lastfm: int = 50  # Reduced from 65 to handle version differences
-    threshold_musicbrainz: int = 80
-
     # Duration penalty configuration
     duration_missing_penalty: int = 5  # Reduced from 10
     duration_max_penalty: int = 30  # Reduced from 60 to handle version differences
@@ -176,7 +172,6 @@ class MatchingConfig(BaseModel):
 
     # Similarity thresholds
     high_similarity_threshold: float = 0.9
-    low_similarity_threshold: float = 0.4
 
     # Penalty caps
     title_max_penalty: int = 30
@@ -300,3 +295,30 @@ settings.data_dir.mkdir(exist_ok=True)
 #   settings.database.url
 #   settings.credentials.spotify_client_id
 # etc.
+
+
+def create_matching_config() -> DomainMatchingConfig:
+    """Create domain MatchingConfig from application settings.
+
+    Bridges the Pydantic settings layer to the domain value object,
+    keeping domain code free of config imports.
+    """
+    m = settings.matching
+    return DomainMatchingConfig(
+        identical_similarity_score=m.identical_similarity_score,
+        variation_similarity_score=m.variation_similarity_score,
+        base_confidence_isrc=m.base_confidence_isrc,
+        base_confidence_mbid=m.base_confidence_mbid,
+        base_confidence_artist_title=m.base_confidence_artist_title,
+        threshold_isrc=m.threshold_isrc,
+        threshold_mbid=m.threshold_mbid,
+        threshold_artist_title=m.threshold_artist_title,
+        threshold_default=m.threshold_default,
+        high_similarity_threshold=m.high_similarity_threshold,
+        title_max_penalty=m.title_max_penalty,
+        artist_max_penalty=m.artist_max_penalty,
+        duration_missing_penalty=m.duration_missing_penalty,
+        duration_max_penalty=m.duration_max_penalty,
+        duration_tolerance_ms=m.duration_tolerance_ms,
+        duration_per_second_penalty=m.duration_per_second_penalty,
+    )

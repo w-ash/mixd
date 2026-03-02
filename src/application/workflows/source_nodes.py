@@ -11,10 +11,11 @@ All functions return standardized track data for playlist creation and analysis.
 from typing import Any
 
 from src.application.services.connector_playlist_sync_service import (
-    ConnectorPlaylistSyncService,
+    sync_connector_playlist,
 )
-from src.application.use_cases.create_canonical_playlist import (
-    CreateCanonicalPlaylistCommand,
+from src.application.services.playlist_upsert import (
+    build_create_playlist_command,
+    build_update_playlist_command,
 )
 from src.application.use_cases.get_liked_tracks import (
     GetLikedTracksCommand,
@@ -26,9 +27,6 @@ from src.application.use_cases.get_played_tracks import (
 )
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
-)
-from src.application.use_cases.update_canonical_playlist import (
-    UpdateCanonicalPlaylistCommand,
 )
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
@@ -99,7 +97,6 @@ async def playlist_source(
 
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
-    ctx.extract_use_cases()
 
     if not connector:
         # Direct canonical playlist read
@@ -132,12 +129,8 @@ async def playlist_source(
         from src.domain.entities.playlist import ConnectorPlaylist
         from src.domain.repositories import UnitOfWorkProtocol
 
-        sync_service = ConnectorPlaylistSyncService()
-
         async def _sync(uow: UnitOfWorkProtocol) -> ConnectorPlaylist:
-            return await sync_service.sync_connector_playlist(
-                connector, playlist_id, uow
-            )
+            return await sync_connector_playlist(connector, playlist_id, uow)
 
         try:
             connector_playlist = await workflow_context.execute_service(_sync)
@@ -181,67 +174,39 @@ async def playlist_source(
         # Step 4: Process playlist (update existing or create new)
 
         if existing_playlist:
-            # Update existing canonical playlist
             logger.info(f"Updating existing canonical playlist {existing_playlist.id}")
-            update_command = UpdateCanonicalPlaylistCommand(
-                playlist_id=str(existing_playlist.id),
-                new_tracklist=TrackList(),
-                connector_playlist=connector_playlist,
-                playlist_name=connector_playlist.name,
-                playlist_description=connector_playlist.description
-                or f"Updated from {connector}",
+            command = build_update_playlist_command(
+                existing_playlist, connector_playlist, connector
             )
-
-            result = await workflow_context.execute_use_case(
-                workflow_context.use_cases.get_update_canonical_playlist_use_case,
-                update_command,
+            use_case_getter = (
+                workflow_context.use_cases.get_update_canonical_playlist_use_case
             )
-
-            tracklist_with_source = _build_source_tracklist(
-                result.playlist.tracks, result.playlist.name, connector, playlist_id
-            )
-
-            logger.info(
-                "playlist_source complete",
-                action="updated",
-                source=connector,
-                playlist_id=result.playlist.id,
-                playlist_name=result.playlist.name,
-                track_count=len(result.playlist.tracks),
-            )
-            return {"tracklist": tracklist_with_source}
-
+            action = "updated"
         else:
-            # Create new canonical playlist
             logger.info(f"Creating new canonical playlist from {connector}")
-            create_command = CreateCanonicalPlaylistCommand(
-                name=connector_playlist.name,
-                tracklist=TrackList(),
-                connector_playlist=connector_playlist,
-                connector_name=connector,
-                connector_id=playlist_id,
-                description=connector_playlist.description
-                or f"Imported from {connector}",
+            command = build_create_playlist_command(
+                connector_playlist, connector, playlist_id
             )
+            use_case_getter = (
+                workflow_context.use_cases.get_create_canonical_playlist_use_case
+            )
+            action = "created"
 
-            result = await workflow_context.execute_use_case(
-                workflow_context.use_cases.get_create_canonical_playlist_use_case,
-                create_command,
-            )
+        result = await workflow_context.execute_use_case(use_case_getter, command)
 
-            tracklist_with_source = _build_source_tracklist(
-                result.playlist.tracks, result.playlist.name, connector, playlist_id
-            )
+        tracklist_with_source = _build_source_tracklist(
+            result.playlist.tracks, result.playlist.name, connector, playlist_id
+        )
 
-            logger.info(
-                "playlist_source complete",
-                action="created",
-                source=connector,
-                playlist_id=result.playlist.id,
-                playlist_name=result.playlist.name,
-                track_count=len(result.playlist.tracks),
-            )
-            return {"tracklist": tracklist_with_source}
+        logger.info(
+            "playlist_source complete",
+            action=action,
+            source=connector,
+            playlist_id=result.playlist.id,
+            playlist_name=result.playlist.name,
+            track_count=len(result.playlist.tracks),
+        )
+        return {"tracklist": tracklist_with_source}
 
 
 # === User Music Library Access ===

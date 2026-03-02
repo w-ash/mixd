@@ -52,7 +52,6 @@ class TestDbOperationDecorator:
             def another_sync_function():
                 return "fail"
 
-    @pytest.mark.asyncio
     async def test_decorated_function_executes_correctly(self):
         """Decorated async function should execute normally."""
 
@@ -63,7 +62,6 @@ class TestDbOperationDecorator:
         result = await async_function_with_return()
         assert result == "test_result"
 
-    @pytest.mark.asyncio
     async def test_decorated_function_passes_arguments(self):
         """Decorated function should correctly pass through arguments."""
 
@@ -74,7 +72,6 @@ class TestDbOperationDecorator:
         result = await async_function_with_args(42, "test", c=True)
         assert result == "42-test-True"
 
-    @pytest.mark.asyncio
     async def test_decorated_method_in_class(self):
         """Decorator should work on class methods (repository pattern)."""
 

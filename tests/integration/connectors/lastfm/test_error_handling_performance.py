@@ -24,7 +24,6 @@ _TRACK_DATA = {
 }
 
 
-@pytest.mark.integration
 @pytest.mark.performance
 class TestLastFMErrorHandlingPerformance:
     """Performance tests for error handling in LastFM comprehensive API methods."""
@@ -45,7 +44,6 @@ class TestLastFMErrorHandlingPerformance:
             mock_settings.api.lastfm_request_timeout = 10.0
             yield LastFMAPIClient()
 
-    @pytest.mark.asyncio
     async def test_successful_calls_performance_baseline(self, lastfm_client):
         """Baseline performance test for successful comprehensive API calls."""
         mock_api = AsyncMock(return_value=_TRACK_DATA)
@@ -77,7 +75,6 @@ class TestLastFMErrorHandlingPerformance:
             f"({calls_per_second:.1f} calls/sec)"
         )
 
-    @pytest.mark.asyncio
     async def test_not_found_errors_performance(self, lastfm_client):
         """Test that not_found errors are handled quickly (no retries)."""
         # Error code 999 + "not found" text → classified as not_found → no retry
@@ -106,7 +103,6 @@ class TestLastFMErrorHandlingPerformance:
 
         print(f"✅ Not found errors: {num_calls} calls in {duration:.2f}s (no retries)")
 
-    @pytest.mark.asyncio
     async def test_permanent_errors_performance(self, lastfm_client):
         """Test that permanent errors are handled quickly (no retries)."""
         # Error code 10 (Invalid API key) → classified as permanent → no retry
@@ -134,7 +130,6 @@ class TestLastFMErrorHandlingPerformance:
 
         print(f"✅ Permanent errors: {num_calls} calls in {duration:.2f}s (no retries)")
 
-    @pytest.mark.asyncio
     async def test_mixed_scenario_performance(self, lastfm_client):
         """Test performance with mixed success/error scenarios."""
 
@@ -183,7 +178,6 @@ class TestLastFMErrorHandlingPerformance:
             f"({success_rate:.1f}% success rate)"
         )
 
-    @pytest.mark.asyncio
     async def test_error_classification_overhead(self, lastfm_client):
         """Test that error classification doesn't add significant overhead."""
         mock_api = AsyncMock(side_effect=LastFMAPIError("999", "not found"))

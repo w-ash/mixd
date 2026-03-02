@@ -61,28 +61,11 @@ class LastFMConnector(BaseAPIConnector):
         """Get Last.fm-specific error classifier."""
         return LastFMErrorClassifier()
 
-    @override
-    def get_connector_config(self, key: str, default: object = None):
-        """Load Last.fm configuration, extending base class with service-specific settings."""
-        base_config = super().get_connector_config(key, default)
-
-        # Add Last.fm-specific configuration if needed
-        lastfm_config = {
-            "api_key": self.api_key,
-            "username": self.lastfm_username,
-        }
-
-        return lastfm_config.get(key, base_config)
-
     async def aclose(self) -> None:
         """Close underlying API client."""
         await self._client.aclose()
 
     # Public API Methods
-
-    async def get_track_info_by_mbid(self, mbid: str) -> LastFMTrackInfo:
-        """Get comprehensive track information by MusicBrainz ID."""
-        return await self._operations.get_track_info_by_mbid(mbid)
 
     async def get_track_info(self, artist: str, title: str) -> LastFMTrackInfo:
         """Get comprehensive track information by artist and title."""
@@ -105,16 +88,6 @@ class LastFMConnector(BaseAPIConnector):
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track on Last.fm for the authenticated user."""
         return await self._operations.love_track(artist, title)
-
-    async def enrich_track_with_lastfm_metadata(self, track: Track) -> Track:
-        """Enrich a track with Last.fm metadata."""
-        return await self._operations.enrich_track_with_lastfm_metadata(track)
-
-    async def create_play_record_from_track(
-        self, track: Track, timestamp: str | None = None
-    ) -> PlayRecord:
-        """Create a Last.fm play record from a track."""
-        return await self._operations.create_play_record_from_track(track, timestamp)
 
     @override
     def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:

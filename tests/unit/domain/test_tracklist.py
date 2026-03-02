@@ -10,21 +10,15 @@ from datetime import UTC, datetime
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.entities.track import Artist, Track, TrackList
-
-
-def _make_tracks(count: int = 3) -> list[Track]:
-    return [
-        Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
-        for i in range(1, count + 1)
-    ]
+from tests.fixtures import make_tracks
 
 
 class TestTrackListImmutability:
     """Verify frozen semantics — all mutations return new instances."""
 
     def test_with_tracks_returns_new_instance(self):
-        original = TrackList(tracks=_make_tracks(2))
-        new_tracks = _make_tracks(1)
+        original = TrackList(tracks=make_tracks(2))
+        new_tracks = make_tracks(1)
 
         result = original.with_tracks(new_tracks)
 
@@ -33,7 +27,7 @@ class TestTrackListImmutability:
         assert len(original.tracks) == 2  # unchanged
 
     def test_with_tracks_preserves_metadata(self):
-        original = TrackList(tracks=_make_tracks(2), metadata={"source": "test"})
+        original = TrackList(tracks=make_tracks(2), metadata={"source": "test"})
         result = original.with_tracks([])
 
         assert result.metadata == {"source": "test"}
@@ -71,14 +65,14 @@ class TestTrackListMetadataRoundTrip:
             "lastfm_user_playcount": {1: 100, 2: 50},
             "spotify_popularity": {1: 85, 2: 42},
         }
-        tl = TrackList(tracks=_make_tracks(2), metadata={"metrics": metrics})
+        tl = TrackList(tracks=make_tracks(2), metadata={"metrics": metrics})
 
         assert tl.metadata["metrics"]["lastfm_user_playcount"][1] == 100
         assert tl.metadata["metrics"]["spotify_popularity"][2] == 42
 
     def test_metrics_via_with_metadata(self):
         """Enrichers use with_metadata("metrics", {...}) to attach metrics."""
-        tl = TrackList(tracks=_make_tracks(2))
+        tl = TrackList(tracks=make_tracks(2))
         metrics = {"total_plays": {1: 10, 2: 20}}
 
         enriched = tl.with_metadata("metrics", metrics)
@@ -88,7 +82,7 @@ class TestTrackListMetadataRoundTrip:
 
     def test_fresh_metric_ids_pattern(self):
         """Enrichers also write fresh_metric_ids alongside metrics."""
-        tl = TrackList(tracks=_make_tracks(2))
+        tl = TrackList(tracks=make_tracks(2))
         tl = tl.with_metadata("metrics", {"lastfm_user_playcount": {1: 100}})
         tl = tl.with_metadata("fresh_metric_ids", {"lastfm_user_playcount": [1]})
 
@@ -99,7 +93,7 @@ class TestPlaylistTrackListConversion:
     """Verify the Playlist ↔ TrackList bridge."""
 
     def test_to_tracklist_extracts_tracks(self):
-        tracks = _make_tracks(3)
+        tracks = make_tracks(3)
         entries = [PlaylistEntry(track=t) for t in tracks]
         playlist = Playlist(name="Test", entries=entries)
 
@@ -118,7 +112,7 @@ class TestPlaylistTrackListConversion:
         assert tl.metadata["added_at_dates"] == {}
 
     def test_from_tracklist_creates_playlist_with_entries(self):
-        tracks = _make_tracks(2)
+        tracks = make_tracks(2)
         tl = TrackList(tracks=tracks)
         now = datetime.now(UTC)
 
@@ -131,7 +125,7 @@ class TestPlaylistTrackListConversion:
 
     def test_from_tracklist_accepts_raw_track_list(self):
         """from_tracklist also accepts list[Track] for convenience."""
-        tracks = _make_tracks(2)
+        tracks = make_tracks(2)
 
         playlist = Playlist.from_tracklist("Test", tracks)
 
@@ -140,7 +134,7 @@ class TestPlaylistTrackListConversion:
     def test_to_tracklist_preserves_added_at_dates(self):
         """to_tracklist should carry added_at temporal data in metadata."""
         now = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
-        tracks = _make_tracks(2)
+        tracks = make_tracks(2)
         entries = [PlaylistEntry(track=t, added_at=now) for t in tracks]
         playlist = Playlist(name="Temporal", entries=entries)
 
@@ -160,7 +154,7 @@ class TestPlaylistTrackListConversion:
 
     def test_to_tracklist_skips_entries_without_added_at(self):
         """Entries without added_at should not appear in added_at_dates."""
-        tracks = _make_tracks(2)
+        tracks = make_tracks(2)
         entries = [
             PlaylistEntry(track=tracks[0], added_at=datetime(2025, 1, 1, tzinfo=UTC)),
             PlaylistEntry(track=tracks[1]),  # No added_at

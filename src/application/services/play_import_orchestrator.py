@@ -13,7 +13,11 @@ from typing import Any
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
-from src.domain.repositories import PlayImporterProtocol, UnitOfWorkProtocol
+from src.domain.repositories import (
+    PlayImporterProtocol,
+    PlayResolverProtocol,
+    UnitOfWorkProtocol,
+)
 
 logger = get_logger(__name__)
 
@@ -165,7 +169,7 @@ class PlayImportOrchestrator:
 
         return result
 
-    async def _get_play_resolver(self, service: str) -> Any:
+    async def _get_play_resolver(self, service: str) -> PlayResolverProtocol:
         """Get play resolver for a service from the infrastructure registry."""
         from src.infrastructure.services.play_import_registry import (
             get_play_import_registry,

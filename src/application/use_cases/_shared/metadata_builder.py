@@ -59,54 +59,6 @@ class PlaylistMetadataBuilder:
         self._metadata["validation_passed"] = passed
         return self
 
-    def with_error_info(
-        self,
-        error_type: str,
-        is_retryable: bool = False,
-        is_auth_error: bool = False,
-        is_rate_limit: bool = False,
-    ) -> Self:
-        """Add error classification metadata."""
-        self._metadata["error_type"] = error_type
-        self._metadata["is_retryable"] = is_retryable
-        self._metadata["is_auth_error"] = is_auth_error
-        self._metadata["is_rate_limit"] = is_rate_limit
-        return self
-
-    def with_state_consistency(
-        self,
-        requested_tracks: int,
-        created_items: int,
-        operations_requested: int,
-        operations_applied: int,
-    ) -> Self:
-        """Add state consistency validation metadata."""
-        self._metadata["state_consistency_check"] = {
-            "requested_tracks": requested_tracks,
-            "created_items": created_items,
-            "operations_requested": operations_requested,
-            "operations_applied": operations_applied,
-        }
-        return self
-
-    def with_existing_record_info(
-        self,
-        found: bool,
-        existing_id: int | None = None,
-        existing_items_count: int = 0,
-    ) -> Self:
-        """Add information about existing database records."""
-        self._metadata["existing_record_found"] = found
-        if existing_id is not None:
-            self._metadata["existing_id"] = existing_id
-            self._metadata["existing_items"] = existing_items_count
-        return self
-
-    def with_items_created(self, count: int) -> Self:
-        """Add count of playlist items created."""
-        self._metadata["items_created"] = count
-        return self
-
     def with_custom(self, key: str, value: Any) -> Self:
         """Add custom metadata field."""
         self._metadata[key] = value

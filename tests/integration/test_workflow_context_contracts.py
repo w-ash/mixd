@@ -15,7 +15,6 @@ from src.application.workflows.context import create_workflow_context
 class TestWorkflowContextContracts:
     """Test that workflow context provides working dependencies."""
 
-    @pytest.mark.asyncio
     async def test_workflow_context_with_shared_session_provides_real_repositories(
         self, db_session
     ):
@@ -100,7 +99,6 @@ class TestWorkflowContextContracts:
 class TestUseCaseProviderContracts:
     """Contract tests for use case provider interface (Clean Architecture)."""
 
-    @pytest.mark.asyncio
     async def test_use_case_provider_provides_all_required_use_cases(self, db_session):
         """Test that UseCaseProviderImpl provides all required use cases.
 
@@ -122,7 +120,6 @@ class TestUseCaseProviderContracts:
             method = getattr(use_cases, use_case_method)
             assert callable(method), f"{use_case_method} must be callable"
 
-    @pytest.mark.asyncio
     async def test_use_case_dependency_injection_integration(self, db_session):
         """Test that use cases work properly with dependency injection.
 

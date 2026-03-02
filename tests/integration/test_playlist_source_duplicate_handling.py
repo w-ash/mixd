@@ -6,8 +6,6 @@ preserving duplicate tracks with real database operations.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.application.services.connector_playlist_processing_service import (
     ConnectorPlaylistProcessingService,
 )
@@ -22,7 +20,6 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 class TestPlaylistSourceDuplicateHandling:
     """Integration tests for playlist source duplicate handling with real database."""
 
-    @pytest.mark.asyncio
     async def test_connector_playlist_with_duplicates_preserves_all_instances(
         self, db_session
     ):
@@ -170,7 +167,6 @@ class TestPlaylistSourceDuplicateHandling:
                     "Playlist should be persisted with ID"
                 )
 
-    @pytest.mark.asyncio
     async def test_empty_connector_playlist_processing_returns_empty_tracklist(
         self, db_session
     ):

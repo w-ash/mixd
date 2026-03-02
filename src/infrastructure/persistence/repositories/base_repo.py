@@ -58,6 +58,11 @@ async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
         elif hasattr(db_model, rel_name):
             return _normalize_to_list(getattr(db_model, rel_name))
     except Exception:
+        logger.debug(
+            "Failed to fetch relationship",
+            model=type(db_model).__name__,
+            relationship=rel_name,
+        )
         return []
     else:
         return []

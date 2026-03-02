@@ -55,7 +55,6 @@ class AsyncProgressManager:
         self._coordinator = ProgressCoordinator()
         self._subscribers: dict[str, SubscriberRegistration] = {}
         self._subscriber_lock = asyncio.Lock()
-        self._event_tasks: set[asyncio.Task[Any]] = set()
 
         # Contextual logger
         self._logger = logger.bind(manager_id=str(uuid4())[:8])
@@ -222,49 +221,6 @@ class AsyncProgressManager:
             )
             raise
 
-    async def get_operation(self, operation_id: str) -> ProgressOperation | None:
-        """Get current state of an operation.
-
-        Args:
-            operation_id: ID of operation to retrieve
-
-        Returns:
-            Current operation state or None if not found
-        """
-        return await self._coordinator.get_operation(operation_id)
-
-    async def get_active_operations(self) -> list[ProgressOperation]:
-        """Get all currently active (running) operations.
-
-        Returns:
-            List of operations with RUNNING status
-        """
-        return await self._coordinator.get_active_operations()
-
-    async def cleanup_completed_operations(
-        self, max_age_seconds: float = 3600.0
-    ) -> int:
-        """Clean up old completed operations from tracking state.
-
-        Args:
-            max_age_seconds: Maximum age in seconds for completed operations
-
-        Returns:
-            Number of operations cleaned up
-        """
-        cleanup_count = await self._coordinator.cleanup_completed_operations(
-            max_age_seconds
-        )
-
-        if cleanup_count > 0:
-            self._logger.info(
-                "Cleaned up completed operations",
-                cleanup_count=cleanup_count,
-                max_age_seconds=max_age_seconds,
-            )
-
-        return cleanup_count
-
     async def _notify_subscribers(self, notification_type: str, *args: Any) -> None:
         """Notify all active subscribers with error isolation.
 
@@ -335,13 +291,9 @@ class AsyncProgressManager:
             # Consider marking subscriber as inactive on repeated failures
             # This could be enhanced with a failure count and automatic cleanup
 
-    @property
-    def subscriber_count(self) -> int:
-        """Get current number of active subscribers."""
-        return len(self._subscribers)
+    # Singleton instance for application-wide progress tracking
 
 
-# Singleton instance for application-wide progress tracking
 _global_progress_manager: AsyncProgressManager | None = None
 
 

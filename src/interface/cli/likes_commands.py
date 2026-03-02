@@ -1,27 +1,25 @@
 """CLI commands for importing, exporting, and syncing liked tracks across services."""
 
-from datetime import datetime
 from typing import Annotated
 
 from rich.prompt import Prompt
 import typer
 
-from src.application.use_cases.sync_likes import (
-    get_sync_checkpoint_status,
-    run_lastfm_likes_export,
-    run_spotify_likes_import,
-)
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.console import get_console
+from src.interface.cli.cli_helpers import parse_iso_date
+from src.interface.cli.console import get_console, get_error_console
 from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
 from src.interface.cli.ui import display_operation_result
 
 console = get_console()
+err_console = get_error_console()
 
 
 def _get_lastfm_checkpoint_info() -> str | None:
     """Get Last.fm checkpoint information for display."""
     try:
+        from src.application.use_cases.sync_likes import get_sync_checkpoint_status
+
         checkpoint_status = run_async(
             get_sync_checkpoint_status(service="lastfm", entity_type="likes")
         )
@@ -75,6 +73,8 @@ def import_spotify_cmd(
 
     Tracks that already exist and are marked as liked will be skipped automatically.
     """
+    from src.application.use_cases.sync_likes import run_spotify_likes_import
+
     # Execute the import
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
         result = run_async(
@@ -129,19 +129,14 @@ def export_lastfm_cmd(
     on Last.fm. The export will skip tracks that can't be matched.
     """
     # Parse the date if provided
-    override_date = None
-    if date:
-        try:
-            # Try parsing with time first, then date only
-            if "T" in date:
-                override_date = datetime.fromisoformat(date)
-            else:
-                override_date = datetime.fromisoformat(f"{date}T00:00:00+00:00")
-        except ValueError:
-            console.print(
-                f"[red]Error: Invalid date format '{date}'. Use ISO format like 2025-08-01 or 2025-08-01T10:00:00[/red]"
-            )
-            raise typer.Exit(1) from None
+    override_date = parse_iso_date(date)
+    if date and override_date is None:
+        err_console.print(
+            f"[red]Error: Invalid date format '{date}'. Use ISO format like 2025-08-01 or 2025-08-01T10:00:00[/red]"
+        )
+        raise typer.Exit(1)
+
+    from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
     # Execute the export
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
@@ -206,21 +201,8 @@ def _interactive_spotify_import() -> None:
     )
     max_imports = int(max_imports_str) if max_imports_str else None
 
-    # Execute with gathered parameters
     console.print("\n[green]Starting Spotify likes import...[/green]")
-
-    with console.status("[bold blue]Importing liked tracks from Spotify..."):
-        result = run_async(
-            run_spotify_likes_import(
-                user_id="default",
-                limit=limit,
-                max_imports=max_imports,
-            )
-        )
-
-    console.print("[bold green]✓ Spotify likes import completed![/bold green]")
-    if result:
-        display_operation_result(result)
+    import_spotify_cmd(limit=limit, max_imports=max_imports)
 
 
 def _interactive_lastfm_export() -> None:
@@ -239,21 +221,17 @@ def _interactive_lastfm_export() -> None:
         default="",
     )
 
-    override_date = None
-    if date_str:
-        try:
-            # Parse the date
-            if "T" in date_str:
-                override_date = datetime.fromisoformat(date_str)
-            else:
-                override_date = datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
-            console.print(
-                f"[green]Using override date: {override_date.strftime('%Y-%m-%d %H:%M:%S')}[/green]"
-            )
-        except ValueError:
-            console.print(
-                f"[red]Invalid date format '{date_str}'. Using {default_msg} instead.[/red]"
-            )
+    # Validate date interactively — only pass valid dates to command
+    override_date = parse_iso_date(date_str)
+    if date_str and override_date is None:
+        console.print(
+            f"[red]Invalid date format '{date_str}'. Using {default_msg} instead.[/red]"
+        )
+        date_str = None  # Don't pass invalid date to command
+    elif override_date is not None:
+        console.print(
+            f"[green]Using override date: {override_date.strftime('%Y-%m-%d %H:%M:%S')}[/green]"
+        )
 
     batch_size_str = Prompt.ask(
         "API batch size (tracks per request, leave empty for default)",
@@ -267,19 +245,5 @@ def _interactive_lastfm_export() -> None:
     )
     max_exports = int(max_exports_str) if max_exports_str else None
 
-    # Execute with gathered parameters
     console.print("\n[green]Starting Last.fm likes export...[/green]")
-
-    with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
-        result = run_async(
-            run_lastfm_likes_export(
-                user_id="default",
-                batch_size=batch_size,
-                max_exports=max_exports,
-                override_date=override_date,
-            )
-        )
-
-    console.print("[bold green]✓ Last.fm likes export completed![/bold green]")
-    if result:
-        display_operation_result(result)
+    export_lastfm_cmd(batch_size=batch_size, max_exports=max_exports, date=date_str)

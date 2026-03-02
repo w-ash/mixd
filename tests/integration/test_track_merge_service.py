@@ -14,11 +14,9 @@ from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.infrastructure.services.track_merge_service import TrackMergeService
 
 
-@pytest.mark.integration
 class TestTrackMergeServiceIntegration:
     """Integration tests for track merging functionality with real database."""
 
-    @pytest.mark.asyncio
     async def test_merge_tracks_moves_references(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -79,7 +77,6 @@ class TestTrackMergeServiceIntegration:
         deleted_track = result.scalar_one_or_none()
         assert deleted_track is None, "Loser track should be hard-deleted"
 
-    @pytest.mark.asyncio
     async def test_merge_tracks_validates_input(self, db_session: AsyncSession):
         """Test that merge_tracks validates track IDs."""
         uow = DatabaseUnitOfWork(db_session)
@@ -90,7 +87,6 @@ class TestTrackMergeServiceIntegration:
             async with uow:
                 await merge_service.merge_tracks(1, 1, uow)
 
-    @pytest.mark.asyncio
     async def test_merge_tracks_with_nonexistent_tracks(self, db_session: AsyncSession):
         """Test merge behavior with non-existent tracks."""
         uow = DatabaseUnitOfWork(db_session)

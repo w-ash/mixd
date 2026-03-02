@@ -10,15 +10,15 @@ import contextlib
 from typing import Any
 
 from rich.console import Console
-import typer
 
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config import get_logger
 
 logger = get_logger(__name__)
 
-# Global shared console for entire CLI application
+# Global shared consoles for entire CLI application
 _console: Console | None = None
+_error_console: Console | None = None
 
 
 class SimpleConsoleContext:
@@ -33,7 +33,7 @@ class SimpleConsoleContext:
     def __init__(self, console: Console):
         self.console = console
 
-    def get_progress_manager(self):
+    def get_progress_manager(self) -> None:
         """Return None since no progress tracking is needed."""
         return None
 
@@ -54,18 +54,9 @@ class ProgressDisplayContext:
         self.console = provider.get_console()
         self.progress_manager = manager
 
-    def get_progress_manager(self):
+    def get_progress_manager(self) -> AsyncProgressManager:
         """Return the progress manager for workflow coordination."""
         return self.progress_manager
-
-
-# Commands that should use Live Display for progress tracking
-LIVE_DISPLAY_COMMANDS = {
-    "playlist.run",
-    "history.import",
-    "likes.sync",
-    # Add other long-running commands as needed
-}
 
 
 def get_console() -> Console:
@@ -83,6 +74,22 @@ def get_console() -> Console:
         _console = Console()  # Auto-detect terminal width for table expansion
         logger.debug("Global Rich console initialized")
     return _console
+
+
+def get_error_console() -> Console:
+    """Get the global shared Rich error console (stderr) for the CLI.
+
+    Returns a Console that writes to stderr, giving error messages Rich markup
+    formatting while keeping them on the correct output stream for piping/scripting.
+
+    Returns:
+        Shared Rich Console instance writing to stderr
+    """
+    global _error_console
+    if _error_console is None:
+        _error_console = Console(stderr=True)
+        logger.debug("Global Rich error console initialized")
+    return _error_console
 
 
 @contextlib.asynccontextmanager
@@ -135,31 +142,3 @@ async def progress_coordination_context(show_live: bool = True) -> AsyncGenerato
                     _ = await progress_manager.unsubscribe(subscription_id)
     finally:
         logger.debug("Progress display context completed")
-
-
-def should_use_live_display(ctx: typer.Context) -> bool:
-    """Determine if current command should use Live Display.
-
-    Analyzes the command context to decide whether Live Display should be
-    activated. This enables smart resource management by only using Live
-    Display for commands that actually need progress tracking.
-
-    Args:
-        ctx: Typer command context
-
-    Returns:
-        True if command should use Live Display, False otherwise
-    """
-    if ctx.info_name in LIVE_DISPLAY_COMMANDS:
-        logger.debug(f"Command {ctx.info_name} requires Live Display")
-        return True
-
-    # Check for parent commands (e.g., "playlist run" -> "playlist.run")
-    if ctx.parent and ctx.parent.info_name:
-        command_path = f"{ctx.parent.info_name}.{ctx.info_name}"
-        if command_path in LIVE_DISPLAY_COMMANDS:
-            logger.debug(f"Command path {command_path} requires Live Display")
-            return True
-
-    # Default to no Live Display for simple commands
-    return False

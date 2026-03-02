@@ -371,7 +371,6 @@ class TestProgressCoordinator:
         """Create a sample operation for testing."""
         return create_progress_operation(description="Test import", total_items=100)
 
-    @pytest.mark.asyncio
     async def test_start_operation(self, coordinator, sample_operation):
         """Test starting operation tracking."""
         running_operation = await coordinator.start_operation(sample_operation)
@@ -384,7 +383,6 @@ class TestProgressCoordinator:
         assert retrieved is not None
         assert retrieved.status == OperationStatus.RUNNING
 
-    @pytest.mark.asyncio
     async def test_start_duplicate_operation_fails(self, coordinator, sample_operation):
         """Test that starting duplicate operations fails."""
         await coordinator.start_operation(sample_operation)
@@ -392,7 +390,6 @@ class TestProgressCoordinator:
         with pytest.raises(ValueError, match=r"Operation .* is already being tracked"):
             await coordinator.start_operation(sample_operation)
 
-    @pytest.mark.asyncio
     async def test_validate_progress_event_success(self, coordinator, sample_operation):
         """Test successful progress event validation."""
         await coordinator.start_operation(sample_operation)
@@ -408,7 +405,6 @@ class TestProgressCoordinator:
         assert is_valid
         assert error is None
 
-    @pytest.mark.asyncio
     async def test_validate_nonexistent_operation(self, coordinator):
         """Test validation fails for nonexistent operation."""
         event = create_progress_event(
@@ -419,7 +415,6 @@ class TestProgressCoordinator:
         assert not is_valid
         assert "No active operation found" in error
 
-    @pytest.mark.asyncio
     async def test_validate_backwards_progress_fails(
         self, coordinator, sample_operation
     ):
@@ -447,7 +442,6 @@ class TestProgressCoordinator:
         assert not is_valid
         assert "Progress went backwards" in error
 
-    @pytest.mark.asyncio
     async def test_record_progress_event_with_metrics(
         self, coordinator, sample_operation
     ):
@@ -469,7 +463,6 @@ class TestProgressCoordinator:
         assert enhanced_event.metadata["completion_percentage"] == 50.0
         assert enhanced_event.metadata["event_sequence"] == 1
 
-    @pytest.mark.asyncio
     async def test_complete_operation(self, coordinator, sample_operation):
         """Test completing an operation."""
         await coordinator.start_operation(sample_operation)
@@ -483,7 +476,6 @@ class TestProgressCoordinator:
         assert completed_operation.duration_seconds is not None
         assert completed_operation.duration_seconds >= 0
 
-    @pytest.mark.asyncio
     async def test_complete_nonexistent_operation_fails(self, coordinator):
         """Test completing nonexistent operation fails."""
         with pytest.raises(ValueError, match="No operation found"):
@@ -491,7 +483,6 @@ class TestProgressCoordinator:
                 "nonexistent", OperationStatus.COMPLETED
             )
 
-    @pytest.mark.asyncio
     async def test_get_active_operations(self, coordinator):
         """Test retrieving active operations."""
         op1 = create_progress_operation(description="Operation 1")
@@ -516,7 +507,6 @@ class TestProgressCoordinator:
         assert len(active_ops) == 1
         assert active_ops[0].operation_id == op2.operation_id
 
-    @pytest.mark.asyncio
     async def test_cleanup_completed_operations(self, coordinator, sample_operation):
         """Test cleanup of old completed operations."""
         await coordinator.start_operation(sample_operation)

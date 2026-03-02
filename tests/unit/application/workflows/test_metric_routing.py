@@ -1,12 +1,12 @@
-"""Tests for metric routing in transform_registry.
+"""Tests for metric routing in transform_definitions.
 
-Validates _route_metric_sorting routes metrics to the correct sort functions
+Validates route_metric_sorting routes metrics to the correct sort functions
 using open-ended classification.
 """
 
 import pytest
 
-from src.application.workflows.transform_registry import _route_metric_sorting
+from src.application.metadata_transforms.metric_routing import route_metric_sorting
 
 
 class TestRouteMetricSorting:
@@ -14,12 +14,12 @@ class TestRouteMetricSorting:
 
     def test_track_attribute_routes_to_key_function(self):
         """Track attributes (e.g. 'title') route to sort_by_key_function."""
-        result = _route_metric_sorting({"metric_name": "title", "reverse": False})
+        result = route_metric_sorting({"metric_name": "title", "reverse": False})
         assert callable(result)
 
     def test_external_metric_routes_to_external_sort(self):
         """External metrics route to sort_by_external_metrics."""
-        result = _route_metric_sorting({
+        result = route_metric_sorting({
             "metric_name": "spotify_popularity",
             "reverse": True,
         })
@@ -27,7 +27,7 @@ class TestRouteMetricSorting:
 
     def test_play_history_routes_to_play_history_sort(self):
         """Play history metrics route to sort_by_play_history."""
-        result = _route_metric_sorting({
+        result = route_metric_sorting({
             "metric_name": "total_plays",
             "reverse": True,
         })
@@ -35,13 +35,13 @@ class TestRouteMetricSorting:
 
     def test_unknown_metric_routes_to_external(self):
         """Unknown metrics default to external metric sorting (graceful no-op)."""
-        result = _route_metric_sorting({"metric_name": "totally_fake_metric"})
+        result = route_metric_sorting({"metric_name": "totally_fake_metric"})
         assert callable(result)
 
     def test_missing_metric_name_raises(self):
         """Missing metric_name in config raises ValueError."""
         with pytest.raises(ValueError, match="metric_name is required"):
-            _route_metric_sorting({})
+            route_metric_sorting({})
 
     @pytest.mark.parametrize(
         "attr",
@@ -49,7 +49,7 @@ class TestRouteMetricSorting:
     )
     def test_all_track_attributes_produce_callable(self, attr: str):
         """All known track attributes produce a callable transform."""
-        result = _route_metric_sorting({"metric_name": attr})
+        result = route_metric_sorting({"metric_name": attr})
         assert callable(result)
 
     @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ class TestRouteMetricSorting:
     )
     def test_known_external_metrics_produce_callable(self, metric: str):
         """Known external metrics produce a callable transform."""
-        result = _route_metric_sorting({"metric_name": metric})
+        result = route_metric_sorting({"metric_name": metric})
         assert callable(result)
 
     @pytest.mark.parametrize(
@@ -78,5 +78,5 @@ class TestRouteMetricSorting:
     )
     def test_all_play_history_metrics_produce_callable(self, metric: str):
         """All play history metrics produce a callable transform."""
-        result = _route_metric_sorting({"metric_name": metric})
+        result = route_metric_sorting({"metric_name": metric})
         assert callable(result)

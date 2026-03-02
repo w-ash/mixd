@@ -6,17 +6,14 @@ with zero external dependencies.
 
 All combination functions follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
-- Composition: Can be combined with other transforms via create_pipeline
-- Dual-mode: Transform factories can execute immediately or return composable functions
+- Multi-input: Combiners take list[TrackList] (unlike single-input Transform functions)
+- Dual-mode: Can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """
 
-from collections.abc import Callable
-
 from src.domain.entities.track import Track, TrackList
 
-# Type alias for transformation functions
-Transform = Callable[[TrackList], TrackList]
+from .core import Transform
 
 
 def concatenate(

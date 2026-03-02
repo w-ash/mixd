@@ -17,7 +17,6 @@ from src.application.use_cases.import_play_history import (
 from src.domain.entities import OperationResult
 
 
-@pytest.mark.unit
 class TestImportTracksCommand:
     """Test command validation for service/mode combinations."""
 
@@ -74,7 +73,6 @@ class TestImportTracksCommand:
             cmd.service = "spotify"
 
 
-@pytest.mark.unit
 class TestImportTracksUseCase:
     """Test use case execution and error handling."""
 

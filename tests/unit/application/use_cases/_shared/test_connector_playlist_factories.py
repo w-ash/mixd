@@ -7,37 +7,20 @@ tracks that lack connector identifiers.
 
 from datetime import UTC, datetime
 
-import pytest
-
 from src.application.use_cases._shared.connector_playlist_factories import (
     create_connector_playlist_item_from_track,
     create_connector_playlist_items_from_tracks,
 )
 from src.domain.entities.playlist import ConnectorPlaylistItem
-from src.domain.entities.track import Artist, Track
+from tests.fixtures.factories import make_track
 
 
-def _make_track(
-    title: str = "Test Track",
-    connector_ids: dict[str, str] | None = None,
-    track_id: int | None = None,
-) -> Track:
-    """Helper to create a Track with optional connector identifiers."""
-    return Track(
-        id=track_id,
-        title=title,
-        artists=[Artist(name="Test Artist")],
-        connector_track_identifiers=connector_ids or {},
-    )
-
-
-@pytest.mark.unit
 class TestCreateConnectorPlaylistItemFromTrack:
     """Test single-track ConnectorPlaylistItem creation."""
 
     def test_track_with_connector_id_returns_item(self):
         """Track with matching connector ID should produce a ConnectorPlaylistItem."""
-        track = _make_track(connector_ids={"spotify": "sp_123"})
+        track = make_track(connector_track_identifiers={"spotify": "sp_123"})
         fixed_time = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
 
         item = create_connector_playlist_item_from_track(
@@ -58,7 +41,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
 
     def test_track_without_connector_identifiers_returns_none(self):
         """Track with empty connector_track_identifiers should return None."""
-        track = _make_track(connector_ids={})
+        track = make_track(connector_track_identifiers={})
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -70,7 +53,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
 
     def test_track_with_wrong_connector_name_returns_none(self):
         """Track with connector IDs for a different service should return None."""
-        track = _make_track(connector_ids={"lastfm": "lf_456"})
+        track = make_track(connector_track_identifiers={"lastfm": "lf_456"})
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -82,7 +65,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
 
     def test_custom_added_by_id(self):
         """Should respect custom added_by_id parameter."""
-        track = _make_track(connector_ids={"spotify": "sp_123"})
+        track = make_track(connector_track_identifiers={"spotify": "sp_123"})
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -96,7 +79,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
 
     def test_added_at_defaults_to_now_when_none(self):
         """When added_at is None, should default to current UTC datetime."""
-        track = _make_track(connector_ids={"spotify": "sp_123"})
+        track = make_track(connector_track_identifiers={"spotify": "sp_123"})
         before = datetime.now(UTC)
 
         item = create_connector_playlist_item_from_track(
@@ -113,7 +96,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
 
     def test_position_is_preserved(self):
         """Position parameter should be passed through to the item."""
-        track = _make_track(connector_ids={"spotify": "sp_123"})
+        track = make_track(connector_track_identifiers={"spotify": "sp_123"})
 
         item = create_connector_playlist_item_from_track(
             track=track,
@@ -125,15 +108,18 @@ class TestCreateConnectorPlaylistItemFromTrack:
         assert item.position == 42
 
 
-@pytest.mark.unit
 class TestCreateConnectorPlaylistItemsFromTracks:
     """Test batch creation of ConnectorPlaylistItems."""
 
     def test_batch_creates_items_for_matching_tracks(self):
         """Should create items only for tracks with the specified connector ID."""
         tracks = [
-            _make_track(title="Has Spotify", connector_ids={"spotify": "sp_1"}),
-            _make_track(title="Has Spotify Too", connector_ids={"spotify": "sp_2"}),
+            make_track(
+                title="Has Spotify", connector_track_identifiers={"spotify": "sp_1"}
+            ),
+            make_track(
+                title="Has Spotify Too", connector_track_identifiers={"spotify": "sp_2"}
+            ),
         ]
 
         items = create_connector_playlist_items_from_tracks(
@@ -148,10 +134,16 @@ class TestCreateConnectorPlaylistItemsFromTracks:
     def test_batch_filters_tracks_without_connector_ids(self):
         """Should skip tracks that lack the specified connector ID."""
         tracks = [
-            _make_track(title="Has Spotify", connector_ids={"spotify": "sp_1"}),
-            _make_track(title="No IDs", connector_ids={}),
-            _make_track(title="Wrong Service", connector_ids={"lastfm": "lf_1"}),
-            _make_track(title="Also Spotify", connector_ids={"spotify": "sp_3"}),
+            make_track(
+                title="Has Spotify", connector_track_identifiers={"spotify": "sp_1"}
+            ),
+            make_track(title="No IDs", connector_track_identifiers={}),
+            make_track(
+                title="Wrong Service", connector_track_identifiers={"lastfm": "lf_1"}
+            ),
+            make_track(
+                title="Also Spotify", connector_track_identifiers={"spotify": "sp_3"}
+            ),
         ]
 
         items = create_connector_playlist_items_from_tracks(
@@ -166,9 +158,13 @@ class TestCreateConnectorPlaylistItemsFromTracks:
     def test_positions_are_zero_indexed_from_enumerate(self):
         """Positions should match the original list index (0-indexed from enumerate)."""
         tracks = [
-            _make_track(title="Track 0", connector_ids={"spotify": "sp_0"}),
-            _make_track(title="Track 1 (no ID)", connector_ids={}),
-            _make_track(title="Track 2", connector_ids={"spotify": "sp_2"}),
+            make_track(
+                title="Track 0", connector_track_identifiers={"spotify": "sp_0"}
+            ),
+            make_track(title="Track 1 (no ID)", connector_track_identifiers={}),
+            make_track(
+                title="Track 2", connector_track_identifiers={"spotify": "sp_2"}
+            ),
         ]
 
         items = create_connector_playlist_items_from_tracks(
@@ -192,8 +188,10 @@ class TestCreateConnectorPlaylistItemsFromTracks:
     def test_all_tracks_filtered_returns_empty(self):
         """When no tracks have the connector ID, should return empty list."""
         tracks = [
-            _make_track(title="LastFM Only", connector_ids={"lastfm": "lf_1"}),
-            _make_track(title="No IDs", connector_ids={}),
+            make_track(
+                title="LastFM Only", connector_track_identifiers={"lastfm": "lf_1"}
+            ),
+            make_track(title="No IDs", connector_track_identifiers={}),
         ]
 
         items = create_connector_playlist_items_from_tracks(
@@ -207,9 +205,9 @@ class TestCreateConnectorPlaylistItemsFromTracks:
         """All items in a batch should share the same added_at timestamp."""
         fixed_time = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
         tracks = [
-            _make_track(title="A", connector_ids={"spotify": "sp_a"}),
-            _make_track(title="B", connector_ids={"spotify": "sp_b"}),
-            _make_track(title="C", connector_ids={"spotify": "sp_c"}),
+            make_track(title="A", connector_track_identifiers={"spotify": "sp_a"}),
+            make_track(title="B", connector_track_identifiers={"spotify": "sp_b"}),
+            make_track(title="C", connector_track_identifiers={"spotify": "sp_c"}),
         ]
 
         items = create_connector_playlist_items_from_tracks(

@@ -103,15 +103,15 @@ class TestElapsedMs:
 class TestLogResponseSuccess:
     """Tests for the success (2xx/3xx) branch of _log_response."""
 
-    @pytest.mark.asyncio
     async def test_success_response_logs_at_debug(self):
-        """2xx responses are logged at DEBUG without reading the body."""
+        """2xx responses are logged at DEBUG after reading the body for timing."""
         response = MagicMock(spec=httpx.Response)
         response.status_code = 200
         response.url = httpx.URL("https://api.spotify.com/v1/me")
         response.headers = {}
-        # elapsed raises RuntimeError — simulates streaming response where body
-        # hasn't been read yet (the most common case for this hook)
+        response.aread = AsyncMock()
+        # elapsed raises RuntimeError — simulates edge case where aread()
+        # didn't populate elapsed (shouldn't happen in practice but we guard)
         type(response).elapsed = property(
             lambda self: (_ for _ in ()).throw(  # type: ignore[misc]
                 RuntimeError("not read yet")
@@ -129,9 +129,8 @@ class TestLogResponseSuccess:
         assert call_kwargs[1]["status"] == 200
         assert call_kwargs[1]["elapsed_ms"] is None  # RuntimeError → None, not crash
 
-    @pytest.mark.asyncio
-    async def test_success_response_does_not_call_aread(self):
-        """Success responses must NOT buffer the body — that's the caller's job."""
+    async def test_success_response_calls_aread_for_elapsed(self):
+        """Success responses call aread() to populate elapsed timing."""
         import datetime
 
         response = MagicMock(spec=httpx.Response)
@@ -143,9 +142,8 @@ class TestLogResponseSuccess:
         with patch("src.infrastructure.connectors._shared.http_client._http_logger"):
             await _log_response(response)
 
-        response.aread.assert_not_called()
+        response.aread.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_success_response_elapsed_when_available(self):
         """When elapsed is available (response already read), logs the value."""
         import datetime
@@ -154,6 +152,7 @@ class TestLogResponseSuccess:
         response.status_code = 201
         response.url = httpx.URL("https://api.spotify.com/v1/playlists")
         response.elapsed = datetime.timedelta(milliseconds=87.3)
+        response.aread = AsyncMock()
 
         with patch(
             "src.infrastructure.connectors._shared.http_client._http_logger"
@@ -172,7 +171,6 @@ class TestLogResponseSuccess:
 class TestLogResponseError:
     """Tests for the error (4xx/5xx) branch of _log_response."""
 
-    @pytest.mark.asyncio
     async def test_error_response_calls_aread_before_logging(self):
         """Error responses must buffer the body (aread) BEFORE logging.
 
@@ -203,7 +201,6 @@ class TestLogResponseError:
         assert call_kwargs[1]["body"] == "Rate limit exceeded"
         assert call_kwargs[1]["retry_after"] == "60"
 
-    @pytest.mark.asyncio
     async def test_error_response_body_capped_at_500_chars(self):
         """Response body is truncated to 500 characters to avoid log flooding."""
         import datetime
@@ -226,7 +223,6 @@ class TestLogResponseError:
         logged_body = mock_log.warning.call_args[1]["body"]
         assert len(logged_body) == 500
 
-    @pytest.mark.asyncio
     async def test_error_response_logs_at_warning(self):
         """4xx/5xx responses are logged at WARNING, not DEBUG."""
         import datetime
@@ -248,7 +244,6 @@ class TestLogResponseError:
         mock_log.warning.assert_called_once()
         mock_log.debug.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_boundary_399_is_success(self):
         """Status 399 logs at DEBUG (success path), not WARNING."""
         import datetime
@@ -266,7 +261,6 @@ class TestLogResponseError:
         mock_log.debug.assert_called_once()
         mock_log.warning.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_boundary_400_is_error(self):
         """Status 400 logs at WARNING (error path) and calls aread."""
         import datetime
@@ -319,7 +313,6 @@ class TestClientSmokeViaRealHttpx:
             s.api.spotify_retry_max_delay = 30.0
             yield s
 
-    @pytest.mark.asyncio
     async def test_spotify_success_response_does_not_crash_hook(self, spotify_settings):
         """A 200 from Spotify must not raise in the response event hook.
 
@@ -365,7 +358,6 @@ class TestClientSmokeViaRealHttpx:
         assert result[0].id == "abc123"
         assert result[0].name == "Test Track"
 
-    @pytest.mark.asyncio
     async def test_spotify_error_response_returns_none_via_hook(self, spotify_settings):
         """A 429 from Spotify must log the body in the hook and return None.
 
@@ -404,7 +396,6 @@ class TestClientSmokeViaRealHttpx:
 
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_lastfm_success_response_does_not_crash_hook(self):
         """A 200 from Last.fm must not raise in the response event hook."""
         from src.infrastructure.connectors._shared.http_client import _EVENT_HOOKS

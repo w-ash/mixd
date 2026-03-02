@@ -161,7 +161,7 @@ class RateLimitedBatchProcessor:
             async for item_id, result in self._collect_results():
                 completed_count += 1
 
-                self.logger.info(
+                self.logger.debug(
                     f"Batch item completed ({completed_count}/{self.total_expected_items})",
                     item_id=item_id,
                     completed_count=completed_count,
@@ -261,7 +261,7 @@ class RateLimitedBatchProcessor:
 
                 task.add_done_callback(remove_completed_task)
 
-                self.logger.info(
+                self.logger.debug(
                     f"Launched request {launch_count} for {self.connector_name}",
                     item_id=work_item.item_id,
                     launch_count=launch_count,
@@ -320,7 +320,7 @@ class RateLimitedBatchProcessor:
             # Store successful result
             self.completed_results[work_item.item_id] = result
 
-            self.logger.info(
+            self.logger.debug(
                 f"Work item completed successfully for {self.connector_name}",
                 item_id=work_item.item_id,
                 execution_duration_ms=round(execution_duration * 1000, 1),
@@ -348,10 +348,9 @@ class RateLimitedBatchProcessor:
             # We just log the failure and mark as complete with None result
             self.completed_results[work_item.item_id] = None
 
-            self.logger.warning(
-                f"Work item failed for {self.connector_name}",
+            self.logger.debug(
+                f"Work item failed for {self.connector_name} (retry handled by API client)",
                 item_id=work_item.item_id,
-                error_details="Retry handled by API client retry policy",
             )
 
     async def _collect_results(self) -> AsyncIterator[tuple[str, Any]]:

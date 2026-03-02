@@ -4,8 +4,6 @@ Tests playlist retrieval by internal ID and external connector ID,
 including not-found scenarios and execution timing.
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from src.application.use_cases.read_canonical_playlist import (
@@ -13,29 +11,16 @@ from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistResult,
     ReadCanonicalPlaylistUseCase,
 )
-from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track
-
-
-def _make_playlist(playlist_id: int = 1, name: str = "Test Playlist") -> Playlist:
-    """Create a test playlist."""
-    tracks = [Track(id=1, title="Song 1", artists=[Artist(name="Artist")])]
-    return Playlist.from_tracklist(
-        name=name,
-        tracklist=tracks,
-    ).with_id(playlist_id)
+from tests.fixtures import make_playlist
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with playlist repository."""
-    uow = AsyncMock()
-    playlist_repo = AsyncMock()
-    uow.get_playlist_repository = MagicMock(return_value=playlist_repo)
-    return uow
+    return make_mock_uow()
 
 
-@pytest.mark.unit
 class TestReadCanonicalPlaylistCommand:
     """Test command construction and validation."""
 
@@ -65,13 +50,12 @@ class TestReadCanonicalPlaylistCommand:
             cmd.playlist_id = "2"
 
 
-@pytest.mark.unit
 class TestReadCanonicalPlaylistUseCase:
     """Test use case execution paths."""
 
     async def test_lookup_by_internal_id(self, mock_uow):
         """Test successful lookup using integer database ID."""
-        playlist = _make_playlist(42, "Found Playlist")
+        playlist = make_playlist(42, "Found Playlist")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
         command = ReadCanonicalPlaylistCommand(playlist_id="42")
@@ -86,7 +70,7 @@ class TestReadCanonicalPlaylistUseCase:
 
     async def test_lookup_by_connector_id(self, mock_uow):
         """Test lookup using external connector ID string."""
-        playlist = _make_playlist(1, "Spotify Playlist")
+        playlist = make_playlist(1, "Spotify Playlist")
         playlist_repo = mock_uow.get_playlist_repository()
         # Non-numeric ID triggers ValueError on int(), falls through to connector lookup
         playlist_repo.get_playlist_by_id.side_effect = ValueError("not an int")

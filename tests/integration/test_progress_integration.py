@@ -33,7 +33,6 @@ class TestProgressIntegration:
         # Use default console for tests - Rich will handle terminal detection
         return RichProgressProvider()
 
-    @pytest.mark.asyncio
     async def test_complete_progress_flow(self, progress_manager, rich_provider):
         """Test complete progress flow from operation start to completion."""
         # Subscribe Rich provider to progress manager
@@ -48,7 +47,9 @@ class TestProgressIntegration:
         assert operation_id == operation.operation_id
 
         # Verify operation was started
-        retrieved_operation = await progress_manager.get_operation(operation_id)
+        retrieved_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert retrieved_operation is not None
         assert retrieved_operation.status == OperationStatus.RUNNING
 
@@ -73,7 +74,9 @@ class TestProgressIntegration:
         )
 
         # Verify operation is completed
-        final_operation = await progress_manager.get_operation(operation_id)
+        final_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert final_operation.status == OperationStatus.COMPLETED
         assert final_operation.duration_seconds is not None
         assert final_operation.duration_seconds >= 0
@@ -82,7 +85,6 @@ class TestProgressIntegration:
         unsubscribed = await progress_manager.unsubscribe(subscription_id)
         assert unsubscribed is True
 
-    @pytest.mark.asyncio
     async def test_multiple_concurrent_operations(
         self, progress_manager, rich_provider
     ):
@@ -103,7 +105,7 @@ class TestProgressIntegration:
             operation_ids.append(op_id)
 
         # Verify all are active
-        active_operations = await progress_manager.get_active_operations()
+        active_operations = await progress_manager._coordinator.get_active_operations()
         assert len(active_operations) == 3
 
         # Send progress for all operations
@@ -120,10 +122,9 @@ class TestProgressIntegration:
             await progress_manager.complete_operation(op_id, OperationStatus.COMPLETED)
 
         # Verify no active operations remain
-        active_operations = await progress_manager.get_active_operations()
+        active_operations = await progress_manager._coordinator.get_active_operations()
         assert len(active_operations) == 0
 
-    @pytest.mark.asyncio
     async def test_indeterminate_progress(self, progress_manager, rich_provider):
         """Test progress tracking for indeterminate operations."""
         await progress_manager.subscribe(rich_provider)
@@ -154,10 +155,11 @@ class TestProgressIntegration:
         )
 
         # Verify operation completed successfully
-        final_operation = await progress_manager.get_operation(operation_id)
+        final_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert final_operation.status == OperationStatus.COMPLETED
 
-    @pytest.mark.asyncio
     async def test_operation_failure_handling(self, progress_manager, rich_provider):
         """Test handling of failed operations."""
         await progress_manager.subscribe(rich_provider)
@@ -177,10 +179,11 @@ class TestProgressIntegration:
         await progress_manager.complete_operation(operation_id, OperationStatus.FAILED)
 
         # Verify operation failed
-        final_operation = await progress_manager.get_operation(operation_id)
+        final_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert final_operation.status == OperationStatus.FAILED
 
-    @pytest.mark.asyncio
     async def test_progress_validation_enforcement(self, progress_manager):
         """Test that domain validation rules are enforced."""
         operation = create_progress_operation(
@@ -202,10 +205,11 @@ class TestProgressIntegration:
             await progress_manager.emit_progress(invalid_event)
 
         # Operation should still be running after validation failure
-        operation_state = await progress_manager.get_operation(operation_id)
+        operation_state = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert operation_state.status == OperationStatus.RUNNING
 
-    @pytest.mark.asyncio
     async def test_subscriber_error_isolation(self, progress_manager):
         """Test that subscriber errors don't crash the progress system."""
         # Create a subscriber that always fails
@@ -236,7 +240,9 @@ class TestProgressIntegration:
         )
 
         # Operation should complete successfully
-        final_operation = await progress_manager.get_operation(operation_id)
+        final_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
         assert final_operation.status == OperationStatus.COMPLETED
 
 
@@ -248,7 +254,6 @@ class TestRichProgressProvider:
         """Create Rich provider with default console."""
         return RichProgressProvider()
 
-    @pytest.mark.asyncio
     async def test_rich_provider_lifecycle(self, rich_provider):
         """Test Rich provider start/stop lifecycle."""
         assert not rich_provider.is_display_active
@@ -259,7 +264,6 @@ class TestRichProgressProvider:
         await rich_provider.stop_display()
         assert not rich_provider.is_display_active
 
-    @pytest.mark.asyncio
     async def test_rich_provider_context_manager(self, rich_provider):
         """Test Rich provider as async context manager."""
         assert not rich_provider.is_display_active
@@ -269,7 +273,6 @@ class TestRichProgressProvider:
 
         assert not rich_provider.is_display_active
 
-    @pytest.mark.asyncio
     async def test_rich_provider_operation_tracking(self, rich_provider):
         """Test Rich provider tracks operations correctly."""
         # Start display
@@ -304,7 +307,6 @@ class TestRichProgressProvider:
 class TestProgressSystemExample:
     """Example usage of the complete progress system."""
 
-    @pytest.mark.asyncio
     async def test_realistic_batch_processing_example(self):
         """Example simulating realistic batch processing with progress tracking."""
         # Setup progress system
@@ -355,7 +357,9 @@ class TestProgressSystemExample:
             )
 
             # Verify final state
-            final_operation = await progress_manager.get_operation(operation_id)
+            final_operation = await progress_manager._coordinator.get_operation(
+                operation_id
+            )
             assert final_operation.status == OperationStatus.COMPLETED
             assert final_operation.duration_seconds > 0
 
@@ -363,4 +367,4 @@ class TestProgressSystemExample:
         await progress_manager.unsubscribe(subscriber_id)
 
         # Verify system cleaned up properly
-        assert progress_manager.subscriber_count == 0
+        assert len(progress_manager._subscribers) == 0

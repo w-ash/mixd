@@ -17,11 +17,9 @@ from src.domain.entities import TrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
-@pytest.mark.integration
 class TestImportIdempotency:
     """Integration tests for import idempotency with real database operations."""
 
-    @pytest.mark.asyncio
     async def test_duplicate_import_creates_no_duplicates(
         self, db_session, test_data_tracker
     ):
@@ -88,7 +86,6 @@ class TestImportIdempotency:
         assert play.service == "spotify"
         assert play.ms_played == 180000
 
-    @pytest.mark.asyncio
     async def test_overlapping_batch_imports_prevent_duplicates(
         self, db_session, test_data_tracker
     ):

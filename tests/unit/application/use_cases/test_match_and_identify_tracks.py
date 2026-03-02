@@ -13,16 +13,9 @@ from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksResult,
     MatchAndIdentifyTracksUseCase,
 )
-from src.domain.entities.track import Artist, Track, TrackList
-
-
-def _make_track(track_id: int | None, title: str = "Song") -> Track:
-    """Create a test track."""
-    return Track(
-        id=track_id,
-        title=f"{title} {track_id or 'new'}",
-        artists=[Artist(name="Artist")],
-    )
+from src.domain.entities.track import TrackList
+from tests.fixtures import make_track
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
@@ -34,7 +27,7 @@ def mock_connector():
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with track identity service."""
-    uow = AsyncMock()
+    uow = make_mock_uow()
 
     identity_service = AsyncMock()
     identity_service.get_existing_identity_mappings.return_value = {}
@@ -45,13 +38,12 @@ def mock_uow():
     return uow
 
 
-@pytest.mark.unit
 class TestMatchAndIdentifyTracksCommand:
     """Test command construction and validation."""
 
     def test_valid_command(self, mock_connector):
         """Test creating a valid command."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = MatchAndIdentifyTracksCommand(
             tracklist=tracklist,
             connector="spotify",
@@ -62,7 +54,7 @@ class TestMatchAndIdentifyTracksCommand:
 
     def test_empty_connector_name_rejected(self, mock_connector):
         """Test that empty connector name is rejected."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         with pytest.raises(ValueError, match="Connector name must be specified"):
             MatchAndIdentifyTracksCommand(
                 tracklist=tracklist,
@@ -72,7 +64,7 @@ class TestMatchAndIdentifyTracksCommand:
 
     def test_none_connector_instance_rejected(self):
         """Test that None connector instance is rejected."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         with pytest.raises(ValueError, match="Connector instance must be provided"):
             MatchAndIdentifyTracksCommand(
                 tracklist=tracklist,
@@ -81,7 +73,6 @@ class TestMatchAndIdentifyTracksCommand:
             )
 
 
-@pytest.mark.unit
 class TestMatchAndIdentifyTracksUseCase:
     """Test use case execution paths."""
 
@@ -105,7 +96,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_tracks_without_ids_filtered_out(self, mock_uow, mock_connector):
         """Test that tracks without database IDs are filtered."""
-        tracks = [_make_track(None, "No ID"), _make_track(None, "Also No ID")]
+        tracks = [make_track(None, "No ID"), make_track(None, "Also No ID")]
         tracklist = TrackList(tracks=tracks)
         command = MatchAndIdentifyTracksCommand(
             tracklist=tracklist,
@@ -122,7 +113,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_all_tracks_already_have_mappings(self, mock_uow, mock_connector):
         """Test that existing mappings are returned without re-resolution."""
-        tracks = [_make_track(1), _make_track(2)]
+        tracks = [make_track(1), make_track(2)]
         tracklist = TrackList(tracks=tracks)
 
         # All tracks already have mappings
@@ -149,7 +140,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_new_tracks_resolved_and_persisted(self, mock_uow, mock_connector):
         """Test full resolution pipeline for unresolved tracks."""
-        tracks = [_make_track(1), _make_track(2)]
+        tracks = [make_track(1), make_track(2)]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -187,7 +178,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_resolution_error_captured_in_result(self, mock_uow, mock_connector):
         """Test that exceptions during resolution are captured, not propagated."""
-        tracks = [_make_track(1)]
+        tracks = [make_track(1)]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -225,7 +216,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_mixed_valid_and_no_id_tracks(self, mock_uow, mock_connector):
         """Test that only tracks with IDs are processed, but count includes all."""
-        tracks = [_make_track(1), _make_track(None), _make_track(2)]
+        tracks = [make_track(1), make_track(None), make_track(2)]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()

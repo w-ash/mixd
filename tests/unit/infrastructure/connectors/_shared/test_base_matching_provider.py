@@ -212,7 +212,6 @@ class TestBaseMatchingProviderTrackPartitioning:
 class TestBaseMatchingProviderTemplateMethod:
     """Test the template method workflow orchestration."""
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_calls_isrc_method_for_isrc_tracks(self):
         """Template method should call _match_by_isrc for tracks with ISRC."""
         provider = ConcreteProvider()
@@ -228,7 +227,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.isrc_calls[0]) == 1
         assert provider.isrc_calls[0][0].id == 1
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_calls_artist_title_method_for_non_isrc_tracks(
         self,
     ):
@@ -244,7 +242,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.artist_title_calls[0]) == 1
         assert provider.artist_title_calls[0][0].id == 1
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_filters_already_matched_from_artist_title(self):
         """Tracks matched by ISRC should not be sent to artist/title method."""
         provider = ConcreteProvider()
@@ -276,7 +273,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.artist_title_calls[0]) == 1
         assert provider.artist_title_calls[0][0].id == 2
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_merges_results_from_both_methods(self):
         """Results from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
@@ -311,7 +307,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert result.matches[1]["match_method"] == "isrc"
         assert result.matches[2]["match_method"] == "artist_title"
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_merges_failures_from_both_methods(self):
         """Failures from ISRC and artist/title methods should be merged."""
         provider = ConcreteProvider()
@@ -350,7 +345,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert result.failures[1].track_id == 2
         assert result.failures[1].method == "artist_title"
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_creates_failures_for_unprocessable_tracks(self):
         """Tracks without ISRC and without title should generate failures."""
         provider = ConcreteProvider()
@@ -366,7 +360,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert result.failures[0].service == "test_service"
         assert "missing artist or title" in result.failures[0].details.lower()
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_handles_empty_track_list(self):
         """Empty track list should return empty result."""
         provider = ConcreteProvider()
@@ -379,7 +372,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.isrc_calls) == 0
         assert len(provider.artist_title_calls) == 0
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_skips_isrc_if_no_isrc_tracks(self):
         """ISRC method should not be called if no tracks have ISRC."""
         provider = ConcreteProvider()
@@ -392,7 +384,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.isrc_calls) == 0
         assert len(provider.artist_title_calls) == 1
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_skips_artist_title_if_no_eligible_tracks(self):
         """Artist/title method should not be called if all tracks matched by ISRC."""
         provider = ConcreteProvider()
@@ -416,7 +407,6 @@ class TestBaseMatchingProviderTemplateMethod:
         assert len(provider.isrc_calls) == 1
         assert len(provider.artist_title_calls) == 0  # Not called!
 
-    @pytest.mark.asyncio
     async def test_fetch_raw_matches_returns_provider_match_result(self):
         """Template method should return ProviderMatchResult."""
         provider = ConcreteProvider()

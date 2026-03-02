@@ -49,7 +49,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Status: ✅ Completed (2026-02-16)
     - Effort: L
     - What: Eliminate module duplication, modernize to Python 3.14 idioms, restructure interface layer so FastAPI can reuse all application logic
-    - Why: Codebase had accumulated overlapping abstractions, dead code, and CLI-coupled interface logic blocking v0.5.0 web UI
+    - Why: Codebase had accumulated overlapping abstractions, dead code, and CLI-coupled interface logic blocking v0.3.0 web UI
     - Dependencies: None
     - Notes:
         - **Python 3.14 Modernization**: `@override` decorators, `TypeIs` mapper guards, error classifier hierarchy simplification
@@ -77,250 +77,248 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Additional combining strategies (if needed)
             - Production workflow templates showcasing new capabilities
 
-### v0.3.0: Database Migration
-**Goal**: Migrate from SQLite to a networked relational database, enabling remote hosting and unlocking Prefect parallel task execution.
+### v0.3.0: Web UI Foundation + Playlists (Vertical Slice 1)
+**Goal**: Stand up FastAPI + React with the dark editorial design system. Deliver one complete feature — playlist CRUD — proving the full-stack architecture end-to-end using entirely existing use cases.
 
-**Context**: SQLite's file-based, single-writer model ties the application to a local machine and prevents concurrent writes. The Repository + UoW pattern already fully abstracts database access — only the connection config, driver, and a handful of SQLite-specific SQL constructs need to change.
+**Context**: 11 of 15 use cases already exist. The `execute_use_case()` runner (v0.2.7) is ready for both CLI and FastAPI. All 5 playlist use cases work today. This milestone adds no new backend logic — it builds the API + UI layers and validates the architecture with a real feature.
 
-**Why before Web UI**: Hard prerequisite for any deployment outside a local machine. Also unlocks:
-- **Remote hosting**: Fly.io, Railway, Render, or any cloud host (no SQLite volume trickery)
-- **Prefect `.submit()` parallelism**: MVCC concurrent writes remove the `SharedSessionProvider` constraint; source/enricher nodes can execute in parallel
-- **Concurrent web requests**: FastAPI + multiple simultaneous users require concurrent write capability
-- **Prefect task caching**: Currently blocked by non-serializable context dict (live `AsyncSession`, connector instances, loggers) — evaluate separately after migration
+**Why playlists first**: Full use case coverage already exists (`ListPlaylists`, `CreateCanonicalPlaylist`, `ReadCanonicalPlaylist`, `UpdateCanonicalPlaylist`, `DeleteCanonicalPlaylist`). Maximum frontend validation with minimum backend work.
 
-#### Database Selection Epic
+> **Detailed specifications** — user journeys, API contracts, information architecture, and frontend architecture — live in [`docs/web-ui/`](web-ui/README.md). This backlog tracks *what to build and when*; the web-ui docs specify *how it should work*.
 
-- [ ] **Evaluate and Select Database**
+#### FastAPI Foundation Epic
+
+- [ ] **FastAPI Application Setup**
+    - Effort: M
+    - What: Create FastAPI service with playlist REST API endpoints and health check
+    - Why: Web interface needs programmatic access to use cases; playlists are the first slice
+    - Dependencies: None (use cases already exist)
+    - Status: 🔜 Not Started
+    - Notes:
+        - Pydantic v2 with `from_attributes=True`; settings via `pydantic_settings.BaseSettings` + `@lru_cache()`
+        - Project structure: `src/interface/api/` with app factory, routers, schemas, dependencies
+        - Dependency injection via `execute_use_case()` runner (✅ already built)
+        - Error handling middleware — format defined in [03-api-contracts.md](web-ui/03-api-contracts.md#conventions)
+        - Security: CORS `allow_origins = ["http://localhost:5173"]` for dev
+        - Authentication: None (single-user local development); OAuth deferred to v0.5.0
+        - **Endpoints (this milestone)**: `GET /health`, `GET /playlists`, `POST /playlists`, `GET /playlists/{id}`, `PATCH /playlists/{id}`, `DELETE /playlists/{id}`, `GET /playlists/{id}/tracks`
+        - Full endpoint listing with use-case mappings in [03-api-contracts.md](web-ui/03-api-contracts.md)
+        - **SPA catch-all route**: Serve `index.html` for all non-`/api/*` paths — required for client-side routing (React Router handles `/playlists/123`, but direct URL navigation or page refresh returns 404 without this)
+
+#### React Application Foundation Epic
+
+- [ ] **React App + Design System Foundation**
+    - Effort: L
+    - What: Vite 6 + React 19 + TypeScript project with pnpm, shadcn/ui, Tailwind v4 editorial design tokens, and Tanstack Query
+    - Why: Establish the frontend stack and distinctive visual identity in one go — every subsequent milestone adds pages to a working app
+    - Dependencies: FastAPI Application Setup
+    - Status: 🔜 Not Started
+    - Notes:
+        - Tech stack, project structure, and architectural decisions in [04-frontend-architecture.md](web-ui/04-frontend-architecture.md)
+        - Tailwind v4 `@theme` tokens: dark editorial palette (OKLCH warm colors), Space Grotesk / Newsreader / JetBrains Mono typography
+        - **shadcn/ui + Tailwind v4**: Use `tw-animate-css` (not `tailwindcss-animate` — deprecated for Tailwind v4). Use `@theme inline` directive carefully to avoid dark-mode variable collisions
+        - shadcn/ui primitives: Button, Card, Table, Input, Dialog, Toast, Skeleton — customized to warm dark aesthetic
+        - App shell: Sidebar navigation, PageLayout, React Router routes
+        - **OpenAPI codegen**: Set up Orval or openapi-ts with TanStack Query plugin — generates typed hooks + MSW mock handlers from FastAPI's `/openapi.json`. See [04-frontend-architecture.md](web-ui/04-frontend-architecture.md#api-client-generation-openapi-codegen)
+        - Tanstack Query integration with generated API hooks (not hand-written)
+        - Claude Code design skill at `.claude/skills/frontend-design/SKILL.md` for session-level guidance
+        - WCAG 2.2 Level AA compliance (target, not optional)
+
+#### Playlists Page Epic
+
+- [ ] **Playlists Pages**
+    - Effort: M
+    - What: Playlist List page, Playlist Detail page, Create/Edit playlist modals
+    - Why: First working vertical slice — proves the full stack end-to-end
+    - Dependencies: React App + Design System Foundation
+    - Status: 🔜 Not Started
+    - Notes:
+        - Playlist List (`/playlists`): table with name, track count, linked connectors, last updated
+        - Playlist Detail (`/playlists/:id`): header with metadata, track list table, delete action
+        - Create Playlist modal: name, description
+        - Empty states for no playlists and empty playlists
+        - User journeys and edge cases in [01-user-flows.md](web-ui/01-user-flows.md)
+        - Page hierarchy, routes, and empty states in [02-information-architecture.md](web-ui/02-information-architecture.md)
+
+---
+
+### v0.3.1: Imports & Real-Time Progress (Vertical Slice 2)
+**Goal**: Make the web UI operational for day-to-day use — trigger imports, watch real-time SSE progress. First milestone with new backend work (`SSEProgressProvider`).
+
+**Context**: Import use cases already exist (`SyncLikesUseCase`, `ImportPlayHistoryUseCase`). The `ProgressSubscriber` protocol (domain layer) is already display-agnostic. This milestone adds the SSE subscriber and the frontend hooks that consume it.
+
+#### SSE Progress Epic
+
+- [ ] **SSE Progress Provider**
+    - Effort: M
+    - What: `SSEProgressProvider` implementing `ProgressSubscriber` protocol — serializes `ProgressEvent` to SSE `data:` frames
+    - Why: Real-time progress is the defining UX for import operations; this validates the progress architecture
+    - Dependencies: FastAPI app (v0.3.0)
+    - Status: 🔜 Not Started
+    - Notes:
+        - Implements same `ProgressSubscriber` protocol as `RichProgressProvider` (CLI)
+        - Registered with `AsyncProgressManager.subscribe()` — same pub/sub mechanism
+        - Endpoints: `GET /operations/{id}/progress` (SSE stream), `GET /operations/{id}` (snapshot fallback), `GET /operations` (recent)
+        - Standardize progress reporting across all long-running operations (ETA calculations where possible)
+        - **Backend**: Use `sse-starlette` library for SSE response streaming
+        - **Production headers**: Set `X-Accel-Buffering: no` (prevents Nginx/reverse proxy from buffering SSE chunks) and `Cache-Control: no-cache`
+        - **Disconnect detection**: Check `request.is_disconnected()` in the SSE generator loop to clean up resources when clients drop
+        - **Memory**: Each SSE connection maintains a buffer — monitor connection count in production
+
+#### Import Endpoints Epic
+
+- [ ] **Import API Routes**
     - Effort: S
-    - What: Research database options, evaluate against selection criteria, document ADR (Architecture Decision Record)
-    - Why: Commit to one technology before migration implementation begins
+    - What: Import trigger endpoints backed by existing use cases
+    - Why: Users need to trigger imports from the web UI
+    - Dependencies: SSE Progress Provider
+    - Status: 🔜 Not Started
+    - Notes:
+        - `POST /imports/spotify/likes` → `SyncLikesUseCase`
+        - `POST /imports/lastfm/history` → `ImportPlayHistoryUseCase` (Last.fm mode)
+        - `POST /imports/spotify/history` → `ImportPlayHistoryUseCase` (Spotify GDPR mode)
+        - `GET /imports/checkpoints` → sync checkpoint query
+        - Non-blocking execution via `BackgroundTask` — SSE streams progress back
+
+#### Imports Frontend Epic
+
+- [ ] **Imports Page + Progress UI**
+    - Effort: M
+    - What: Imports page with operation triggers, SSE progress display, and activity feed
+    - Why: The web UI isn't useful until users can trigger operations
+    - Dependencies: Import API Routes
+    - Status: 🔜 Not Started
+    - Notes:
+        - `useSSE` hook wrapping `@microsoft/fetch-event-source` (not native `EventSource` — supports POST, custom headers) with `Last-Event-ID` reconnection and typed `ProgressEvent` parsing
+        - `useOperation` hook composing SSE + Tanstack Query
+        - `OperationProgress` shared component (progress bar, status messages, completion summary)
+        - Imports page (`/imports`): available operations, checkpoint status per connector, activity feed
+        - Sidebar badge indicator when operations are running
+        - Persistent toast for background operation completion
+
+---
+
+### v0.3.2: Library & Search (Vertical Slice 3)
+**Goal**: Track browsing with pagination, text search, and detail views. New use cases built alongside the React pages that consume them — validates API shape in real-time.
+
+**Context**: Current track operations are limited to filtered views (`GetLikedTracksUseCase`, `GetPlayedTracksUseCase`). The web UI needs generic listing, pagination, search, and single-track detail. Building these use cases alongside their frontend consumer prevents speculative API design.
+
+#### Track Use Cases Epic
+
+- [ ] **List All Tracks Use Case**
+    - Effort: M
+    - What: `ListTracksUseCase` — generic track listing with true pagination (offset/limit)
+    - Why: Web UI needs "show all tracks" without liked/played filtering
     - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Leading candidate — PostgreSQL**:
-            - `asyncpg` driver: fastest Python async PostgreSQL driver, mature SQLAlchemy 2.0 support
-            - MVCC concurrency: multiple concurrent writers without locking
-            - JSONB columns: indexable, operators — better than SQLite JSON
-            - Managed hosting: Neon/Supabase (dev free tier), Fly.io Postgres (prod)
-            - Alembic already supports PostgreSQL; existing migration chain can be regenerated as a fresh baseline
-        - **Alternative — Turso (LibSQL)**:
-            - Distributed SQLite fork; near-zero SQL dialect migration cost (SQL stays identical)
-            - HTTP wire protocol; async Python driver (`libsql-experimental`) still maturing
-            - Embedded replicas: local read cache + remote write, interesting for edge deployment
-            - Risk: smaller ecosystem, fewer managed hosting options
-        - **Evaluation criteria**:
-            - Async Python driver maturity and SQLAlchemy 2.0 compatibility
-            - Managed hosting options with free/cheap tiers
-            - Write concurrency model (MVCC vs WAL-over-network)
-            - Migration cost from SQLite (schema + query compat)
-            - Operational simplicity at hobbyist scale (<10 users)
-        - **Expected outcome**: PostgreSQL via `asyncpg`
+        - Support offset/limit pagination (not fixed 10,000 limit like current use cases)
+        - Support multi-criteria filtering (liked + played + time period + connector)
+        - Support sorting by: title, artist, album, release_date, duration_ms, added_at
+        - Repository already supports batch operations, just needs pagination wrapper
+        - Return: Paginated `TrackList` with total count, offset, limit metadata
 
-#### Migration Implementation Epics
-
-- [ ] **Driver and Connection Config**
-    - Effort: S
-    - What: Swap `aiosqlite` → `asyncpg`, update engine/session config, remove SQLite-specific PRAGMAs
-    - Why: Core connectivity change
-    - Dependencies: Database Selection
-    - Status: 🔜 Not Started
-    - Notes:
-        - `db_connection.py`: URL → `postgresql+asyncpg://`, switch `NullPool` → `AsyncAdaptedQueuePool` (pool_size=5, max_overflow=10)
-        - Remove `@event.listens_for` PRAGMA hook (WAL, foreign_keys, busy_timeout not applicable to PostgreSQL)
-        - Remove SQLite connect args (`check_same_thread`, `timeout`)
-        - `alembic.ini` + `alembic/env.py`: remove `render_as_batch=True` (PostgreSQL supports `ALTER TABLE` natively)
-        - Add `DATABASE_URL` env var; remove hardcoded `data/db/narada.db` path
-
-- [ ] **Schema and Query Compatibility**
+- [ ] **Search Tracks Use Case**
     - Effort: M
-    - What: Audit and migrate SQLite-specific SQL constructs to PostgreSQL-compatible equivalents
-    - Why: Several SQLite dialect features won't work on PostgreSQL
-    - Dependencies: Driver and Connection Config
+    - What: `SearchTracksUseCase` — full-text search by title/artist/album
+    - Why: Essential for web UI track browser — users need to find specific tracks
+    - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Bulk upsert**: `sqlite_insert().on_conflict_do_update()` → `postgresql_insert().on_conflict_do_update()` (same semantics, dialect swap in `base_repo.py`)
-        - **JSON → JSONB**: Change column types in `db_models.py` + migration; unlocks `@>` containment queries and GIN indexes for connector metadata
-        - **DateTime → TIMESTAMPTZ**: Verify no tz-naive inserts leak through; PostgreSQL is stricter about timezone-aware datetimes
-        - **Partial indexes**: `WHERE is_primary = TRUE` syntax is identical in PostgreSQL ✅
-        - **Alembic**: Generate fresh `initial_schema` migration for PostgreSQL as new baseline; archive SQLite chain in `alembic/archive/`
-        - **Test fixtures**: Replace `sqlite+aiosqlite:///:memory:` with `pytest-postgresql` ephemeral instances or dedicated test schema
+        - Search across: track title, primary artist, album name
+        - Support pagination (offset/limit)
+        - Support sorting (relevance, title, artist, release_date)
+        - Repository layer: Add `search_tracks()` method to TrackRepository
+        - Minimum viable: Simple LIKE queries, optimize later if needed
 
-- [ ] **Prefect Parallel Execution**
-    - Effort: M
-    - What: Remove `SharedSessionProvider`, migrate to per-task sessions, enable `.submit()`-based parallel node execution
-    - Why: `SharedSessionProvider` was a SQLite workaround; PostgreSQL's connection pool safely handles concurrent sessions
-    - Dependencies: Schema and Query Compatibility
-    - Status: 🔜 Not Started
-    - Notes:
-        - Remove `SharedSessionProvider` from workflow engine
-        - Each Prefect task creates its own session from the pool (standard UoW pattern)
-        - Replace manual topological sort with `.submit()` + Prefect-native future dependency resolution
-        - Source nodes and enricher nodes become concurrently executable where the DAG allows; linear pipelines remain linear (no forced parallelism)
-        - Prefect task caching: separate concern — requires making context dict serializable (remove live `AsyncSession`, connector instances, loggers from context); evaluate after migration
-
-- [ ] **Development and CI Environment**
+- [ ] **Get Track Details Use Case**
     - Effort: S
-    - What: Update local dev setup and CI pipeline for PostgreSQL
-    - Why: `sqlite+aiosqlite:///:memory:` test databases must be replaced
-    - Dependencies: Driver and Connection Config
+    - What: `GetTrackDetailsUseCase` — single track with full assembled metadata
+    - Why: Web UI track detail view needs comprehensive track information
+    - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - `docker-compose.yml`: PostgreSQL service for local development (replaces SQLite file)
-        - `conftest.py`: Update `db_session` fixture to use `pytest-postgresql` ephemeral instances
-        - GitHub Actions: Add `services: postgres:` block to test workflow
-        - `.env.example`: Document `DATABASE_URL`, `DATABASE_TEST_URL`
-        - Remove `data/db/` directory and SQLite file references from `.gitignore`, `alembic.ini`
+        - Input: track_id (internal canonical ID)
+        - Output: Track with enriched metadata including:
+            - Connector mappings (connector_name, connector_id, is_primary, confidence, match_method)
+            - Like status per connector
+            - Play history summary (total plays, last played, first played)
+            - Connector metadata (Spotify popularity, Last.fm play counts, etc.)
+        - Composes data from multiple repositories
 
----
-
-### v0.3.1: Deployment Foundation
-**Goal**: Containerize the application and establish a repeatable deployment pipeline to Fly.io, making Narada hostable outside a local machine.
-
-**Context**: The database migration (v0.3.0) established PostgreSQL as the data layer. This milestone wraps the application in Docker and gets it running on a real host. Doing this before the UI build means every subsequent feature ships into a real hosted environment from day one — no deployment surprises when it's time to launch v0.6.0.
-
-**Why before Web UI**: The Web UI assumes a reachable hosted backend. Solving containerization and deployment as a standalone concern is cleaner than baking it into the UI milestone. The Dockerfile will be extended in v0.6.0 to bundle Vite production assets, but the deployment infrastructure — Fly.io config, secrets management, migrations-on-deploy — is established here.
-
-#### Containerization Epics
-
-- [ ] **Dockerfile and Docker Compose**
+- [ ] **Track Connector Mappings Use Case**
     - Effort: S
-    - What: Multi-stage Dockerfile for the Python backend + docker-compose.yml for local development with PostgreSQL
-    - Why: Reproducible, portable build; local dev environment matches production topology
-    - Dependencies: Database Migration (v0.3.0)
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Dockerfile** (multi-stage):
-            - Stage 1 (`builder`): Python 3.14 slim + Poetry; install dependencies into `/venv`
-            - Stage 2 (`runtime`): copy `/venv` + `src/`; non-root `narada` user; expose port 8000
-            - No Vite assets at this stage — extended in v0.6.0 to add a `node` build stage
-        - **docker-compose.yml** (local development):
-            - `app` service: bind-mount `src/` for live reload (`uvicorn --reload`)
-            - `postgres` service: `postgres:16-alpine`, named volume for data persistence
-            - `.env` file supplies `DATABASE_URL`, API credentials
-            - Depends-on + healthcheck: app waits for postgres to be ready
-        - **Startup**: `alembic upgrade head` runs before `uvicorn` starts (entrypoint script)
-        - **.dockerignore**: exclude `.venv/`, `data/`, `*.pyc`, `.git`, `node_modules/`
-
-- [ ] **Environment Configuration Hardening**
-    - Effort: S
-    - What: Audit all configuration for env-var-driven config; document in `.env.example`
-    - Why: App has scattered hardcoded paths that break in containers
-    - Dependencies: Database Migration (v0.3.0)
-    - Status: 🔜 Not Started
-    - Notes:
-        - `DATABASE_URL` already added in v0.3.0 ✅
-        - API credentials: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `LASTFM_API_KEY`, `LASTFM_API_SECRET`
-        - Log config: `LOG_LEVEL` (default `INFO`); stdout in container (Fly.io aggregates)
-        - `.env.example`: document all required + optional variables with descriptions
-        - Startup validation: `pydantic-settings` fails fast with clear error if required vars are missing
-
-#### Credential Architecture Epics
-
-- [ ] **Spotify Token Persistence**
-    - Effort: S
-    - What: Move Spotify access + refresh tokens from `.spotify_cache` local file to a new `oauth_tokens` database table
-    - Why: Local file token storage is a hard blocker for containerization — containers have no persistent local filesystem. Tokens must survive restarts.
-    - Dependencies: Database Migration (v0.3.0)
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Root cause**: `SpotifyTokenManager` hardcodes `cache_path: Path = Path(".spotify_cache")` (`auth.py:77`); `_load_cache()`/`_save_cache()` read/write this file directly
-        - **New `oauth_tokens` table**: `service VARCHAR(32)`, `access_token TEXT`, `refresh_token TEXT`, `expires_at DATETIME`, `scope TEXT`, `updated_at DATETIME` — keyed by service name
-        - **`TokenStorage` protocol**: define in domain or infrastructure; `FileTokenStorage` (existing behavior, for local CLI) and `DatabaseTokenStorage` (new, for hosted); inject into `SpotifyTokenManager`
-        - **Local CLI**: `SPOTIFY_REDIRECT_URI = http://localhost:8888/callback` — browser-based initial auth still works locally via `FileTokenStorage`
-        - **Hosted environment**: `DatabaseTokenStorage` is used; initial auth requires the web OAuth flow (v0.6.0); until then, Spotify features gracefully degrade
-        - **Last.fm**: password-based mobile session, session key in-memory only — acceptable for hosted use; `LASTFM_PASSWORD` must be a managed secret (`fly secrets set`)
-
-- [ ] **Local Data Migration Tooling**
-    - Effort: S
-    - What: One-time script to export existing local SQLite data and import it to the hosted PostgreSQL database
-    - Why: The schema migrates in v0.3.0, but existing listening history, liked tracks, and play data live in the local SQLite file and would otherwise be lost
-    - Dependencies: Database Migration (v0.3.0), Fly.io Deployment
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Approach**: SQLAlchemy-based read from SQLite (source engine) → write to PostgreSQL (target engine); same `db_models.py` models, different connection strings
-        - **Tables to migrate**: `tracks`, `connector_tracks`, `track_mappings`, `track_metrics`, `track_likes`, `track_plays`, `connector_plays`, `playlists`, `connector_playlists`, `playlist_mappings`, `playlist_tracks`, `sync_checkpoints`
-        - **Order matters**: insert parent tables before child tables (tracks before track_mappings, etc.) to satisfy FK constraints
-        - **Idempotent**: use `INSERT ... ON CONFLICT DO NOTHING` so the script is safe to re-run
-        - **CLI command**: `narada db migrate-to-remote --source sqlite:///data/db/narada.db --target $DATABASE_URL`
-
-#### Deployment Epics
-
-- [ ] **Fly.io Deployment**
-    - Effort: M
-    - What: Deploy the containerized backend to Fly.io with managed PostgreSQL
-    - Why: Primary hosting target; hobby tier sufficient for personal use
-    - Dependencies: Dockerfile and Docker Compose
-    - Status: 🔜 Not Started
-    - Notes:
-        - `fly.toml`: app config, port 8000, health check on `/health`
-        - **Health check**: Add `/health` endpoint to FastAPI (200 + DB connectivity probe)
-        - **Database**: Fly.io Postgres (managed); app connects via internal private network `DATABASE_URL`
-        - **Secrets**: `fly secrets set SPOTIFY_CLIENT_ID=... LASTFM_API_KEY=...`
-        - **Migrations**: `alembic upgrade head` as release command — runs before new version receives traffic
-        - **HTTPS**: Automatic via Fly.io (no Let's Encrypt setup needed)
-        - **Volumes**: None — PostgreSQL is managed; logs go to stdout
-        - **Scaling**: Single machine, 256MB RAM; scale up only if needed
-
-- [ ] **Deployment Documentation**
-    - Effort: XS
-    - What: Single `DEPLOYMENT.md` covering local Docker dev, first Fly.io deploy, updates, and database backups
-    - Why: Reproducible deploys; useful reference when the app hasn't been touched in months
-    - Dependencies: Fly.io Deployment
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Sections**: Prerequisites → Local dev with Docker Compose → First deploy → Updating → PostgreSQL backups → Troubleshooting
-        - **Database backup**: `fly postgres connect` + `pg_dump` piped to a local file
-        - **Rolling updates**: `fly deploy` (zero-downtime redeploy for single-user)
-        - Keep it concise — if a step needs more than one command, something is wrong with the setup
-
----
-
-### v0.4.0: Data Visibility Layer
-**Goal**: Expose rich metadata already in database to prepare for web interface - connector linkage, sync state, and freshness tracking.
-
-**Context**: Infrastructure exploration revealed extensive metadata exists (connector mappings, sync timestamps, freshness tracking) but lacks use case layer exposure. Web UI needs visibility into this data to show users which tracks/playlists are linked to which connectors, when data was last synced, and metadata staleness.
-
-#### Connector Mapping Visibility Epics
-
-- [ ] **Track Connector Mappings**
-    - Effort: S
-    - What: Use case `GetTrackConnectorMappingsUseCase` - retrieve which connectors have mappings for a given track
-    - Why: Web UI needs to show "This track is on: Spotify, Last.fm" with confidence scores and match methods
+    - What: `GetTrackConnectorMappingsUseCase` — retrieve which connectors have mappings for a given track
+    - Why: Track Detail page needs "This track is on: Spotify, Last.fm" with confidence scores
     - Dependencies: None (data already exists in track_mappings table)
     - Status: 🔜 Not Started
     - Notes:
-        - Input: track_id
-        - Output: List of (connector_name, connector_id, is_primary, confidence, match_method)
         - Repository support already exists: `get_connector_mappings()`
         - Just needs use case wrapper
 
-- [ ] **Connector Mapping Statistics**
+#### Track API Routes Epic
+
+- [ ] **Track API Endpoints**
     - Effort: S
-    - What: Use case `GetConnectorMappingStatsUseCase` - aggregate mapping statistics
+    - What: REST endpoints for tracks: list, search, detail, mappings
+    - Why: Frontend needs API access to track data
+    - Dependencies: Track use cases above
+    - Status: 🔜 Not Started
+    - Notes:
+        - `GET /tracks` → `ListTracksUseCase` (with query params for filtering, sorting, pagination)
+        - `GET /tracks/search?q=...` → `SearchTracksUseCase`
+        - `GET /tracks/{id}` → `GetTrackDetailsUseCase`
+        - `GET /tracks/{id}/mappings` → `GetTrackConnectorMappingsUseCase`
+
+#### Library Frontend Epic
+
+- [ ] **Library + Track Detail Pages**
+    - Effort: L
+    - What: Library page with paginated track table, search, and Track Detail page with full metadata
+    - Why: The Library is the most data-dense page — building it validates pagination, search, and component reuse
+    - Dependencies: Track API Endpoints
+    - Status: 🔜 Not Started
+    - Notes:
+        - Library page (`/library`): paginated table, search bar with debounce, filter dropdowns (connector, liked status), column sorting
+        - Track Detail page (`/library/:id`): metadata card, connector mapping badges, like status per service, play history summary
+        - `TrackRow` shared component (reusable across Library, Playlist Detail, Search)
+        - `AlbumArt` component with warm glow effect against dark canvas
+        - `ConnectorIcon` component (Spotify green, Last.fm red, Apple pink)
+        - Empty states for library and track detail sub-sections
+
+---
+
+### v0.3.3: Dashboard & Stats (Vertical Slice 4)
+**Goal**: Landing page with aggregate statistics, connector health, and data quality signals.
+
+**Context**: The dashboard ties everything together — it's the first thing users see and provides contextual navigation to Library, Playlists, and Imports. Requires new aggregation use cases.
+
+#### Stats Use Cases Epic
+
+- [ ] **Track Statistics Use Case**
+    - Effort: S
+    - What: `GetTrackStatsUseCase` — aggregate statistics without loading all entities
+    - Why: Dashboard needs counts: "15,234 tracks total, 8,456 liked, 12,891 played"
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Output: Total tracks, tracks per connector, liked count, played count
+        - Optimized aggregation queries (COUNT, not fetching rows)
+        - Can include: duplicate detection counts, unmapped track counts
+
+- [ ] **Connector Mapping Statistics Use Case**
+    - Effort: S
+    - What: `GetConnectorMappingStatsUseCase` — aggregate mapping statistics
     - Why: Dashboard needs "5,234 tracks mapped to Spotify, 3,891 to Last.fm"
     - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
         - Output: Counts per connector, unmapped track counts, confidence distribution
         - Queries track_mappings table with aggregations
-        - CLI: Enhance `narada status --mappings` (currently stub)
 
-- [ ] **Unmapped Tracks Query**
-    - Effort: S
-    - What: Use case `GetUnmappedTracksUseCase` - find tracks without mappings to specific connector
-    - Why: Identify gaps like "tracks liked on Spotify but not mapped to Last.fm"
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Input: connector_name (optional), limit, offset
-        - Output: Paginated list of tracks without mappings
-        - Useful for data quality checks
-
-#### Sync State Dashboard Epics
-
-- [ ] **Sync Status Overview**
+- [ ] **Sync Status Overview Use Case**
     - Effort: M
-    - What: Use case `GetSyncStatusUseCase` - comprehensive sync state for all connectors
+    - What: `GetSyncStatusUseCase` — comprehensive sync state for all connectors
     - Why: Users need "Last synced with Spotify: 2 days ago, Last.fm: 5 hours ago"
     - Dependencies: None (sync_checkpoints table has all data)
     - Status: 🔜 Not Started
@@ -328,14 +326,11 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Queries sync_checkpoints table
         - Output: Per-connector, per-entity (likes/plays) last sync timestamps
         - Domain: `SyncStatusDashboard` value object with formatted output
-        - CLI: Enhance `narada status --sync` to show timestamps, staleness warnings
 
-#### Metadata Freshness Visibility Epics
-
-- [ ] **Metadata Freshness Tracking**
+- [ ] **Metadata Freshness Tracking Use Case**
     - Effort: S
-    - What: Use case `GetMetadataFreshnessUseCase` - when was track data last updated from connectors?
-    - Why: Show "Spotify metadata: updated 3 days ago" in web UI
+    - What: `GetMetadataFreshnessUseCase` — when was track data last updated from connectors?
+    - Why: Show "Spotify metadata: updated 3 days ago" on dashboard
     - Dependencies: None (connector_tracks.last_updated exists)
     - Status: 🔜 Not Started
     - Notes:
@@ -343,68 +338,96 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Output: Per-track, per-connector last update timestamps
         - Uses existing `get_metadata_timestamps()` repository method
 
-- [ ] **Stale Tracks Detection**
+#### Dashboard API + Frontend Epic
+
+- [ ] **Dashboard Stats Endpoints**
     - Effort: S
-    - What: Use case `GetStaleTracksUseCase` - identify tracks with outdated connector metadata
-    - Why: Automated data quality monitoring
-    - Dependencies: MetadataFreshnessUseCase
+    - What: `GET /stats/dashboard` (aggregate stats), `GET /connectors` (connector status)
+    - Why: Dashboard page needs a single endpoint for all summary data
+    - Dependencies: Stats use cases above
     - Status: 🔜 Not Started
-    - Notes:
-        - Configurable staleness threshold (e.g., 30 days)
-        - CLI: `narada status --freshness` with counts and examples
-        - Could trigger refresh workflows
 
-#### Playlist Discovery Epics
-
-- [ ] **Playlist Listing Enhancement**
-    - Effort: S
-    - What: Use case `ListPlaylistsUseCase` already exists - enhance CLI to show connector linkage
-    - Why: Users need to see "Playlist XYZ → linked to Spotify (playlist_id: abc123)"
-    - Dependencies: None (ListPlaylistsUseCase exists, just enhance output)
-    - Status: 🔜 Not Started
-    - Notes:
-        - Current: Returns playlists with basic metadata
-        - Enhancement: CLI formatting to show connector_playlist_identifiers
-        - Support filtering by connector, sorting by last_updated
-        - Foundation for web UI playlist browser
-
-
-### v0.4.1: User Experience and Reliability
-**Goal**: Polish the user experience and improve system reliability
-
-#### Enhanced CLI Experience Epic
-
-- [ ] **Shell Completion Support**
-    - Effort: S
-    - What: Add shell completion for bash/zsh/fish
-    - Why: Improves CLI usability and discoverability
-    - Dependencies: None
-    - Status: Not Started
-    - Notes:
-        - Use Typer's built-in completion support
-        - Generate completion scripts for major shells
-        - Include dynamic completion for workflows and connectors
-
-#### Type Safety Hardening Epic
-
-- [ ] **Audit and Resolve `# type: ignore` and `Any` Suppressions**
+- [ ] **Dashboard Page**
     - Effort: M
-    - What: Systematic review of all pyright suppressions and `Any` annotations introduced during the v0.2.7 type cleanup, distinguishing legitimate architectural boundaries from papering over real type gaps
-    - Why: The basedpyright 0-warning baseline was achieved partly by relaxing strictness settings (`reportUnknownVariableType`, `reportUnknownArgumentType` etc.) and adding targeted `# pyright: ignore` comments. Some of these are correct (e.g. the `isinstance` guard on the workflow context dict, where the annotation is intentionally narrower than the runtime type). Others may indicate real architectural issues — missing TypedDicts, weak Pydantic models, or places where `Any` leaks across layer boundaries.
+    - What: Landing page with stat cards, connector health badges, freshness alerts, and contextual actions
+    - Why: First thing users see — ties the whole app together
+    - Dependencies: Dashboard Stats Endpoints
+    - Status: 🔜 Not Started
+    - Notes:
+        - Dashboard (`/`): stat cards (total tracks, playlists, plays), connector health badges, freshness alerts
+        - Recent activity feed (last imports, last workflow runs)
+        - Contextual import prompts (e.g., "Last.fm not synced in 7 days — Import now?")
+        - Onboarding card for first-time users (manual connector setup at this stage; OAuth in v0.5.0)
+
+---
+
+### v0.4.0: Workflows & Connector Links (Vertical Slice 5)
+**Goal**: Workflow visualization (React Flow DAG), execution with SSE progress, and connector playlist linking. Completes the web UI feature set.
+
+**Context**: Workflows are Narada's differentiator — declarative pipelines composing user-defined criteria. This milestone brings them to the web with read-only visualization and one-click execution. Connector playlist linking enables push/pull sync from the web.
+
+#### Workflow Persistence Epic
+
+- [ ] **Workflow CRUD Use Cases + Table**
+    - Effort: M
+    - What: Workflow persistence (new `workflows` table), CRUD use cases, execution endpoint
+    - Why: Currently workflows are JSON files — need database persistence for web CRUD and execution history
     - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Audit approach**: `grep -rn "type: ignore\|pyright: ignore\|Any" src/` to enumerate all suppressions; categorise each as (a) legitimate boundary, (b) gap to fix, or (c) remove entirely
-        - **Known legitimate suppressions** (do not remove):
-            - `prefect.py` — `isinstance` guard on workflow context dict (annotation is `dict[str, NodeResult]` but caller passes full context); guard is correct, annotation documents intent
-            - `domain/entities/operations.py` — `TYPE_CHECKING` import for Spotify `PersonalData` (unavoidable circular import)
-        - **Likely fixable gaps** to investigate:
-            - `dict[str, Any]` in connector response parsing not yet covered by Pydantic models (e.g. Spotify search results, playlist objects)
-            - `Any` in repository mapper layers where SQLAlchemy column types are widened
-            - `reportUnknownMemberType` suppressed on SQLAlchemy mapped columns
-        - **Strictness settings** (`pyrightconfig.json`): review which rules were relaxed and re-tighten where possible
-        - **Goal**: Maintain 0 errors/warnings baseline while raising the floor — fewer blanket suppressions, more targeted annotations or Pydantic models
-        - **Blocker for web UI**: FastAPI route handlers and Pydantic response schemas depend on correct types flowing from the application layer; unresolved `Any` leaks will surface as runtime serialisation errors
+        - **New `workflows` table**: `id UUID`, `name VARCHAR`, `description TEXT`, `definition JSONB`, `created_at`, `updated_at`
+        - Use cases: `ListWorkflows`, `GetWorkflow`, `CreateWorkflow`, `UpdateWorkflow`, `DeleteWorkflow`, `RunWorkflow`
+        - Alembic migration (works on both SQLite JSON and PostgreSQL JSONB)
+        - `RunWorkflow` delegates to existing `run_workflow()` in `prefect.py`
+        - Execution endpoint streams progress via SSEProgressProvider (v0.3.1)
+
+#### Workflow API + Frontend Epic
+
+- [ ] **Workflow Pages**
+    - Effort: L
+    - What: Workflow List, Workflow Detail with React Flow DAG visualization, JSON editor, and execution
+    - Why: Workflows are the core product — users need to see and run them from the web
+    - Dependencies: Workflow CRUD Use Cases
+    - Status: 🔜 Not Started
+    - Notes:
+        - Workflow List (`/workflows`): name, description, last run status, run button
+        - Workflow Detail (`/workflows/:id`): React Flow DAG visualization (read-only), execution history, "Run" button with SSE progress
+        - Workflow Editor (`/workflows/:id/edit`): JSON editor with validation (visual drag-and-drop builder deferred to v0.7.0)
+        - React Flow integration: custom node components for source/enricher/transform/destination, edge styling
+
+#### Playlist Connector Links Epic
+
+- [ ] **Playlist Links Management**
+    - Effort: M
+    - What: Connector playlist linking — push/pull sync from the web
+    - Why: Users need to link canonical playlists to Spotify/Apple Music playlists and sync changes
+    - Dependencies: None (use cases exist: `CreateConnectorPlaylistUseCase`, `UpdateConnectorPlaylistUseCase`)
+    - Status: 🔜 Not Started
+    - Notes:
+        - API: `GET /playlists/{id}/links`, `POST /playlists/{id}/links`, `POST /playlists/{id}/links/{id}/sync`
+        - Backed by existing `CreateConnectorPlaylistUseCase`, `UpdateConnectorPlaylistUseCase`
+        - Playlist Links sub-page (`/playlists/:id/links`): linked connectors, sync direction, push/pull buttons
+        - Enhance playlist listing to show connector linkage (which playlists are linked where)
+
+#### Settings Page Epic
+
+- [ ] **Settings Page**
+    - Effort: S
+    - What: Connector status display and manual token configuration
+    - Why: Users need to see which connectors are connected and configure them
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Settings (`/settings`): connector cards showing auth status
+        - Manual token input for local development (OAuth in v0.5.0)
+        - Link to CLI for operations not yet available in web UI
+
+---
+
+### v0.4.1: CI/CD & Quality Hardening
+**Goal**: Pause on features to harden the stack. CI pipeline, test suites, type audit, accessibility.
+
+**Context**: The web UI has 6+ working pages (Dashboard, Library, Playlists, Imports, Workflows, Settings). Before adding more features, establish regression protection and quality gates.
 
 #### Continuous Integration Epic
 
@@ -427,435 +450,356 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - basedpyright (type checking)
             - bandit (security scanning)
             - Fail on any violations
-        - **Dependency Security** (`.github/workflows/security.yml`):
-            - poetry audit (known vulnerabilities)
-            - safety check (dependency scanning)
-            - trivy (container scanning, for v0.6.0+)
-        - **Pre-merge Requirements**:
-            - All tests passing
-            - Coverage threshold met
-            - Zero linting/type errors
-            - No security vulnerabilities
-        - **Performance**: Cache Poetry dependencies, run fast tests first
+        - **Pre-merge Requirements**: all tests passing, coverage threshold, zero lint/type errors
+        - **Playwright CI notes**:
+            - Set `timeout-minutes` on GitHub Actions jobs to prevent hung Playwright workers
+            - Use `trace: 'on-first-retry'` for CI debugging — captures trace only on flaky retries
+            - Cache Playwright browser binaries aggressively (`~/.cache/ms-playwright`)
+            - Use `webServer` config in `playwright.config.ts` to auto-start Vite in CI
+            - Disable MSW service worker in E2E — MSW intercepts interfere with Playwright's real network requests
 
 - [ ] **Automated Changelog Generation**
     - Effort: XS
     - What: Conventional Commits + automated CHANGELOG.md generation
-    - Why: Clear release notes, semantic versioning, user transparency
+    - Why: Clear release notes, semantic versioning
     - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Conventional Commits**: Enforce commit message format
-            - feat: New feature (MINOR version bump)
-            - fix: Bug fix (PATCH version bump)
-            - BREAKING CHANGE: Breaking change (MAJOR version bump)
-            - chore, docs, refactor: No version bump
-        - **Tools**:
-            - commitlint: Validate commit messages
-            - standard-version or semantic-release: Auto-generate CHANGELOG.md
-            - GitHub Actions: Automated release notes on tag push
-        - **CHANGELOG.md Format**:
-            - Keep current ROADMAP.md version history
-            - Add machine-readable CHANGELOG.md (Keep a Changelog format)
-            - Auto-generate from commits on release
+        - Conventional Commits format (feat/fix/BREAKING CHANGE)
+        - commitlint + semantic-release or standard-version
+        - GitHub Actions: automated release notes on tag push
 
-#### Data Integrity & Monitoring Epics
-
-- [ ] **Progress Reporting Consistency**
-    - Effort: S
-    - What: Standardize progress reporting across all long-running operations
-    - Why: Users need consistent feedback on operation status
-    - Dependencies: None
-    - Status: Not Started
-    - Notes:
-        - Use unified progress provider interface
-        - Add ETA calculations where possible
-        - Include operation-specific progress details
-
-- [ ] **Matcher Status Feedback**
-    - Effort: S
-    - What: Implement better progress reporting for matcher operations
-    - Why: Matching is a long-running process with no visibility
-    - Dependencies: None
-    - Status: Not Started
-    - Notes:
-        - Add progress indicators for batch operations
-        - Show success/failure counts in real-time
-        - Implement optional verbose mode for detailed progress
-        - Report service-specific rate limiting information
-        - Include estimated completion time
-
-
-- [ ] **Data Integrity Monitoring System**
-    - Effort: M
-    - What: Implement automated health checks and monitoring for data consistency
-    - Why: Need early detection of data integrity issues, especially primary mapping violations
-    - Dependencies: None
-    - Status: Not Started
-    - Notes:
-        - **Primary Mapping Checks**: Monitor for multiple primary mappings per (track_id, connector_name)
-        - **Missing Primary Checks**: Ensure tracks with connector mappings always have exactly one primary
-        - **Orphaned Mapping Detection**: Find mappings referencing non-existent connector tracks
-        - **Duplicate Track Detection**: Identify potential duplicate canonical tracks
-        - **Health Check Commands**: Add `narada status --health` and `narada status --integrity` CLI commands
-        - **Automated Reporting**: Generate summary reports with counts and examples
-        - **Configuration**: Use `settings.py` for monitoring thresholds and schedules
-
-#### Enhanced Mapping Capabilities Epics
-- [ ] **Manual Track Mapping & Data Quality Management**
-    - Effort: L
-    - What: Comprehensive user control over track mapping and library organization
-    - Why: Music services disagree on track identity, regional differences, and catalog changes require user authority over their music library organization
-    - Dependencies: Primary Connector Mapping Foundation (v0.2.5)
-    - Status: Not Started
-    - Notes:
-        - **User Problems Solved**: Service catalog disagreements (remastered vs original), version preferences (explicit vs clean), regional catalog differences, low-confidence automated matches
-        - **Key Capabilities**: Manual mapping override, duplicate track detection and merging, confidence-based review workflows, bulk data cleanup tools
-        - **User Experience**: Interactive wizards for common scenarios, quality metrics dashboard, step-through interfaces for bulk operations
-
----
-
-### v0.5.0: Track Management Completion
-**Goal**: Fill CRUD gaps for tracks to enable comprehensive track browsing in web interface.
-
-**Context**: Current track operations limited to filtered views (GetLikedTracksUseCase, GetPlayedTracksUseCase). Web UI needs generic track listing, pagination, search, and single track retrieval for track browser functionality.
-
-#### Generic Track Listing Epic
-
-- [ ] **List All Tracks Use Case**
-    - Effort: M
-    - What: `ListTracksUseCase` - generic track listing with true pagination (offset/limit)
-    - Why: Web UI needs "show all tracks" without liked/played filtering
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Support offset/limit pagination (not fixed 10,000 limit like current use cases)
-        - Support multi-criteria filtering (liked + played + time period + connector)
-        - Support sorting by: title, artist, album, release_date, duration_ms, added_at
-        - Repository already supports batch operations, just needs pagination wrapper
-        - Return: Paginated `TrackList` with total count, offset, limit metadata
-
-#### Single Track Operations Epic
-
-- [ ] **Get Track Details Use Case**
-    - Effort: S
-    - What: `GetTrackDetailsUseCase` - retrieve single track with full metadata
-    - Why: Web UI track detail view needs comprehensive track information
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Input: track_id (internal canonical ID)
-        - Output: Track with enriched metadata including:
-            - Connector mappings (from GetTrackConnectorMappingsUseCase)
-            - Like status per connector
-            - Play history summary (total plays, last played, first played)
-            - Connector metadata (Spotify popularity, Last.fm play counts, etc.)
-        - Wrapper around existing `TrackRepository.get_track()`
-        - Composes data from multiple repositories
-
-#### Track Search Epic
-
-- [ ] **Search Tracks Use Case**
-    - Effort: M
-    - What: `SearchTracksUseCase` - full-text search by title/artist/album
-    - Why: Essential for web UI track browser - users need to find specific tracks
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Search across: track title, primary artist, album name
-        - Support pagination (offset/limit)
-        - Support sorting (relevance, title, artist, release_date)
-        - Repository layer: Add `search_tracks()` method to TrackRepository
-        - Database: Consider SQLite FTS5 for full-text search performance
-        - Minimum viable: Simple LIKE queries, optimize later if needed
-
-#### Track Statistics Epic
-
-- [ ] **Track Statistics Use Case**
-    - Effort: S
-    - What: `GetTrackStatsUseCase` - aggregate statistics without loading all entities
-    - Why: Dashboard needs counts: "15,234 tracks total, 8,456 liked, 12,891 played"
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Output: Total tracks, tracks per connector, liked count, played count
-        - Optimized aggregation queries (COUNT, not fetching rows)
-        - Can include: duplicate detection counts, unmapped track counts
-        - Foundation for data quality dashboard
-
----
-
-### v0.6.0: Web UI MVP
-**Goal**: FastAPI service + React application for CRUD operations and workflow visualization (read-only)
-
-**Context**: v0.4.0 (Data Visibility) and v0.5.0 (Track Management) provide comprehensive use cases for tracks, playlists, connector mappings, and sync state. v0.6.0 wraps these with REST API and builds minimal web interface. Focus: read-only workflow visualization + execution, defer interactive editing to v0.7.0.
-
-**Architecture**: Clean Architecture compliance - web layer is pure interface, zero business logic. All operations delegate to existing use cases.
-
-**Foundation already in place** (from v0.2.7 DRY Consolidation):
-- `application/runner.py` — `execute_use_case[TResult]()` handles session/UoW lifecycle; FastAPI routes call this via `Depends`
-- CLI-specific code (async executor, Rich/Typer helpers, interactive menus) isolated in `interface/cli/`, no leakage into application layer
-- `interface/shared/` eliminated — nothing in `interface/` assumes CLI anymore
-
-#### FastAPI Service Foundation Epics
-
-- [ ] **FastAPI Application Setup**
-    - Effort: M
-    - What: Create FastAPI service with REST API endpoints using modern Pydantic v2 patterns
-    - Why: Web interface needs programmatic access to all use cases
-    - Dependencies: v0.5.0 completion (track use cases)
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Tech Stack**:
-            - FastAPI with Pydantic v2 (use `from_attributes=True` for SQLAlchemy models, not deprecated `orm_mode`)
-            - Settings management via `pydantic_settings.BaseSettings` with `@lru_cache()`
-            - Python 3.14+ with strict type checking
-        - **Project Structure** (domain-based, Netflix Dispatch pattern):
-            - `src/api/tracks/` - router.py, schemas.py, dependencies.py
-            - `src/api/playlists/` - router.py, schemas.py, dependencies.py
-            - `src/api/workflows/` - router.py, schemas.py, dependencies.py
-            - `src/api/status/` - router.py, schemas.py, dependencies.py
-            - Follows "thin routes, fat services" - routers delegate to use cases
-        - **Core Infrastructure**:
-            - Pydantic v2 schemas for all request/response models
-            - Dependency injection via `execute_use_case()` runner (✅ already built in v0.2.7)
-            - Error handling middleware with consistent HTTP responses
-            - CORS configuration for local development
-            - Automatic OpenAPI/Swagger documentation
-        - **API Endpoints**:
-            - `/api/playlists` - list, get, create, update, delete (uses existing playlist use cases)
-            - `/api/tracks` - list, get, search, stats (uses v0.5.0 use cases)
-            - `/api/status` - sync state, connector mappings, freshness (uses v0.4.0 use cases)
-            - `/api/workflows` - list, get, execute (uses existing workflow engine)
-        - **Workflow Execution Model** (non-blocking):
-            - `POST /api/workflows/{id}/run` → launches workflow as `BackgroundTask`, returns `{"run_id": "..."}` immediately
-            - `GET /api/workflows/{run_id}/progress` → Server-Sent Events stream; new `SSEProgressProvider` subscribes to existing `AsyncProgressManager` (the `ProgressSubscriber` protocol is already display-agnostic; CLI uses `RichProgressProvider`)
-            - Prefect flows run in-process (`await run_workflow(...)`) — no Prefect server needed; validate that `@flow` functions work correctly when called from within a FastAPI event loop (Prefect 3 supports this, but `get_run_logger()` context must be verified)
-        - **Security baseline**:
-            - Basic rate limiting via `slowapi` middleware — prevents runaway scripts even in single-user mode
-            - CORS: `allow_origins = [settings.app_url]` for production (not `*`); localhost allowed in dev mode
-        - **Architecture Alignment**:
-            - Layered architecture: Router → Use Case → Repository
-            - No business logic in routers (delegates to application layer)
-            - Clean Architecture compliance (web layer is pure interface)
-        - **Authentication**: None for v0.6.0 (single-user), add in v1.0
-
-- [ ] **Spotify OAuth Web Flow**
-    - Effort: M
-    - What: Replace the current browser-on-localhost OAuth flow with a proper hosted OAuth callback that works in a container
-    - Why: `SpotifyTokenManager._run_browser_auth()` uses `webbrowser.open()` and a blocking `HTTPServer` on `localhost:8888` — completely non-functional in a headless server. This is a hard blocker for any Spotify read/write functionality in the hosted app.
-    - Dependencies: FastAPI Application Setup, Spotify Token Persistence (v0.3.1)
-    - Status: 🔜 Not Started
-    - Notes:
-        - **New routes** (`src/api/auth/`):
-            - `GET /auth/spotify` — generates Spotify authorization URL and redirects user's browser to it
-            - `GET /auth/spotify/callback` — receives the OAuth code from Spotify, exchanges it for tokens, stores via `DatabaseTokenStorage` (from v0.3.1); redirects user to the app UI
-        - **Config**: `SPOTIFY_REDIRECT_URI = https://{FLY_APP_HOSTNAME}/auth/spotify/callback`; register this URI in Spotify Developer Dashboard (document in `DEPLOYMENT.md`)
-        - **`SpotifyTokenManager`**: already uses injected `TokenStorage` (from v0.3.1); no further changes needed — the web flow just calls `_save_cache()` via the DB storage backend
-        - **Graceful degradation**: endpoints requiring Spotify return `503 Service Unavailable` with a link to `/auth/spotify` if no valid token exists; read-only data (already imported) remains accessible
-        - **Local CLI**: unchanged — still uses `FileTokenStorage` + localhost server; the hosted OAuth callback is a web-only code path
-
-#### React Application Epics
-
-- [ ] **React App Foundation**
-    - Effort: M
-    - What: Modern Vite + React + TypeScript application with 2025 best practices
-    - Why: Fast, type-safe development environment optimized for modern tooling
-    - Dependencies: FastAPI Service
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Tech Stack (2025 Best Practices)**:
-            - **Vite 6+** for build tooling (esbuild transpilation, fast HMR, optimized builds)
-            - **React 18+** with **TypeScript 5.7+** (strict mode enabled)
-            - **pnpm** for package management (faster, more efficient than npm/yarn)
-            - **Tailwind CSS v4** for styling (Rust engine, 10x performance, 90%+ faster builds)
-            - **Vitest** for testing (native ESM + TypeScript support, Jest-compatible API)
-            - **React Router** for client-side routing
-            - **Tanstack Query** for API state management and caching
-            - **ESLint** (flat config) + **Prettier** for code quality
-        - **Modern Features**:
-            - Native ESM modules throughout
-            - TypeScript strict mode for maximum type safety
-            - Tailwind v4 CSS-first `@theme` for design tokens
-            - Built-in `.env` support (no dotenv package needed)
-        - **API Client**:
-            - Typed fetch wrapper generated from FastAPI OpenAPI schema
-            - Error handling with toast notifications
-            - Request/response interceptors
-            - Automatic retry logic with exponential backoff
-        - **Layout**:
-            - Navigation sidebar (Playlists, Tracks, Workflows, Status)
-            - Header with app title
-            - Responsive design (mobile-friendly, Tailwind breakpoints)
-            - Dark mode support via Tailwind v4 CSS variables
-
-- [ ] **Design System Foundation**
-    - Effort: S
-    - What: Tailwind v4 design system with @theme tokens and reusable component patterns
-    - Why: Consistent styling, maintainable components, dark mode support, accessibility
-    - Dependencies: React App Foundation
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Design Tokens (Tailwind v4 @theme)**:
-            - Color palette (primary, secondary, accent, neutral, semantic colors)
-            - Typography scale (font families, sizes, weights, line heights)
-            - Spacing system (consistent margins, padding, gaps)
-            - Breakpoints for responsive design
-            - Shadow and border radius tokens
-        - **Component Library** (composable, reusable):
-            - Button variants (primary, secondary, outline, ghost, danger)
-            - Card component for content containers
-            - Table component with sorting/pagination support
-            - Input components (text, select, checkbox, radio)
-            - Modal/Dialog for overlays
-            - Toast/Alert for notifications
-            - Loading states and skeletons
-        - **Best Practices**:
-            - Component composition over @apply (avoid @apply overuse)
-            - CSS-first approach using @theme variables
-            - Accessible by default (ARIA labels, keyboard navigation, focus states)
-            - Dark mode via CSS variables (no theme toggle logic needed)
-        - **Accessibility Standards** (2025 Best Practice):
-            - **WCAG 2.2 Level AA compliance** (target, not optional)
-            - **Keyboard Navigation**: Full keyboard support (no mouse required)
-                - Tab order: Logical focus flow
-                - Focus indicators: 2px outline, 3:1 contrast ratio
-                - Shortcuts: Standardized (Esc closes modals, Enter submits forms)
-            - **Screen Reader Support**:
-                - Semantic HTML (header, nav, main, article, aside)
-                - ARIA labels for interactive elements
-                - Live regions for dynamic updates (aria-live)
-                - Skip links for main content navigation
-            - **Color & Contrast**:
-                - Text contrast: 4.5:1 for normal text, 3:1 for large text
-                - UI component contrast: 3:1 (buttons, inputs, icons)
-                - No color-only information (use icons + color)
-            - **Responsive & Zoom**:
-                - Support 200% zoom without horizontal scroll
-                - Mobile-friendly touch targets (44x44px minimum)
-                - Responsive breakpoints: 320px (mobile), 768px (tablet), 1024px (desktop)
-            - **Testing Tools**:
-                - Automated: @axe-core/react, Lighthouse accessibility audit
-                - Manual: Keyboard navigation testing, screen reader testing (NVDA, JAWS)
-                - Continuous: Pre-commit hooks for a11y linting
-        - **Documentation**:
-            - Component usage examples
-            - Design token reference
-            - Accessibility guidelines
-
-- [ ] **Core Views Implementation**
-    - Effort: L
-    - What: Build four core views: Playlists, Tracks, Workflows, Status
-    - Why: Essential functionality for web UI MVP
-    - Dependencies: React App Foundation
-    - Status: 🔜 Not Started
-    - Notes:
-        - **Playlist Browser**:
-            - List view with filtering by connector, sorting
-            - Detail view showing tracks, connector linkage
-            - Create/update/delete operations
-        - **Track Browser**:
-            - List view with search, pagination, filtering
-            - Detail view showing metadata, connector mappings, play history
-            - Displays connector linkage (which services have this track)
-        - **Status Dashboard**:
-            - Sync state overview (last synced timestamps per connector)
-            - Connector mapping statistics (track counts per connector)
-            - Metadata freshness indicators
-        - **Workflow Browser**:
-            - List of available workflows
-            - Read-only visualization using React Flow
-            - Execute workflow button (triggers backend execution)
-            - No editing (deferred to v0.6.0)
-
-#### Testing Epic
+#### Test Suite Epic
 
 - [ ] **API & Frontend Test Suite**
     - Effort: M
-    - What: Practical testing strategy (unit, integration, E2E) - no enterprise patterns
-    - Why: Ensure quality for hobbyist project, prevent regressions
-    - Dependencies: Core Views Implementation
+    - What: Testing strategy for backend API, frontend components, and E2E flows
+    - Why: Ensure quality, prevent regressions across the full stack
+    - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Backend Testing** (pytest):
-            - **Unit Tests**: Use case logic, domain transformations (existing ✅)
-            - **Integration Tests**: Repository → database (existing ✅)
-            - **API Tests**:
-                - FastAPI TestClient for endpoint testing
-                - Pydantic schema validation (request/response)
-                - OpenAPI schema validation (ensure spec accuracy)
-                - Authentication tests (JWT for v1.0)
-        - **Frontend Testing** (Vitest):
-            - **Component Tests**: Button, Card, Table, Input (unit)
-            - **Integration Tests**: API client + React Query hooks
-            - **Accessibility Tests**:
-                - @axe-core/react for automated a11y testing
-                - Keyboard navigation tests (Tab, Enter, Escape)
-                - Screen reader compatibility (ARIA labels)
-                - WCAG 2.2 Level AA compliance target
-        - **E2E Testing** (Playwright - desktop Chromium only):
-            - **Critical User Flows**:
-                - User authentication (login, logout - v1.0)
-                - Playlist CRUD (create, view, update, delete)
-                - Track search and filtering
-                - Workflow execution from UI
-            - **Browser**: Chromium only (modern browsers work the same)
-            - **Viewport**: Desktop only (primary use case)
-            - **Execution**: CI/CD (on PR), local (on-demand)
-        - **Coverage Targets** (relaxed for hobbyist scale):
-            - Backend: 80% overall, 85% domain/application layers
-            - Frontend: 60% overall (UI testing is expensive)
-            - E2E: 100% critical user flows
+        - **Backend** (pytest): FastAPI TestClient, Pydantic schema validation, OpenAPI spec accuracy
+        - **Frontend** (Vitest): Component tests with React Testing Library, API hook integration via MSW, accessibility via @axe-core/react
+        - **MSW mocks**: If Orval codegen is set up in v0.3.0, MSW handlers are auto-generated with Faker.js data — dramatically reduces manual mock authoring effort
+        - **E2E** (Playwright): Chromium only, desktop only, critical user flows (playlist CRUD, track search, workflow execution, import with progress)
+        - **Coverage targets**: Backend 80% overall / 85% domain+application, Frontend 60%, E2E 100% critical flows
+        - Frontend testing strategy in [04-frontend-architecture.md](web-ui/04-frontend-architecture.md)
 
-#### Deployment Update
+#### Type Safety & Quality Epic
 
-Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install pnpm deps, run `vite build`, copy `dist/` into the runtime image. FastAPI serves the built static files via `StaticFiles`. `docker-compose.yml` and Fly.io config require no changes — the same deployment pipeline from v0.3.1 applies.
+- [ ] **Audit and Resolve `# type: ignore` and `Any` Suppressions**
+    - Effort: M
+    - What: Systematic review of all pyright suppressions and `Any` annotations
+    - Why: FastAPI route handlers and Pydantic response schemas depend on correct types; unresolved `Any` leaks surface as runtime serialisation errors
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Audit approach**: enumerate all suppressions; categorise as (a) legitimate boundary, (b) gap to fix, or (c) remove
+        - **Known legitimate suppressions** (do not remove):
+            - `prefect.py` — `isinstance` guard on workflow context dict
+            - `domain/entities/operations.py` — `TYPE_CHECKING` import for Spotify `PersonalData`
+        - **Likely fixable gaps**: `dict[str, Any]` in connector response parsing, `Any` in repository mappers
+        - **Goal**: Maintain 0 errors/warnings baseline while raising the floor
 
-#### Performance Optimization Epic
+- [ ] **Data Integrity Monitoring System**
+    - Effort: M
+    - What: Automated health checks for data consistency
+    - Why: Early detection of primary mapping violations, orphaned mappings, duplicate tracks
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Primary mapping checks, missing primary checks, orphaned mapping detection, duplicate track detection
+        - CLI: `narada status --health` and `narada status --integrity`
+        - Automated reporting with counts and examples
+
+#### CLI Polish Epic
+
+- [ ] **Shell Completion Support**
+    - Effort: S
+    - What: Add shell completion for bash/zsh/fish
+    - Why: Improves CLI usability and discoverability
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Use Typer's built-in completion support
+        - Dynamic completion for workflows and connectors
+
+- [ ] **Matcher Status Feedback**
+    - Effort: S
+    - What: Better progress reporting for matcher operations
+    - Why: Matching is a long-running process with limited visibility
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Progress indicators for batch operations, success/failure counts in real-time
+        - Service-specific rate limiting information, estimated completion time
+
+---
+
+### v0.5.0: PostgreSQL, Deployment & OAuth
+**Goal**: Production-grade infrastructure. Now that the web UI works locally on SQLite, migrate to PostgreSQL, containerize, deploy to Fly.io, and implement web OAuth.
+
+**Context**: The Repository + UoW pattern already fully abstracts database access — only connection config, driver, and a handful of SQLite-specific SQL constructs change. This milestone was deferred from v0.3.0 because the web UI works identically on SQLite for local development.
+
+**What this unlocks**:
+- **Remote hosting**: Fly.io, Railway, Render, or any cloud host
+- **Prefect `.submit()` parallelism**: MVCC concurrent writes remove the `SharedSessionProvider` constraint
+- **Web OAuth**: Spotify/Last.fm auth flows that work in a browser (not just CLI)
+- **Concurrent web requests**: PostgreSQL connection pool handles multiple simultaneous users
+
+#### Database Migration Epics
+
+- [ ] **Evaluate and Select Database**
+    - Effort: S
+    - What: Document ADR (Architecture Decision Record) for PostgreSQL selection
+    - Why: Commit to one technology before migration
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - **Leading candidate — PostgreSQL**: `asyncpg` driver, MVCC concurrency, JSONB columns, managed hosting (Neon/Supabase dev, Fly.io prod)
+        - **Alternative — Turso (LibSQL)**: near-zero SQL migration cost, but smaller ecosystem
+        - **Expected outcome**: PostgreSQL via `asyncpg`
+
+- [ ] **Driver and Connection Config**
+    - Effort: S
+    - What: Swap `aiosqlite` → `asyncpg`, update engine/session config, remove SQLite PRAGMAs
+    - Why: Core connectivity change
+    - Dependencies: Database Selection
+    - Status: 🔜 Not Started
+    - Notes:
+        - `db_connection.py`: URL → `postgresql+asyncpg://`, switch `NullPool` → `AsyncAdaptedQueuePool` (pool_size=5, max_overflow=10)
+        - Remove `@event.listens_for` PRAGMA hook; remove SQLite connect args
+        - `alembic.ini` + `alembic/env.py`: remove `render_as_batch=True`
+        - Add `DATABASE_URL` env var
+
+- [ ] **Schema and Query Compatibility**
+    - Effort: M
+    - What: Audit and migrate SQLite-specific SQL constructs
+    - Why: Bulk upsert dialect, JSON → JSONB, DateTime → TIMESTAMPTZ
+    - Dependencies: Driver and Connection Config
+    - Status: 🔜 Not Started
+    - Notes:
+        - `sqlite_insert()` → `postgresql_insert()` in `base_repo.py`
+        - JSON → JSONB column types in `db_models.py`; unlocks `@>` containment queries and GIN indexes
+        - Verify no tz-naive inserts leak through
+        - Generate fresh `initial_schema` migration for PostgreSQL; archive SQLite chain
+        - Test fixtures: replace `sqlite+aiosqlite:///:memory:` with `pytest-postgresql`
+
+- [ ] **Prefect Parallel Execution**
+    - Effort: M
+    - What: Remove `SharedSessionProvider`, enable per-task sessions, `.submit()` parallelism
+    - Why: `SharedSessionProvider` was a SQLite workaround; PostgreSQL handles concurrent sessions
+    - Dependencies: Schema and Query Compatibility
+    - Status: 🔜 Not Started
+    - Notes:
+        - Each Prefect task creates its own session from the pool
+        - Replace manual topological sort with `.submit()` + Prefect-native future resolution
+        - Source and enricher nodes become concurrently executable where DAG allows
+
+#### Containerization & Deployment Epics
+
+- [ ] **Dockerfile and Docker Compose**
+    - Effort: S
+    - What: Multi-stage Dockerfile (Python builder + Vite builder + runtime) + docker-compose.yml
+    - Why: Reproducible, portable build
+    - Dependencies: Database Migration
+    - Status: 🔜 Not Started
+    - Notes:
+        - Stage 1 (`python-builder`): Python 3.14 slim + Poetry → `/venv`
+        - Stage 2 (`node-builder`): Node + pnpm → `web/dist/`
+        - Stage 3 (`runtime`): copy both + `src/`; non-root `narada` user; expose port 8000
+        - docker-compose.yml: `app` service + `postgres` service for local dev
+        - Startup: `alembic upgrade head` before `uvicorn`
+
+- [ ] **Environment Configuration Hardening**
+    - Effort: S
+    - What: Audit all configuration for env-var-driven config; document in `.env.example`
+    - Why: Scattered hardcoded paths break in containers
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - `DATABASE_URL`, API credentials, `LOG_LEVEL`
+        - `pydantic-settings` fails fast with clear error if required vars missing
+
+- [ ] **Fly.io Deployment**
+    - Effort: M
+    - What: Deploy to Fly.io with managed PostgreSQL
+    - Why: Primary hosting target; hobby tier sufficient
+    - Dependencies: Dockerfile and Docker Compose
+    - Status: 🔜 Not Started
+    - Notes:
+        - `fly.toml`: port 8000, health check on `/health`
+        - Fly.io Postgres (managed), internal network `DATABASE_URL`
+        - `fly secrets set` for API credentials
+        - `alembic upgrade head` as release command
+        - HTTPS automatic via Fly.io
+
+- [ ] **Deployment Documentation**
+    - Effort: XS
+    - What: Single `DEPLOYMENT.md` covering local Docker dev, Fly.io deploy, updates, backups
+    - Why: Reproducible deploys; reference for months-later return
+    - Dependencies: Fly.io Deployment
+    - Status: 🔜 Not Started
+
+#### OAuth & Credential Epics
+
+- [ ] **Spotify Token Persistence**
+    - Effort: S
+    - What: Move tokens from `.spotify_cache` file to `oauth_tokens` database table
+    - Why: Containers have no persistent filesystem; tokens must survive restarts
+    - Dependencies: Database Migration
+    - Status: 🔜 Not Started
+    - Notes:
+        - New `oauth_tokens` table: `service`, `access_token`, `refresh_token`, `expires_at`, `scope`, `updated_at`
+        - `TokenStorage` protocol: `FileTokenStorage` (CLI) and `DatabaseTokenStorage` (hosted)
+        - Local CLI unchanged: `FileTokenStorage` + localhost server
+
+- [ ] **Spotify OAuth Web Flow**
+    - Effort: M
+    - What: Replace browser-on-localhost OAuth with hosted callback
+    - Why: `SpotifyTokenManager._run_browser_auth()` uses `webbrowser.open()` — non-functional headless
+    - Dependencies: FastAPI app (v0.3.0), Spotify Token Persistence
+    - Status: 🔜 Not Started
+    - Notes:
+        - Routes: `GET /auth/spotify` (redirect), `GET /auth/spotify/callback` (exchange code, store via `DatabaseTokenStorage`)
+        - Config: `SPOTIFY_REDIRECT_URI = https://{FLY_APP_HOSTNAME}/auth/spotify/callback`
+        - Graceful degradation: Spotify-dependent endpoints return `503` with link to `/auth/spotify` when no valid token
+        - User flow: [01-user-flows.md § 1.1](web-ui/01-user-flows.md#11-connect-spotify)
+
+- [ ] **Local Data Migration Tooling**
+    - Effort: S
+    - What: One-time script to export SQLite data to hosted PostgreSQL
+    - Why: Existing listening history and play data would otherwise be lost
+    - Dependencies: Fly.io Deployment
+    - Status: 🔜 Not Started
+    - Notes:
+        - SQLAlchemy-based read from SQLite → write to PostgreSQL; same `db_models.py` models
+        - Idempotent: `INSERT ... ON CONFLICT DO NOTHING`
+        - CLI: `narada db migrate-to-remote --source sqlite:///data/db/narada.db --target $DATABASE_URL`
+
+#### Performance Epic
 
 - [ ] **Caching & Performance Strategy**
     - Effort: S
-    - What: Simple, maintainable caching for hobbyist web UI (<10 users)
+    - What: Simple caching for hobbyist web UI
     - Why: Reduce database queries without external dependencies
-    - Dependencies: FastAPI Application Setup
+    - Dependencies: None
     - Status: 🔜 Not Started
     - Notes:
-        - **Backend Caching** (in-process only, no Redis):
-            - **Python lru_cache**: `@functools.lru_cache(maxsize=1024)` for pure functions
-                - Track metadata lookups
-                - Connector mapping stats
-                - Expensive aggregations
-            - **HTTP Caching**: ETags + Last-Modified headers
-                - Static resources: max-age=31536000 (1 year)
-                - API responses: ETag for conditional requests (304 Not Modified)
-            - **Database Query Optimization**:
-                - selectinload() for relationships (already implemented ✅)
-                - Minimize N+1 queries
-        - **Frontend Caching**:
-            - **Tanstack Query** (already planned ✅):
-                - Stale-while-revalidate pattern
-                - Background refetching for data freshness
-                - Optimistic updates for instant UI feedback
-            - **Browser Storage**:
-                - LocalStorage for user preferences only
-                - No IndexedDB, no Service Workers (PWA deferred)
-        - **Performance Targets** (realistic for <10 users):
-            - Time to Interactive (TTI): <5s
-            - First Contentful Paint (FCP): <2s
-            - API response time: p95 <500ms (PostgreSQL on Fly.io internal network)
-            - Lighthouse score: >70 (good enough for hobbyist project)
+        - **Backend**: `lru_cache` for pure functions; ETags + Last-Modified; selectinload() (✅ already implemented)
+        - **Frontend**: Tanstack Query stale-while-revalidate + optimistic updates
+        - **Targets**: TTI <5s, FCP <2s, API p95 <500ms, Lighthouse >70
+
+---
+
+### v0.6.0: Apple Music & Data Quality
+**Goal**: Add Apple Music as a connector and build data quality tools. These pair well — Apple Music creates new mapping scenarios, and DQ tools help manage them.
+
+**Context**: Apple Music is functionally equivalent to Spotify (not metadata-only like Last.fm). Shared infrastructure (`InwardTrackResolver`, `BaseMatchingProvider`, retry policies, error classification) means the connector is mostly wiring. An existing stub at `infrastructure/connectors/apple_music/` provides the starting point.
+
+**Key differences from Spotify**: Auth model is developer JWT + music user token (not OAuth 2.0). No "love" API — "Add to Library" is the equivalent of liking. Content equivalence via `catalogId` / `playParams.catalogId` parallels Spotify relinking.
+
+#### Apple Music Connector Epics
+
+- [ ] **Apple Music Auth & API Client**
+    - Effort: M
+    - What: Developer token (JWT/ES256), music user token, and `AppleMusicAPIClient(BaseAPIClient)` with httpx
+    - Why: Foundation for all Apple Music operations
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Pydantic models for JSON:API response shapes
+        - Refactor existing `AppleMusicErrorClassifier` to modern hook pattern
+        - Reuse: `_shared/http_client.py`, `_shared/retry_policies.py`, `_shared/error_classification.py`
+
+- [ ] **Apple Music Track Resolution & Matching**
+    - Effort: M
+    - What: `AppleMusicInwardResolver` and `AppleMusicMatchingProvider`
+    - Why: Track identity mapping is core to cross-service operations
+    - Dependencies: Apple Music Auth & API Client
+    - Status: 🔜 Not Started
+    - Notes:
+        - ISRC-first matching (excellent coverage in Apple Music catalog)
+        - Content equivalence: `catalogId` vs `playParams.catalogId` — reuse dual-mapping pattern
+        - Reuse: `_shared/inward_track_resolver.py`, `_shared/matching_provider.py`, `_shared/isrc.py`
+
+- [ ] **Apple Music Library Operations**
+    - Effort: M
+    - What: Liked tracks (library additions), playlists (CRUD), catalog search
+    - Why: User-facing capabilities for Apple Music in Narada workflows
+    - Dependencies: Apple Music Auth & API Client, Track Resolution & Matching
+    - Status: 🔜 Not Started
+    - Notes:
+        - Implements `LikedTrackConnector`, `PlaylistConnector`, `TrackMetadataConnector` protocols
+        - Does NOT implement `LoveTrackConnector` — no "love" API in Apple Music
+
+- [ ] **Apple Music Connector Facade & Registration**
+    - Effort: S
+    - What: `AppleMusicConnector(BaseAPIConnector)`, auto-discovery, config keys
+    - Why: Plugs into connector ecosystem — all use cases gain Apple Music support automatically
+    - Dependencies: Apple Music Library Operations
+    - Status: 🔜 Not Started
+
+- [ ] **Apple Music Likes Sync Integration**
+    - Effort: S
+    - What: Wire Apple Music into `sync_likes.py` as source/target
+    - Why: "Like on Spotify, appears in Apple Music library" is a headline feature
+    - Dependencies: Apple Music Connector Facade
+    - Status: 🔜 Not Started
+
+- [ ] **Apple Music Connector Tests**
+    - Effort: M
+    - What: Unit and integration tests for the full Apple Music stack
+    - Why: Connector correctness is critical — bad resolution means wrong songs
+    - Dependencies: All above epics
+    - Status: 🔜 Not Started
+
+#### Data Quality Epics
+
+- [ ] **Unmapped Tracks Query**
+    - Effort: S
+    - What: `GetUnmappedTracksUseCase` — find tracks without mappings to specific connector
+    - Why: Identify gaps like "tracks liked on Spotify but not mapped to Apple Music"
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Input: connector_name (optional), limit, offset
+        - Output: Paginated list of tracks without mappings
+
+- [ ] **Stale Tracks Detection**
+    - Effort: S
+    - What: `GetStaleTracksUseCase` — identify tracks with outdated connector metadata
+    - Why: Automated data quality monitoring
+    - Dependencies: None
+    - Status: 🔜 Not Started
+    - Notes:
+        - Configurable staleness threshold (e.g., 30 days)
+        - Could trigger refresh workflows
+
+- [ ] **Manual Track Mapping & Data Quality Management**
+    - Effort: L
+    - What: User control over track mapping — manual overrides, duplicate merging, confidence-based review
+    - Why: Music services disagree on identity; users need authority over their library
+    - Dependencies: Apple Music connector (creates mapping scenarios to manage)
+    - Status: 🔜 Not Started
+    - Notes:
+        - API: `PATCH /tracks/{id}/mappings/{id}`, `DELETE /tracks/{id}/mappings/{id}`, `GET /connectors/{connector}/search`
+        - Frontend: Manual mapping correction UI on Track Detail, "Unmapped" filter in Library, dashboard DQ alerts
+        - Interactive step-through for bulk operations
 
 ### v0.7.0: Interactive Workflow Editor
 **Goal**: Full editing capabilities with intuitive graphical interface
 
-**Context**: Deferred from v0.6.0 to ship web UI faster. v0.6.0 provides read-only workflow visualization + execution, which is sufficient for MVP. Users can edit workflow JSON files manually until v0.7.0 adds graphical editing.
+**Context**: v0.4.0 provides read-only workflow visualization + execution with a JSON editor. This milestone upgrades the JSON editor to a graphical drag-and-drop interface.
+
+> User flow sketch: [01-user-flows.md § 6.5](web-ui/01-user-flows.md#65-visual-workflow-builder-v070-sketch)
 
 #### Interactive Editing System Epics
 - [ ] **Drag-and-Drop Node Creation**
     - Effort: M
     - What: Implement drag-and-drop node creation from node palette
     - Why: Need intuitive workflow creation experience
-    - Dependencies: fastapi
+    - Dependencies: v0.4.0 (Workflow pages)
     - Status: Not Started
     - Notes:
         - Create node palette component
@@ -868,7 +812,7 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
     - Effort: L
     - What: Create dynamic configuration panel for node parameters
     - Why: Users need to configure node behavior without JSON editing
-    - Dependencies: fastapi
+    - Dependencies: v0.4.0 (Workflow pages)
     - Status: Not Started
     - Notes:
         - Generate form from node schema
@@ -890,10 +834,10 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
         - Include edge styling
         - Handle edge repositioning
 
-- [ ] **Workflow Persistence**
+- [ ] **Visual Editor Save/Load**
     - Effort: S
-    - What: Add save/load functionality for workflows
-    - Why: Users need to persist their work
+    - What: Add save/load functionality for visual workflow editor
+    - Why: Users need to persist their work from the drag-and-drop editor
     - Dependencies: Node Configuration Panel
     - Status: Not Started
     - Notes:
@@ -921,12 +865,14 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
 ### v0.8.0: LLM-Assisted Workflow Creation
 **Goal**: Natural language workflow creation with LLM integration
 
+> User flow sketch: [01-user-flows.md § 6.6](web-ui/01-user-flows.md#66-llm-assisted-workflow-creation-v080-sketch)
+
 #### AI-Powered Creation Epics
 - [ ] **LLM Integration Endpoint**
     - Effort: M
     - What: Create API endpoint for LLM-assisted workflow generation
     - Why: Foundation for natural language workflow creation
-    - Dependencies: fastapi implementaiton
+    - Dependencies: v0.4.0 (Workflow pages) implementation
     - Status: Not Started
     - Notes:
         - Implement secure LLM API wrapper
@@ -999,7 +945,7 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
     - Effort: M
     - What: Simple, secure authentication for friends (<10 users)
     - Why: Basic auth for trusted users, OWASP security without enterprise complexity
-    - Dependencies: FastAPI Service (v0.6.0)
+    - Dependencies: FastAPI Service (v0.3.0)
     - Status: 🔜 Not Started
     - Notes:
         - **Authentication** (simplified for hobbyist scale):
@@ -1035,7 +981,7 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
     - Effort: L
     - What: Implement version tracking and management for workflows
     - Why: Users need to track changes and revert when needed
-    - Dependencies: Team Collaboration Features
+    - Dependencies: User Authentication System
     - Status: Not Started
     - Notes:
         - Add versioning system
@@ -1048,7 +994,7 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
     - Effort: XS
     - What: Simple logging for hobbyist debugging (<10 users)
     - Why: Logs are sufficient for troubleshooting with trusted friends
-    - Dependencies: FastAPI Service (v0.6.0)
+    - Dependencies: FastAPI Service (v0.3.0)
     - Status: 🔜 Not Started
     - Notes:
         - **Monitoring Philosophy** (hobbyist reality):
@@ -1091,7 +1037,7 @@ Extend the Dockerfile established in v0.3.1 to add a `node` build stage: install
 
 #### Database
 
-PostgreSQL migration completed in v0.3.0 as a prerequisite for remote hosting and web deployment. No additional database scaling work expected for <10 users at v1.0.0 scale. If write contention surfaces, evaluate read replicas or connection pooling (PgBouncer) before considering sharding.
+PostgreSQL migration completed in v0.5.0 as a prerequisite for remote hosting and web deployment. No additional database scaling work expected for <10 users at v1.0.0 scale. If write contention surfaces, evaluate read replicas or connection pooling (PgBouncer) before considering sharding.
 
 ---
 

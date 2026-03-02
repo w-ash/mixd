@@ -77,7 +77,7 @@ class LastfmConnectorPlayResolver:
                 }
                 filtering_stats["resolution_failures"].append(failure_info)
                 logger.warning(
-                    f"WARNING: Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
+                    f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
                 )
                 continue
 

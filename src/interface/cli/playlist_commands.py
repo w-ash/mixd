@@ -14,9 +14,10 @@ import typer
 
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.console import get_console
+from src.interface.cli.console import get_console, get_error_console
 
 console = get_console()
+err_console = get_error_console()
 
 # Create playlist data management app
 app = typer.Typer(
@@ -26,8 +27,8 @@ app = typer.Typer(
 )
 
 
-@app.command()
-def list() -> None:
+@app.command(name="list")
+def list_playlists() -> None:
     """List all playlists stored in your local database.
 
     Shows playlist ID, name, description, and track count in a Rich table.
@@ -88,7 +89,7 @@ async def _list_stored_playlists() -> None:
         _display_playlists_table(result.playlists)
 
     except Exception as e:
-        typer.echo(f"Error: Failed to list playlists: {e}", err=True)
+        err_console.print(f"[red]Error: Failed to list playlists: {e}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -117,8 +118,6 @@ def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
         updated_str = "N/A"
 
         # Truncate description if too long (using centralized settings)
-        from src.config.settings import settings
-
         max_length = settings.cli.playlist_description_max_width
         truncation_length = settings.cli.playlist_description_truncation_length
         description = playlist.description or ""
@@ -158,11 +157,15 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
             )
             playlist = read_result.playlist
         except Exception as e:
-            typer.echo(f"Error: Playlist with ID {playlist_id} not found.", err=True)
+            err_console.print(
+                f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
+            )
             raise typer.Exit(1) from e
 
         if not playlist:
-            typer.echo(f"Error: Playlist with ID {playlist_id} not found.", err=True)
+            err_console.print(
+                f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
+            )
             raise typer.Exit(1)  # noqa: TRY301
 
         # Step 2: Confirmation unless forced
@@ -207,7 +210,7 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
     except typer.Exit:
         raise
     except Exception as e:
-        typer.echo(f"Error: Failed to delete playlist: {e}", err=True)
+        err_console.print(f"[red]Error: Failed to delete playlist: {e}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -264,8 +267,8 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             )
 
     except ValueError as e:
-        typer.echo(f"Error: {e}", err=True)
+        err_console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1) from e
     except Exception as e:
-        typer.echo(f"Error: Backup failed: {e}", err=True)
+        err_console.print(f"[red]Error: Backup failed: {e}[/red]")
         raise typer.Exit(1) from e

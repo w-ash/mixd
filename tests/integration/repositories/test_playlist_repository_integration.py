@@ -8,11 +8,9 @@ from src.domain.entities import Artist, Playlist, Track
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
-@pytest.mark.integration
 class TestPlaylistRepositoryIntegration:
     """Integration tests for playlist repository with real database operations."""
 
-    @pytest.mark.asyncio
     async def test_save_and_retrieve_playlist(self, db_session, test_data_tracker):
         """Test saving and retrieving a playlist with automatic cleanup tracking."""
         uow = get_unit_of_work(db_session)
@@ -70,7 +68,6 @@ class TestPlaylistRepositoryIntegration:
         assert retrieved_playlist.name == test_playlist.name
         assert len(retrieved_playlist.tracks) == 2
 
-    @pytest.mark.asyncio
     async def test_delete_playlist_hard_delete(self, db_session, test_data_tracker):
         """Test that playlist deletion is a hard delete with cascading cleanup."""
         uow = get_unit_of_work(db_session)
@@ -106,7 +103,6 @@ class TestPlaylistRepositoryIntegration:
         ):
             await playlist_repo.get_by_id(saved_playlist.id)
 
-    @pytest.mark.asyncio
     async def test_playlist_with_connector_identifiers(
         self, db_session, test_data_tracker
     ):
@@ -148,7 +144,6 @@ class TestPlaylistRepositoryIntegration:
             == test_playlist.connector_playlist_identifiers
         )
 
-    @pytest.mark.asyncio
     async def test_playlist_track_management_operations(
         self, db_session, test_data_tracker
     ):
@@ -215,7 +210,6 @@ class TestPlaylistRepositoryIntegration:
             len(retrieved_track_ids.intersection(original_track_ids)) >= 2
         )  # At least some tracks preserved
 
-    @pytest.mark.asyncio
     async def test_playlist_error_handling_scenarios(
         self, db_session, test_data_tracker
     ):
@@ -252,7 +246,6 @@ class TestPlaylistRepositoryIntegration:
             # If validation prevents empty names, that's also acceptable
             pass
 
-    @pytest.mark.asyncio
     async def test_playlist_connector_mapping_creation(
         self, db_session, test_data_tracker
     ):
@@ -293,7 +286,6 @@ class TestPlaylistRepositoryIntegration:
             == test_playlist.connector_playlist_identifiers
         )
 
-    @pytest.mark.asyncio
     async def test_playlist_duplicate_track_handling(
         self, db_session, test_data_tracker
     ):

@@ -199,7 +199,6 @@ class TestRetryPolicyFactory:
         assert musicbrainz_policy.stop(retry_state) is True
 
     @pytest.mark.slow
-    @pytest.mark.asyncio
     async def test_callbacks_are_invoked_during_retries(self):
         """Critical: Verify callbacks are invoked during retry attempts.
 

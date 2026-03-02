@@ -7,7 +7,7 @@ capability protocols at call sites.
 
 from typing import Any
 
-from src.application.workflows.protocols import (
+from src.application.connector_protocols import (
     LikedTrackConnector,
     LoveTrackConnector,
     PlaylistConnector,

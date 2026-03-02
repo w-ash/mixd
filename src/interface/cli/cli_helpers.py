@@ -13,13 +13,26 @@ from typing import Any, Literal
 from rich.prompt import Prompt
 import typer
 
-from src.application.use_cases.import_play_history import run_import
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console, progress_coordination_context
 
 console = get_console()
+
+
+def get_workflow_definitions_path() -> Path:
+    """Get the path to the workflow definitions directory.
+
+    Computes the path relative to the CLI package location, navigating
+    up to src/ and then into application/workflows/definitions/.
+    """
+    return (
+        Path(__file__).parent.parent.parent
+        / "application"
+        / "workflows"
+        / "definitions"
+    )
 
 
 def parse_date_string(
@@ -49,6 +62,28 @@ def parse_date_string(
         raise typer.Exit(1) from None
     else:
         return dt
+
+
+def parse_iso_date(date_str: str | None) -> datetime | None:
+    """Parse ISO date/datetime string with optional time component.
+
+    Handles both 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SS' formats.
+    Returns None on empty input or parse failure — callers own error messages.
+
+    Args:
+        date_str: ISO date string to parse, or None/empty
+
+    Returns:
+        Timezone-aware datetime in UTC, or None if input is empty/invalid
+    """
+    if not date_str:
+        return None
+    try:
+        if "T" in date_str:
+            return datetime.fromisoformat(date_str)
+        return datetime.fromisoformat(f"{date_str}T00:00:00+00:00")
+    except ValueError:
+        return None
 
 
 def validate_date_range(
@@ -123,6 +158,8 @@ def run_import_with_progress(
     """
 
     async def _execute_with_progress() -> OperationResult:
+        from src.application.use_cases.import_play_history import run_import
+
         async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()

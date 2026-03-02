@@ -69,6 +69,14 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
 
     isrc = normalize_isrc(track.external_ids.isrc) if track.external_ids.isrc else None
 
+    raw_metadata: dict[str, Any] = {
+        "popularity": track.popularity,
+        "album_id": track.album.id if track.album else None,
+        "explicit": track.explicit,
+    }
+    if track.linked_from:
+        raw_metadata["linked_from_id"] = track.linked_from.id
+
     return ConnectorTrack(
         connector_name="spotify",
         connector_track_identifier=track.id,
@@ -78,11 +86,7 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
         duration_ms=track.duration_ms,
         release_date=release_date,
         isrc=isrc,
-        raw_metadata={
-            "popularity": track.popularity,
-            "album_id": track.album.id if track.album else None,
-            "explicit": track.explicit,
-        },
+        raw_metadata=raw_metadata,
         last_updated=datetime.now(UTC),
     )
 

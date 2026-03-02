@@ -12,6 +12,7 @@ from typing import Any, Literal
 from attrs import define, field
 
 from src.application.utilities.batch_results import BatchResult
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import (
@@ -151,9 +152,7 @@ class ImportTracksUseCase:
         if progress_emitter is None:
             progress_emitter = NullProgressEmitter()
 
-        import time
-
-        start_time = time.time()
+        timer = ExecutionTimer()
 
         with logger.contextualize(
             operation="import_tracks_use_case",
@@ -165,8 +164,6 @@ class ImportTracksUseCase:
                 operation_result = await self._execute_import(
                     command, uow, progress_emitter
                 )
-
-                execution_time_ms = int((time.time() - start_time) * 1000)
 
                 # Extract imported count from summary metrics
                 imported_count = self._get_metric_value(
@@ -182,14 +179,15 @@ class ImportTracksUseCase:
                     operation_result=operation_result,
                     service=command.service,
                     mode=command.mode,
-                    execution_time_ms=execution_time_ms,
+                    execution_time_ms=timer.stop(),
                     total_batches=1,
                 )
 
             except Exception as e:
-                execution_time_ms = int((time.time() - start_time) * 1000)
                 error_msg = f"{command.service} {command.mode} import failed: {e}"
                 logger.error(error_msg)
+
+                execution_time_ms = timer.stop()
 
                 # Return failed result instead of raising
                 failed_result = OperationResult(
@@ -419,29 +417,15 @@ class ImportTracksUseCase:
         """
         confirm = command.confirm
 
-        # Confirmation logic - return early if not confirmed
+        # Return cancelled result if not confirmed — confirmation UI is the CLI's responsibility
         if not confirm:
-            from rich.console import Console
-            import typer
-
-            console = Console()
-            console.print("[yellow]⚠️  Full History Import Warning[/yellow]")
-            console.print("This will:")
-            console.print("• Import your entire Last.fm play history")
-            console.print("• Reset any existing sync checkpoint")
-            console.print("• Make many API calls (may take 10+ minutes)")
-
-            proceed = typer.confirm("Do you want to proceed?")
-            if not proceed:
-                console.print("[dim]Full history import cancelled[/dim]")
-                # Return a cancelled result instead of raising Exit
-                result = OperationResult(
-                    operation_name="Last.fm Full History Import",
-                    execution_time=0.0,
-                )
-                result.metadata["cancelled"] = True
-                result.summary_metrics.add("status", 0, "Cancelled", significance=0)
-                return result
+            result = OperationResult(
+                operation_name="Last.fm Full History Import",
+                execution_time=0.0,
+            )
+            result.metadata["cancelled"] = True
+            result.summary_metrics.add("status", 0, "Cancelled", significance=0)
+            return result
 
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow)

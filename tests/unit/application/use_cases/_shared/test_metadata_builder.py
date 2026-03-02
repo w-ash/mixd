@@ -7,15 +7,12 @@ produce correct output.
 
 from datetime import UTC, datetime
 
-import pytest
-
 from src.application.use_cases._shared.metadata_builder import (
     PlaylistMetadataBuilder,
     build_api_execution_metadata,
 )
 
 
-@pytest.mark.unit
 class TestPlaylistMetadataBuilderChaining:
     """Test fluent builder interface returns self for method chaining."""
 
@@ -30,8 +27,6 @@ class TestPlaylistMetadataBuilderChaining:
             .with_snapshot("snap_123")
             .with_track_counts(added=2, removed=1, moved=0)
             .with_validation(True)
-            .with_error_info("TimeoutError")
-            .with_items_created(10)
             .with_custom("foo", "bar")
         )
 
@@ -46,14 +41,9 @@ class TestPlaylistMetadataBuilderChaining:
         assert builder.with_snapshot("s") is builder
         assert builder.with_track_counts() is builder
         assert builder.with_validation(True) is builder
-        assert builder.with_error_info("E") is builder
-        assert builder.with_state_consistency(1, 1, 1, 1) is builder
-        assert builder.with_existing_record_info(True) is builder
-        assert builder.with_items_created(5) is builder
         assert builder.with_custom("k", "v") is builder
 
 
-@pytest.mark.unit
 class TestPlaylistMetadataBuilderFields:
     """Test that builder methods set the correct metadata fields."""
 
@@ -103,30 +93,6 @@ class TestPlaylistMetadataBuilderFields:
         assert result["tracks_removed"] == 0
         assert result["tracks_moved"] == 0
 
-    def test_with_error_info_sets_classification_fields(self):
-        """with_error_info should set error classification metadata."""
-        result = (
-            PlaylistMetadataBuilder()
-            .with_error_info(
-                "HTTPError", is_retryable=True, is_auth_error=False, is_rate_limit=True
-            )
-            .build_dict()
-        )
-
-        assert result["error_type"] == "HTTPError"
-        assert result["is_retryable"] is True
-        assert result["is_auth_error"] is False
-        assert result["is_rate_limit"] is True
-
-    def test_with_error_info_defaults(self):
-        """with_error_info defaults to not retryable, not auth, not rate limit."""
-        result = PlaylistMetadataBuilder().with_error_info("ValueError").build_dict()
-
-        assert result["error_type"] == "ValueError"
-        assert result["is_retryable"] is False
-        assert result["is_auth_error"] is False
-        assert result["is_rate_limit"] is False
-
     def test_with_snapshot_sets_snapshot_id(self):
         """with_snapshot should set snapshot_id field."""
         result = PlaylistMetadataBuilder().with_snapshot("abc123").build_dict()
@@ -152,63 +118,12 @@ class TestPlaylistMetadataBuilderFields:
             is False
         )
 
-    def test_with_state_consistency_sets_nested_dict(self):
-        """with_state_consistency should set a nested dict with check details."""
-        result = (
-            PlaylistMetadataBuilder()
-            .with_state_consistency(
-                requested_tracks=20,
-                created_items=18,
-                operations_requested=5,
-                operations_applied=4,
-            )
-            .build_dict()
-        )
-
-        check = result["state_consistency_check"]
-        assert check["requested_tracks"] == 20
-        assert check["created_items"] == 18
-        assert check["operations_requested"] == 5
-        assert check["operations_applied"] == 4
-
-    def test_with_existing_record_info_found(self):
-        """with_existing_record_info should set found flag and optional ID/count."""
-        result = (
-            PlaylistMetadataBuilder()
-            .with_existing_record_info(
-                found=True, existing_id=42, existing_items_count=10
-            )
-            .build_dict()
-        )
-
-        assert result["existing_record_found"] is True
-        assert result["existing_id"] == 42
-        assert result["existing_items"] == 10
-
-    def test_with_existing_record_info_not_found(self):
-        """with_existing_record_info with found=False should omit ID fields."""
-        result = (
-            PlaylistMetadataBuilder()
-            .with_existing_record_info(found=False)
-            .build_dict()
-        )
-
-        assert result["existing_record_found"] is False
-        assert "existing_id" not in result
-        assert "existing_items" not in result
-
-    def test_with_items_created_sets_count(self):
-        """with_items_created should set items_created field."""
-        result = PlaylistMetadataBuilder().with_items_created(15).build_dict()
-        assert result["items_created"] == 15
-
     def test_with_custom_sets_arbitrary_key(self):
         """with_custom should set any key-value pair."""
         result = PlaylistMetadataBuilder().with_custom("my_key", [1, 2, 3]).build_dict()
         assert result["my_key"] == [1, 2, 3]
 
 
-@pytest.mark.unit
 class TestPlaylistMetadataBuilderBuild:
     """Test build() and build_dict() output behavior."""
 
@@ -240,7 +155,6 @@ class TestPlaylistMetadataBuilderBuild:
         assert result == {}
 
 
-@pytest.mark.unit
 class TestConvenienceFunctions:
     """Test convenience functions that wrap the builder."""
 

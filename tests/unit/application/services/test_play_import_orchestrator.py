@@ -11,6 +11,7 @@ import pytest
 
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from tests.fixtures.mocks import make_mock_uow
 
 
 def _make_ingestion_result(
@@ -60,10 +61,11 @@ def orchestrator():
 
 @pytest.fixture
 def mock_uow():
-    uow = MagicMock()
-    plays_repo = AsyncMock()
+    uow = make_mock_uow()
+    # Use .return_value attribute access (not a call) to avoid poisoning call count —
+    # TestEmptyIngestion.test_no_plays_short_circuits asserts get_plays_repository.assert_not_called()
+    plays_repo = uow.get_plays_repository.return_value
     plays_repo.bulk_insert_plays.return_value = (5, 0)
-    uow.get_plays_repository.return_value = plays_repo
     return uow
 
 
@@ -75,7 +77,6 @@ def mock_importer():
 class TestTwoPhaseHappyPath:
     """Test the normal two-phase workflow."""
 
-    @pytest.mark.asyncio
     async def test_ingestion_then_resolution(
         self, orchestrator, mock_uow, mock_importer
     ):
@@ -104,7 +105,6 @@ class TestTwoPhaseHappyPath:
         # Ingestion should have been called
         mock_importer.import_plays.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_combined_result_has_both_phase_metadata(
         self, orchestrator, mock_uow, mock_importer
     ):
@@ -133,7 +133,6 @@ class TestTwoPhaseHappyPath:
 class TestEmptyIngestion:
     """Test short-circuit when ingestion produces no plays."""
 
-    @pytest.mark.asyncio
     async def test_no_plays_short_circuits(self, orchestrator, mock_uow, mock_importer):
         """Empty ingestion should return early without resolution phase."""
         ingestion_result = _make_ingestion_result(imported=0, raw_plays=0, duplicates=0)
@@ -150,7 +149,6 @@ class TestEmptyIngestion:
 class TestResolutionPhaseErrors:
     """Test error handling in the resolution phase."""
 
-    @pytest.mark.asyncio
     async def test_resolution_errors_captured_in_metrics(
         self, orchestrator, mock_uow, mock_importer
     ):

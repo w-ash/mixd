@@ -69,7 +69,6 @@ class TestSpotifyRelinkingValidation:
             )
         ]
 
-    @pytest.mark.asyncio
     async def test_spotify_connector_handles_relinking_correctly(
         self, relinked_track_data
     ):
@@ -119,7 +118,6 @@ class TestSpotifyRelinkingValidation:
                 "Both IDs should map to identical data"
             )
 
-    @pytest.mark.asyncio
     async def test_identity_resolution_creates_single_canonical_track(
         self, db_session, relinked_track_data
     ):

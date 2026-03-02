@@ -5,7 +5,6 @@ Following test pyramid: focus on business rules and validation.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,9 +14,9 @@ from src.application.use_cases.get_played_tracks import (
 )
 from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import Artist
+from tests.fixtures.mocks import make_mock_uow
 
 
-@pytest.mark.unit
 class TestGetPlayedTracksCommand:
     """Test command validation - critical for preventing invalid requests."""
 
@@ -122,10 +121,9 @@ class TestGetPlayedTracksUseCase:
     @pytest.fixture
     def mock_uow(self, sample_tracks, sample_plays):
         """Mock UnitOfWork with repositories."""
-        uow = AsyncMock()
+        uow = make_mock_uow()
 
-        # Mock plays repository
-        plays_repo = AsyncMock()
+        plays_repo = uow.get_plays_repository()
         plays_repo.get_recent_plays.return_value = sample_plays
         plays_repo.get_play_aggregations.return_value = {
             "total_plays": {1: 5, 2: 3},
@@ -134,15 +132,12 @@ class TestGetPlayedTracksUseCase:
                 2: datetime(2024, 1, 2, tzinfo=UTC),
             },
         }
-        uow.get_plays_repository = MagicMock(return_value=plays_repo)
 
-        # Mock track repository
-        track_repo = AsyncMock()
+        track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = {
             1: sample_tracks[0],
             2: sample_tracks[1],
         }
-        uow.get_track_repository = MagicMock(return_value=track_repo)
 
         return uow
 

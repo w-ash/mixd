@@ -124,7 +124,6 @@ class TestLastfmPlayImporterBusinessLogic:
         assert start_date > end_date
 
     # BUSINESS RULE 3: Data Transformation (Core Value Proposition)
-    @pytest.mark.asyncio
     async def test_process_data_transforms_play_records_to_connector_plays(
         self, importer
     ):
@@ -155,7 +154,6 @@ class TestLastfmPlayImporterBusinessLogic:
         assert connector_play.service_metadata["mbid"] == "test-mbid"
         assert connector_play.import_batch_id == "test-batch"
 
-    @pytest.mark.asyncio
     async def test_empty_data_handling(self, importer):
         """Business rule: Empty data should be handled gracefully without errors."""
         result = await importer._process_data(

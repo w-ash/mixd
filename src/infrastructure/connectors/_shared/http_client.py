@@ -55,6 +55,9 @@ def _elapsed_ms(response: httpx.Response) -> float | None:
 
 async def _log_response(response: httpx.Response) -> None:
     """Log incoming HTTP responses; WARNING level on 4xx/5xx including buffered body."""
+    # aread() is idempotent — buffers the body and populates response._elapsed
+    _ = await response.aread()
+
     if response.status_code < _HTTP_ERROR_THRESHOLD:
         _http_logger.debug(
             "HTTP response",
@@ -63,9 +66,6 @@ async def _log_response(response: httpx.Response) -> None:
             elapsed_ms=_elapsed_ms(response),
         )
     else:
-        # Buffer the body so raise_for_status() callers can still read it.
-        # aread() is idempotent and also populates response._elapsed.
-        _ = await response.aread()
         _http_logger.warning(
             "HTTP error response",
             status=response.status_code,

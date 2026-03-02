@@ -11,10 +11,11 @@ from typing import Any, Literal, Never
 
 from attrs import define, field
 
+from src.application.connector_protocols import TrackMetadataConnector
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
-from src.application.workflows.protocols import TrackMetadataConnector
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
@@ -133,9 +134,7 @@ class EnrichTracksUseCase:
         Returns:
             Result with enriched tracks, metrics added, and operation stats.
         """
-        import time
-
-        start_time = time.time()
+        timer = ExecutionTimer()
 
         async with uow:
             with logger.contextualize(
@@ -152,13 +151,12 @@ class EnrichTracksUseCase:
                 valid_tracks = [t for t in command.tracklist.tracks if t.id is not None]
                 if not valid_tracks:
                     logger.warning("No tracks with database IDs - unable to enrich")
-                    execution_time_ms = int((time.time() - start_time) * 1000)
                     return EnrichTracksResult(
                         enriched_tracklist=command.tracklist,
                         metrics_added={},
                         track_count=len(command.tracklist.tracks),
                         enriched_count=0,
-                        execution_time_ms=execution_time_ms,
+                        execution_time_ms=timer.stop(),
                         errors=["No tracks with database IDs available for enrichment"],
                     )
 
@@ -192,7 +190,6 @@ class EnrichTracksUseCase:
                             command.enrichment_config.enrichment_type
                         )
 
-                    execution_time_ms = int((time.time() - start_time) * 1000)
                     enriched_count = sum(len(metrics) for metrics in result[1].values())
 
                     logger.info(
@@ -204,12 +201,11 @@ class EnrichTracksUseCase:
                         metrics_added=result[1],
                         track_count=len(command.tracklist.tracks),
                         enriched_count=enriched_count,
-                        execution_time_ms=execution_time_ms,
+                        execution_time_ms=timer.stop(),
                         errors=[],
                     )
 
                 except Exception as e:
-                    execution_time_ms = int((time.time() - start_time) * 1000)
                     error_msg = f"Track enrichment failed: {e}"
                     logger.error(error_msg)
 
@@ -218,7 +214,7 @@ class EnrichTracksUseCase:
                         metrics_added={},
                         track_count=len(command.tracklist.tracks),
                         enriched_count=0,
-                        execution_time_ms=execution_time_ms,
+                        execution_time_ms=timer.stop(),
                         errors=[error_msg],
                     )
 

@@ -2,7 +2,7 @@
 # Project Narada Roadmap
 
 **Current Development Version**: 0.2.7
-**Current Initiative**: Database Migration (v0.3.0)
+**Current Initiative**: Web UI Foundation (v0.3.0)
 
 Strategic overview of Project Narada's development direction. Explains the why at a product level for future features, plus key architectural decisions.
 
@@ -47,16 +47,16 @@ Workflow transformer nodes, Python 3.14 modernization, and web interface readine
 
 Visual guide to infrastructure capabilities across version milestones (hobbyist scale: <10 users):
 
-| Capability | v0.2.7 (CLI) | v0.6.0 (Web UI) | v1.0.0 (Multi-User <10) |
-|------------|--------------|-----------------|-------------------------|
-| **Testing** | ✅ 867 tests, <1min | ✅ + E2E (Chromium only) | ✅ Same as v0.6.0 |
-| **CI/CD** | ⚠️ Manual | ✅ GitHub Actions (pytest, ruff) | ✅ Same as v0.6.0 |
-| **Deployment** | ✅ Poetry install | ✅ Docker + Fly.io | ✅ Same as v0.6.0 |
-| **Observability** | ✅ Loguru JSON logs | ✅ Same as v0.2.7 | ✅ + Email alerts (optional) |
-| **Authentication** | ❌ Not needed | ❌ Not needed | ✅ Email/password + Spotify OAuth |
-| **Database** | ✅ SQLite | ✅ PostgreSQL (migrated v0.3.0) | ✅ PostgreSQL |
-| **Caching** | ❌ Not needed | ✅ Tanstack Query + lru_cache | ✅ Same as v0.6.0 |
-| **Security** | ✅ Env vars, secrets | ✅ + CORS | ✅ + HTTPS, bcrypt |
+| Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.0 (Deployed) | v1.0.0 (Multi-User) |
+|------------|--------------|-------------------|-------------------|---------------------|
+| **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ Same |
+| **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
+| **Deployment** | ✅ Poetry install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
+| **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ + Email alerts |
+| **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify OAuth | ✅ + Email/password |
+| **Database** | ✅ SQLite | ✅ SQLite | ✅ PostgreSQL | ✅ PostgreSQL |
+| **Caching** | ❌ Not needed | ✅ Tanstack Query | ✅ + lru_cache | ✅ Same |
+| **Security** | ✅ Env vars, secrets | ✅ + CORS (localhost) | ✅ + HTTPS | ✅ + bcrypt |
 
 **Legend**: ✅ Ready | ⚠️ Needs work | ❌ Not needed
 
@@ -69,7 +69,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 Key architecture & tech choices (see CLAUDE.md for migration details):
 
 - **Python 3.14+ & attrs**: Modern type syntax (`str | None`, `class Foo[T]`), immutable domain entities with slots
-- **PostgreSQL (v0.3.0)**: Migrated from SQLite as a prerequisite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes.
+- **PostgreSQL (v0.5.0)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes. Web UI developed on SQLite first (v0.3.x), migrated at deployment time.
 - **Vite 6+ / Vitest**: 10x faster HMR than Webpack, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`
@@ -79,15 +79,19 @@ Key architecture & tech choices (see CLAUDE.md for migration details):
 
 ## Planned Versions
 
+Each milestone delivers a **vertical slice** — backend API + frontend page together — so every increment is testable end-to-end. Web UI development starts immediately on SQLite; PostgreSQL and deployment arrive when features are validated.
+
 | Version | Goal | Status |
 |---------|------|--------|
 | **v0.2.7** | Advanced workflow features + DRY consolidation | 🔄 In Progress |
-| **v0.3.0** | SQLite → PostgreSQL migration | 🔜 Not Started |
-| **v0.3.1** | Containerization + Fly.io deployment | 🔜 Not Started |
-| **v0.4.0** | Data visibility layer | 🔜 Not Started |
-| **v0.4.1** | UX polish + reliability | 🔜 Not Started |
-| **v0.5.0** | Track management completion | 🔜 Not Started |
-| **v0.6.0** | Web UI MVP | 🔜 Not Started |
+| **v0.3.0** | Web UI foundation + playlists | 🔜 Not Started |
+| **v0.3.1** | Imports + real-time progress | 🔜 Not Started |
+| **v0.3.2** | Track library + search | 🔜 Not Started |
+| **v0.3.3** | Dashboard + stats | 🔜 Not Started |
+| **v0.4.0** | Workflows + connector links | 🔜 Not Started |
+| **v0.4.1** | CI/CD + quality hardening | 🔜 Not Started |
+| **v0.5.0** | PostgreSQL + deployment + OAuth | 🔜 Not Started |
+| **v0.6.0** | Apple Music + data quality | 🔜 Not Started |
 | **v0.7.0** | Interactive workflow editor | 🔜 Not Started |
 | **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started |
 | **v1.0.0** | Production-ready multi-user platform | 🔜 Not Started |
@@ -95,26 +99,32 @@ Key architecture & tech choices (see CLAUDE.md for migration details):
 ### v0.2.7: Advanced Workflow Features
 Extend workflow capabilities with sophisticated transformation and analysis features. Remaining: sort by date first/last played, production workflow templates.
 
-### v0.3.0: Database Migration
-Migrate from SQLite to PostgreSQL, enabling remote hosting and Prefect parallel task execution. The Repository + UoW pattern already fully abstracts database access — only connection config, driver, and a handful of SQLite-specific SQL constructs change.
+### v0.3.0: Web UI Foundation + Playlists
+Stand up FastAPI + React with the dark editorial design system. Deliver playlist CRUD — the first vertical slice. All 5 playlist use cases already exist, so this proves full-stack architecture end-to-end with zero new backend logic. Stack: Vite 6+, React 19+, TypeScript, Tailwind CSS v4, shadcn/ui, Tanstack Query. Dark editorial aesthetic — see `docs/web-ui/04-frontend-architecture.md`.
 
-### v0.3.1: Deployment Foundation
-Containerize the application and deploy to Fly.io. Doing this before the UI build means every subsequent feature ships into a real hosted environment from day one.
+### v0.3.1: Imports & Real-Time Progress
+Make the web UI operational: trigger Spotify likes import, Last.fm history import, and Spotify GDPR import. Watch progress in real-time via SSE. Implements `SSEProgressProvider` (the `ProgressSubscriber` protocol is already display-agnostic from v0.2.7). Uses existing `SyncLikesUseCase` and `ImportPlayHistoryUseCase`.
 
-### v0.4.0: Data Visibility Layer
-Expose connector linkage, sync state, and metadata freshness already in the database. Web UI needs this data to show which tracks are mapped where and how fresh the data is.
+### v0.3.2: Track Library & Search
+Track browsing with pagination, text search, and detail views. New use cases (`ListTracks`, `SearchTracks`, `GetTrackDetails`) built alongside the React pages that consume them — validates API shape in real-time instead of speculatively.
 
-### v0.4.1: User Experience and Reliability
-Polish CLI experience (shell completion), harden type safety (audit `Any` suppressions), set up CI/CD (GitHub Actions), and add data integrity monitoring.
+### v0.3.3: Dashboard & Stats
+Landing page with aggregate statistics, connector health, and data quality signals. Implements data visibility use cases (`GetTrackStats`, `GetConnectorMappingStats`, `GetMetadataFreshness`).
 
-### v0.5.0: Track Management Completion
-Fill CRUD gaps for tracks: generic listing with pagination, search, single track details, aggregate statistics. Prerequisites for web UI track browser.
+### v0.4.0: Workflows & Connector Links
+Workflow visualization (React Flow DAG), execution with SSE progress, and connector playlist linking. Completes the web UI feature set. Workflow CRUD requires a new `workflows` table for persistence (currently JSON files).
 
-### v0.6.0: Web UI MVP
-FastAPI service + React application for CRUD operations and workflow visualization (read-only). Clean Architecture compliance — web layer is pure interface, all operations delegate to existing use cases. Stack: Vite 6+, React 18+, TypeScript, Tailwind CSS v4, Tanstack Query.
+### v0.4.1: CI/CD & Quality Hardening
+Pause on features to harden the stack. GitHub Actions (pytest, ruff, basedpyright), E2E tests (Playwright), type safety audit, data integrity monitoring, accessibility audit (WCAG 2.2 AA), shell completion for CLI.
+
+### v0.5.0: PostgreSQL, Deployment & OAuth
+Now that the web UI works locally, prepare for production. SQLite → PostgreSQL migration, Docker containerization, Fly.io deployment, Spotify OAuth web flow with `DatabaseTokenStorage`, and local data migration tooling. The Repository + UoW pattern means zero application-layer code changes for the database swap.
+
+### v0.6.0: Apple Music & Data Quality
+Add Apple Music as a first-class connector alongside Spotify. Pair with data quality tools (unmapped track detection, manual mapping correction, stale data alerts) since Apple Music creates new mapping scenarios. Shared infrastructure (InwardTrackResolver, BaseMatchingProvider, retry policies) means the connector is mostly wiring.
 
 ### v0.7.0: Interactive Workflow Editor
-Drag-and-drop node creation, configuration panels, edge management, and workflow persistence. Deferred from v0.6.0 to ship web UI faster — v0.6.0 provides read-only visualization + execution.
+Drag-and-drop node creation, configuration panels, edge management, and visual workflow building. Upgrades the JSON editor from v0.4.0 to a graphical interface.
 
 ### v0.8.0: LLM-Assisted Workflow Creation
 Natural language workflow creation via LLM integration. Conversational interface for creating and refining workflows, with visualization confirmation.

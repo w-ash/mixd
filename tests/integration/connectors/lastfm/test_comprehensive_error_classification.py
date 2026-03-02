@@ -26,7 +26,6 @@ _MINIMAL_TRACK_DATA = {
 
 
 @pytest.mark.slow
-@pytest.mark.integration
 class TestComprehensiveErrorClassification:
     """Comprehensive error code coverage testing with all LastFM API error scenarios."""
 
@@ -49,6 +48,14 @@ class TestComprehensiveErrorClassification:
             mock_settings.api.lastfm_retry_base_delay = 1.0
             mock_settings.api.lastfm_retry_max_delay = 60.0
             yield LastFMAPIClient()
+
+    @pytest.fixture
+    def fast_retry_client(self, lastfm_client):
+        """Client with instant retries — no exponential backoff waits."""
+        from tenacity import wait_none
+
+        lastfm_client._retry_policy.wait = wait_none()
+        return lastfm_client
 
     # PERMANENT ERRORS (20+ codes) - Should NOT retry, immediate failure
     @pytest.mark.parametrize(
@@ -97,7 +104,6 @@ class TestComprehensiveErrorClassification:
             ("27", "Deprecated - This type of request is no longer supported"),
         ],
     )
-    @pytest.mark.asyncio
     async def test_permanent_error_no_retry_comprehensive(
         self, lastfm_client, error_code, description
     ):
@@ -142,32 +148,23 @@ class TestComprehensiveErrorClassification:
             ),
         ],
     )
-    @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Performance: This test takes too long due to real retry delays - covered by faster tests"
-    )
     async def test_temporary_error_retry_comprehensive(
-        self, lastfm_client, error_code, description
+        self, fast_retry_client, error_code, description
     ):
-        """Test all temporary error codes trigger 2-3 retries with exponential backoff."""
+        """Test all temporary error codes trigger retries (fail once, then succeed)."""
         mock_api = AsyncMock(
             side_effect=[LastFMAPIError(error_code, description), _MINIMAL_TRACK_DATA]
         )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            start_time = time.time()
-            result = await lastfm_client.get_track_info_comprehensive(
+            await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
-            duration = time.time() - start_time
 
         # Should have retried (2 calls total: 1 failure + 1 success)
         assert mock_api.call_count == 2, (
             f"Expected 2 calls for temporary error {error_code}, got {mock_api.call_count}"
         )
-
-        # Should have some delay from exponential backoff
-        assert duration > 0.05, f"Temporary error retry too fast: {duration}s"
 
     # RATE LIMIT ERRORS - Should retry with exponential backoff
     @pytest.mark.parametrize(
@@ -178,12 +175,8 @@ class TestComprehensiveErrorClassification:
             ("text_too_many", "too many requests per minute"),
         ],
     )
-    @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Performance: This test takes too long due to real retry delays - covered by faster tests"
-    )
     async def test_rate_limit_retry_comprehensive(
-        self, lastfm_client, rate_limit_variant
+        self, fast_retry_client, rate_limit_variant
     ):
         """Test rate limit detection through both error codes and text patterns."""
         error_code, error_message = rate_limit_variant
@@ -197,19 +190,14 @@ class TestComprehensiveErrorClassification:
         )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            start_time = time.time()
-            await lastfm_client.get_track_info_comprehensive(
+            await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
-            duration = time.time() - start_time
 
         # Should have retried (3 calls total: 2 failures + 1 success)
         assert mock_api.call_count == 3, (
             f"Expected 3 calls for rate limit variant {rate_limit_variant}, got {mock_api.call_count}"
         )
-
-        # Should have delay from retry backoff
-        assert duration > 0.1, f"Rate limit retry too fast: {duration}s"
 
     # TEXT PATTERN ERRORS - Not found, network, auth patterns
     @pytest.mark.parametrize(
@@ -230,7 +218,6 @@ class TestComprehensiveErrorClassification:
             ("authentication failed", "permanent", False),
         ],
     )
-    @pytest.mark.asyncio
     async def test_text_pattern_classification(
         self, lastfm_client, error_pattern, expected_type, should_retry
     ):
@@ -265,7 +252,6 @@ class TestComprehensiveErrorClassification:
             )
 
     # UNKNOWN ERRORS - Should be classified as unknown and retry
-    @pytest.mark.asyncio
     async def test_unknown_error_handling(self, lastfm_client):
         """Test unrecognized errors are classified as unknown and retried."""
         mock_api = AsyncMock(
@@ -293,7 +279,6 @@ class TestComprehensiveErrorClassification:
         assert duration > 0.03, f"Unknown error retry too fast: {duration}s"
 
     # NON-LASTFM EXCEPTIONS - Propagate (programming errors are not silently swallowed)
-    @pytest.mark.asyncio
     async def test_non_lastfm_exception_handling(self, lastfm_client):
         """Test that non-LastFMAPIError exceptions are not swallowed silently.
 
@@ -318,7 +303,6 @@ class TestComprehensiveErrorClassification:
         )
 
     # ERROR CLASSIFIER INTEGRATION - Test classifier behavior directly
-    @pytest.mark.asyncio
     async def test_error_classifier_integration(self, lastfm_client):
         """Test that error classifier integration works correctly with tenacity retry predicate."""
         from src.infrastructure.connectors._shared.retry_policies import (
@@ -364,7 +348,6 @@ class TestComprehensiveErrorClassification:
 
 
 @pytest.mark.slow
-@pytest.mark.integration
 class TestErrorClassificationEdgeCases:
     """Test edge cases and boundary conditions in error classification."""
 
@@ -388,7 +371,14 @@ class TestErrorClassificationEdgeCases:
             mock_settings.api.lastfm_retry_max_delay = 60.0
             yield LastFMAPIClient()
 
-    @pytest.mark.asyncio
+    @pytest.fixture
+    def fast_retry_client(self, lastfm_client):
+        """Client with instant retries — no exponential backoff waits."""
+        from tenacity import wait_none
+
+        lastfm_client._retry_policy.wait = wait_none()
+        return lastfm_client
+
     async def test_empty_error_code(self, lastfm_client):
         """Test handling of empty or None error codes — classified as unknown, retried."""
         mock_api = AsyncMock(
@@ -407,22 +397,16 @@ class TestErrorClassificationEdgeCases:
 
         assert mock_api.call_count >= 1
 
-    @pytest.mark.asyncio
-    @pytest.mark.skip(
-        reason="Performance: This test takes 60+ seconds due to real exponential retry delays"
-    )
-    async def test_maximum_retry_exhaustion(self, lastfm_client):
+    async def test_maximum_retry_exhaustion(self, fast_retry_client):
         """Test behavior when maximum retries are exhausted."""
         mock_api = AsyncMock(
             side_effect=LastFMAPIError("11", "Service Offline - Always fails")
         )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            start_time = time.time()
-            result = await lastfm_client.get_track_info_comprehensive(
+            result = await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
-            duration = time.time() - start_time
 
         # Should eventually give up and return None
         assert result is None
@@ -432,10 +416,6 @@ class TestErrorClassificationEdgeCases:
             f"Expected 3+ retry attempts, got {mock_api.call_count}"
         )
 
-        # Should have taken significant time due to exponential retry backoff
-        assert duration > 1.0, f"Max retries too fast: {duration}s"
-
-    @pytest.mark.asyncio
     async def test_partial_text_matches(self, lastfm_client):
         """Test that partial text matches work correctly."""
         error_scenarios = [

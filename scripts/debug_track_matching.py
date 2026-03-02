@@ -20,7 +20,7 @@ from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksCommand,
     MatchAndIdentifyTracksUseCase,
 )
-from src.config import get_logger
+from src.config import get_logger, setup_script_logger
 from src.domain.entities.track import TrackList
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.persistence.database.db_connection import get_session
@@ -191,6 +191,7 @@ def main(
     connector: str = typer.Option("lastfm", help="Connector to test (default: lastfm)"),
 ) -> None:
     """Debug track matching pipeline for a specific canonical track ID."""
+    setup_script_logger("debug_track_matching")
     asyncio.run(debug_track_matching(track_id, connector))
 
 

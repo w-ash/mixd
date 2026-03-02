@@ -344,7 +344,3 @@ def create_progress_operation(
     return ProgressOperation(
         description=description, total_items=total_items, metadata=metadata
     )
-
-
-# Module-level singleton for null progress emitter to avoid function calls in defaults
-NULL_PROGRESS_EMITTER = NullProgressEmitter()

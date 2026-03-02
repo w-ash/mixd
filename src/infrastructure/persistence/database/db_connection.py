@@ -183,7 +183,7 @@ async def get_session(rollback: bool = True) -> AsyncGenerator[AsyncSession]:
     Yields:
         AsyncSession: Managed database session
     """
-    session = session_factory()
+    session = get_session_factory()()
     try:
         # Just touch the connection to ensure engine event listeners run
         _ = await session.connection()
@@ -308,16 +308,6 @@ class SafeQuery[T: Any]:
             raise
 
 
-# Import DatabaseModel for init_db() schema creation
-from src.infrastructure.persistence.database.db_models import (  # noqa: E402
-    DatabaseModel,
-)
-
-# Create aliases for public API
-engine = get_engine()
-session_factory = get_session_factory()
-
-
 async def init_db() -> None:
     """Initialize database schema.
 
@@ -325,6 +315,8 @@ async def init_db() -> None:
     This is a safe operation that won't affect existing data.
     """
     from sqlalchemy import inspect as sa_inspect
+
+    from src.infrastructure.persistence.database.db_models import DatabaseModel
 
     db_engine = get_engine()
 
@@ -335,7 +327,7 @@ async def init_db() -> None:
             existing_tables = await conn.run_sync(lambda _: inspector.get_table_names())
 
             if existing_tables:
-                logger.info(f"Found existing tables: {existing_tables}")
+                logger.debug(f"Found existing tables: {existing_tables}")
 
         # Create tables - SQLAlchemy will skip tables that already exist
         async with db_engine.begin() as conn:
@@ -353,13 +345,11 @@ __all__ = [
     "SafeQuery",
     "create_db_engine",
     "create_session_factory",
-    "engine",
     "get_engine",
     "get_isolated_session",
     "get_session",
     "get_session_factory",
     "init_db",
     "reset_engine_cache",
-    "session_factory",
     "transaction",
 ]

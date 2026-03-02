@@ -143,9 +143,20 @@ result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(cmd))
 
 ## Testing
 
+**Tests are mandatory for every implementation.** A feature is not done until tests exist and pass.
+
 - `poetry run pytest` for fast tests, `poetry run pytest -m ""` for all
 - **ALWAYS** use `db_session` fixture, NEVER `get_session()`
 - No `--timeout` flag configured
+
+### Self-Check (after every implementation)
+1. Did I write tests? If not, write them before considering the task complete
+2. Right level? Domain=unit, UseCase=unit+mocks, Repository=integration
+3. Beyond happy path? Error cases, edge cases, validation
+4. Using existing factories? `make_track`, `make_mock_uow` from `tests.fixtures`
+5. Right directory? Mirror the source path under `tests/unit/` or `tests/integration/`
+6. Tests pass? `poetry run pytest tests/path/to/test_file.py -x`
+7. Complex feature? For multi-layer implementations, consult `test-pyramid-architect` subagent for strategy review
 
 ## Documentation Map
 

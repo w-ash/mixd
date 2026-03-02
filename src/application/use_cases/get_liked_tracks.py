@@ -4,7 +4,7 @@ Fetches tracks that users have marked as liked on music services (Spotify, Last.
 Supports filtering by service, sorting options, and limiting results count.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from attrs import define, field
@@ -13,6 +13,7 @@ from src.application.use_cases._shared.command_validators import (
     optional_in_choices,
     positive_int_in_range,
 )
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -99,7 +100,7 @@ class GetLikedTracksUseCase:
         Raises:
             ValueError: If command execution fails.
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Retrieving liked tracks",
@@ -112,14 +113,9 @@ class GetLikedTracksUseCase:
             try:
                 tracklist = await self._get_liked_tracks(command, uow)
 
-                # Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = GetLikedTracksResult(
                     tracklist=tracklist,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                 )
 
                 logger.info(
@@ -127,7 +123,7 @@ class GetLikedTracksUseCase:
                     track_count=len(tracklist.tracks),
                     connector_filter=command.connector_filter,
                     sort_by=command.sort_by,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                 )
 
             except Exception as e:

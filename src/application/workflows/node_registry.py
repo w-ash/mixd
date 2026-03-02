@@ -7,7 +7,6 @@ workflow definitions and node implementations.
 """
 
 from collections.abc import Awaitable, Callable
-from functools import wraps
 from typing import Any, Literal, NotRequired, TypedDict, Unpack
 
 from .protocols import NodeResult
@@ -101,16 +100,9 @@ class NodeRegistry:
             if hasattr(func, "__factory__"):
                 metadata["factory_created"] = True
 
-            # Preserve function metadata with wraps
-            @wraps(func)
-            async def wrapper(
-                context: dict[str, Any], config: dict[str, Any]
-            ) -> NodeResult:
-                return await func(context, config)
-
-            # Store in registry
-            self._registry[node_id] = (wrapper, metadata)
-            return wrapper
+            # Store in registry directly — no wrapper overhead
+            self._registry[node_id] = (func, metadata)
+            return func
 
         return decorator
 

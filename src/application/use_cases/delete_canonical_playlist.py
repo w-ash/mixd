@@ -5,13 +5,14 @@ validation of playlist existence, optional warnings for external connections,
 and atomic transaction management to ensure data consistency.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Never
 
 from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.repositories import UnitOfWorkProtocol
@@ -97,7 +98,7 @@ class DeleteCanonicalPlaylistUseCase:
         Raises:
             ValueError: If playlist not found.
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         def _raise_no_id_error() -> Never:
             raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
@@ -155,16 +156,11 @@ class DeleteCanonicalPlaylistUseCase:
                 # Step 5: Commit transaction
                 await uow.commit()
 
-                # Step 6: Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = DeleteCanonicalPlaylistResult(
                     deleted_playlist_id=playlist_id or 0,
                     deleted_playlist_name=playlist_name,
                     tracks_count=tracks_count,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                     warnings=warnings,
                 )
 
@@ -173,7 +169,7 @@ class DeleteCanonicalPlaylistUseCase:
                     deleted_playlist_id=playlist_id,
                     deleted_playlist_name=playlist_name,
                     tracks_count=tracks_count,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                 )
 
             except Exception as e:

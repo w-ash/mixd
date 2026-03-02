@@ -6,7 +6,7 @@ with zero external dependencies.
 
 All sorting functions follow functional programming principles:
 - Immutability: Return new TrackList instead of modifying existing ones
-- Composition: Can be combined with other transforms via create_pipeline
+- Composition: Can be combined with other transforms via pipeline composition
 - Dual-mode: Transform factories can execute immediately or return composable functions
 - Purity: No side effects, logging, or external dependencies
 """

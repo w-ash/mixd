@@ -136,13 +136,6 @@ class SpotifyPlaylist(SpotifyBaseModel):
     )
 
 
-class SpotifySavedTrack(SpotifyBaseModel):
-    """Single entry from GET /me/tracks (liked/saved tracks)."""
-
-    track: SpotifyTrack
-    added_at: str | None = Field(default=None)
-
-
 class SpotifySnapshotResponse(SpotifyBaseModel):
     """Response from playlist write operations: add, remove, reorder, replace."""
 

@@ -5,18 +5,22 @@ import, enrichment, filtering, sorting, and export stages. Each node handles
 specific music data operations like fetching playlists from Spotify, adding
 Last.fm play counts, filtering by release date, or creating new playlists.
 
-The registration pattern maps node IDs (e.g., "source.playlist") to their
-implementations, enabling workflow composition through configuration files.
+Source, enricher, and destination nodes are registered explicitly (each has
+unique factory logic). Transform and combiner nodes are auto-registered from
+their registries — adding a new filter/sorter/selector/combiner only requires
+touching transform_definitions.py.
 """
 
+from .destination_nodes import create_playlist, update_playlist
 from .node_factories import (
-    create_destination_node,
+    build_play_history_enrichment_config,
     create_enricher_node,
-    create_play_history_enricher_node,
+    make_combiner_node,
     make_node,
 )
 from .node_registry import node
 from .source_nodes import playlist_source, source_liked_tracks, source_played_tracks
+from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
 
 # === SOURCE NODES ===
 _ = node(
@@ -25,7 +29,6 @@ _ = node(
     output_type="tracklist",
 )(playlist_source)
 
-# Basic data sources that work with filter and sorter nodes
 _ = node(
     "source.liked_tracks",
     description="Retrieves liked tracks from canonical database for composition with filters/sorters",
@@ -39,7 +42,6 @@ _ = node(
 )(source_played_tracks)
 
 # === ENRICHER NODES ===
-# LastFm enricher
 _ = node(
     "enricher.lastfm",
     description="Resolves tracks to Last.fm and fetches play counts",
@@ -52,7 +54,6 @@ _ = node(
     }),
 )
 
-# Spotify metadata enricher
 _ = node(
     "enricher.spotify",
     description="Enriches tracks with Spotify popularity and explicit flags",
@@ -65,172 +66,31 @@ _ = node(
     }),
 )
 
-# Play history enricher
 _ = node(
     "enricher.play_history",
     description="Enriches tracks with play counts and listening history from internal database",
     input_type="tracklist",
     output_type="tracklist",
-)(create_play_history_enricher_node())
+)(create_enricher_node(build_play_history_enrichment_config))
 
-# === FILTER NODES ===
-_ = node(
-    "filter.deduplicate",
-    description="Removes duplicate tracks",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "deduplicate"))
+# === TRANSFORM NODES (auto-registered from TRANSFORM_REGISTRY) ===
+for _category, _entries in TRANSFORM_REGISTRY.items():
+    for _node_type, _entry in _entries.items():
+        _ = node(
+            f"{_category}.{_node_type}",
+            description=_entry.description,
+            input_type="tracklist",
+            output_type="tracklist",
+        )(make_node(_category, _node_type))
 
-_ = node(
-    "filter.by_release_date",
-    description="Filters tracks by release date range",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_release_date"))
-
-_ = node(
-    "filter.by_tracks",
-    description="Excludes tracks from input that are present in exclusion source",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_tracks"))
-
-_ = node(
-    "filter.by_artists",
-    description="Excludes tracks whose artists appear in exclusion source",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_artists"))
-
-_ = node(
-    "filter.by_metric",
-    description="Filters tracks based on metric value range",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_metric"))
-
-# Unified play history filter
-_ = node(
-    "filter.by_play_history",
-    description="Filters tracks by play count and/or listening date with flexible constraints",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_play_history"))
-
-_ = node(
-    "filter.by_duration",
-    description="Filters tracks by duration range (milliseconds)",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_duration"))
-
-_ = node(
-    "filter.by_liked_status",
-    description="Filters tracks by liked status on a specific service",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_liked_status"))
-
-_ = node(
-    "filter.by_explicit",
-    description="Filters tracks by explicit content flag",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("filter", "by_explicit"))
-
-# === SORTER NODES ===
-_ = node(
-    "sorter.by_metric",
-    description="Sorts tracks by any metric specified in config",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "by_metric"))
-
-_ = node(
-    "sorter.by_play_history",
-    description="Sorts tracks by play frequency within optional time windows",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "by_play_history"))
-
-_ = node(
-    "sorter.weighted_shuffle",
-    description="Shuffles tracks with configurable strength (0.0=original order, 1.0=fully random)",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "weighted_shuffle"))
-
-_ = node(
-    "sorter.by_added_at",
-    description="Sorts tracks by date added to source playlist",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "by_added_at"))
-
-_ = node(
-    "sorter.by_first_played",
-    description="Sorts tracks by date first played",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "by_first_played"))
-
-_ = node(
-    "sorter.by_last_played",
-    description="Sorts tracks by date most recently played",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "by_last_played"))
-
-_ = node(
-    "sorter.reverse",
-    description="Reverses current track order",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("sorter", "reverse"))
-
-# === SELECTOR NODES ===
-_ = node(
-    "selector.limit_tracks",
-    description="Limits playlist to specified number of tracks",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("selector", "limit_tracks"))
-
-_ = node(
-    "selector.percentage",
-    description="Selects a percentage of tracks",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("selector", "percentage"))
-
-# === COMBINER NODES ===
-_ = node(
-    "combiner.merge_playlists",
-    description="Combines multiple playlists into one",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("combiner", "merge_playlists"))
-
-_ = node(
-    "combiner.concatenate_playlists",
-    description="Joins playlists in specified order",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("combiner", "concatenate_playlists"))
-
-_ = node(
-    "combiner.interleave_playlists",
-    description="Interleaves tracks from multiple playlists",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("combiner", "interleave_playlists"))
-
-_ = node(
-    "combiner.intersect_playlists",
-    description="Keeps only tracks common to all input sources",
-    input_type="tracklist",
-    output_type="tracklist",
-)(make_node("combiner", "intersect_playlists"))
+# === COMBINER NODES (auto-registered from COMBINER_REGISTRY) ===
+for _combiner_type, _combiner_entry in COMBINER_REGISTRY.items():
+    _ = node(
+        f"combiner.{_combiner_type}",
+        description=_combiner_entry.description,
+        input_type="tracklist",
+        output_type="tracklist",
+    )(make_combiner_node(_combiner_type))
 
 # === DESTINATION NODES ===
 _ = node(
@@ -238,11 +98,11 @@ _ = node(
     description="Creates a playlist with optional connector sync",
     input_type="tracklist",
     output_type="playlist_id",
-)(create_destination_node("create_playlist"))
+)(create_playlist)
 
 _ = node(
     "destination.update_playlist",
     description="Updates playlists with sophisticated differential operations",
     input_type="tracklist",
     output_type="playlist_id",
-)(create_destination_node("update_playlist"))
+)(update_playlist)

@@ -7,11 +7,11 @@ business logic to the domain layer and all infrastructure concerns to the infras
 This replaces MatchTracksUseCase and will become the single way to resolve track identities.
 """
 
-import time
 from typing import Any
 
 from attrs import define, field
 
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -99,9 +99,14 @@ class MatchAndIdentifyTracksUseCase:
     """
 
     # Domain services injected as class attributes - pure business logic delegation
-    _evaluation_service: TrackMatchEvaluationService = field(
-        init=False, factory=TrackMatchEvaluationService
-    )
+    _evaluation_service: TrackMatchEvaluationService = field(init=False)
+
+    def __attrs_post_init__(self) -> None:
+        from src.config import create_matching_config
+
+        self._evaluation_service = TrackMatchEvaluationService(
+            config=create_matching_config()
+        )
 
     # Note: TrackMappingService removed - SpotifyConnector already handles relinking transparently
 
@@ -121,7 +126,7 @@ class MatchAndIdentifyTracksUseCase:
             ValueError: Invalid business inputs.
             Exception: Unrecoverable infrastructure errors.
         """
-        start_time = time.time()
+        timer = ExecutionTimer()
 
         # Note: TrackMappingService initialization removed - relinking handled by SpotifyConnector
 
@@ -136,12 +141,11 @@ class MatchAndIdentifyTracksUseCase:
 
             # Business rule: empty tracklist is valid, return early
             if not command.tracklist.tracks:
-                execution_time_ms = int((time.time() - start_time) * 1000)
                 return MatchAndIdentifyTracksResult(
                     identity_mappings={},
                     track_count=0,
                     resolved_count=0,
-                    execution_time_ms=execution_time_ms,
+                    execution_time_ms=timer.stop(),
                     errors=[],
                 )
 
@@ -151,12 +155,11 @@ class MatchAndIdentifyTracksUseCase:
                 logger.warning(
                     "No tracks with database IDs - unable to perform identity resolution"
                 )
-                execution_time_ms = int((time.time() - start_time) * 1000)
                 return MatchAndIdentifyTracksResult(
                     identity_mappings={},
                     track_count=len(command.tracklist.tracks),
                     resolved_count=0,
-                    execution_time_ms=execution_time_ms,
+                    execution_time_ms=timer.stop(),
                     errors=["No tracks with database IDs available for resolution"],
                 )
 
@@ -224,7 +227,6 @@ class MatchAndIdentifyTracksUseCase:
                     logger.info("All tracks already have identity mappings")
                     identity_mappings = existing_mappings
 
-                execution_time_ms = int((time.time() - start_time) * 1000)
                 resolved_count = len(identity_mappings)
 
                 logger.info(
@@ -235,12 +237,11 @@ class MatchAndIdentifyTracksUseCase:
                     identity_mappings=identity_mappings,
                     track_count=len(command.tracklist.tracks),
                     resolved_count=resolved_count,
-                    execution_time_ms=execution_time_ms,
+                    execution_time_ms=timer.stop(),
                     errors=[],
                 )
 
             except Exception as e:
-                execution_time_ms = int((time.time() - start_time) * 1000)
                 error_msg = f"Track identity resolution failed: {e}"
                 logger.error(error_msg)
 
@@ -248,7 +249,7 @@ class MatchAndIdentifyTracksUseCase:
                     identity_mappings={},
                     track_count=len(command.tracklist.tracks),
                     resolved_count=0,
-                    execution_time_ms=execution_time_ms,
+                    execution_time_ms=timer.stop(),
                     errors=[error_msg],
                 )
 

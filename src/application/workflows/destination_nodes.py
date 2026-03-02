@@ -23,16 +23,29 @@ from src.config import get_logger
 from src.domain.entities.track import TrackList
 
 from .node_context import NodeContext
-from .protocols import NodeResult
+from .protocols import NodeResult, WorkflowContext
 from .template_utils import render_playlist_config_templates
 
 logger = get_logger(__name__)
 
 
+def _prepare_destination(
+    context: dict[str, Any], config: dict[str, Any]
+) -> tuple[TrackList, dict[str, Any], WorkflowContext]:
+    """Extract tracklist, render templates, and get workflow context.
+
+    Shared preamble for destination nodes that need all three.
+    """
+    ctx = NodeContext(context)
+    tracklist = ctx.extract_tracklist()
+    config = render_playlist_config_templates(config, len(tracklist.tracks))
+    workflow_context = ctx.extract_workflow_context()
+    return tracklist, config, workflow_context
+
+
 async def create_playlist(
-    tracklist: TrackList,
-    config: dict[str, Any],
     context: dict[str, Any],
+    config: dict[str, Any],
 ) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
 
@@ -40,25 +53,20 @@ async def create_playlist(
     playlist on external platform (Spotify, Apple Music) if connector specified.
 
     Args:
-        tracklist: Collection of tracks to add to playlist.
+        context: Workflow execution context containing tracklist, use cases, and connectors.
         config: Configuration containing name, description, and optional connector.
-        context: Workflow execution context for database and platform access.
 
     Returns:
-        Dictionary with playlist details, track count, and platform sync results.
+        Dictionary with tracklist.
 
     Raises:
         ValueError: If required 'name' field missing from config.
     """
-    # Render any template strings in config
-    config = render_playlist_config_templates(config, len(tracklist.tracks))
+    tracklist, config, workflow_context = _prepare_destination(context, config)
 
     playlist_name = config.get("name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
-
-    ctx = NodeContext(context)
-    workflow_context = ctx.extract_workflow_context()
 
     if connector := config.get("connector"):
         # Create on both canonical and connector
@@ -103,9 +111,8 @@ async def create_playlist(
 
 
 async def update_playlist(
-    tracklist: TrackList,
-    config: dict[str, Any],
     context: dict[str, Any],
+    config: dict[str, Any],
 ) -> NodeResult:
     """Update existing playlist with track replacement or appending.
 
@@ -117,26 +124,21 @@ async def update_playlist(
     while preserving creation timestamps).
 
     Args:
-        tracklist: New tracks to add or replace existing tracks.
+        context: Workflow execution context containing tracklist, use cases, and connectors.
         config: Must contain playlist_id; optionally connector, append flag,
                name and description updates.
-        context: Workflow execution context for database and platform access.
 
     Returns:
-        Dictionary with operation details, track counts, and sync results.
+        Dictionary with tracklist.
 
     Raises:
         ValueError: If required 'playlist_id' field missing from config.
     """
-    # Render any template strings in config
-    config = render_playlist_config_templates(config, len(tracklist.tracks))
+    tracklist, config, workflow_context = _prepare_destination(context, config)
 
     playlist_id = config.get("playlist_id")
     if not playlist_id:
         raise ValueError("Missing required 'playlist_id' for update_playlist operation")
-
-    ctx = NodeContext(context)
-    workflow_context = ctx.extract_workflow_context()
 
     append = config.get("append", False)
 
@@ -188,10 +190,3 @@ async def update_playlist(
             track_count=len(tracklist.tracks),
         )
         return {"tracklist": tracklist}
-
-
-# Export simplified destination handler map
-DESTINATION_HANDLERS = {
-    "create_playlist": create_playlist,
-    "update_playlist": update_playlist,
-}

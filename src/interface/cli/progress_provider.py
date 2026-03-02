@@ -390,29 +390,6 @@ class RichProgressProvider:
             )
             raise
 
-    async def cleanup_all_tasks(self) -> int:
-        """Clean up all progress tasks immediately.
-
-        Returns:
-            Number of tasks cleaned up
-        """
-        async with self._lock:
-            cleanup_count = len(self._operation_tasks)
-
-            # Remove all tasks from Rich display
-            for operation_task in self._operation_tasks.values():
-                with contextlib.suppress(KeyError):
-                    self._progress.remove_task(operation_task.task_id)
-
-            # Clear all tracking
-            self._operation_tasks.clear()
-
-            self._logger.info(
-                "All progress tasks cleaned up", cleanup_count=cleanup_count
-            )
-
-            return cleanup_count
-
     def get_console(self):
         """Get the Live Display console for coordinated output.
 

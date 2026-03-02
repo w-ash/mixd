@@ -84,7 +84,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `play_import_orchestrator.py` - Play history import orchestration
     - `playlist_backup_service.py` - Playlist backup and restoration
     - `progress_manager.py` - Progress tracking and UI coordination
-  - `transforms/` - Application-level transforms (metrics, shuffle, play_history, _helpers)
+  - `metadata_transforms/` - Metadata-aware transforms (metrics, shuffle, play_history, _helpers)
   - `utilities/` - Batch processing utilities (batch_results, enhanced_database_batch_processor, results)
   - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
   - `runner.py` - Generic `execute_use_case[TResult]()` — session/UoW lifecycle for both CLI and FastAPI
@@ -444,6 +444,27 @@ tracks (canonical) ↔ track_mappings ↔ connector_tracks (service-specific)
 - Many-to-many track relationships
 - Confidence scoring for match quality
 - Independent service updates
+
+#### Spotify Track Relinking
+
+Spotify "relinks" tracks when their market availability changes — replacing ID `A` with ID `B` and returning `linked_from.id = "A"` in the response. Without handling this, the same physical track appears under different IDs across playlists and likes, creating duplicate canonical tracks.
+
+**Dedup signals** (the only valid merge criteria):
+1. **Spotify `linked_from`** — authoritative "these two IDs are the same track"
+2. **ISRC match** — same recording by definition (already in `save_track()`)
+
+Name/artist matching is explicitly **not** used — different versions (live, acoustic, remaster) are different canonical tracks.
+
+**Implementation** (4 layers):
+
+```
+conversions.py          → Stores linked_from.id in raw_metadata["linked_from_id"]
+sync_likes.py           → Expands dedup lookup with alternate IDs during likes import
+connector.py            → Creates secondary (non-primary) connector mappings during ingestion
+playlist_processing.py  → Expands dedup lookup with alternate IDs during playlist sync
+```
+
+The pattern creates **dual connector mappings** per relinked track — one primary (current market ID) and one secondary (original ID, `is_primary=False`). Future lookups under either ID find the canonical track. The `linked_from_id` flows through `raw_metadata` (not a domain field) to keep Spotify-specific concerns out of the domain layer.
 
 ### Temporal Data Design
 
@@ -849,10 +870,11 @@ src/infrastructure/connectors/spotify/
 ├── factory.py             # Creates all Spotify services
 ├── operations.py          # Core operations (get playlists, etc)
 ├── matching_provider.py   # Track matching logic
-├── conversions.py         # Typed model → Domain model conversion
+├── conversions.py         # Typed model → Domain model conversion (+ relinking propagation)
 ├── error_classifier.py    # Service-specific error handling
 ├── play_importer.py       # Play history import
 ├── play_resolver.py       # Play record resolution
+├── inward_resolver.py     # Spotify ID → canonical track resolution (handles relinking)
 ├── personal_data.py       # GDPR export parsing
 ├── playlist_sync_operations.py # Playlist sync logic
 └── utilities.py           # Spotify-specific helpers
@@ -860,6 +882,7 @@ src/infrastructure/connectors/spotify/
 src/infrastructure/connectors/_shared/
 ├── error_classification.py  # ErrorClassifier protocol + HTTPErrorClassifier base
 ├── failure_handling.py      # Match failure logging and utilities
+├── inward_track_resolver.py # Base class for connector ID → canonical track resolution
 ├── isrc.py                  # Shared ISRC normalization/validation
 ├── matching_provider.py     # BaseMatchingProvider ABC (template method)
 ├── metric_registry.py       # Metric resolver registry
@@ -876,7 +899,7 @@ src/infrastructure/connectors/_shared/
 **Benefits**: Self-contained design means zero changes to other services when adding new ones.
 
 #### Other Extensions
-- **Web Interface** (v0.5.0): FastAPI backend using `execute_use_case()` runner + React frontend. Interface layer already restructured — CLI-specific code isolated in `interface/cli/`, `application/runner.py` ready for `Depends()` injection.
+- **Web Interface** (v0.3.0): FastAPI backend using `execute_use_case()` runner + React frontend. Interface layer already restructured — CLI-specific code isolated in `interface/cli/`, `application/runner.py` ready for `Depends()` injection. See [`docs/web-ui/`](web-ui/README.md) for user flows, API contracts, IA, and frontend architecture.
 - **Advanced Analytics**: Machine learning on comprehensive listening data
 - **Collaborative Features**: Multi-user support with existing architecture
 
@@ -900,7 +923,8 @@ src/infrastructure/connectors/_shared/
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer onboarding and contribution guide
 - **[DATABASE.md](DATABASE.md)** - Database schema and design reference
 - **[API.md](API.md)** - Complete CLI command reference
-- **[workflow_guide.md](workflow_guide.md)** - Workflow system documentation
-- **[likes_sync_guide.md](likes_sync_guide.md)** - Likes synchronization between Spotify and Last.fm
+- **[workflow_guide.md](GUIDE_WORKFLOWS.md)** - Workflow system documentation
+- **[likes_sync_guide.md](GUIDE_LIKES_SYNC.md)** - Likes synchronization between Spotify and Last.fm
+- **[web-ui/](web-ui/README.md)** - Web UI specification (user flows, API contracts, IA, frontend architecture)
 - **[ROADMAP.md](../ROADMAP.md)** - Project roadmap and planned features
 - **[CLAUDE.md](../CLAUDE.md)** - Development commands and style guide

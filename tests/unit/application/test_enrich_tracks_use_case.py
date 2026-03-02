@@ -19,7 +19,6 @@ from src.application.use_cases.enrich_tracks import (
 from src.domain.entities.track import Artist, Track, TrackList
 
 
-@pytest.mark.unit
 class TestEnrichTracksUseCase:
     """Test suite for EnrichTracksUseCase."""
 
@@ -304,7 +303,6 @@ class TestEnrichTracksUseCase:
         assert "Unknown enrichment type" in result.errors[0]
 
 
-@pytest.mark.unit
 class TestEnrichmentConfig:
     """Test suite for EnrichmentConfig validation."""
 
@@ -363,7 +361,6 @@ class TestEnrichmentConfig:
             EnrichmentConfig(enrichment_type="play_history", metrics=[])
 
 
-@pytest.mark.unit
 class TestEnrichTracksCommand:
     """Test suite for EnrichTracksCommand validation."""
 

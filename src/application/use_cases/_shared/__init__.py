@@ -10,7 +10,6 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_playlist_connector,
 )
 from src.application.use_cases._shared.metadata_builder import (
-    PlaylistMetadataBuilder,
     build_api_execution_metadata,
 )
 from src.application.use_cases._shared.operation_counters import (
@@ -32,7 +31,6 @@ __all__ = [
     "ApiMetadata",
     "AppendOperationResult",
     "OperationCounts",
-    "PlaylistMetadataBuilder",
     "build_api_execution_metadata",
     "classify_connector_api_error",
     "classify_database_error",

@@ -47,10 +47,6 @@ from src.infrastructure.connectors.spotify.playlist_sync_operations import (
 # Get contextual logger for operations
 logger = get_logger(__name__).bind(service="spotify_operations")
 
-# Constants for debug logging limits
-DEBUG_TRACK_IDS_LIMIT = 10
-DEBUG_ALL_TRACK_IDS_LIMIT = 20
-
 
 @define(slots=True)
 class SpotifyOperations:

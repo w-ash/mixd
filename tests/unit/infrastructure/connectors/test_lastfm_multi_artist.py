@@ -52,7 +52,6 @@ def successful_track_info():
     )
 
 
-@pytest.mark.unit
 class TestLastFMMultiArtistFallback:
     """Test multi-artist fallback logic in LastFM connector."""
 

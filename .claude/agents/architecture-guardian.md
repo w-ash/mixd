@@ -52,12 +52,12 @@ Interface → Application → Domain ← Infrastructure
 
 **Interface Layer (`src/interface/`)**:
 - ✅ CLI commands: Typer endpoints
-- ✅ Future web controllers: FastAPI routes (v0.5.0+)
+- ✅ Future web controllers: FastAPI routes (v0.3.0+)
 - ✅ Progress reporting, user interaction
 - ❌ Never: Business logic (belongs in application/domain)
 - ❌ Never: Direct database or repository access (use cases only)
 
-### Frontend Architecture (React - v0.5.0+)
+### Frontend Architecture (React - v0.3.0+)
 
 **Component Boundaries**:
 - ✅ **Presentation components**: Receive data as props, render UI
@@ -157,7 +157,7 @@ Run this checklist for every use case:
    - [ ] Defined in domain, not infrastructure? (✅ OK)
    - [ ] Abstract (Protocol), not concrete? (✅ OK)
 
-### Frontend Component Review (v0.5.0+)
+### Frontend Component Review (v0.3.0+)
 
 1. **Separation of Concerns**
    - [ ] Component receives data as props? (✅ OK)

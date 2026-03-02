@@ -5,14 +5,11 @@ to ensure the filtering logic correctly distinguishes between legitimate
 listens and skips/partial plays.
 """
 
-import pytest
-
 from src.infrastructure.connectors.spotify.play_resolver import (
     should_include_spotify_play as should_include_play,
 )
 
 
-@pytest.mark.unit
 class TestPlayFilteringRealMusicScenarios:
     """Test play filtering with realistic music listening patterns."""
 

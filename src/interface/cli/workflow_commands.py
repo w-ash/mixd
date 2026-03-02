@@ -15,10 +15,16 @@ from rich.table import Table
 import typer
 
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.console import get_console, progress_coordination_context
+from src.interface.cli.cli_helpers import get_workflow_definitions_path
+from src.interface.cli.console import (
+    get_console,
+    get_error_console,
+    progress_coordination_context,
+)
 from src.interface.cli.ui import display_operation_result
 
 console = get_console()
+err_console = get_error_console()
 
 # Create workflow app following 2025 Typer patterns
 app = typer.Typer(
@@ -55,19 +61,24 @@ def run(
     Supports both direct execution (automation-friendly) and interactive
     selection when no workflow_id provided (progressive discovery).
     """
+    workflows = _get_available_workflows()
+    if not workflows:
+        console.print("[red]No workflows found.[/red]")
+        raise typer.Exit(1)
+
     if workflow_id is None:
         # Progressive discovery: show list and prompt
-        workflows = _get_available_workflows()
-        if not workflows:
-            console.print("[red]No workflows found.[/red]")
-            raise typer.Exit(1)
-
         _display_workflows_table(workflows)
         workflow_id = _prompt_for_workflow_selection(workflows)
         if workflow_id is None:
             return
 
-    _execute_workflow(workflow_id, show_results, output_format, quiet)
+    workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
+    if not workflow_info:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    _execute_workflow(workflow_info, show_results, output_format, quiet)
 
 
 @app.command(name="list")
@@ -120,11 +131,15 @@ def _show_interactive_workflow_browser() -> None:
 
     workflow_id = _prompt_for_workflow_selection(workflows)
     if workflow_id:
+        workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
+        if not workflow_info:
+            err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+            return
         console.print(
             f"\n[green]Executing workflow:[/green] [bold]{workflow_id}[/bold]"
         )
         _execute_workflow(
-            workflow_id, show_results=True, output_format="table", quiet=False
+            workflow_info, show_results=True, output_format="table", quiet=False
         )
 
 
@@ -158,20 +173,12 @@ def _prompt_for_workflow_selection(workflows: Sequence[dict[str, Any]]) -> str |
 
 
 def _execute_workflow(
-    workflow_id: str,
+    workflow_info: dict[str, Any],
     show_results: bool,
     output_format: Literal["table", "json"],
     quiet: bool,
 ) -> None:
     """Execute workflow with Rich progress display and error handling."""
-    workflows = _get_available_workflows()
-
-    # Find workflow
-    workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
-    if not workflow_info:
-        typer.echo(f"Error: Workflow '{workflow_id}' not found.", err=True)
-        raise typer.Exit(1)
-
     try:
         # Load workflow definition
         workflow_path = Path(workflow_info["path"])
@@ -217,7 +224,7 @@ def _execute_workflow(
 
     except Exception as e:
         if not quiet:
-            typer.echo(f"Error: Workflow execution failed: {e}", err=True)
+            err_console.print(f"[red]Error: Workflow execution failed: {e}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -255,11 +262,7 @@ def _get_available_workflows() -> list[dict[str, Any]]:
     Returns list of workflow info dictionaries with id, name, description,
     task_count, and path fields.
     """
-    # Get path to workflow definitions directory
-    current_file = Path(__file__)
-    definitions_path = (
-        current_file.parent.parent.parent / "application" / "workflows" / "definitions"
-    )
+    definitions_path = get_workflow_definitions_path()
     workflows: list[dict[str, Any]] = []
 
     if not definitions_path.exists():

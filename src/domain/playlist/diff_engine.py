@@ -9,12 +9,23 @@ re-identification of tracks that already have known Spotify mappings.
 from enum import Enum
 
 from attrs import define, field
+from loguru import logger as _loguru_logger
 
-from src.config import get_logger, settings
+from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
-logger = get_logger(__name__)
+logger = _loguru_logger.bind(module=__name__)
+
+
+def _get_track_uri(track: Track) -> str | None:
+    """Get infrastructure-agnostic track URI for playlist operations."""
+    if track.id:
+        return f"canonical:{track.id}"
+    elif track.title and track.artists:
+        artist_names = ", ".join(artist.name for artist in track.artists)
+        return f"content:{track.title}:{artist_names}"
+    return None
 
 
 class PlaylistOperationType(Enum):
@@ -161,15 +172,6 @@ def calculate_remove_operations(
     """Generate REMOVE operations for tracks in current but not target playlist."""
     operations: list[PlaylistOperation] = []
 
-    def get_track_uri(track: Track) -> str | None:
-        """Get track URI for operations (infrastructure-agnostic)."""
-        if track.id:
-            return f"canonical:{track.id}"
-        elif track.title and track.artists:
-            artist_names = ", ".join(artist.name for artist in track.artists)
-            return f"content:{track.title}:{artist_names}"
-        return None
-
     for track in unmatched_current_tracks:
         try:
             position = current_playlist.tracks.index(track)
@@ -179,7 +181,7 @@ def calculate_remove_operations(
                     track=track,
                     position=position,
                     old_position=position,
-                    spotify_uri=get_track_uri(track),
+                    spotify_uri=_get_track_uri(track),
                 )
             )
         except ValueError:
@@ -198,15 +200,6 @@ def calculate_add_operations(
     """Generate ADD operations for tracks in target but not current playlist."""
     operations: list[PlaylistOperation] = []
 
-    def get_track_uri(track: Track) -> str | None:
-        """Get track URI for operations (infrastructure-agnostic)."""
-        if track.id:
-            return f"canonical:{track.id}"
-        elif track.title and track.artists:
-            artist_names = ", ".join(artist.name for artist in track.artists)
-            return f"content:{track.title}:{artist_names}"
-        return None
-
     for track in unmatched_target_tracks:
         try:
             # Find the correct target position for this track
@@ -216,7 +209,7 @@ def calculate_add_operations(
                     operation_type=PlaylistOperationType.ADD,
                     track=track,
                     position=target_position,
-                    spotify_uri=get_track_uri(track),
+                    spotify_uri=_get_track_uri(track),
                 )
             )
         except ValueError:
@@ -319,15 +312,6 @@ def calculate_lis_reorder_operations(
     if not current_tracks or not target_tracks:
         return []
 
-    def get_track_uri(track: Track) -> str | None:
-        """Get track URI for move operations (infrastructure-agnostic)."""
-        if track.id:
-            return f"canonical:{track.id}"
-        elif track.title and track.artists:
-            artist_names = ", ".join(artist.name for artist in track.artists)
-            return f"content:{track.title}:{artist_names}"
-        return None
-
     # Position-aware comparison: treat each playlist position as unique entity
     # Each position represents a unique playlist track instance, even for duplicate tracks
     target_positions_in_current: list[int] = []
@@ -411,10 +395,11 @@ def calculate_lis_reorder_operations(
     )
 
     if (
-        tracks_to_move and len(tracks_to_move) <= settings.batch.move_log_threshold
+        tracks_to_move
+        and len(tracks_to_move) <= BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
     ):  # Only log if small number
         logger.debug(
-            f"Tracks identified as needing moves: {tracks_to_move[: settings.batch.move_log_threshold]}"
+            f"Tracks identified as needing moves: {tracks_to_move[: BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT]}"
         )
 
     # Generate move operations only for track instances not in LIS
@@ -430,7 +415,7 @@ def calculate_lis_reorder_operations(
                     track=current_track,
                     position=target_pos,  # Target position
                     old_position=current_pos,  # Current position
-                    spotify_uri=get_track_uri(target_track),
+                    spotify_uri=_get_track_uri(target_track),
                 )
             )
 
@@ -466,31 +451,6 @@ def calculate_move_operations(
     )
 
     return operations
-
-
-def estimate_api_calls(operations: list[PlaylistOperation]) -> int:
-    """Estimate Spotify API calls needed to execute operations.
-
-    Accounts for Spotify's 100-track batch limits for add/remove operations.
-    Move operations require individual API calls.
-    """
-    add_ops = sum(
-        1 for op in operations if op.operation_type == PlaylistOperationType.ADD
-    )
-    remove_ops = sum(
-        1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE
-    )
-    move_ops = sum(
-        1 for op in operations if op.operation_type == PlaylistOperationType.MOVE
-    )
-
-    # Estimate based on batch sizes
-    api_calls = 0
-    api_calls += (add_ops + 99) // 100  # Round up for batches
-    api_calls += (remove_ops + 99) // 100
-    api_calls += move_ops  # Move operations are individual
-
-    return max(1, api_calls)  # At least one call to check snapshot
 
 
 def calculate_confidence_score(

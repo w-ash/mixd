@@ -4,13 +4,14 @@ Supports lookup by internal database ID or external service ID (Spotify, etc).
 Includes execution timing and error handling for playlist not found scenarios.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import resolve_playlist
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -89,7 +90,7 @@ class ReadCanonicalPlaylistUseCase:
         Raises:
             ValueError: If playlist not found
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Reading canonical playlist",
@@ -105,14 +106,9 @@ class ReadCanonicalPlaylistUseCase:
                     raise_if_not_found=False,
                 )
 
-                # Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = ReadCanonicalPlaylistResult(
                     playlist=playlist,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                 )
 
                 if playlist:
@@ -121,13 +117,13 @@ class ReadCanonicalPlaylistUseCase:
                         playlist_id=playlist.id,
                         name=playlist.name,
                         track_count=len(playlist.tracks),
-                        execution_time_ms=execution_time,
+                        execution_time_ms=timer.elapsed_ms,
                     )
                 else:
                     logger.info(
                         "Canonical playlist not found",
                         playlist_id=command.playlist_id,
-                        execution_time_ms=execution_time,
+                        execution_time_ms=timer.elapsed_ms,
                     )
 
             except Exception as e:

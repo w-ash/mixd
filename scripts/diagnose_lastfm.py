@@ -17,6 +17,7 @@ import sys
 
 from attrs import asdict
 
+from src.config import setup_script_logger
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 
 # Well-known test data
@@ -54,6 +55,7 @@ def dump_pydantic(label: str, obj: object) -> None:
 
 
 async def main() -> None:
+    setup_script_logger("diagnose_lastfm")
     client = LastFMAPIClient()
     print("Last.fm API — all read endpoints")
     print("=" * 60)

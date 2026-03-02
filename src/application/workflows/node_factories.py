@@ -25,11 +25,10 @@ from src.application.use_cases.enrich_tracks import (
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 
-from .destination_nodes import DESTINATION_HANDLERS
 from .node_context import NodeContext
 from .node_registry import NodeFn
-from .protocols import NodeResult
-from .transform_registry import TRANSFORM_REGISTRY
+from .protocols import MetricConfigProvider, NodeResult
+from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
 
 # Registry type aliases: transform factories take (ctx, config) and return a TrackList→TrackList fn.
 type _TransformFn = Callable[[TrackList], TrackList]
@@ -41,7 +40,9 @@ logger = get_logger(__name__)
 
 
 def _get_connector_metric_names(
-    connector_name: str, requested_attributes: list[str]
+    metric_config: MetricConfigProvider,
+    connector_name: str,
+    requested_attributes: list[str],
 ) -> list[str]:
     """Get metric names supported by a connector using the metrics registry.
 
@@ -49,18 +50,13 @@ def _get_connector_metric_names(
     Maps generic attribute names to service-specific metric names.
 
     Args:
+        metric_config: Provider for metric configuration (from WorkflowContext DI)
         connector_name: Music service identifier ("lastfm", "spotify", etc.)
         requested_attributes: Metadata fields requested ("user_playcount", "popularity", etc.)
 
     Returns:
         List of metric names that can be resolved for this connector
     """
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
-
-    metric_config = MetricConfigProviderImpl()
-
     # Get all metrics supported by this connector from the registry
     available_metrics = metric_config.get_connector_metrics(connector_name)
 
@@ -86,53 +82,17 @@ def _get_connector_metric_names(
     return metric_names
 
 
-# === DESTINATION FACTORY ===
-
-
-def create_destination_node(destination_type: str) -> NodeFn:
-    """Create a node that outputs track collections to files, playlists, or other formats.
-
-    Args:
-        destination_type: Output format identifier that maps to a registered handler
-
-    Returns:
-        Async function that writes track collections to the specified destination
-
-    Raises:
-        ValueError: If the destination type is not supported
-    """
-    if destination_type not in DESTINATION_HANDLERS:
-        raise ValueError(f"Unsupported destination type: {destination_type}")
-
-    handler = DESTINATION_HANDLERS[destination_type]
-
-    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
-        ctx = NodeContext(context)
-        tracklist = ctx.extract_tracklist()
-
-        logger.debug(
-            "Destination received tracklist with metrics",
-            metrics_keys=list(tracklist.metadata.get("metrics", {}).keys()),
-        )
-
-        return await handler(tracklist, config, context)
-
-    return node_impl
-
-
 # === SHARED NODE IMPLEMENTATION ===
 
 
 def make_node(
     category: str, node_type: str, operation_name: str | None = None
 ) -> NodeFn:
-    """Build a track collection transform node from registry configuration.
-
-    Handles both standard transforms (single input) and combiners (multiple inputs).
+    """Build a single-input transform node from registry configuration.
 
     Args:
-        category: Transform category ("filter", "sort", "combiner", etc.)
-        node_type: Specific operation within category ("by_playcount", "union", etc.)
+        category: Transform category ("filter", "sorter", "selector")
+        node_type: Specific operation within category ("deduplicate", "by_metric", etc.)
         operation_name: Optional custom name for logging and debugging
 
     Returns:
@@ -147,192 +107,175 @@ def make_node(
     if node_type not in TRANSFORM_REGISTRY[category]:
         raise ValueError(f"Unknown node type: {node_type} in category {category}")
 
-    # Get transform factory from registry.
-    # cast() informs pyright of the runtime contract: registry values are factories that
-    # take (ctx, config) and return a TrackList→TrackList transform.
-    transform_factory = cast(_TransformFactory, TRANSFORM_REGISTRY[category][node_type])
+    # Extract factory from TransformEntry
+    transform_factory = cast(
+        _TransformFactory, TRANSFORM_REGISTRY[category][node_type].factory
+    )
     operation = operation_name or f"{category}.{node_type}"
 
     async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
         ctx = NodeContext(context)
-
-        # Special handling for combiners which use multiple upstreams
-        if category == "combiner":
-            # Get upstream task IDs
-            upstream_task_ids = context.get("upstream_task_ids", [])
-
-            if not upstream_task_ids:
-                raise ValueError(f"Combiner node {operation} requires upstream tasks")
-
-            # Collect tracklists from all upstream tasks
-            upstream_tracklists = ctx.collect_tracklists(upstream_task_ids)
-
-            if not upstream_tracklists:
-                raise ValueError(
-                    f"No valid tracklists found in upstream tasks for {operation}",
-                )
-
-            # Apply transformation using collected tracklists
+        try:
+            tracklist = ctx.extract_tracklist()
             transform = transform_factory(ctx, config)
-            result = transform(TrackList())  # Transform handles collection
-
+            result = transform(tracklist)
+        except Exception as e:
+            logger.error(f"Error in node {operation}: {e}")
+            raise
+        else:
             logger.debug(
                 operation,
-                input_count=len(upstream_tracklists),
+                input_count=len(tracklist.tracks),
                 output_count=len(result.tracks),
             )
             return {"tracklist": result}
 
-        else:
-            # Standard case - single upstream dependency
-            try:
-                # Extract tracklist from primary upstream task
-                tracklist = ctx.extract_tracklist()
+    return node_impl
 
-                # Create and apply the transformation
-                transform = transform_factory(ctx, config)
-                result = transform(tracklist)
-            except Exception as e:
-                logger.error(f"Error in node {operation}: {e}")
-                raise
-            else:
-                logger.debug(
-                    operation,
-                    input_count=len(tracklist.tracks),
-                    output_count=len(result.tracks),
-                )
-                return {"tracklist": result}
+
+def make_combiner_node(combiner_type: str) -> NodeFn:
+    """Build a multi-input combiner node from the combiner registry.
+
+    Unlike transforms (single TrackList in, single TrackList out), combiners
+    collect tracklists from all upstream tasks and merge them.
+
+    Args:
+        combiner_type: Combiner operation ("merge_playlists", "interleave_playlists", etc.)
+
+    Returns:
+        Async function that combines multiple track collections
+
+    Raises:
+        ValueError: If combiner_type is not found in the combiner registry
+    """
+    if combiner_type not in COMBINER_REGISTRY:
+        raise ValueError(f"Unknown combiner type: {combiner_type}")
+
+    combiner_fn = COMBINER_REGISTRY[combiner_type].fn
+    operation = f"combiner.{combiner_type}"
+
+    async def node_impl(context: dict[str, Any], _config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
+        ctx = NodeContext(context)
+        upstream_task_ids = context.get("upstream_task_ids", [])
+
+        if not upstream_task_ids:
+            raise ValueError(f"Combiner node {operation} requires upstream tasks")
+
+        # Single collection point — no double-collection
+        upstream_tracklists = ctx.collect_tracklists(upstream_task_ids)
+
+        # Domain combiners are dual-mode: pass tracklist=TrackList() to get
+        # immediate TrackList result rather than a curried Transform function
+        result = cast(
+            TrackList, combiner_fn(upstream_tracklists, tracklist=TrackList())
+        )
+
+        logger.debug(
+            operation,
+            input_count=len(upstream_tracklists),
+            output_count=len(result.tracks),
+        )
+        return {"tracklist": result}
 
     return node_impl
 
 
-def create_enricher_node(config: dict[str, Any]) -> NodeFn:
-    """Create a node that adds metadata from external music services to tracks.
+# Config builder type: constructs an EnrichmentConfig from node context and config
+type _EnrichmentConfigBuilder = Callable[
+    [NodeContext, dict[str, Any]], EnrichmentConfig
+]
 
-    Fetches additional track information from services like Last.fm or Spotify
-    and attaches it to each track (play counts, artist tags, audio features, etc.).
 
-    Args:
-        config: Configuration with required keys:
-            - connector: External service name ("lastfm", "spotify")
-            - attributes: List of metadata fields to extract
+def _build_external_enrichment_config(
+    static_config: dict[str, Any],
+) -> _EnrichmentConfigBuilder:
+    """Build config builder for external-metadata enrichment (Last.fm, Spotify).
 
-    Returns:
-        Async function that enriches track collections with external metadata
-
-    Raises:
-        ValueError: If connector type is not specified in config
+    Captures the static registration-time config (connector name, attribute list)
+    and returns a builder that resolves metric names at execution time via DI.
     """
-    enricher_type = config.get("connector")
-    if not enricher_type:
-        raise ValueError("Enricher configuration must specify a 'connector' type")
+    connector = static_config["connector"]
+    attribute_names = static_config.get("attributes", ["user_playcount"])
 
-    async def node_impl(
-        context: dict[str, Any], _node_config: dict[str, Any]
-    ) -> NodeResult:
-        ctx = NodeContext(context)
-        tracklist = ctx.extract_tracklist()
-
-        logger.info(
-            f"Starting {enricher_type} enrichment for {len(tracklist.tracks)} tracks"
+    def builder(ctx: NodeContext, _config: dict[str, Any]) -> EnrichmentConfig:
+        workflow_context = ctx.extract_workflow_context()
+        metric_names = _get_connector_metric_names(
+            workflow_context.metric_config, connector, attribute_names
         )
-
-        # Initialize connector instance
-        connector_instance = ctx.get_connector(enricher_type)
-
-        # Get use case dependencies
-        use_cases = ctx.extract_use_cases()
-
-        # Get metric names from connector registry
-        # The config may specify attribute names, but we need actual metric names
-        attribute_names = config.get(
-            "attributes", ["user_playcount"]
-        )  # Default for lastfm
-
-        # Get metric names using helper function
-        metric_names = _get_connector_metric_names(enricher_type, attribute_names)
-
-        # Create enrichment command
-
-        enrichment_config = EnrichmentConfig(
+        return EnrichmentConfig(
             enrichment_type="external_metadata",
-            connector=enricher_type,
-            connector_instance=connector_instance,
+            connector=connector,
+            connector_instance=ctx.get_connector(connector),
             track_metric_names=metric_names,
         )
 
-        enrichment_command = EnrichTracksCommand(
-            tracklist=tracklist, enrichment_config=enrichment_config
-        )
-
-        # Execute enrichment through use case
-        workflow_context = ctx.extract_workflow_context()
-        result = await workflow_context.execute_use_case(
-            use_cases.get_enrich_tracks_use_case, enrichment_command
-        )
-
-        if result.errors:
-            logger.warning(f"Enrichment had errors: {result.errors}")
-
-        logger.info(
-            f"{enricher_type}_enrichment complete",
-            metrics_count=sum(len(v) for v in result.metrics_added.values()),
-        )
-        return {"tracklist": result.enriched_tracklist}
-
-    return node_impl
+    return builder
 
 
-def create_play_history_enricher_node() -> NodeFn:
-    """Create a node that adds listening history metrics from the internal database.
+def build_play_history_enrichment_config(
+    _ctx: NodeContext, config: dict[str, Any]
+) -> EnrichmentConfig:
+    """Build config for play-history enrichment from internal database."""
+    return EnrichmentConfig(
+        enrichment_type="play_history",
+        metrics=config.get("metrics", ["total_plays", "last_played_dates"]),
+        period_days=config.get("period_days"),
+    )
 
-    Enriches tracks with local play history data like total play counts, last played
-    dates, or play frequency over time periods. Useful for filtering overplayed
-    songs or creating playlists based on personal listening patterns.
+
+def create_enricher_node(
+    config_or_builder: dict[str, Any] | _EnrichmentConfigBuilder,
+) -> NodeFn:
+    """Create a node that enriches tracks with metadata.
+
+    Unified factory for both external-service enrichment (Last.fm, Spotify)
+    and internal play-history enrichment. The only difference is how the
+    EnrichmentConfig is built — everything else is shared.
+
+    Args:
+        config_or_builder: Either a static config dict with 'connector' key
+            (for external enrichment) or a config-builder callable.
 
     Returns:
-        Async function that enriches track collections with play history data.
-        Config options: metrics (list), period_days (int)
+        Async function that enriches track collections
+
+    Raises:
+        ValueError: If dict config doesn't specify a 'connector'
     """
+    # Support both the dict-based API (for external enrichers) and direct builder
+    if isinstance(config_or_builder, dict):
+        if not config_or_builder.get("connector"):
+            raise ValueError("Enricher configuration must specify a 'connector' type")
+        build_config = _build_external_enrichment_config(config_or_builder)
+        enricher_label = config_or_builder["connector"]
+    else:
+        build_config = config_or_builder
+        enricher_label = "play_history"
 
     async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
 
-        # Get configuration
-        metrics = config.get("metrics", ["total_plays", "last_played_dates"])
-        period_days = config.get("period_days")
-
         logger.info(
-            f"Starting play history enrichment for {len(tracklist.tracks)} tracks"
+            f"Starting {enricher_label} enrichment for {len(tracklist.tracks)} tracks"
         )
 
-        # Use EnrichTracksUseCase
-        use_cases = ctx.extract_use_cases()
-
-        # Create enrichment command
-
-        enrichment_config = EnrichmentConfig(
-            enrichment_type="play_history", metrics=metrics, period_days=period_days
-        )
-
-        enrichment_command = EnrichTracksCommand(
+        enrichment_config = build_config(ctx, config)
+        command = EnrichTracksCommand(
             tracklist=tracklist, enrichment_config=enrichment_config
         )
 
-        # Execute enrichment through use case
         workflow_context = ctx.extract_workflow_context()
         result = await workflow_context.execute_use_case(
-            use_cases.get_enrich_tracks_use_case, enrichment_command
+            ctx.extract_use_cases().get_enrich_tracks_use_case, command
         )
 
         if result.errors:
-            logger.warning(f"Play history enrichment had errors: {result.errors}")
+            logger.warning(f"{enricher_label} enrichment had errors: {result.errors}")
 
         logger.info(
-            "play_history_enrichment complete",
+            f"{enricher_label}_enrichment complete",
             metrics_count=sum(len(v) for v in result.metrics_added.values()),
-            enriched_metrics=list(result.metrics_added.keys()),
         )
         return {"tracklist": result.enriched_tracklist}
 

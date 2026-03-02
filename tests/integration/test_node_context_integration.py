@@ -4,7 +4,6 @@ These tests verify that nodes can access the required context providers
 and that workflow context injection works correctly.
 """
 
-import pytest
 from sqlalchemy import text
 
 from src.application.workflows.context import create_workflow_context
@@ -14,27 +13,21 @@ from src.domain.entities.track import Artist, Track, TrackList
 class TestNodeContextIntegration:
     """Test node execution with real workflow context."""
 
-    @pytest.mark.asyncio
     async def test_workflow_context_creation(self):
         """Test that workflow context can be created with all providers."""
         # Create real workflow context
         workflow_context = create_workflow_context()
 
         # Verify all required providers exist
-        assert workflow_context.logger is not None
         assert workflow_context.connectors is not None
         assert workflow_context.use_cases is not None
-        assert workflow_context.session_provider is not None
 
         # Test that providers have expected interfaces
-        assert hasattr(workflow_context.logger, "info")
         assert hasattr(workflow_context.connectors, "list_connectors")
         assert hasattr(
             workflow_context.use_cases, "get_create_canonical_playlist_use_case"
         )
-        assert hasattr(workflow_context.session_provider, "get_session")
 
-    @pytest.mark.asyncio
     async def test_context_injection_structure(self):
         """Test that context injection creates expected structure."""
         # Create real workflow context
@@ -43,45 +36,30 @@ class TestNodeContextIntegration:
         # Create context dictionary like Prefect would after injection
         injected_context = {
             "parameters": {"test_param": "test_value"},
-            "use_cases": workflow_context.use_cases,
-            "connectors": workflow_context.connectors,
-            "logger": workflow_context.logger,
-            "session_provider": workflow_context.session_provider,
+            "workflow_context": workflow_context,
         }
 
-        # Verify all required keys are present
-        required_keys = [
-            "use_cases",
-            "connectors",
-            "logger",
-            "session_provider",
-        ]
-        for key in required_keys:
-            assert key in injected_context
-            assert injected_context[key] is not None
+        # Verify workflow_context is the single required key
+        assert "workflow_context" in injected_context
+        assert injected_context["workflow_context"] is not None
 
-        # Test that use_cases can be accessed as nodes expect
-        use_cases = injected_context.get("use_cases")
+        # Test that use_cases can be accessed through workflow_context as nodes expect
+        use_cases = injected_context["workflow_context"].use_cases
         assert use_cases is not None
         assert hasattr(use_cases, "get_create_canonical_playlist_use_case")
 
-    @pytest.mark.asyncio
-    async def test_session_provider_functionality(self):
-        """Test that session provider works correctly."""
-        # Create real workflow context
-        workflow_context = create_workflow_context()
+    async def test_get_session_functionality(self):
+        """Test that get_session() works for workflow session creation."""
+        from src.infrastructure.persistence.database.db_connection import get_session
 
-        # Test that session provider returns working sessions
-        session_cm = workflow_context.session_provider.get_session()
-
-        async with session_cm as session:
+        # get_session() is now called directly in _with_uow (no wrapper)
+        async with get_session() as session:
             # Verify session is usable
             assert session is not None
             # Basic database operation should work (with proper text() wrapper)
             result = await session.execute(text("SELECT 1"))
             assert result is not None
 
-    @pytest.mark.asyncio
     async def test_use_case_provider_functionality(self):
         """Test that use case provider can create use cases."""
         # Create real workflow context
@@ -94,7 +72,6 @@ class TestNodeContextIntegration:
         assert use_case is not None
         assert hasattr(use_case, "execute")
 
-    @pytest.mark.asyncio
     async def test_connector_registry_functionality(self):
         """Test that connector registry works correctly."""
         # Create real workflow context
@@ -110,7 +87,6 @@ class TestNodeContextIntegration:
             spotify_connector = workflow_context.connectors.get_connector("spotify")
             assert spotify_connector is not None
 
-    @pytest.mark.asyncio
     async def test_node_context_extraction(self):
         """Test that node context extraction works with real context."""
         from src.application.workflows.node_context import NodeContext

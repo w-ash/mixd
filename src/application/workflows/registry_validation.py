@@ -1,54 +1,37 @@
 """Registry validation for workflow node completeness.
 
-Validates that all critical workflow nodes are registered at module load time,
-providing clear error messages when node registration fails.
+Validates that all registered workflow nodes are resolvable via get_node()
+at module load time, providing clear error messages when registration fails.
 """
 
 from src.config import get_logger
 
-from .node_registry import registry
+from .node_registry import get_node, registry
 
 logger = get_logger(__name__)
 
-# Critical nodes that must be registered for workflows to function
-CRITICAL_NODE_PATHS = [
-    "source.playlist",
-    "enricher.lastfm",
-    "enricher.spotify",
-    "enricher.play_history",
-    "filter.deduplicate",
-    "filter.by_release_date",
-    "filter.by_tracks",
-    "filter.by_artists",
-    "filter.by_metric",
-    "filter.by_play_history",
-    "filter.by_duration",
-    "filter.by_liked_status",
-    "filter.by_explicit",
-    "sorter.by_metric",
-    "sorter.by_play_history",
-    "sorter.by_added_at",
-    "sorter.by_first_played",
-    "sorter.by_last_played",
-    "sorter.reverse",
-    "selector.limit_tracks",
-    "selector.percentage",
-    "combiner.merge_playlists",
-    "combiner.concatenate_playlists",
-    "combiner.interleave_playlists",
-    "combiner.intersect_playlists",
-    "destination.create_playlist",
-    "destination.update_playlist",
-]
-
 
 def validate_registry():
-    """Validate registry integrity against critical node list."""
-    registered = set(registry.list_nodes().keys())
-    missing = [c for c in CRITICAL_NODE_PATHS if c not in registered]
+    """Validate registry integrity by verifying every registered node is resolvable.
 
-    if missing:
-        missing_str = ", ".join(missing)
-        raise RuntimeError(f"Node registry incomplete: missing {missing_str}")
+    Instead of maintaining a hardcoded list that drifts, we verify that every
+    node registered by node_catalog.py is actually findable via get_node().
+    This makes it impossible for the validation list to fall out of sync.
+    """
+    all_nodes = registry.list_nodes()
 
-    return True, f"Node registry validated with {len(registered)} nodes"
+    if not all_nodes:
+        raise RuntimeError("Node registry is empty — node_catalog.py was not imported")
+
+    broken: list[str] = []
+    for node_id in all_nodes:
+        try:
+            get_node(node_id)
+        except KeyError:
+            broken.append(node_id)
+
+    if broken:
+        broken_str = ", ".join(broken)
+        raise RuntimeError(f"Node registry broken: cannot resolve {broken_str}")
+
+    return True, f"Node registry validated with {len(all_nodes)} nodes"

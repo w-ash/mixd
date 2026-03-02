@@ -13,33 +13,8 @@ from src.application.use_cases.sync_likes import (
     ImportSpotifyLikesUseCase,
 )
 from src.domain.entities import SyncCheckpoint
-from src.domain.entities.track import Artist, ConnectorTrack, Track
-
-
-def _make_track(track_id: int, title: str = "Song") -> Track:
-    """Create a track with connector ID for testing."""
-    return Track(
-        id=track_id,
-        title=f"{title} {track_id}",
-        artists=[Artist(name="Artist")],
-        connector_track_identifiers={"spotify": f"spotify_{track_id}"},
-    )
-
-
-def _make_connector_track(
-    identifier: str, title: str = "Song", liked_at: str | None = None
-) -> ConnectorTrack:
-    """Create a ConnectorTrack for testing."""
-    raw_metadata: dict[str, str] = {}
-    if liked_at:
-        raw_metadata["liked_at"] = liked_at
-    return ConnectorTrack(
-        connector_name="spotify",
-        connector_track_identifier=identifier,
-        title=title,
-        artists=[Artist(name="Artist")],
-        raw_metadata=raw_metadata,
-    )
+from tests.fixtures import make_connector_track, make_track
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
@@ -50,31 +25,14 @@ def mock_checkpoint():
 @pytest.fixture
 def mock_uow(mock_checkpoint):
     """Mock UnitOfWork with all required repositories."""
-    uow = AsyncMock()
+    uow = make_mock_uow()
 
     # Checkpoint repo
-    checkpoint_repo = AsyncMock()
+    checkpoint_repo = uow.get_checkpoint_repository()
     checkpoint_repo.get_sync_checkpoint.return_value = mock_checkpoint
     checkpoint_repo.save_sync_checkpoint.return_value = mock_checkpoint
-    uow.get_checkpoint_repository = MagicMock(return_value=checkpoint_repo)
 
-    # Like repo
-    like_repo = AsyncMock()
-    like_repo.save_track_likes_batch.return_value = []
-    like_repo.get_liked_status_batch.return_value = {}
-    uow.get_like_repository = MagicMock(return_value=like_repo)
-
-    # Track repo
-    track_repo = AsyncMock()
-    uow.get_track_repository = MagicMock(return_value=track_repo)
-
-    # Connector repo — bulk-first defaults
-    connector_repo = AsyncMock()
-    connector_repo.find_tracks_by_connectors.return_value = {}
-    connector_repo.ingest_external_tracks_bulk.return_value = []
-    uow.get_connector_repository = MagicMock(return_value=connector_repo)
-
-    # Service connector provider
+    # Service connector provider (Spotify)
     mock_spotify = AsyncMock()
     mock_spotify.get_liked_tracks.return_value = ([], None)
     provider = MagicMock()
@@ -84,7 +42,6 @@ def mock_uow(mock_checkpoint):
     return uow
 
 
-@pytest.mark.unit
 class TestImportSpotifyLikesCommand:
     """Test command construction and validation."""
 
@@ -108,7 +65,6 @@ class TestImportSpotifyLikesCommand:
             cmd.user_id = "modified"
 
 
-@pytest.mark.unit
 class TestImportSpotifyLikesUseCase:
     """Test use case execution paths."""
 
@@ -127,8 +83,8 @@ class TestImportSpotifyLikesUseCase:
 
     async def test_happy_path_imports_new_tracks(self, mock_uow):
         """Test importing new tracks that don't exist in DB."""
-        connector_track = _make_connector_track("spotify_new_1", "New Song")
-        new_track = _make_track(1, "New Song")
+        connector_track = make_connector_track("spotify_new_1", title="New Song")
+        new_track = make_track(1, "New Song")
 
         # Spotify returns one track, then empty (pagination end)
         spotify = mock_uow.get_service_connector_provider().get_connector()
@@ -158,8 +114,8 @@ class TestImportSpotifyLikesUseCase:
 
     async def test_already_synced_tracks_counted(self, mock_uow):
         """Test that already-liked tracks are counted but not re-imported."""
-        connector_track = _make_connector_track("spotify_existing")
-        existing_track = _make_track(1)
+        connector_track = make_connector_track("spotify_existing")
+        existing_track = make_track(1)
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -190,8 +146,8 @@ class TestImportSpotifyLikesUseCase:
 
     async def test_existing_track_needing_likes_gets_liked(self, mock_uow):
         """Test that existing tracks not yet liked get likes saved."""
-        connector_track = _make_connector_track("spotify_existing")
-        existing_track = _make_track(1)
+        connector_track = make_connector_track("spotify_existing")
+        existing_track = make_track(1)
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -224,8 +180,8 @@ class TestImportSpotifyLikesUseCase:
     async def test_max_imports_limit_stops_fetching(self, mock_uow):
         """Test that max_imports cap prevents further batch fetches."""
         # First batch: 5 new tracks
-        batch1 = [_make_connector_track(f"sp_{i}") for i in range(5)]
-        batch1_tracks = [_make_track(i + 1) for i in range(5)]
+        batch1 = [make_connector_track(f"sp_{i}") for i in range(5)]
+        batch1_tracks = [make_track(i + 1) for i in range(5)]
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -256,8 +212,8 @@ class TestImportSpotifyLikesUseCase:
 
     async def test_batch_ingestion_called_with_multiple_tracks(self, mock_uow):
         """Test that batch ingestion receives multiple new tracks, not single-element lists."""
-        tracks = [_make_connector_track(f"sp_{i}") for i in range(3)]
-        ingested = [_make_track(i + 1) for i in range(3)]
+        tracks = [make_connector_track(f"sp_{i}") for i in range(3)]
+        ingested = [make_track(i + 1) for i in range(3)]
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -283,7 +239,7 @@ class TestImportSpotifyLikesUseCase:
 
     async def test_bulk_find_error_does_not_abort(self, mock_uow):
         """Test that a bulk find error is caught and batch continues gracefully."""
-        connector_track = _make_connector_track("sp_1")
+        connector_track = make_connector_track("sp_1")
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -293,7 +249,7 @@ class TestImportSpotifyLikesUseCase:
         connector_repo = mock_uow.get_connector_repository()
         connector_repo.find_tracks_by_connectors.side_effect = RuntimeError("DB Error")
         # With empty existing_map, all tracks are treated as new
-        new_track = _make_track(1)
+        new_track = make_track(1)
         connector_repo.ingest_external_tracks_bulk.return_value = [new_track]
 
         like_repo = mock_uow.get_like_repository()
@@ -317,14 +273,14 @@ class TestImportSpotifyLikesUseCase:
         not cumulative counter, to avoid premature stop across batches.
         """
         # Batch 1: 5 tracks, 4 already synced (80%), 1 needs like update
-        batch1_cts = [_make_connector_track(f"sp_b1_{i}") for i in range(5)]
+        batch1_cts = [make_connector_track(f"sp_b1_{i}") for i in range(5)]
         batch1_existing = {
-            ("spotify", f"sp_b1_{i}"): _make_track(i + 1) for i in range(5)
+            ("spotify", f"sp_b1_{i}"): make_track(i + 1) for i in range(5)
         }
 
         # Batch 2: 3 new tracks
-        batch2_cts = [_make_connector_track(f"sp_b2_{i}") for i in range(3)]
-        batch2_new = [_make_track(i + 10) for i in range(3)]
+        batch2_cts = [make_connector_track(f"sp_b2_{i}") for i in range(3)]
+        batch2_new = [make_track(i + 10) for i in range(3)]
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [
@@ -371,10 +327,10 @@ class TestImportSpotifyLikesUseCase:
     async def test_liked_at_preserved_from_connector_metadata(self, mock_uow):
         """Test that liked_at from Spotify raw_metadata is passed through to likes."""
         liked_at_iso = "2024-03-15T10:30:00+00:00"
-        connector_track = _make_connector_track(
-            "sp_with_date", "Dated Song", liked_at=liked_at_iso
+        connector_track = make_connector_track(
+            "sp_with_date", title="Dated Song", raw_metadata={"liked_at": liked_at_iso}
         )
-        new_track = _make_track(1, "Dated Song")
+        new_track = make_track(1, "Dated Song")
 
         spotify = mock_uow.get_service_connector_provider().get_connector()
         spotify.get_liked_tracks.side_effect = [

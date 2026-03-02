@@ -6,7 +6,6 @@ from typing import Annotated
 from rich.prompt import Prompt
 import typer
 
-from src.application.services.batch_file_import_service import BatchFileImportService
 from src.config import settings
 from src.interface.cli.cli_helpers import (
     parse_date_string,
@@ -153,6 +152,10 @@ def _import_single_spotify_file(file_path: Path, batch_size: int | None) -> None
 
 def _import_all_spotify_files(batch_size: int | None) -> None:
     """Import all Spotify JSON files from the imports directory."""
+    from src.application.services.batch_file_import_service import (
+        BatchFileImportService,
+    )
+
     imports_dir = settings.import_settings.imports_dir
     imported_dir = settings.import_settings.imported_dir
     pattern = "Streaming_History_Audio_*.json"
@@ -236,35 +239,24 @@ def _interactive_lastfm_import() -> None:
         default="incremental",
     )
 
-    from_date = None
-    to_date = None
+    from_date_str: str | None = None
+    to_date_str: str | None = None
 
     if import_type == "date-range":
-        from_date_str = Prompt.ask("Start date (YYYY-MM-DD) or leave empty", default="")
-        to_date_str = Prompt.ask("End date (YYYY-MM-DD) or leave empty", default="")
+        from_date_str = (
+            Prompt.ask("Start date (YYYY-MM-DD) or leave empty", default="") or None
+        )
+        to_date_str = (
+            Prompt.ask("End date (YYYY-MM-DD) or leave empty", default="") or None
+        )
 
-        # Parse dates if provided
-        from_date = parse_date_string(from_date_str, "start date")
-        to_date = parse_date_string(to_date_str, "end date")
-
-    # Execute with gathered parameters
     operation_desc = "date range" if import_type == "date-range" else "incremental"
     console.print(f"\n[green]Starting Last.fm {operation_desc} import...[/green]")
     console.print(
         "[dim]Using smart daily chunking with automatic track resolution[/dim]"
     )
 
-    # Execute import with unified progress context
-    result = run_import_with_progress(
-        service="lastfm",
-        mode="incremental",
-        from_date=from_date,
-        to_date=to_date,
-    )
-
-    console.print("[bold green]✓ Last.fm import completed![/bold green]")
-    if result:
-        display_operation_result(result)
+    import_lastfm_cmd(from_date=from_date_str, to_date=to_date_str)
 
 
 def _interactive_spotify_import() -> None:

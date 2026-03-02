@@ -4,14 +4,11 @@ Tests to verify that the connector refactoring maintains consistent
 configuration patterns across all services.
 """
 
-import pytest
-
 from src.config import settings
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.connectors.spotify import SpotifyConnector
 
 
-@pytest.mark.integration
 class TestConnectorConfigurationConsistency:
     """Test that all connectors use consistent configuration patterns."""
 

@@ -19,6 +19,7 @@ from src.application.use_cases._shared.command_validators import (
     tracklist_or_connector_playlist,
 )
 from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
@@ -140,7 +141,7 @@ class UpdateCanonicalPlaylistUseCase:
         Raises:
             ValueError: If playlist ID is invalid or command execution fails
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Starting canonical playlist update",
@@ -208,9 +209,7 @@ class UpdateCanonicalPlaylistUseCase:
                         logger.info("No changes detected, playlist already up to date")
                         return UpdateCanonicalPlaylistResult(
                             playlist=current_playlist,
-                            execution_time_ms=int(
-                                (datetime.now(UTC) - start_time).total_seconds() * 1000
-                            ),
+                            execution_time_ms=timer.stop(),
                             confidence_score=diff.confidence_score,
                         )
 
@@ -239,16 +238,11 @@ class UpdateCanonicalPlaylistUseCase:
                 if not command.dry_run:
                     await uow.commit()
 
-                # Step 4: Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = UpdateCanonicalPlaylistResult(
                     playlist=result_playlist,
                     operations_performed=operations_performed,
                     operation_counts=operation_counts,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                     confidence_score=confidence_score,
                 )
 
@@ -256,7 +250,7 @@ class UpdateCanonicalPlaylistUseCase:
                     "Canonical playlist update completed",
                     playlist_id=command.playlist_id,
                     operations_performed=operations_performed,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                     dry_run=command.dry_run,
                 )
 
@@ -347,15 +341,8 @@ class UpdateCanonicalPlaylistUseCase:
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
 
-        # Ensure updated playlist has ID set for save_playlist to detect update operation
-        import attrs
-
-        updated_playlist_with_id = attrs.evolve(
-            updated_playlist, id=current_playlist.id
-        )
-
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)
+        saved_playlist = await playlist_repo.save_playlist(updated_playlist)
 
         return (saved_playlist, len(diff.operations), operation_counts)
 
@@ -398,15 +385,8 @@ class UpdateCanonicalPlaylistUseCase:
             if current_playlist.id is None:
                 raise ValueError("Cannot update playlist without an ID")
 
-            # Ensure updated playlist has ID set for save_playlist to detect update operation
-            import attrs
-
-            updated_playlist_with_id = attrs.evolve(
-                updated_playlist, id=current_playlist.id
-            )
-
             playlist_repo = uow.get_playlist_repository()
-            return await playlist_repo.save_playlist(updated_playlist_with_id)
+            return await playlist_repo.save_playlist(updated_playlist)
 
         return current_playlist
 
@@ -470,15 +450,8 @@ class UpdateCanonicalPlaylistUseCase:
         if current_playlist.id is None:
             raise ValueError("Cannot update playlist without an ID")
 
-        # Ensure updated playlist has ID set for save_playlist to detect update operation
-        import attrs
-
-        updated_playlist_with_id = attrs.evolve(
-            updated_playlist, id=current_playlist.id
-        )
-
         playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.save_playlist(updated_playlist_with_id)
+        saved_playlist = await playlist_repo.save_playlist(updated_playlist)
 
         return (
             saved_playlist,

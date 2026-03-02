@@ -52,7 +52,6 @@ def reordered_playlist(sample_tracks):
     )
 
 
-@pytest.mark.unit
 class TestCanonicalExecutionStrategy:
     """Test canonical execution strategy."""
 

@@ -4,8 +4,6 @@ Tests playlist creation workflow: track persistence, connector mapping,
 and transaction management.
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -13,49 +11,35 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
     CreateCanonicalPlaylistUseCase,
 )
-from src.domain.entities.track import Artist, Track, TrackList
-
-
-def _make_track(track_id: int | None = None, title: str = "Song") -> Track:
-    """Create a test track."""
-    return Track(
-        id=track_id,
-        title=f"{title} {track_id or 'new'}",
-        artists=[Artist(name="Artist")],
-    )
+from src.domain.entities.track import TrackList
+from tests.fixtures import make_track
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with required repositories."""
-    uow = AsyncMock()
+    uow = make_mock_uow()
 
-    # Track repo
-    track_repo = AsyncMock()
+    # Track repo — assign IDs to unsaved tracks
+    track_repo = uow.get_track_repository()
     track_repo.save_track.side_effect = lambda t: t.with_id(100) if t.id is None else t
-    uow.get_track_repository = MagicMock(return_value=track_repo)
 
-    # Playlist repo
-    playlist_repo = AsyncMock()
+    # Playlist repo — assign IDs to unsaved playlists
+    playlist_repo = uow.get_playlist_repository()
     playlist_repo.save_playlist.side_effect = lambda p: (
         p.with_id(1) if p.id is None else p
     )
-    uow.get_playlist_repository = MagicMock(return_value=playlist_repo)
-
-    # Metric repo (for _extract_track_metrics)
-    metric_repo = AsyncMock()
-    uow.get_metric_repository = MagicMock(return_value=metric_repo)
 
     return uow
 
 
-@pytest.mark.unit
 class TestCreateCanonicalPlaylistCommand:
     """Test command construction and validation."""
 
     def test_valid_command(self):
         """Test creating a valid command."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = CreateCanonicalPlaylistCommand(
             name="My Playlist",
             tracklist=tracklist,
@@ -65,13 +49,13 @@ class TestCreateCanonicalPlaylistCommand:
 
     def test_empty_name_rejected(self):
         """Test that empty playlist name is rejected."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         with pytest.raises(ValueError):
             CreateCanonicalPlaylistCommand(name="", tracklist=tracklist)
 
     def test_command_with_connector_mapping(self):
         """Test command with connector name and ID for external mapping."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = CreateCanonicalPlaylistCommand(
             name="Discover Weekly",
             tracklist=tracklist,
@@ -83,19 +67,18 @@ class TestCreateCanonicalPlaylistCommand:
 
     def test_command_is_frozen(self):
         """Test command immutability."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = CreateCanonicalPlaylistCommand(name="Test", tracklist=tracklist)
         with pytest.raises(AttributeError):
             cmd.name = "Modified"
 
 
-@pytest.mark.unit
 class TestCreateCanonicalPlaylistUseCase:
     """Test use case execution paths."""
 
     async def test_happy_path_creates_playlist_with_tracklist(self, mock_uow):
         """Test creating a playlist from a TrackList input."""
-        tracks = [_make_track(1, "Song A"), _make_track(2, "Song B")]
+        tracks = [make_track(1, "Song A"), make_track(2, "Song B")]
         tracklist = TrackList(tracks=tracks)
 
         command = CreateCanonicalPlaylistCommand(
@@ -114,7 +97,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_unpersisted_tracks_get_saved(self, mock_uow):
         """Test that tracks without IDs are persisted first."""
-        unsaved_track = _make_track(None, "New Song")
+        unsaved_track = make_track(None, "New Song")
         tracklist = TrackList(tracks=[unsaved_track])
 
         command = CreateCanonicalPlaylistCommand(
@@ -131,7 +114,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_already_persisted_tracks_not_resaved(self, mock_uow):
         """Test that tracks with IDs are not re-saved."""
-        saved_track = _make_track(42, "Existing Song")
+        saved_track = make_track(42, "Existing Song")
         tracklist = TrackList(tracks=[saved_track])
 
         command = CreateCanonicalPlaylistCommand(
@@ -148,7 +131,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_connector_identifier_mapping(self, mock_uow):
         """Test that connector name/ID creates playlist-level mapping."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
 
         command = CreateCanonicalPlaylistCommand(
             name="Spotify Playlist",
@@ -170,7 +153,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_metadata_passed_through(self, mock_uow):
         """Test that custom metadata is preserved on the playlist."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
 
         command = CreateCanonicalPlaylistCommand(
             name="Metadata Test",
@@ -187,7 +170,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_exception_triggers_rollback(self, mock_uow):
         """Test that exceptions cause transaction rollback."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
 
         # Make playlist save fail
         mock_uow.get_playlist_repository().save_playlist.side_effect = RuntimeError(
@@ -207,7 +190,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_result_includes_execution_time(self, mock_uow):
         """Test that result includes non-negative execution time."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         command = CreateCanonicalPlaylistCommand(name="Timed", tracklist=tracklist)
         use_case = CreateCanonicalPlaylistUseCase()
 

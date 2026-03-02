@@ -10,8 +10,6 @@ Spotify API → ConnectorPlaylistItem → Track.connector_metadata → DBPlaylis
 
 from datetime import UTC, datetime
 
-import pytest
-
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistUseCase,
@@ -23,7 +21,6 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 class TestSpotifyAddedAtPreservation:
     """Tests proving that Spotify's added_at timestamps are preserved through backup."""
 
-    @pytest.mark.asyncio
     async def test_spotify_added_at_preserved_through_backup_flow(self, db_session):
         """FAILING TEST: Verify Spotify's added_at flows to DBPlaylistTrack on backup.
 

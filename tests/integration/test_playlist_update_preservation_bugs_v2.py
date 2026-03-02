@@ -7,8 +7,6 @@ losing track identity and causing incorrect behavior with duplicates.
 Once bugs are fixed, these tests should pass.
 """
 
-import pytest
-
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistUseCase,
@@ -25,7 +23,6 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 class TestPlaylistUpdateRecordIdentityBugs:
     """Tests proving that playlist updates destroy track record identity."""
 
-    @pytest.mark.asyncio
     async def test_dbplaylisttrack_records_follow_tracks_not_positions(
         self, db_session
     ):
@@ -175,7 +172,6 @@ class TestPlaylistUpdateRecordIdentityBugs:
         assert updated_records[1].track_id == track_c_id  # Track C at position 1
         assert updated_records[2].track_id == track_a_id  # Track A at position 2
 
-    @pytest.mark.asyncio
     async def test_duplicate_tracks_create_separate_dbplaylisttrack_records(
         self, db_session
     ):
@@ -307,7 +303,6 @@ class TestPlaylistUpdateRecordIdentityBugs:
             f"but got id={final_records[2].id} which was an original record"
         )
 
-    @pytest.mark.asyncio
     async def test_removing_track_doesnt_affect_remaining_track_records(
         self, db_session
     ):

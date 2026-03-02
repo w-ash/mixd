@@ -12,8 +12,9 @@ from src.config.constants import SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
-
-from .utilities import create_track_from_spotify_data
+from src.infrastructure.connectors.spotify.inward_resolver import (
+    SpotifyInwardResolver,
+)
 
 logger = get_logger(__name__)
 
@@ -45,7 +46,7 @@ def should_include_spotify_play(
             if artist_name and track_name
             else "unknown track"
         )
-        logger.warning(f"WARNING: Missing duration for filtering: {track_info}")
+        logger.warning(f"Missing duration for filtering: {track_info}")
         return False  # < 4 minutes and no duration info = exclude
 
     # For tracks >= 8 minutes, 4-minute threshold already failed above, so exclude
@@ -69,10 +70,14 @@ class SpotifyConnectorPlayResolver:
     """
 
     spotify_connector: SpotifyConnector
+    _inward_resolver: SpotifyInwardResolver
 
     def __init__(self, spotify_connector: SpotifyConnector | None = None):
         """Initialize with Spotify connector for track resolution."""
         self.spotify_connector = spotify_connector or SpotifyConnector()
+        self._inward_resolver = SpotifyInwardResolver(
+            spotify_connector=self.spotify_connector
+        )
 
     async def resolve_connector_plays(
         self,
@@ -124,7 +129,7 @@ class SpotifyConnectorPlayResolver:
                 }
                 filtering_stats["resolution_failures"].append(failure_info)
                 logger.warning(
-                    f"WARNING: Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
+                    f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
                 )
                 continue
 
@@ -141,7 +146,7 @@ class SpotifyConnectorPlayResolver:
                     if canonical_track.duration_ms
                     else "?"
                 )
-                logger.info(
+                logger.debug(
                     f"Skipped (duration): {connector_play.track_name} - "
                     + f"{connector_play.ms_played / 60000:.2f}/{duration_info}min"
                 )
@@ -153,7 +158,7 @@ class SpotifyConnectorPlayResolver:
             )
             if incognito_mode:
                 filtering_stats["incognito_excluded"] += 1
-                logger.info(f"Skipped (incognito): {connector_play.track_name}")
+                logger.debug(f"Skipped (incognito): {connector_play.track_name}")
                 continue
 
             # Create TrackPlay with Spotify's RICH metadata preservation
@@ -293,128 +298,20 @@ class SpotifyConnectorPlayResolver:
     async def _resolve_spotify_ids_to_canonical_tracks(
         self, spotify_ids: list[str], uow: UnitOfWorkProtocol
     ) -> tuple[dict[str, Track], dict[str, int]]:
-        """Resolve Spotify track IDs to canonical tracks."""
-        if not spotify_ids:
-            return {}, {"new_tracks_count": 0, "updated_tracks_count": 0}
+        """Resolve Spotify track IDs to canonical tracks.
 
-        logger.info(
-            f"Resolving {len(spotify_ids)} Spotify track IDs to canonical tracks"
+        Delegates to SpotifyInwardResolver which handles:
+        - Bulk lookup of existing connector mappings
+        - Batch Spotify API fetch for missing tracks
+        - Relinking (primary + secondary mappings)
+        """
+        tracks_map, metrics = await self._inward_resolver.resolve_to_canonical_tracks(
+            spotify_ids, uow
         )
-
-        # Phase 1: Bulk lookup existing mappings
-        connections = [("spotify", spotify_id) for spotify_id in spotify_ids]
-        existing_canonical_tracks = (
-            await uow.get_connector_repository().find_tracks_by_connectors(connections)
-        )
-
-        existing_canonical_track_ids = {
-            track.id for track in existing_canonical_tracks.values() if track.id
+        return tracks_map, {
+            "new_tracks_count": metrics.created,
+            "updated_tracks_count": metrics.existing,
         }
-        updated_tracks_count = len(existing_canonical_track_ids)
-
-        # Phase 2: Create missing tracks
-        missing_spotify_ids = [
-            sid
-            for sid in spotify_ids
-            if ("spotify", sid) not in existing_canonical_tracks
-        ]
-
-        new_canonical_track_ids: set[int] = set()
-
-        if missing_spotify_ids:
-            spotify_metadata = await self.spotify_connector.get_tracks_by_ids(
-                missing_spotify_ids
-            )
-
-            for spotify_id in missing_spotify_ids:
-                if spotify_id not in spotify_metadata:
-                    logger.warning(f"No Spotify metadata for {spotify_id}")
-                    continue
-
-                try:
-                    spotify_track_data = spotify_metadata[spotify_id]
-                    track_data = create_track_from_spotify_data(
-                        spotify_id, spotify_track_data
-                    )
-                    canonical_track = await uow.get_track_repository().save_track(
-                        track_data
-                    )
-
-                    # Determine primary vs non-primary mappings for relinking
-                    response_id = spotify_track_data.get(
-                        "id"
-                    )  # API response ID (should be primary)
-                    requested_id = spotify_id  # Original requested ID from user's data
-                    linked_from = spotify_track_data.get("linked_from")
-
-                    # The response ID is always the one that should be primary (market-appropriate)
-                    primary_id = (
-                        response_id or spotify_id
-                    )  # Fallback to requested ID if no response ID
-
-                    # Always map the primary ID first
-                    _ = await uow.get_connector_repository().map_track_to_connector(
-                        canonical_track,
-                        "spotify",
-                        primary_id,
-                        "direct_import",
-                        confidence=100,
-                        metadata=spotify_track_data,
-                        auto_set_primary=True,
-                    )
-
-                    # If relinking occurred, map the original requested ID as non-primary
-                    if (
-                        linked_from
-                        and "id" in linked_from
-                        and requested_id != primary_id
-                    ):
-                        original_track_id = linked_from["id"]
-                        logger.debug(
-                            f"Handling Spotify relinking: {original_track_id} -> {primary_id}"
-                        )
-                        _ = await uow.get_connector_repository().map_track_to_connector(
-                            canonical_track,
-                            "spotify",
-                            original_track_id,
-                            "direct_import",
-                            confidence=100,
-                            metadata=linked_from,
-                            auto_set_primary=False,  # Original ID is non-primary reference
-                        )
-
-                    existing_canonical_tracks["spotify", spotify_id] = canonical_track
-
-                    if canonical_track.id:
-                        new_canonical_track_ids.add(canonical_track.id)
-
-                except Exception as e:
-                    logger.error(f"Failed to create track for {spotify_id}: {e}")
-                    continue
-
-        # Build final mapping
-        canonical_tracks_map: dict[str, Track] = {}
-        for spotify_id in spotify_ids:
-            canonical_track = existing_canonical_tracks.get(("spotify", spotify_id))
-            if canonical_track:
-                canonical_tracks_map[spotify_id] = canonical_track
-
-        new_tracks_count = len(new_canonical_track_ids)
-        canonical_track_metrics = {
-            "new_tracks_count": new_tracks_count,
-            "updated_tracks_count": updated_tracks_count,
-        }
-
-        logger.info(
-            f"Successfully resolved {len(canonical_tracks_map)} out of {len(spotify_ids)} Spotify tracks",
-            resolution_rate=f"{len(canonical_tracks_map) / len(spotify_ids) * 100:.1f}%"
-            if spotify_ids
-            else "0%",
-            new_tracks=new_tracks_count,
-            updated_tracks=updated_tracks_count,
-        )
-
-        return canonical_tracks_map, canonical_track_metrics
 
     def _create_empty_metrics(self) -> dict[str, Any]:
         """Create empty metrics dictionary."""

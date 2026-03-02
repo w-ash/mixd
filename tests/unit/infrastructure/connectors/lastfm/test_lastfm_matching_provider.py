@@ -8,21 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.domain.entities import Artist, Track
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors.lastfm.matching_provider import LastFMProvider
-
-
-def _make_track(
-    track_id: int,
-    title: str = "Test Song",
-    artist: str = "Test Artist",
-) -> Track:
-    """Create a Track with sensible defaults for testing."""
-    return Track(
-        title=title,
-        artists=[Artist(name=artist)],
-    ).with_id(track_id)
+from tests.fixtures.factories import make_track
 
 
 def _make_lastfm_track_info(
@@ -59,17 +47,15 @@ def _make_provider() -> tuple[LastFMProvider, AsyncMock]:
     return provider, connector
 
 
-@pytest.mark.unit
 class TestLastFMProviderFetchRawMatches:
     """Test batch matching via LastFM API."""
 
-    @pytest.mark.asyncio
     async def test_successful_batch_lookup_returns_matches(self):
         """Successful batch lookup should produce matches for each track."""
         provider, connector = _make_provider()
         tracks = [
-            _make_track(1, "Song A", "Artist A"),
-            _make_track(2, "Song B", "Artist B"),
+            make_track(id=1, title="Song A", artist="Artist A"),
+            make_track(id=2, title="Song B", artist="Artist B"),
         ]
 
         connector.get_external_track_data.return_value = {
@@ -84,11 +70,10 @@ class TestLastFMProviderFetchRawMatches:
         assert 2 in result.matches
         assert len(result.failures) == 0
 
-    @pytest.mark.asyncio
     async def test_missing_tracks_get_no_results_failure(self):
         """Tracks absent from API response should get NO_RESULTS failure."""
         provider, connector = _make_provider()
-        tracks = [_make_track(1), _make_track(2)]
+        tracks = [make_track(id=1), make_track(id=2)]
 
         # Only track 1 returned
         connector.get_external_track_data.return_value = {
@@ -103,7 +88,6 @@ class TestLastFMProviderFetchRawMatches:
         assert len(failures_for_2) == 1
         assert failures_for_2[0].reason == MatchFailureReason.NO_RESULTS
 
-    @pytest.mark.asyncio
     async def test_empty_tracks_returns_empty_result(self):
         """Empty track list should return empty result without API call."""
         provider, connector = _make_provider()
@@ -114,11 +98,10 @@ class TestLastFMProviderFetchRawMatches:
         assert len(result.failures) == 0
         connector.get_external_track_data.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_batch_api_failure_records_failure_for_all_tracks(self):
         """Batch API exception should produce failures for all tracks."""
         provider, connector = _make_provider()
-        tracks = [_make_track(1), _make_track(2), _make_track(3)]
+        tracks = [make_track(id=1), make_track(id=2), make_track(id=3)]
         connector.get_external_track_data.side_effect = RuntimeError("API down")
 
         result = await provider.fetch_raw_matches_for_tracks(tracks)
@@ -129,11 +112,10 @@ class TestLastFMProviderFetchRawMatches:
         track_ids = {f.track_id for f in result.failures}
         assert track_ids == {1, 2, 3}
 
-    @pytest.mark.asyncio
     async def test_track_without_lastfm_url_creates_failure(self):
         """Track info without lastfm_url should produce NO_RESULTS failure."""
         provider, connector = _make_provider()
-        tracks = [_make_track(1)]
+        tracks = [make_track(id=1)]
 
         connector.get_external_track_data.return_value = {
             1: {"lastfm_title": "Song", "lastfm_artist_name": "Artist"},
@@ -146,11 +128,10 @@ class TestLastFMProviderFetchRawMatches:
         assert len(result.failures) == 1
         assert result.failures[0].reason == MatchFailureReason.NO_RESULTS
 
-    @pytest.mark.asyncio
     async def test_track_with_lastfm_url_creates_valid_match(self):
         """Track info with lastfm_url should produce a valid match."""
         provider, connector = _make_provider()
-        tracks = [_make_track(1)]
+        tracks = [make_track(id=1)]
 
         connector.get_external_track_data.return_value = {
             1: _make_lastfm_track_info(url="https://last.fm/music/Artist/_/Song"),
@@ -164,7 +145,6 @@ class TestLastFMProviderFetchRawMatches:
         )
 
 
-@pytest.mark.unit
 class TestLastFMProviderCreateRawMatch:
     """Test raw match creation from LastFM track info."""
 
@@ -219,22 +199,19 @@ class TestLastFMProviderCreateRawMatch:
         assert result is None
 
 
-@pytest.mark.unit
 class TestLastFMProviderAbstractMethods:
     """Verify that LastFM does not use the ISRC/artist_title abstract methods."""
 
-    @pytest.mark.asyncio
     async def test_match_by_isrc_raises_not_implemented(self):
         """_match_by_isrc should raise NotImplementedError."""
         provider, _ = _make_provider()
 
         with pytest.raises(NotImplementedError):
-            await provider._match_by_isrc([_make_track(1)])
+            await provider._match_by_isrc([make_track(id=1)])
 
-    @pytest.mark.asyncio
     async def test_match_by_artist_title_raises_not_implemented(self):
         """_match_by_artist_title should raise NotImplementedError."""
         provider, _ = _make_provider()
 
         with pytest.raises(NotImplementedError):
-            await provider._match_by_artist_title([_make_track(1)])
+            await provider._match_by_artist_title([make_track(id=1)])

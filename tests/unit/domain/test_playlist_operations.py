@@ -17,7 +17,6 @@ from src.domain.entities.playlist import (
 from src.domain.entities.track import Artist, Track
 
 
-@pytest.mark.unit
 class TestPlaylistEntity:
     """Test core playlist entity behavior and business rules."""
 
@@ -144,7 +143,6 @@ class TestPlaylistEntity:
             playlist.with_id(-1)
 
 
-@pytest.mark.unit
 class TestConnectorPlaylistEntity:
     """Test connector playlist entity behavior."""
 
@@ -224,7 +222,6 @@ class TestConnectorPlaylistEntity:
         assert isinstance(playlist.last_updated, datetime)
 
 
-@pytest.mark.unit
 class TestConnectorPlaylistItemEntity:
     """Test connector playlist item entity behavior."""
 
@@ -254,7 +251,6 @@ class TestConnectorPlaylistItemEntity:
         assert item.extras == {}
 
 
-@pytest.mark.unit
 class TestPlaylistEntryEntity:
     """Test playlist entry entity behavior."""
 

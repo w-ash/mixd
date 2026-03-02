@@ -4,9 +4,6 @@ Tests playlist update modes: append and differential, dry run, metadata updates,
 and no-changes early return.
 """
 
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from src.application.use_cases.update_canonical_playlist import (
@@ -14,59 +11,29 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistResult,
     UpdateCanonicalPlaylistUseCase,
 )
-from src.domain.entities.playlist import Playlist, PlaylistEntry
-from src.domain.entities.track import Artist, Track, TrackList
-
-
-def _make_track(track_id: int, title: str = "Song") -> Track:
-    """Create a test track."""
-    return Track(
-        id=track_id,
-        title=f"{title} {track_id}",
-        artists=[Artist(name="Artist")],
-    )
-
-
-def _make_playlist_with_entries(
-    playlist_id: int,
-    track_ids: list[int],
-    name: str = "Test Playlist",
-) -> Playlist:
-    """Create a playlist with entries for each track ID."""
-    entries = [
-        PlaylistEntry(
-            track=_make_track(tid),
-            added_at=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        for tid in track_ids
-    ]
-    return Playlist(id=playlist_id, name=name, entries=entries)
+from src.domain.entities.track import TrackList
+from tests.fixtures import make_playlist_with_entries, make_track
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with required repositories."""
-    uow = AsyncMock()
+    uow = make_mock_uow()
 
-    # Playlist repo
-    playlist_repo = AsyncMock()
+    # Playlist repo — pass through unchanged
+    playlist_repo = uow.get_playlist_repository()
     playlist_repo.save_playlist.side_effect = lambda p: p
-    uow.get_playlist_repository = MagicMock(return_value=playlist_repo)
-
-    # Metric repo (for _extract_track_metrics)
-    metric_repo = AsyncMock()
-    uow.get_metric_repository = MagicMock(return_value=metric_repo)
 
     return uow
 
 
-@pytest.mark.unit
 class TestUpdateCanonicalPlaylistCommand:
     """Test command construction and validation."""
 
     def test_valid_command(self):
         """Test creating a valid update command."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = UpdateCanonicalPlaylistCommand(
             playlist_id="42",
             new_tracklist=tracklist,
@@ -77,7 +44,7 @@ class TestUpdateCanonicalPlaylistCommand:
 
     def test_append_mode_flag(self):
         """Test command with append mode enabled."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = UpdateCanonicalPlaylistCommand(
             playlist_id="42",
             new_tracklist=tracklist,
@@ -87,7 +54,7 @@ class TestUpdateCanonicalPlaylistCommand:
 
     def test_dry_run_flag(self):
         """Test command with dry run enabled."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = UpdateCanonicalPlaylistCommand(
             playlist_id="42",
             new_tracklist=tracklist,
@@ -97,13 +64,13 @@ class TestUpdateCanonicalPlaylistCommand:
 
     def test_empty_id_rejected(self):
         """Test that empty playlist ID is rejected."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         with pytest.raises(ValueError):
             UpdateCanonicalPlaylistCommand(playlist_id="", new_tracklist=tracklist)
 
     def test_metadata_update_params(self):
         """Test command with name and description updates."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = UpdateCanonicalPlaylistCommand(
             playlist_id="42",
             new_tracklist=tracklist,
@@ -115,22 +82,21 @@ class TestUpdateCanonicalPlaylistCommand:
 
     def test_command_is_frozen(self):
         """Test command immutability."""
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         cmd = UpdateCanonicalPlaylistCommand(playlist_id="1", new_tracklist=tracklist)
         with pytest.raises(AttributeError):
             cmd.playlist_id = "2"
 
 
-@pytest.mark.unit
 class TestUpdateCanonicalPlaylistUseCase:
     """Test use case execution paths."""
 
     async def test_append_mode_adds_new_entries(self, mock_uow):
         """Test that append mode adds new tracks to end of playlist."""
-        current = _make_playlist_with_entries(1, [10, 20], "Existing")
+        current = make_playlist_with_entries(1, [10, 20], "Existing")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
-        new_tracks = [_make_track(30), _make_track(40)]
+        new_tracks = [make_track(30), make_track(40)]
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
@@ -150,11 +116,11 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_append_mode_deduplicates_existing_tracks(self, mock_uow):
         """Test that append mode filters out tracks already in playlist."""
-        current = _make_playlist_with_entries(1, [10, 20])
+        current = make_playlist_with_entries(1, [10, 20])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         # Try to append track 20 (already exists) and 30 (new)
-        new_tracks = [_make_track(20), _make_track(30)]
+        new_tracks = [make_track(20), make_track(30)]
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
@@ -172,11 +138,11 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_append_mode_no_new_entries(self, mock_uow):
         """Test append mode with all duplicate tracks does nothing."""
-        current = _make_playlist_with_entries(1, [10, 20])
+        current = make_playlist_with_entries(1, [10, 20])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         # All tracks already exist
-        new_tracks = [_make_track(10), _make_track(20)]
+        new_tracks = [make_track(10), make_track(20)]
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
@@ -192,10 +158,10 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_dry_run_does_not_commit(self, mock_uow):
         """Test that dry_run=True calculates changes without committing."""
-        current = _make_playlist_with_entries(1, [10, 20])
+        current = make_playlist_with_entries(1, [10, 20])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
-        new_tracks = [_make_track(30)]
+        new_tracks = [make_track(30)]
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
@@ -215,10 +181,10 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_metadata_update_name(self, mock_uow):
         """Test updating playlist name."""
-        current = _make_playlist_with_entries(1, [10], "Old Name")
+        current = make_playlist_with_entries(1, [10], "Old Name")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
-        tracklist = TrackList(tracks=[_make_track(10)])
+        tracklist = TrackList(tracks=[make_track(10)])
         command = UpdateCanonicalPlaylistCommand(
             playlist_id="1",
             new_tracklist=tracklist,
@@ -241,7 +207,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         )
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = None
 
-        tracklist = TrackList(tracks=[_make_track(1)])
+        tracklist = TrackList(tracks=[make_track(1)])
         command = UpdateCanonicalPlaylistCommand(
             playlist_id="not_a_number",
             new_tracklist=tracklist,
@@ -255,10 +221,10 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_result_includes_execution_time(self, mock_uow):
         """Test that result includes non-negative execution time."""
-        current = _make_playlist_with_entries(1, [10])
+        current = make_playlist_with_entries(1, [10])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
-        tracklist = TrackList(tracks=[_make_track(10)])
+        tracklist = TrackList(tracks=[make_track(10)])
         command = UpdateCanonicalPlaylistCommand(
             playlist_id="1",
             new_tracklist=tracklist,
@@ -272,10 +238,10 @@ class TestUpdateCanonicalPlaylistUseCase:
 
     async def test_result_confidence_score_for_append(self, mock_uow):
         """Test that append mode always has 1.0 confidence."""
-        current = _make_playlist_with_entries(1, [10])
+        current = make_playlist_with_entries(1, [10])
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
-        tracklist = TrackList(tracks=[_make_track(20)])
+        tracklist = TrackList(tracks=[make_track(20)])
         command = UpdateCanonicalPlaylistCommand(
             playlist_id="1",
             new_tracklist=tracklist,

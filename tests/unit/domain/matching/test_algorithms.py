@@ -5,47 +5,53 @@ These tests verify the pure business logic of track matching and confidence scor
 
 import pytest
 
-from src.config import settings
+from src.config import create_matching_config
 from src.domain.matching import ConfidenceEvidence, MatchResult
 from src.domain.matching.algorithms import (
     calculate_confidence,
     calculate_title_similarity,
 )
 
+config = create_matching_config()
 
-@pytest.mark.unit
+
 class TestCalculateTitleSimilarity:
     """Test cases for title similarity calculation."""
 
     def test_identical_titles(self):
         """Test that identical titles return perfect similarity."""
-        result = calculate_title_similarity("Paranoid Android", "Paranoid Android")
+        result = calculate_title_similarity(
+            "Paranoid Android", "Paranoid Android", config
+        )
         assert result == 1.0
 
     def test_different_case(self):
         """Test that case differences don't affect similarity."""
-        result = calculate_title_similarity("Paranoid Android", "paranoid android")
+        result = calculate_title_similarity(
+            "Paranoid Android", "paranoid android", config
+        )
         assert result == 1.0
 
     def test_live_variation(self):
         """Test that live variations are detected and penalized."""
         result = calculate_title_similarity(
-            "Paranoid Android", "Paranoid Android - Live"
+            "Paranoid Android", "Paranoid Android - Live", config
         )
         assert result == 0.6  # Should detect variation marker
 
     def test_remix_variation(self):
         """Test that remix variations are detected and penalized."""
-        result = calculate_title_similarity("Karma Police", "Karma Police (Remix)")
+        result = calculate_title_similarity(
+            "Karma Police", "Karma Police (Remix)", config
+        )
         assert result == 0.6  # Should detect variation marker
 
     def test_completely_different_titles(self):
         """Test that completely different titles return low similarity."""
-        result = calculate_title_similarity("Paranoid Android", "Yesterday")
+        result = calculate_title_similarity("Paranoid Android", "Yesterday", config)
         assert result < 0.3  # Should be very low similarity
 
 
-@pytest.mark.unit
 class TestCalculateConfidence:
     """Test cases for confidence calculation."""
 
@@ -63,7 +69,7 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "isrc"
+            internal_track, service_track, "isrc", config
         )
 
         assert confidence >= 90  # Should be very high for ISRC match
@@ -84,7 +90,7 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title"
+            internal_track, service_track, "artist_title", config
         )
 
         assert confidence >= 85  # Should be high for good match
@@ -105,7 +111,7 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title"
+            internal_track, service_track, "artist_title", config
         )
 
         assert confidence < 85  # Should be penalized for variation
@@ -125,11 +131,11 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title"
+            internal_track, service_track, "artist_title", config
         )
 
         assert (
-            evidence.duration_score == -settings.matching.duration_missing_penalty
+            evidence.duration_score == -config.duration_missing_penalty
         )  # Missing duration penalty
         assert confidence < 90  # Should be reduced from base score
 
@@ -147,7 +153,7 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title"
+            internal_track, service_track, "artist_title", config
         )
 
         assert (
@@ -170,14 +176,13 @@ class TestCalculateConfidence:
         }
 
         confidence, evidence = calculate_confidence(
-            internal_track, service_track, "artist_title"
+            internal_track, service_track, "artist_title", config
         )
 
         assert 0 <= confidence <= 100  # Must stay within bounds
         assert evidence.final_score == confidence
 
 
-@pytest.mark.unit
 class TestConfidenceEvidence:
     """Test ConfidenceEvidence type."""
 
@@ -213,7 +218,6 @@ class TestConfidenceEvidence:
             evidence.base_score = 95  # Should not be allowed
 
 
-@pytest.mark.unit
 class TestMatchResult:
     """Test MatchResult type."""
 

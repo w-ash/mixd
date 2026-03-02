@@ -13,12 +13,6 @@ get_logger(name: str) -> Logger
 setup_loguru_logger(verbose: bool = False) -> None
     Configure Loguru logger for the application
 
-log_startup_info() -> None
-    Log system configuration and API status at startup
-
-configure_prefect_logging() -> None
-    Configure Prefect to use our Loguru setup
-
 Usage:
 ------
 ```python
@@ -37,20 +31,17 @@ logger.info("Starting operation")
 
 # Import everything from the submodules
 from .logging import (
-    configure_prefect_logging,
     get_logger,
-    log_startup_info,
     setup_loguru_logger,
+    setup_script_logger,
 )
-from .settings import settings
+from .settings import create_matching_config, settings
 
 # Public API
 __all__ = [
-    "configure_prefect_logging",
-    # Logging
+    "create_matching_config",
     "get_logger",
-    "log_startup_info",
-    # Modern settings
     "settings",
     "setup_loguru_logger",
+    "setup_script_logger",
 ]

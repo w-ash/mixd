@@ -15,6 +15,7 @@ from src.application.use_cases._shared.command_validators import (
     optional_positive_int,
     positive_int_in_range,
 )
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -106,7 +107,7 @@ class GetPlayedTracksUseCase:
         Raises:
             ValueError: If command execution fails.
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Retrieving played tracks",
@@ -120,14 +121,9 @@ class GetPlayedTracksUseCase:
             try:
                 tracklist = await self._get_played_tracks(command, uow)
 
-                # Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = GetPlayedTracksResult(
                     tracklist=tracklist,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                 )
 
                 logger.info(
@@ -136,7 +132,7 @@ class GetPlayedTracksUseCase:
                     days_back=command.days_back,
                     connector_filter=command.connector_filter,
                     sort_by=command.sort_by,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                 )
 
             except Exception as e:

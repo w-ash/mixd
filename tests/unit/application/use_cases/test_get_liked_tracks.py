@@ -5,7 +5,6 @@ Following test pyramid: focus on business rules and validation.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,9 +14,9 @@ from src.application.use_cases.get_liked_tracks import (
 )
 from src.domain.entities import Track, TrackLike
 from src.domain.entities.track import Artist
+from tests.fixtures.mocks import make_mock_uow
 
 
-@pytest.mark.unit
 class TestGetLikedTracksCommand:
     """Test command validation - critical for preventing invalid requests."""
 
@@ -98,20 +97,16 @@ class TestGetLikedTracksUseCase:
     @pytest.fixture
     def mock_uow(self, sample_tracks, sample_likes):
         """Mock UnitOfWork with repositories."""
-        uow = AsyncMock()
+        uow = make_mock_uow()
 
-        # Mock like repository
-        like_repo = AsyncMock()
+        like_repo = uow.get_like_repository()
         like_repo.get_all_liked_tracks.return_value = sample_likes
-        uow.get_like_repository = MagicMock(return_value=like_repo)
 
-        # Mock track repository
-        track_repo = AsyncMock()
+        track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = {
             1: sample_tracks[0],
             2: sample_tracks[1],
         }
-        uow.get_track_repository = MagicMock(return_value=track_repo)
 
         return uow
 

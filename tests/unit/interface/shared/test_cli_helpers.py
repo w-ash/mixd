@@ -151,7 +151,6 @@ class TestValidateFilePath:
 class TestRunImportWithProgress:
     """Test import execution with progress context."""
 
-    @pytest.mark.asyncio
     async def test_run_import_executes_with_progress_context(self):
         """Import executes within progress coordination context."""
         # Mock the entire import pipeline
@@ -159,7 +158,9 @@ class TestRunImportWithProgress:
             patch(
                 "src.interface.cli.cli_helpers.progress_coordination_context"
             ) as mock_context,
-            patch("src.interface.cli.cli_helpers.run_import") as mock_run_import,
+            patch(
+                "src.application.use_cases.import_play_history.run_import"
+            ) as mock_run_import,
             patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
         ):
             # Setup mocks
@@ -188,7 +189,6 @@ class TestRunImportWithProgress:
             assert mock_run_async.called
             assert result == expected_result
 
-    @pytest.mark.asyncio
     async def test_run_import_passes_kwargs_to_use_case(self):
         """Import passes additional kwargs to run_import use case."""
         from pathlib import Path
@@ -197,7 +197,9 @@ class TestRunImportWithProgress:
             patch(
                 "src.interface.cli.cli_helpers.progress_coordination_context"
             ) as mock_context,
-            patch("src.interface.cli.cli_helpers.run_import") as mock_run_import,
+            patch(
+                "src.application.use_cases.import_play_history.run_import"
+            ) as mock_run_import,
             patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
         ):
             # Setup mocks

@@ -12,7 +12,6 @@ import pytest
 from src.application.workflows.context import ConnectorRegistryImpl
 
 
-@pytest.mark.integration
 class TestConnectorContracts:
     """Test that connectors have expected interfaces."""
 

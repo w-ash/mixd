@@ -9,6 +9,7 @@ from typing import Any
 
 from attrs import define, field
 
+from src.application.connector_protocols import PlaylistConnector
 from src.application.use_cases._shared import (
     AppendOperationResult,
     build_api_execution_metadata,
@@ -24,7 +25,7 @@ from src.application.use_cases._shared.command_validators import (
     positive_int_in_range,
     validate_tracklist_has_tracks,
 )
-from src.application.workflows.protocols import PlaylistConnector
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
@@ -332,7 +333,7 @@ class UpdateConnectorPlaylistUseCase:
         Raises:
             ValueError: If command execution fails.
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Starting connector playlist update",
@@ -375,9 +376,7 @@ class UpdateConnectorPlaylistUseCase:
                         return UpdateConnectorPlaylistResult(
                             playlist_id=command.playlist_id,
                             connector=command.connector,
-                            execution_time_ms=int(
-                                (datetime.now(UTC) - start_time).total_seconds() * 1000
-                            ),
+                            execution_time_ms=timer.stop(),
                             confidence_score=diff.confidence_score,
                         )
 
@@ -422,11 +421,6 @@ class UpdateConnectorPlaylistUseCase:
                         command.playlist_id, command, uow
                     )
 
-                # Step 5: Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
                 result = UpdateConnectorPlaylistResult(
                     playlist_id=command.playlist_id,
                     connector=command.connector,
@@ -435,7 +429,7 @@ class UpdateConnectorPlaylistUseCase:
                     tracks_added=tracks_added,
                     tracks_removed=tracks_removed,
                     tracks_moved=tracks_moved,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                     confidence_score=confidence_score,
                     external_metadata=external_metadata,
                 )
@@ -446,7 +440,7 @@ class UpdateConnectorPlaylistUseCase:
                     connector=command.connector,
                     operations_performed=operations_performed,
                     api_calls_made=api_calls_made,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                     dry_run=command.dry_run,
                 )
 

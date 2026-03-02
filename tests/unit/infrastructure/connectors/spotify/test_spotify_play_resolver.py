@@ -9,11 +9,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.domain.entities import Artist, ConnectorTrackPlay, Track, TrackPlay
+from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
+from tests.fixtures.factories import make_track
 
 
 def _make_connector_play(
@@ -50,20 +51,6 @@ def _make_connector_play(
     )
 
 
-def _make_canonical_track(
-    track_id: int = 1,
-    title: str = "Test Song",
-    duration_ms: int | None = 240000,
-) -> Track:
-    """Create a canonical Track for resolver responses."""
-    return Track(
-        id=track_id,
-        title=title,
-        artists=[Artist(name="Test Artist")],
-        duration_ms=duration_ms,
-    )
-
-
 class TestShouldIncludeSpotifyPlay:
     """Test Spotify duration filtering rules."""
 
@@ -97,7 +84,6 @@ class TestShouldIncludeSpotifyPlay:
 class TestResolverEmptyInput:
     """Test resolver behavior with no input."""
 
-    @pytest.mark.asyncio
     async def test_empty_plays_returns_empty_result(self):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
@@ -121,7 +107,7 @@ class TestResolverFiltering:
 
         uow = MagicMock()
         # Existing connector mappings return a canonical track
-        canonical_track = _make_canonical_track(duration_ms=300000)  # 5-minute track
+        canonical_track = make_track(duration_ms=300000)  # 5-minute track
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): canonical_track,
@@ -130,7 +116,6 @@ class TestResolverFiltering:
 
         return resolver, uow
 
-    @pytest.mark.asyncio
     async def test_incognito_plays_excluded(self, resolver_with_existing_tracks):
         resolver, uow = resolver_with_existing_tracks
         play = _make_connector_play(incognito=True, ms_played=300000)
@@ -140,7 +125,6 @@ class TestResolverFiltering:
         assert len(plays) == 0
         assert metrics["incognito_excluded"] == 1
 
-    @pytest.mark.asyncio
     async def test_duration_filtered_plays_excluded(
         self, resolver_with_existing_tracks
     ):
@@ -154,7 +138,6 @@ class TestResolverFiltering:
         assert len(plays) == 0
         assert metrics["duration_excluded"] == 1
 
-    @pytest.mark.asyncio
     async def test_accepted_play_produces_track_play(
         self, resolver_with_existing_tracks
     ):
@@ -167,7 +150,6 @@ class TestResolverFiltering:
         assert isinstance(plays[0], TrackPlay)
         assert metrics["accepted_plays"] == 1
 
-    @pytest.mark.asyncio
     async def test_accepted_play_preserves_rich_metadata(
         self, resolver_with_existing_tracks
     ):
@@ -190,13 +172,12 @@ class TestResolverFiltering:
 class TestResolverTrackResolution:
     """Test canonical track creation and lookup."""
 
-    @pytest.mark.asyncio
     async def test_existing_mapping_reuses_canonical_track(self):
         """Tracks with existing connector mappings should not call Spotify API."""
         connector = MagicMock()
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
-        canonical = _make_canonical_track(track_id=42)
+        canonical = make_track(id=42)
         uow = MagicMock()
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
@@ -212,7 +193,6 @@ class TestResolverTrackResolution:
         # Spotify API should NOT have been called since mapping existed
         connector.get_tracks_by_ids.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_missing_mapping_creates_new_track_via_api(self):
         """Missing mappings should trigger Spotify API lookup + track creation."""
         connector = AsyncMock()
@@ -234,7 +214,7 @@ class TestResolverTrackResolution:
         uow.get_connector_repository.return_value = connector_repo
         # save_track returns a track with ID
         track_repo = AsyncMock()
-        saved_track = _make_canonical_track(track_id=99)
+        saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         uow.get_track_repository.return_value = track_repo
 
@@ -246,7 +226,6 @@ class TestResolverTrackResolution:
         assert metrics["new_tracks_count"] == 1
         connector.get_tracks_by_ids.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_failed_resolution_logged_and_skipped(self):
         """Failed track resolution should be logged as error, not crash."""
         connector = AsyncMock()
@@ -266,7 +245,6 @@ class TestResolverTrackResolution:
         assert len(metrics["resolution_failures"]) == 1
         assert metrics["resolution_failures"][0]["reason"] == "track_resolution_failed"
 
-    @pytest.mark.asyncio
     async def test_no_valid_spotify_ids_returns_empty(self):
         """Plays with no extractable Spotify IDs should return empty."""
         connector = MagicMock()
@@ -284,7 +262,6 @@ class TestResolverTrackResolution:
 class TestResolverRelinking:
     """Test Spotify relinking (track ID changes across markets)."""
 
-    @pytest.mark.asyncio
     async def test_relinking_creates_both_mappings(self):
         """When Spotify relinks a track, both old and new IDs should be mapped."""
         connector = AsyncMock()
@@ -305,7 +282,7 @@ class TestResolverRelinking:
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
-        saved_track = _make_canonical_track(track_id=55)
+        saved_track = make_track(id=55)
         track_repo.save_track.return_value = saved_track
         uow.get_track_repository.return_value = track_repo
 
@@ -334,7 +311,6 @@ class TestResolverRelinking:
 class TestResolverMetrics:
     """Test metrics dictionary structure and correctness."""
 
-    @pytest.mark.asyncio
     async def test_metrics_include_all_expected_keys(self):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
@@ -355,14 +331,13 @@ class TestResolverMetrics:
         }
         assert expected_keys == set(metrics.keys())
 
-    @pytest.mark.asyncio
     async def test_mixed_play_metrics_correct(self):
         """Multiple plays with different outcomes should produce correct aggregate metrics."""
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {}
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
-        canonical = _make_canonical_track(track_id=1, duration_ms=300000)
+        canonical = make_track(id=1, duration_ms=300000)
         uow = MagicMock()
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {

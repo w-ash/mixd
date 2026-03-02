@@ -8,7 +8,11 @@ needing to know about specific connectors.
 from collections.abc import Callable
 from typing import Any
 
-from src.domain.repositories import PlayImporterProtocol, UnitOfWorkProtocol
+from src.domain.repositories import (
+    PlayImporterProtocol,
+    PlayResolverProtocol,
+    UnitOfWorkProtocol,
+)
 
 
 class PlayImportServiceRegistry:
@@ -60,7 +64,7 @@ class PlayImportServiceRegistry:
 
     async def create_play_resolver(
         self, service: str, uow: UnitOfWorkProtocol | None = None
-    ) -> Any:
+    ) -> PlayResolverProtocol:
         """Create play resolver for the specified service.
 
         Args:
@@ -97,33 +101,33 @@ class PlayImportServiceRegistry:
         self, _uow: UnitOfWorkProtocol
     ) -> PlayImporterProtocol:
         """Create Last.fm importer via connector factory."""
-        from src.infrastructure.connectors.lastfm.factory import LastfmServiceFactory
+        from src.infrastructure.connectors.lastfm.factory import create_play_importer
 
-        return await LastfmServiceFactory.create_play_importer()
+        return create_play_importer()
 
     async def _create_spotify_importer(
         self, _uow: UnitOfWorkProtocol
     ) -> PlayImporterProtocol:
         """Create Spotify importer via connector factory."""
-        from src.infrastructure.connectors.spotify.factory import SpotifyServiceFactory
+        from src.infrastructure.connectors.spotify.factory import create_play_importer
 
-        return await SpotifyServiceFactory.create_play_importer()
+        return create_play_importer()
 
     async def _create_lastfm_resolver(
         self, _uow: UnitOfWorkProtocol | None = None
-    ) -> Any:
+    ) -> PlayResolverProtocol:
         """Create Last.fm resolver via connector factory."""
-        from src.infrastructure.connectors.lastfm.factory import LastfmServiceFactory
+        from src.infrastructure.connectors.lastfm.factory import create_play_resolver
 
-        return await LastfmServiceFactory.create_play_resolver()
+        return create_play_resolver()
 
     async def _create_spotify_resolver(
         self, _uow: UnitOfWorkProtocol | None = None
-    ) -> Any:
+    ) -> PlayResolverProtocol:
         """Create Spotify resolver via connector factory."""
-        from src.infrastructure.connectors.spotify.factory import SpotifyServiceFactory
+        from src.infrastructure.connectors.spotify.factory import create_play_resolver
 
-        return await SpotifyServiceFactory.create_play_resolver()
+        return create_play_resolver()
 
 
 # Global registry instance for easy access

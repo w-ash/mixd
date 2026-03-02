@@ -29,6 +29,9 @@ from .protocols import NodeResult
 
 logger = get_logger(__name__)
 
+# One-time registry validation guard — runs before first workflow execution
+_registry_validated = False
+
 # --- Progress tracking integration ---
 
 # --- Node execution ---
@@ -116,6 +119,80 @@ def generate_flow_run_name(flow_name: str) -> str:
     )
 
 
+def topological_sort(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Orders tasks by dependencies to ensure upstream tasks execute first.
+
+    Uses 3-color DFS to detect cycles: unvisited → visiting (gray) → visited (black).
+    A back-edge to a gray node means a cycle exists.
+    """
+    graph = {task["id"]: task.get("upstream", []) for task in tasks}
+
+    visited: set[str] = set()
+    visiting: set[str] = set()
+    result: list[dict[str, Any]] = []
+
+    task_by_id = {task["id"]: task for task in tasks}
+
+    def visit(node_id: str) -> None:
+        if node_id in visited:
+            return
+        if node_id in visiting:
+            raise ValueError(f"Cycle detected in workflow: {node_id}")
+        visiting.add(node_id)
+        for dep in graph.get(node_id, []):
+            visit(dep)
+        visiting.discard(node_id)
+        visited.add(node_id)
+        if node_id in task_by_id:
+            result.append(task_by_id[node_id])
+
+    for task_id in graph:
+        visit(task_id)
+
+    return result
+
+
+def validate_workflow_def(workflow_def: dict[str, Any]) -> None:
+    """Validate workflow definition structure before execution.
+
+    Catches structural errors early — before any expensive I/O operations run.
+    Checks for: non-empty tasks, required fields, valid upstream references,
+    and resolvable node types.
+
+    Raises:
+        ValueError: If the workflow definition is structurally invalid.
+    """
+    tasks = workflow_def.get("tasks", [])
+    if not tasks:
+        raise ValueError("Workflow has no tasks")
+
+    task_ids: set[str] = set()
+    for task_def in tasks:
+        if "id" not in task_def:
+            raise ValueError(f"Task missing required 'id' field: {task_def}")
+        if "type" not in task_def:
+            raise ValueError(f"Task '{task_def['id']}' missing required 'type' field")
+        task_ids.add(task_def["id"])
+
+    # Validate upstream references point to existing tasks
+    for task_def in tasks:
+        for upstream_id in task_def.get("upstream", []):
+            if upstream_id not in task_ids:
+                raise ValueError(
+                    f"Task '{task_def['id']}' references unknown upstream '{upstream_id}'. Available: {sorted(task_ids)}"
+                )
+
+    # Validate node types are resolvable in the registry
+    for task_def in tasks:
+        node_type = task_def["type"]
+        try:
+            get_node(node_type)
+        except KeyError:
+            raise ValueError(
+                f"Task '{task_def['id']}' has unknown node type '{node_type}'"
+            ) from None
+
+
 def build_flow(workflow_def: dict[str, Any]) -> Any:
     """Converts workflow definition JSON into executable Prefect flow function.
 
@@ -134,29 +211,6 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
     flow_name = workflow_def.get("name", "unnamed_workflow")
     flow_description = workflow_def.get("description", "")
     tasks = workflow_def.get("tasks", [])
-
-    # Create a topological sort of tasks based on dependencies
-    def topological_sort(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Orders tasks by dependencies to ensure upstream tasks execute first."""
-        # Create a dependency graph
-        graph = {task["id"]: task.get("upstream", []) for task in tasks}
-
-        # Find execution order
-        visited: set[str] = set()
-        result: list[dict[str, Any]] = []
-
-        def visit(node_id: str) -> None:
-            if node_id in visited:
-                return
-            visited.add(node_id)
-            for dep in graph[node_id]:
-                visit(dep)
-            result.append(next(t for t in tasks if t["id"] == node_id))
-
-        for task_id in graph:
-            visit(task_id)
-
-        return result
 
     # Sort tasks in execution order
     sorted_tasks = topological_sort(tasks)
@@ -182,88 +236,87 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
         # Create workflow context with all required providers
         from src.infrastructure.persistence.database.db_connection import get_session
 
-        from .context import SharedSessionProvider, create_workflow_context
+        from .context import create_workflow_context
 
         # Create a single shared session for the entire workflow execution
         async with get_session() as shared_session:
-            # Create shared session provider that wraps the session
-            shared_session_provider = SharedSessionProvider(shared_session)
-
             # Create workflow context with shared session
             workflow_context = create_workflow_context(shared_session)
 
-            # Initialize execution context with shared session provider
+            # Initialize execution context
             context = {
                 "parameters": parameters,
-                "use_cases": workflow_context.use_cases,  # Database operations and business logic
-                "connectors": workflow_context.connectors,
-                "logger": workflow_context.logger,
-                "session_provider": shared_session_provider,  # Use shared session
-                "shared_session": shared_session,  # Direct access for nodes that need it
-                "workflow_context": workflow_context,  # Full context for UoW execution
-                "workflow_name": flow_name,  # For progress tracking
-                "progress_manager": workflow_progress_manager,  # For CLI progress tracking (optional)
-                "workflow_operation_id": workflow_operation_id,  # Unified progress tracking
-                "total_tasks": len(sorted_tasks),  # Total number of tasks in workflow
+                "workflow_context": workflow_context,
+                "workflow_name": flow_name,
+                "progress_manager": workflow_progress_manager,
+                "workflow_operation_id": workflow_operation_id,
+                "total_tasks": len(sorted_tasks),
             }
             task_results: dict[str, NodeResult] = {}
 
-            # Execute tasks in dependency order
-            for task_index, task_def in enumerate(sorted_tasks):
-                task_id = task_def["id"]
-                node_type = task_def["type"]
+            try:
+                # Execute tasks in dependency order
+                for task_index, task_def in enumerate(sorted_tasks):
+                    task_id = task_def["id"]
+                    node_type = task_def["type"]
 
-                # Log the task start
-                flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
+                    # Log the task start
+                    flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
 
-                # Resolve configuration with current context
-                config = task_def.get("config", {})
+                    # Resolve configuration with current context
+                    config = task_def.get("config", {})
 
-                # Create task-specific context with upstream results and progress tracking
-                task_context = context.copy()
-                task_context["current_step"] = (
-                    task_index + 1
-                )  # 1-based indexing for progress
+                    # Create task-specific context with upstream results and progress tracking
+                    task_context = context.copy()
+                    task_context["current_step"] = (
+                        task_index + 1
+                    )  # 1-based indexing for progress
 
-                if task_def.get("upstream"):
-                    if len(task_def["upstream"]) == 1:
-                        # Single upstream case
-                        task_context["upstream_task_id"] = task_def["upstream"][0]
-                    else:
-                        # Multiple upstream case - first one is primary by convention
-                        # (unless config specifies a primary_input)
-                        primary_input = config.get("primary_input")
-                        if primary_input and primary_input in task_def["upstream"]:
-                            task_context["upstream_task_id"] = primary_input
-                        else:
+                    if task_def.get("upstream"):
+                        if len(task_def["upstream"]) == 1:
+                            # Single upstream case
                             task_context["upstream_task_id"] = task_def["upstream"][0]
+                        else:
+                            # Multiple upstream case - first one is primary by convention
+                            # (unless config specifies a primary_input)
+                            primary_input = config.get("primary_input")
+                            if primary_input and primary_input in task_def["upstream"]:
+                                task_context["upstream_task_id"] = primary_input
+                            else:
+                                task_context["upstream_task_id"] = task_def["upstream"][
+                                    0
+                                ]
 
-                    # Add all upstream tasks as a list for nodes that need multiple inputs
-                    task_context["upstream_task_ids"] = task_def["upstream"]
+                        # Add all upstream tasks as a list for nodes that need multiple inputs
+                        task_context["upstream_task_ids"] = task_def["upstream"]
 
-                    # Copy upstream task results into context
-                    for upstream_id in task_def["upstream"]:
-                        if upstream_id in task_results:
-                            task_context[upstream_id] = task_results[upstream_id]
+                        # Copy upstream task results into context
+                        for upstream_id in task_def["upstream"]:
+                            if upstream_id in task_results:
+                                task_context[upstream_id] = task_results[upstream_id]
 
-                # Execute node with Prefect's native progress tracking
-                result = await execute_node(node_type, task_context, config)
+                    # Execute node with Prefect's native progress tracking
+                    result = await execute_node(node_type, task_context, config)
 
-                # Store result in context and task_results
-                context[task_id] = result
-                task_results[task_id] = result
+                    # Store result in context and task_results
+                    context[task_id] = result
+                    task_results[task_id] = result
 
-                # Also store in context under node-specified result key if present
-                if result_key := task_def.get("result_key"):
-                    flow_logger.debug(f"Storing result under key: {result_key}")
-                    context[result_key] = result
+                    # Also store in context under node-specified result key if present
+                    if result_key := task_def.get("result_key"):
+                        flow_logger.debug(f"Storing result under key: {result_key}")
+                        context[result_key] = result
 
-                # Task completed - progress tracking handled in execute_node
+                    # Task completed - progress tracking handled in execute_node
 
-            flow_logger.info("Workflow completed successfully")
+                flow_logger.info("Workflow completed successfully")
 
-            context["_task_results"] = task_results
-            return context
+                context["_task_results"] = task_results
+                return context
+            finally:
+                # Close cached connector instances (httpx pools) on success or failure,
+                # before the get_session() context manager exits
+                await workflow_context.connectors.aclose()
 
     # Return the decorated flow function
     return workflow_flow
@@ -386,6 +439,15 @@ async def run_workflow(
         Tuple of (execution context with all task results, structured final result)
     """
 
+    global _registry_validated
+    if not _registry_validated:
+        from .registry_validation import validate_registry
+
+        validate_registry()
+        _registry_validated = True
+
+    validate_workflow_def(workflow_def)
+
     logger = get_run_logger()
     workflow_name = workflow_def.get("name", "unnamed")
 
@@ -425,8 +487,8 @@ async def run_workflow(
             # Add metadata to context
             context["workflow_name"] = workflow_name
 
-            # Extract typed task results from context; fall back to context for safety
-            task_results: dict[str, NodeResult] = context.pop("_task_results", context)
+            # Extract typed task results from context
+            task_results: dict[str, NodeResult] = context.pop("_task_results", {})
 
             # Extract result with actual execution time
             flow_run_name = workflow.flow_run_name

@@ -4,12 +4,9 @@ Tests ensure that play filtering configuration is properly loaded
 and accessible through the settings system.
 """
 
-import pytest
-
 from src.config.settings import ImportConfig, settings
 
 
-@pytest.mark.unit
 class TestImportConfig:
     """Test import configuration model and defaults."""
 

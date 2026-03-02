@@ -4,12 +4,9 @@ Tests the core business rules for determining when two tracks represent the same
 which is critical for deduplication, merging, and cross-service track linking.
 """
 
-import pytest
-
 from src.domain.entities import Artist, Track
 
 
-@pytest.mark.unit
 class TestTrackIdentityResolution:
     """Test Track.has_same_identity_as method - complex business logic with no external dependencies.
 

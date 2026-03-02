@@ -2,11 +2,10 @@
 
 from typing import Annotated
 
+from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
-from src.domain.entities import Track
-from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console
 
@@ -47,16 +46,16 @@ def merge_tracks(
 
     async def _merge_tracks_async():
         from src.application.runner import execute_use_case
+        from src.application.use_cases.track_operations import (
+            get_tracks as get_tracks_uc,
+            merge_tracks as merge_tracks_uc,
+        )
 
         # Step 1: Fetch both tracks for confirmation display
-        async def _get_tracks(uow: UnitOfWorkProtocol) -> tuple[Track, Track]:
-            track_repo = uow.get_track_repository()
-            return await track_repo.get_by_id(winner_id), await track_repo.get_by_id(
-                loser_id
-            )
-
         try:
-            winner_track, loser_track = await execute_use_case(_get_tracks)
+            winner_track, loser_track = await execute_use_case(
+                lambda uow: get_tracks_uc(uow, winner_id, loser_id)
+            )
         except ValueError as e:
             console.print(f"❌ [red]Error: {e}[/red]")
             raise typer.Exit(1) from e
@@ -107,20 +106,18 @@ def merge_tracks(
             console.print("  • Soft-delete the loser track")
             console.print("  • This operation is difficult to undo")
 
-            confirm = typer.confirm("\nAre you sure you want to merge these tracks?")
-            if not confirm:
+            if not Confirm.ask(
+                "\n[bold]Are you sure you want to merge these tracks?[/bold]"
+            ):
                 console.print("❌ [yellow]Merge cancelled[/yellow]")
                 raise typer.Exit(0)
 
         # Step 4: Perform merge via use case
         console.print("\n🔄 [blue]Merging tracks...[/blue]")
 
-        async def _do_merge(uow: UnitOfWorkProtocol) -> Track:
-            return await uow.get_track_merge_service().merge_tracks(
-                winner_id, loser_id, uow
-            )
-
-        result_track = await execute_use_case(_do_merge)
+        result_track = await execute_use_case(
+            lambda uow: merge_tracks_uc(uow, winner_id, loser_id)
+        )
 
         console.print(
             f"✅ [green]Successfully merged tracks! Winner track ID: {result_track.id}[/green]"
@@ -141,13 +138,12 @@ def show_track(
 
     async def _show_track_async():
         from src.application.runner import execute_use_case
+        from src.application.use_cases.track_operations import (
+            get_tracks as get_tracks_uc,
+        )
 
         try:
-
-            async def _get_track(uow: UnitOfWorkProtocol) -> Track:
-                return await uow.get_track_repository().get_by_id(track_id)
-
-            track = await execute_use_case(_get_track)
+            (track,) = await execute_use_case(lambda uow: get_tracks_uc(uow, track_id))
         except ValueError as e:
             console.print(f"❌ [red]Error: {e}[/red]")
             raise typer.Exit(1) from e

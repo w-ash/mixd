@@ -6,9 +6,10 @@ Spotify track data into our domain MatchResult objects.
 
 from typing import Any, override
 
-from src.config import get_logger
+from src.config import create_matching_config, get_logger
 from src.domain.entities import Track
 from src.domain.matching.algorithms import calculate_title_similarity
+from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -30,6 +31,8 @@ class SpotifyProvider(BaseMatchingProvider):
 
     connector_instance: Any
 
+    _matching_config: MatchingConfig
+
     def __init__(self, connector_instance: Any) -> None:
         """Initialize with Spotify connector.
 
@@ -37,6 +40,7 @@ class SpotifyProvider(BaseMatchingProvider):
             connector_instance: Spotify service connector for API calls.
         """
         self.connector_instance = connector_instance
+        self._matching_config = create_matching_config()
 
     @property
     @override
@@ -165,7 +169,9 @@ class SpotifyProvider(BaseMatchingProvider):
                 # Rank candidates by title similarity, pick the best match
                 best = max(
                     candidates,
-                    key=lambda c: calculate_title_similarity(track.title, c.name),
+                    key=lambda c: calculate_title_similarity(
+                        track.title, c.name, self._matching_config
+                    ),
                 )
 
                 if best.id:

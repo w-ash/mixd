@@ -143,13 +143,11 @@ poetry run pytest -m "performance"   # Performance tests only (>5s each)
 poetry run pytest -m "diagnostic"    # Diagnostic/profiling tests
 
 # By layer
+poetry run pytest -m "unit"                      # Unit tests only
+poetry run pytest -m "integration"               # Integration tests only
 poetry run pytest -m "integration and not slow"  # Fast integration tests
-poetry run pytest tests/unit/                    # All unit tests
-poetry run pytest tests/integration/             # All integration tests
-
-# By domain
-poetry run pytest -m "matching"      # Track matching tests
-poetry run pytest -m "connector"     # Connector tests
+poetry run pytest tests/unit/                    # All unit tests (by path)
+poetry run pytest tests/integration/             # All integration tests (by path)
 ```
 
 **Complete Test Suite** (CI/CD):
@@ -157,9 +155,10 @@ poetry run pytest -m "connector"     # Connector tests
 poetry run pytest -m ""              # Run ALL tests including slow/diagnostic
 ```
 
-**Marker Definitions**:
-- `unit`: Fast, isolated tests (<100ms each)
-- `integration`: Real DB/APIs (<1s each)
+**Marker Definitions** (6 total — applied via `pytestmark` in conftest or per-test decorator):
+- `unit`: Fast, isolated tests (<100ms each) — auto-applied to `tests/unit/`
+- `integration`: Real DB/APIs (<1s each) — auto-applied to `tests/integration/`
+- `e2e`: Full system, critical user flows (<10s) — applied per-test
 - `slow`: Tests taking >1s (skipped by default)
 - `performance`: Tests taking >5s (skipped by default)
 - `diagnostic`: Investigation/profiling tests (skipped by default)
@@ -199,13 +198,18 @@ def test_import_command(cli_runner):
 ```
 
 ### Test Data Fixtures
-Use `tests/fixtures/models.py` for test data creation:
+Use `tests/fixtures/` for test data creation — plain factory functions, not pytest fixtures:
 ```python
-from tests.fixtures.models import create_test_track, create_test_playlist
+from tests.fixtures import make_track, make_connector_track, make_playlist, make_mock_uow
 
-# Create test data with sensible defaults
-track = create_test_track(title="Test", spotify_id="123")
-playlist = create_test_playlist(name="Test Playlist")
+# Domain entity factories (keyword overrides for any Track field)
+track = make_track(id=1, title="Test", isrc="US1234567890")
+ct = make_connector_track("sp_123", linked_from_id="sp_old")
+playlist = make_playlist(id=1, name="Test Playlist")
+
+# Mock UoW with pre-wired repos (configure specific repos as needed)
+uow = make_mock_uow()
+uow.get_track_repository().save_track.side_effect = lambda t: t.with_id(100)
 ```
 
 ### Test Commands
@@ -267,7 +271,7 @@ class NewFeatureUseCase:
 
 ### Workflow Node
 ```python
-# Create transform in domain/transforms/ or application/transforms/
+# Create transform in domain/transforms/ or application/metadata_transforms/
 # Register in application/workflows/node_catalog.py
 
 from src.application.workflows.node_catalog import node
@@ -279,46 +283,8 @@ async def custom_sort_node(tracklist: TrackList, config: dict) -> TrackList:
 ```
 
 ### External Service Connector
-```python
-# 1. Define Pydantic models for API response shapes
-# src/infrastructure/connectors/new_service/models.py
-class NewServiceBaseModel(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
-class NewServiceTrack(NewServiceBaseModel):
-    id: str
-    name: str
-    # ... typed fields matching API JSON shape
-
-# 2. Validate raw dict → typed model at the API client boundary
-# src/infrastructure/connectors/new_service/client.py
-class NewServiceAPIClient(BaseAPIClient):
-    async def get_track(self, track_id: str) -> NewServiceTrack | None:
-        data = response.json()
-        return NewServiceTrack.model_validate(data)  # Validate here
-
-# 3. Connector facade delegates to typed client + conversions
-# src/infrastructure/connectors/new_service/connector.py
-class NewServiceConnector(BaseAPIConnector):
-    @property
-    def connector_name(self) -> str:
-        return "new_service"
-
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
-        from .conversions import convert_new_service_track
-        return convert_new_service_track(track_data)
-
-# 4. Conversions receive typed models, not raw dicts
-# src/infrastructure/connectors/new_service/conversions.py
-def convert_new_service_track(data: dict[str, Any] | NewServiceTrack) -> ConnectorTrack:
-    track = NewServiceTrack.model_validate(data) if isinstance(data, dict) else data
-    # All access is typed — no isinstance() guards needed
-
-# 5. Matching provider works with typed models
-# src/infrastructure/connectors/new_service/matching_provider.py
-class NewServiceMatchingProvider(BaseMatchingProvider):
-    # Implement matching logic using typed models from client
-```
+See `.claude/skills/new-connector/` for the full step-by-step guide, or run `/new-connector` to invoke it.
 
 ### Database Changes
 1. Update `src/infrastructure/persistence/database/db_models.py`
@@ -457,172 +423,7 @@ poetry run alembic current
 
 ## Subagent Usage Guide
 
-Narada uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
-
-### Available Subagents (5 Total, 3 Active at a Time)
-
-**Backend Agents**:
-1. **sqlalchemy-async-optimizer** - SQLAlchemy 2.0 async patterns, SQLite concurrency, N+1 query prevention
-2. **architecture-guardian** - Clean Architecture + DDD enforcement (backend + frontend)
-3. **test-pyramid-architect** - pytest strategy, async test debugging, 60/35/5 pyramid balance
-
-**Frontend Agents** (v0.5.0+):
-4. **react-architecture-specialist** - React + TypeScript patterns, Tanstack Query, performance optimization
-5. **vitest-strategy-architect** - Vitest component testing, React Testing Library, Playwright E2E
-
-### Rotation Strategy (Maximize 3 Active)
-
-**Current Phase** → **Active Agents**:
-
-**Backend-Heavy Development** (Now → v0.4.0):
-- ✅ sqlalchemy-async-optimizer
-- ✅ architecture-guardian
-- ✅ test-pyramid-architect
-
-**Frontend-Heavy Development** (v0.5.0):
-- ✅ architecture-guardian (universal - always useful)
-- ✅ react-architecture-specialist
-- ✅ vitest-strategy-architect
-
-**Full-Stack Development** (v0.6.0+):
-- ✅ architecture-guardian (always active)
-- ✅ 2 domain-specific agents (backend or frontend based on current task)
-
-### When to Use Each Agent
-
-#### sqlalchemy-async-optimizer
-**Use when**:
-- Designing repository methods with complex joins/relationships
-- Debugging "database locked" errors
-- Optimizing `selectinload()` strategies
-- Implementing batch operations efficiently
-
-**Example invocation**:
-> "I need to fetch playlists with all their tracks. How should I structure the query to avoid N+1 problems?"
-
-**Output**: Query design with `selectinload()`, rationale, performance implications
-
-#### architecture-guardian
-**Use when**:
-- Reviewing new use cases before implementation
-- Validating refactors across multiple layers
-- Self-review for architectural violations
-- Designing adapters for new services
-
-**Example invocation**:
-> "Review this use case for Clean Architecture violations: Does it import from infrastructure? Are repository protocols used correctly?"
-
-**Output**: ✅ Approved / ⚠️ Approved with suggestions / ❌ Rejected with specific violations
-
-#### test-pyramid-architect
-**Use when**:
-- Designing test coverage for new features
-- Debugging flaky async tests (SQLite locks, task cleanup)
-- Ensuring proper fixture usage (`db_session` vs `get_session()`)
-- Maintaining 60/35/5 test pyramid ratio
-
-**Example invocation**:
-> "Design test strategy for SyncPlaylistUseCase. What's the unit/integration split?"
-
-**Output**: Test plan with unit/integration breakdown, fixture recommendations, test case outlines
-
-#### react-architecture-specialist (v0.5.0+)
-**Use when**:
-- Designing component hierarchies
-- Reviewing Tanstack Query patterns (cache configuration, stale-while-revalidate)
-- Performance optimization (React.memo, useMemo, useCallback)
-- State management strategy (context vs props vs query state)
-
-**Example invocation**:
-> "Should my TrackList component fetch tracks from the API or receive them as props?"
-
-**Output**: Component architecture design with container/presentational split, Tanstack Query configuration
-
-#### vitest-strategy-architect (v0.5.0+)
-**Use when**:
-- Designing component test strategy
-- Debugging flaky async component tests
-- Mocking Tanstack Query in tests
-- Planning E2E test scenarios (Chromium desktop only)
-
-**Example invocation**:
-> "How should I test the PlaylistCard component? What's the right mix of component tests vs integration tests?"
-
-**Output**: Test strategy with component/integration split, mocking patterns, test case outlines
-
-### Subagent Response Pattern
-
-All subagents follow this structure:
-
-1. **Analyze Context** - Understand the specific challenge
-2. **Provide Solution** - Concrete, implementable recommendations with code examples
-3. **Explain Rationale** - Why this approach, performance/architectural implications
-4. **Anticipate Issues** - Potential pitfalls, edge cases, testing considerations
-5. **Success Criteria** - How to verify the solution works correctly
-
-### Tool Scope (Read-Only by Default)
-
-| Agent | Read | Glob | Grep | Bash | Edit | Write |
-|-------|------|------|------|------|------|-------|
-| sqlalchemy-async-optimizer | ✅ | ✅ | ✅ | ✅* | ❌ | ❌ |
-| architecture-guardian | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| test-pyramid-architect | ✅ | ✅ | ✅ | ✅* | ❌ | ❌ |
-| react-architecture-specialist | ✅ | ✅ | ✅ | ✅* | ❌ | ❌ |
-| vitest-strategy-architect | ✅ | ✅ | ✅ | ✅* | ❌ | ❌ |
-
-**Bash restrictions**:
-- sqlalchemy-async-optimizer: `sqlite3`, `alembic` (inspection only, no migrations)
-- test-pyramid-architect: `pytest` execution, coverage analysis
-- react-architecture-specialist: `vite build`, `vitest` execution
-- vitest-strategy-architect: `vitest`, `playwright test` execution
-
-**Why read-only**: Subagents provide expert guidance, main agent implements with full context. This preserves:
-- Context awareness (main agent sees full picture)
-- Architectural safety (subagents flag violations, don't "fix" incorrectly)
-- Learning retention (main agent applies patterns consistently)
-
-### Ad-Hoc Task Tool
-
-For one-off investigations not warranting permanent agents:
-```bash
-# Use built-in Task tool for:
-# - Library research (tenacity internals, dependency evaluation)
-# - Minimal reproduction cases
-# - Temporary specialists (delete after use)
-```
-
-**Example**: Debugging retry logging bug
-```
-Use Task to create minimal tenacity reproduction:
-- Test if before_sleep callbacks fire with retry_if_exception()
-- Compare to retry_base class approach
-- Output: Narrow 7 hypotheses to 2-3 root causes
-```
-
-### Best Practices
-
-**When to Use Subagents**:
-- ✅ Complex architectural decisions (multiple valid approaches)
-- ✅ Performance optimization (query strategies, React memoization)
-- ✅ Testing strategy design (what to test, how to test)
-- ✅ Debugging specialized issues (SQLite locks, async patterns)
-
-**When to Use Main Agent Directly**:
-- ❌ Simple implementations (read file, fix typo)
-- ❌ Straightforward patterns (already documented in CLAUDE.md)
-- ❌ When you already know the approach
-
-**Subagent Workflow**:
-1. Main agent identifies need for specialist expertise
-2. Invokes subagent with specific question
-3. Subagent returns focused recommendation
-4. Main agent implements with full codebase context
-5. (Optional) Subagent reviews implementation for compliance
-
-### Tracking Subagent Usage
-
-Document subagent consultations using Claude Code's built-in task tracking.
-- **Context Files**: Critical files for future reference
+See `.claude/skills/subagent-guide/` for the full subagent usage guide — agent descriptions, rotation strategy, when-to-use decision matrix, tool scope table, and best practices.
 
 ---
 

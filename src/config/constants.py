@@ -45,6 +45,9 @@ class BusinessLimits:
     # Database processing thresholds
     SQLITE_BATCH_WARNING_THRESHOLD: Final[int] = 100
 
+    # Debug logging truncation (max items shown in debug log messages)
+    DEBUG_LOG_TRUNCATION_LIMIT: Final[int] = 10
+
 
 class LastFMConstants:
     """Last.fm API format specifications and processing constants."""

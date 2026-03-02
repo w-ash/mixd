@@ -4,43 +4,31 @@ Tests the simplest use case: listing all playlists with proper
 domain entity return types.
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from src.application.use_cases.list_playlists import (
     ListPlaylistsResult,
     ListPlaylistsUseCase,
 )
-from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track
-
-
-def _make_playlist(playlist_id: int, name: str) -> Playlist:
-    """Create a test playlist."""
-    tracks = [Track(id=1, title="Song", artists=[Artist(name="Artist")])]
-    return Playlist.from_tracklist(name=name, tracklist=tracks).with_id(playlist_id)
+from tests.fixtures import make_playlist
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with playlist repository."""
-    uow = AsyncMock()
-    playlist_repo = AsyncMock()
-    uow.get_playlist_repository = MagicMock(return_value=playlist_repo)
-    return uow
+    return make_mock_uow()
 
 
-@pytest.mark.unit
 class TestListPlaylistsUseCase:
     """Test use case execution paths."""
 
     async def test_returns_all_playlists(self, mock_uow):
         """Test that all playlists from repository are returned."""
         playlists = [
-            _make_playlist(1, "Playlist A"),
-            _make_playlist(2, "Playlist B"),
-            _make_playlist(3, "Playlist C"),
+            make_playlist(1, "Playlist A"),
+            make_playlist(2, "Playlist B"),
+            make_playlist(3, "Playlist C"),
         ]
         mock_uow.get_playlist_repository().list_all_playlists.return_value = playlists
 

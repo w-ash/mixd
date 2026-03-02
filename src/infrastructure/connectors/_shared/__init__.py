@@ -17,9 +17,12 @@ from src.infrastructure.connectors._shared.failure_handling import (
     log_failure_summary,
     log_match_failure,
 )
+from src.infrastructure.connectors._shared.inward_track_resolver import (
+    InwardTrackResolver,
+    ResolutionMetrics,
+)
 from src.infrastructure.connectors._shared.isrc import (
     normalize_isrc,
-    validate_isrc_format,
 )
 from src.infrastructure.connectors._shared.metric_registry import (
     MetricConfigProviderImpl,
@@ -36,8 +39,10 @@ from src.infrastructure.connectors._shared.metric_registry import (
 
 __all__ = [
     "ErrorClassifier",
+    "InwardTrackResolver",
     "MatchProvider",
     "MetricConfigProviderImpl",
+    "ResolutionMetrics",
     "classify_unknown_error",
     "create_and_log_failure",
     "get_all_connectors_metrics",
@@ -51,5 +56,4 @@ __all__ = [
     "normalize_isrc",
     "register_metric_config",
     "register_metric_resolver",
-    "validate_isrc_format",
 ]

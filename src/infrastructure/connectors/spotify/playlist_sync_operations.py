@@ -11,12 +11,11 @@ from typing import Any
 from attrs import define, evolve, field
 
 from src.config import get_logger, settings
+from src.config.constants import BusinessLimits
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 logger = get_logger(__name__).bind(service="spotify_playlist_sync")
-
-DEBUG_TRACK_IDS_LIMIT = 10
 
 
 @define(slots=True)
@@ -148,7 +147,9 @@ class SpotifyPlaylistSyncOperations:
 
         logger.info(
             f"Loading {len(canonical_ids)} tracks for URI resolution",
-            sample_ids=sorted(canonical_ids)[:DEBUG_TRACK_IDS_LIMIT],
+            sample_ids=sorted(canonical_ids)[
+                : BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
+            ],
         )
 
         # Bulk load tracks

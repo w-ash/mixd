@@ -5,7 +5,7 @@ creates playlist entity, extracts metrics from connector metadata, and commits
 the transaction. Returns operational metrics for monitoring.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from attrs import define, evolve, field
@@ -18,6 +18,7 @@ from src.application.use_cases._shared.command_validators import (
     tracklist_or_connector_playlist,
 )
 from src.application.use_cases._shared.track_persistence import persist_unsaved_tracks
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
@@ -129,7 +130,7 @@ class CreateCanonicalPlaylistUseCase:
         Raises:
             ValueError: If command execution fails
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Starting canonical playlist creation",
@@ -216,12 +217,7 @@ class CreateCanonicalPlaylistUseCase:
                 # Step 5: Commit transaction
                 await uow.commit()
 
-                # Step 6: Calculate execution metrics
-                execution_time = int(
-                    (datetime.now(UTC) - start_time).total_seconds() * 1000
-                )
-
-                # Count unique tracks in the final playlist
+                # Step 6: Count unique tracks in the final playlist
                 unique_track_count = len({
                     track.id for track in saved_playlist.tracks if track.id
                 })
@@ -229,7 +225,7 @@ class CreateCanonicalPlaylistUseCase:
                 result = CreateCanonicalPlaylistResult(
                     playlist=saved_playlist,
                     tracks_created=unique_track_count,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.stop(),
                 )
 
                 logger.info(
@@ -237,7 +233,7 @@ class CreateCanonicalPlaylistUseCase:
                     playlist_id=saved_playlist.id,
                     name=saved_playlist.name,
                     tracks_created=unique_track_count,
-                    execution_time_ms=execution_time,
+                    execution_time_ms=timer.elapsed_ms,
                 )
 
             except Exception as e:

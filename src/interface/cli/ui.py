@@ -1,15 +1,15 @@
-"""Shared UI utilities for interface layer - works for CLI and future web interface."""
+"""CLI output formatting utilities using Rich tables and markup."""
 
 import json
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from rich.console import Console
 from rich.table import Table
 
 from src.domain.entities import OperationResult
 from src.domain.entities.summary_metrics import SummaryMetricFormat
+from src.interface.cli.console import get_console
 
-console = Console()
+console = get_console()
 
 
 def _format_metric_value(value: float, format: SummaryMetricFormat) -> str:
@@ -46,7 +46,7 @@ def _is_play_import_operation(result: OperationResult) -> bool:
 
 def display_operation_result(
     result: OperationResult,
-    output_format: str = "table",
+    output_format: Literal["table", "json"] = "table",
     title: str | None = None,
     next_step_message: str | None = None,
 ) -> None:
@@ -111,7 +111,7 @@ def _display_table_result(
         # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)
         fresh_metric_ids: dict[str, list[int]] = (
             result.tracklist.metadata.get("fresh_metric_ids", {})
-            if hasattr(result, "tracklist") and result.tracklist
+            if result.tracklist
             else {}
         )
 
@@ -124,7 +124,7 @@ def _display_table_result(
             track_sources: dict[int, dict[str, Any]] = cast(
                 dict[int, dict[str, Any]],
                 result.tracklist.metadata.get("track_sources", {})
-                if hasattr(result, "tracklist") and result.tracklist
+                if result.tracklist
                 else {},
             )
             if track.id and track.id in track_sources:
@@ -172,18 +172,4 @@ def _display_table_result(
 
 def _display_json_result(result: OperationResult) -> None:
     """Display result as JSON."""
-    result_dict = (
-        result.to_dict() if hasattr(result, "to_dict") else _extract_result_data(result)
-    )
-    console.print_json(json.dumps(result_dict, indent=2))
-
-
-def _extract_result_data(result: Any) -> dict[str, Any]:
-    """Extract displayable data from result object."""
-    if hasattr(result, "__dict__"):
-        return {
-            k: v
-            for k, v in result.__dict__.items()
-            if not k.startswith("_") and isinstance(v, (int, float, str, bool, list))
-        }
-    return {"result": str(result)}
+    console.print_json(json.dumps(result.to_dict(), indent=2))

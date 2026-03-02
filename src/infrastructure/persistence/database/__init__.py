@@ -24,10 +24,10 @@ Usage:
 
 # Import database models
 from src.infrastructure.persistence.database.db_connection import (
-    engine,
+    get_engine,
     get_session,
+    get_session_factory,
     init_db,
-    session_factory,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -54,8 +54,8 @@ __all__ = [
     "DBTrackMapping",
     "DBTrackMetric",
     "DBTrackPlay",
-    "engine",
+    "get_engine",
     "get_session",
+    "get_session_factory",
     "init_db",
-    "session_factory",
 ]

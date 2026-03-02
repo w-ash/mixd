@@ -10,7 +10,6 @@ from src.application.workflows.context import ConnectorRegistryImpl
 from src.domain.entities.track import ConnectorTrack
 
 
-@pytest.mark.integration
 class TestWorkflowConnectorIntegration:
     """Integration tests for workflow nodes with real connector instances."""
 

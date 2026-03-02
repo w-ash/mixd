@@ -5,7 +5,7 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
 
@@ -701,5 +701,27 @@ class PlayImporterProtocol(Protocol):
         ...
 
 
-# RepositoryProvider deleted - violated Interface Segregation Principle
-# Use cases should depend on specific repository interfaces they need
+class PlayResolverProtocol(Protocol):
+    """Protocol for play resolution services in infrastructure layer.
+
+    Resolves raw ConnectorTrackPlay objects to canonical TrackPlay objects
+    by looking up or creating canonical tracks for each external ID.
+    """
+
+    async def resolve_connector_plays(
+        self,
+        connector_plays: list[ConnectorTrackPlay],
+        uow: UnitOfWorkProtocol,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> tuple[list[TrackPlay], dict[str, Any]]:
+        """Resolve connector plays to canonical track plays.
+
+        Args:
+            connector_plays: Raw plays from external service.
+            uow: Unit of work for database operations.
+            progress_callback: Optional progress reporting.
+
+        Returns:
+            Tuple of (resolved track plays, metrics dict).
+        """
+        ...

@@ -15,14 +15,12 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-from typing import Any, override
+from typing import Any
 
 from attrs import define, field
 
 from src.config import get_logger
 from src.domain.entities import PlayRecord, Track, create_lastfm_play_record
-from src.domain.entities.track import ConnectorTrack
-from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
@@ -46,23 +44,10 @@ class TrackProcessingResult:
 
 
 @define(slots=True)
-class LastFMOperations(BaseAPIConnector):
+class LastFMOperations:
     """Business logic service for complex Last.fm operations."""
 
     client: LastFMAPIClient = field()
-
-    @property
-    @override
-    def connector_name(self) -> str:
-        """Service identifier for Last.fm connector."""
-        return "lastfm"
-
-    @override
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
-        """Convert Last.fm track data to ConnectorTrack domain model."""
-        from .conversions import convert_lastfm_track_to_connector
-
-        return convert_lastfm_track_to_connector(track_data)
 
     # Track Information Retrieval
 
@@ -203,7 +188,7 @@ class LastFMOperations(BaseAPIConnector):
         ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
 
         if mbid:
-            logger.info(
+            logger.debug(
                 "Attempting Last.FM lookup via MBID",
                 mbid=mbid,
                 track_title=track.title,
@@ -211,14 +196,14 @@ class LastFMOperations(BaseAPIConnector):
             )
             lastfm_info = await self.get_track_info_by_mbid(mbid)
             if lastfm_info and lastfm_info.lastfm_title:
-                logger.info(
+                logger.debug(
                     "Last.FM MBID lookup successful",
                     mbid=mbid,
                     found_title=lastfm_info.lastfm_title,
                     track_id=track.id,
                 )
                 return lastfm_info
-            logger.info(
+            logger.debug(
                 "Last.FM MBID lookup failed, falling back to artist/title",
                 mbid=mbid,
                 track_id=track.id,
@@ -228,7 +213,7 @@ class LastFMOperations(BaseAPIConnector):
         if track.artists and track.title:
             for idx, artist in enumerate(track.artists):
                 artist_name = artist.name
-                logger.info(
+                logger.debug(
                     "Attempting Last.FM lookup via artist/title",
                     artist=artist_name,
                     title=track.title,
@@ -239,7 +224,7 @@ class LastFMOperations(BaseAPIConnector):
                 )
                 result = await self.get_track_info(artist_name, track.title)
                 if result and result.lastfm_title:
-                    logger.info(
+                    logger.debug(
                         "Last.FM artist/title lookup successful",
                         artist=artist_name,
                         artist_index=idx,
@@ -247,7 +232,7 @@ class LastFMOperations(BaseAPIConnector):
                         track_id=track.id,
                     )
                     return result
-                logger.info(
+                logger.debug(
                     "Last.FM lookup failed with artist, trying next",
                     artist=artist_name,
                     artist_index=idx,
@@ -321,7 +306,7 @@ class LastFMOperations(BaseAPIConnector):
         # Create rate-limited batch processor with LastFM-specific settings
         processor = RateLimitedBatchProcessor(
             rate_per_second=settings.api.lastfm_rate_limit,
-            connector_name=self.connector_name,
+            connector_name="lastfm",
             max_concurrent_tasks=settings.api.lastfm_concurrency,
         )
 

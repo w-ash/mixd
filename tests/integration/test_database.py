@@ -24,14 +24,13 @@ This test verifies:
 import asyncio
 import sys
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger, setup_loguru_logger
 from src.infrastructure.persistence.database.db_connection import (
+    get_session_factory,
     init_db,
-    session_factory,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
@@ -45,7 +44,6 @@ from src.infrastructure.persistence.database.db_models import (
 logger = get_logger(__name__)
 
 
-@pytest.mark.integration
 async def verify_model_count(session: AsyncSession, model, expected: int) -> None:
     """Verify number of records for a model."""
     result = await session.execute(select(model))
@@ -61,7 +59,7 @@ async def test_database() -> bool:
         await init_db()
         logger.debug("Database schema initialized")
 
-        async with session_factory() as session:
+        async with get_session_factory()() as session:
             # Create parent records first (isolated test data with TEST_ prefix)
             track = DBTrack(
                 title="TEST_Track_Integration",

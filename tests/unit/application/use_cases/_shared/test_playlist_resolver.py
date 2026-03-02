@@ -4,37 +4,25 @@ Validates that playlist resolution works for integer IDs, connector IDs,
 and correctly handles not-found scenarios.
 """
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from src.application.use_cases._shared.playlist_resolver import resolve_playlist
-from src.domain.entities.playlist import Playlist
-from src.domain.entities.track import Artist, Track
-
-
-def _make_playlist(playlist_id: int, name: str = "Test") -> Playlist:
-    """Create a minimal test playlist."""
-    tracks = [Track(id=1, title="Song", artists=[Artist(name="Artist")])]
-    return Playlist.from_tracklist(name=name, tracklist=tracks).with_id(playlist_id)
+from tests.fixtures import make_playlist
+from tests.fixtures.mocks import make_mock_uow
 
 
 @pytest.fixture
 def mock_uow():
     """Mock UnitOfWork with playlist repository."""
-    uow = AsyncMock()
-    playlist_repo = AsyncMock()
-    uow.get_playlist_repository = MagicMock(return_value=playlist_repo)
-    return uow
+    return make_mock_uow()
 
 
-@pytest.mark.unit
 class TestResolvePlaylist:
     """Test resolve_playlist with various ID types and options."""
 
     async def test_integer_id_found(self, mock_uow):
         """Integer playlist_id resolves via get_playlist_by_id."""
-        playlist = _make_playlist(42, "Found")
+        playlist = make_playlist(42, "Found")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
         result = await resolve_playlist("42", mock_uow)
@@ -67,7 +55,7 @@ class TestResolvePlaylist:
 
     async def test_string_connector_id_found(self, mock_uow):
         """Non-numeric string resolves via get_playlist_by_connector."""
-        playlist = _make_playlist(7, "Spotify Playlist")
+        playlist = make_playlist(7, "Spotify Playlist")
         # int("abc") raises ValueError → triggers connector fallback
         mock_uow.get_playlist_repository().get_playlist_by_id.side_effect = ValueError
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = (
@@ -83,7 +71,7 @@ class TestResolvePlaylist:
 
     async def test_custom_connector_name(self, mock_uow):
         """Custom connector name is passed through to repository."""
-        playlist = _make_playlist(8, "LastFM Playlist")
+        playlist = make_playlist(8, "LastFM Playlist")
         mock_uow.get_playlist_repository().get_playlist_by_id.side_effect = ValueError
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = (
             playlist

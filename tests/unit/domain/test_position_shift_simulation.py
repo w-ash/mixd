@@ -16,7 +16,6 @@ from src.domain.playlist.diff_engine import (
 from src.domain.playlist.execution_strategies import APIExecutionStrategy
 
 
-@pytest.mark.unit
 class TestPositionShiftSimulation:
     """Test position shift simulation for API operations."""
 

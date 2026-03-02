@@ -55,8 +55,8 @@ def optional_tracklist_transform(
         # Use immediately
         result = filter_duplicates(my_tracklist)
 
-        # Use in pipeline
-        pipeline = create_pipeline(filter_duplicates(), sort_by_title())
+        # Use in pipeline composition
+        transforms = [filter_duplicates(), sort_by_title()]
     """
 
     @wraps(func)
@@ -69,26 +69,3 @@ def optional_tracklist_transform(
         return transform(tracklist) if tracklist is not None else transform
 
     return wrapper
-
-
-# === Core Pipeline Functions ===
-
-
-def create_pipeline(*operations: Transform) -> Transform:
-    """
-    Compose multiple transformations into a single operation.
-
-    Args:
-        *operations: Transformation functions to compose
-
-    Returns:
-        A single transformation function combining all operations
-    """
-
-    def pipeline(tracklist: TrackList) -> TrackList:
-        result = tracklist
-        for op in operations:
-            result = op(result)
-        return result
-
-    return pipeline

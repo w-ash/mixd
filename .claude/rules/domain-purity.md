@@ -1,5 +1,6 @@
 ---
-globs: src/domain/**
+paths:
+  - "src/domain/**"
 ---
 # Domain Layer Rules
 - NEVER import from infrastructure, application, or interface layers

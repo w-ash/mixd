@@ -19,6 +19,7 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     validate_tracklist_has_tracks,
 )
+from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -102,7 +103,7 @@ class CreateConnectorPlaylistUseCase:
         Raises:
             ValueError: If the command execution fails.
         """
-        start_time = datetime.now(UTC)
+        timer = ExecutionTimer()
 
         logger.info(
             "Starting connector playlist creation",
@@ -126,11 +127,6 @@ class CreateConnectorPlaylistUseCase:
                     uow=uow,
                 )
 
-            # Step 3: Calculate execution metrics
-            execution_time = int(
-                (datetime.now(UTC) - start_time).total_seconds() * 1000
-            )
-
             # Use internal playlist if created, otherwise create minimal playlist for result
             if internal_playlist:
                 result_playlist = internal_playlist
@@ -151,7 +147,7 @@ class CreateConnectorPlaylistUseCase:
                 connector=command.connector,
                 external_playlist_id=external_result["playlist_id"],
                 tracks_created=len(command.tracklist.tracks),
-                execution_time_ms=execution_time,
+                execution_time_ms=timer.stop(),
                 external_metadata=external_result["metadata"],
                 errors=external_result.get("errors", []),
             )
@@ -164,7 +160,7 @@ class CreateConnectorPlaylistUseCase:
                 if internal_playlist
                 else None,
                 tracks_created=result.tracks_created,
-                execution_time_ms=execution_time,
+                execution_time_ms=timer.elapsed_ms,
             )
 
         except Exception as e:

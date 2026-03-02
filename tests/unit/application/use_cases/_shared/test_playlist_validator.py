@@ -4,8 +4,6 @@ Tests error message classification and exception categorization used in
 connector playlist operations for retry and recovery decisions.
 """
 
-import pytest
-
 from src.application.use_cases._shared.playlist_validator import (
     classify_connector_api_error,
     classify_database_error,
@@ -14,7 +12,6 @@ from src.application.use_cases._shared.playlist_validator import (
 )
 
 
-@pytest.mark.unit
 class TestIsAuthErrorMessage:
     """Test authentication error detection from error messages."""
 
@@ -43,7 +40,6 @@ class TestIsAuthErrorMessage:
         assert is_auth_error_message("") is False
 
 
-@pytest.mark.unit
 class TestIsRateLimitError:
     """Test rate limit error detection from error messages."""
 
@@ -68,7 +64,6 @@ class TestIsRateLimitError:
         assert is_rate_limit_error("") is False
 
 
-@pytest.mark.unit
 class TestClassifyConnectorApiError:
     """Test connector API error classification via pattern matching."""
 
@@ -124,7 +119,6 @@ class TestClassifyConnectorApiError:
         assert result["is_auth_error"] is True
 
 
-@pytest.mark.unit
 class TestClassifyDatabaseError:
     """Test database error classification for retry and recovery."""
 

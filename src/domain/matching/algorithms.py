@@ -8,19 +8,20 @@ from typing import Any
 
 from rapidfuzz import fuzz
 
-from src.config import settings
-
+from .config import MatchingConfig
 from .types import ConfidenceEvidence
 
 
-def calculate_title_similarity(title1: str, title2: str) -> float:
+def calculate_title_similarity(
+    title1: str, title2: str, config: MatchingConfig
+) -> float:
     """Calculate title similarity accounting for variations like 'Live', 'Remix', etc."""
     # Normalize titles
     title1, title2 = title1.lower(), title2.lower()
 
     # 1. Check if titles are identical
     if title1 == title2:
-        return settings.matching.identical_similarity_score
+        return config.identical_similarity_score
 
     # 2. Check for containment with extra tokens
     # This catches cases like "Paranoid Android" vs "Paranoid Android - Live"
@@ -43,12 +44,12 @@ def calculate_title_similarity(title1: str, title2: str) -> float:
         remaining = title2.replace(title1, "").strip("- ()[]").strip()
         if any(marker in remaining.lower() for marker in variation_markers):
             # Found variation marker, significantly reduce similarity
-            return settings.matching.variation_similarity_score
+            return config.variation_similarity_score
     elif title2 in title1:
         # Same check in reverse
         remaining = title1.replace(title2, "").strip("- ()[]").strip()
         if any(marker in remaining.lower() for marker in variation_markers):
-            return settings.matching.variation_similarity_score
+            return config.variation_similarity_score
 
     # 3. Use token_set_ratio for better handling of word order and extra words
     return fuzz.token_set_ratio(title1, title2) / 100.0
@@ -58,6 +59,7 @@ def calculate_confidence(
     internal_track_data: dict[str, Any],
     service_track_data: dict[str, Any],
     match_method: str,
+    config: MatchingConfig,
 ) -> tuple[int, ConfidenceEvidence]:
     """
     Calculate confidence score based on multiple attributes.
@@ -72,11 +74,11 @@ def calculate_confidence(
     """
     # Initialize base confidence by match method
     if match_method == "isrc":
-        base_score = settings.matching.base_confidence_isrc
+        base_score = config.base_confidence_isrc
     elif match_method == "mbid":
-        base_score = settings.matching.base_confidence_mbid
+        base_score = config.base_confidence_mbid
     else:  # artist_title or other
-        base_score = settings.matching.base_confidence_artist_title
+        base_score = config.base_confidence_artist_title
 
     # Initialize evidence object
     evidence = ConfidenceEvidence(base_score=base_score)
@@ -95,9 +97,11 @@ def calculate_confidence(
     title_score = 0.0
     if internal_title and service_title:
         # Use custom title similarity function
-        title_similarity = calculate_title_similarity(internal_title, service_title)
+        title_similarity = calculate_title_similarity(
+            internal_title, service_title, config
+        )
 
-        if title_similarity >= settings.matching.high_similarity_threshold:
+        if title_similarity >= config.high_similarity_threshold:
             title_score = 0  # No deduction for high similarity
         else:
             # Linear penalty based on similarity
@@ -106,10 +110,10 @@ def calculate_confidence(
             # Scale linearly in between
             penalty_factor = max(
                 0,
-                (settings.matching.high_similarity_threshold - title_similarity)
-                / settings.matching.high_similarity_threshold,
+                (config.high_similarity_threshold - title_similarity)
+                / config.high_similarity_threshold,
             )
-            title_score = -settings.matching.title_max_penalty * penalty_factor
+            title_score = -config.title_max_penalty * penalty_factor
 
     # 2. Artist similarity - only deductions
     artist_similarity = 0.0
@@ -128,18 +132,18 @@ def calculate_confidence(
             fuzz.token_sort_ratio(internal_artist, service_artist) / 100.0
         )
 
-        if artist_similarity >= settings.matching.high_similarity_threshold:
+        if artist_similarity >= config.high_similarity_threshold:
             artist_score = 0  # No deduction for high similarity
         else:
             # Quadratic or cubic penalty to penalize small differences more severely
             penalty_factor = max(
                 0,
-                (settings.matching.high_similarity_threshold - artist_similarity)
-                / settings.matching.high_similarity_threshold,
+                (config.high_similarity_threshold - artist_similarity)
+                / config.high_similarity_threshold,
             )
             # Square or cube the factor to make the penalty curve steeper
             penalty_factor **= 2  # Square for quadratic curve
-            artist_score = -settings.matching.artist_max_penalty * penalty_factor
+            artist_score = -config.artist_max_penalty * penalty_factor
 
     # 3. Duration comparison
     duration_diff_ms = 0
@@ -148,24 +152,22 @@ def calculate_confidence(
     # Check if both tracks have duration data
     if not internal_duration or not service_duration:
         # If either track is missing duration, apply flat penalty
-        duration_score = -settings.matching.duration_missing_penalty
+        duration_score = -config.duration_missing_penalty
     else:
         # Both tracks have duration, calculate difference
         duration_diff_ms = abs(internal_duration - service_duration)
 
         # No deduction if within tolerance
-        if duration_diff_ms <= settings.matching.duration_tolerance_ms:
+        if duration_diff_ms <= config.duration_tolerance_ms:
             duration_score = 0
         else:
             # Convert ms difference to seconds
-            seconds_diff = (
-                duration_diff_ms - settings.matching.duration_tolerance_ms
-            ) / 1000
+            seconds_diff = (duration_diff_ms - config.duration_tolerance_ms) / 1000
             # Round up to next second using integer division trick
             seconds_penalty = int(seconds_diff) + (seconds_diff > int(seconds_diff))
             duration_score = -min(
-                settings.matching.duration_per_second_penalty * seconds_penalty,
-                settings.matching.duration_max_penalty,
+                config.duration_per_second_penalty * seconds_penalty,
+                config.duration_max_penalty,
             )
 
     # Calculate final confidence with all deductions

@@ -9,8 +9,9 @@ import bisect
 from typing import Any, Protocol
 
 from attrs import define
+from loguru import logger as _loguru_logger
 
-from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 from src.domain.playlist.diff_engine import (
@@ -20,10 +21,7 @@ from src.domain.playlist.diff_engine import (
 )
 from src.domain.transforms.playlist_operations import reorder_to_match_target
 
-# Constants for debug logging limits
-DEBUG_POSITIONS_LIMIT = 10
-
-logger = get_logger(__name__)
+logger = _loguru_logger.bind(module=__name__)
 
 
 @define(frozen=True, slots=True)
@@ -329,8 +327,10 @@ class APIExecutionStrategy:
 
         logger.debug(
             f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
-            removed_positions=removed_positions[:DEBUG_POSITIONS_LIMIT]
-            if len(removed_positions) > DEBUG_POSITIONS_LIMIT
+            removed_positions=removed_positions[
+                : BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
+            ]
+            if len(removed_positions) > BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
             else removed_positions,
         )
 

@@ -5,7 +5,6 @@ which connector track is returned for queries, metadata lookups, and bulk
 operations against a real SQLite database.
 """
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +23,6 @@ from src.infrastructure.persistence.repositories.track.core import TrackReposito
 class TestPrimaryMappingDatabaseIntegration:
     """Minimal integration tests for primary mapping with real database."""
 
-    @pytest.mark.asyncio
     async def test_constraint_exists(self, db_session):
         """Test that the unique constraint exists in database."""
         from sqlalchemy import text
@@ -37,7 +35,6 @@ class TestPrimaryMappingDatabaseIntegration:
         constraints = result.fetchall()
         assert len(constraints) > 0
 
-    @pytest.mark.asyncio
     async def test_repository_method_available(self, db_session):
         """Test that repository has set_primary_mapping method."""
         repo = TrackConnectorRepository(db_session)
@@ -48,7 +45,6 @@ class TestPrimaryMappingDatabaseIntegration:
 class TestPrimaryMappingQueries:
     """Data-driven tests verifying primary mapping filtering and promotion."""
 
-    @pytest.mark.asyncio
     async def test_get_connector_mappings_returns_only_primary(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -101,7 +97,6 @@ class TestPrimaryMappingQueries:
 
         assert result == {db_track.id: {"spotify": "new_sp_id"}}
 
-    @pytest.mark.asyncio
     async def test_get_connector_metadata_returns_primary_metadata(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -154,7 +149,6 @@ class TestPrimaryMappingQueries:
         assert db_track.id in result
         assert result[db_track.id] == {"popularity": 80}
 
-    @pytest.mark.asyncio
     async def test_ingest_bulk_sets_primary_per_track(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -197,7 +191,6 @@ class TestPrimaryMappingQueries:
                 f"Track {dt.id} has {primary_count} primary mappings, expected 1"
             )
 
-    @pytest.mark.asyncio
     async def test_map_track_to_connector_updates_denormalized_spotify_id(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -229,7 +222,6 @@ class TestPrimaryMappingQueries:
         )
         assert result.scalar_one() == "sp_denorm_123"
 
-    @pytest.mark.asyncio
     async def test_relinking_single_primary_survives(
         self, db_session: AsyncSession, test_data_tracker
     ):
@@ -275,7 +267,6 @@ class TestPrimaryMappingQueries:
         assert mapping_status["sp_relink_A"] is False
         assert mapping_status["sp_relink_B"] is True
 
-    @pytest.mark.asyncio
     async def test_batch_ensure_primary_mappings(
         self, db_session: AsyncSession, test_data_tracker
     ):

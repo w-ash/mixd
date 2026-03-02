@@ -20,7 +20,6 @@ from src.domain.entities import PlayRecord
 
 
 @pytest.mark.slow
-@pytest.mark.integration
 class TestLastfmImportE2E:
     """End-to-end tests for complete LastFM import workflow."""
 
@@ -34,7 +33,6 @@ class TestLastfmImportE2E:
         return get_unit_of_work(db_session)
 
     # E2E TEST 1: Complete Incremental Import Success Path
-    @pytest.mark.asyncio
     async def test_complete_incremental_import_success(
         self, unit_of_work, test_data_tracker
     ):
@@ -137,7 +135,6 @@ class TestLastfmImportE2E:
                 assert result.execution_time_ms > 0
 
     # E2E TEST 2: Error Recovery - API Failure
-    @pytest.mark.asyncio
     async def test_api_failure_error_handling(self, unit_of_work, test_data_tracker):
         """Test E2E error handling when LastFM API fails."""
 
@@ -196,7 +193,6 @@ class TestLastfmImportE2E:
             assert "errors" in str(result.operation_result.metadata)
 
     # E2E TEST 3: Boundary Condition - Empty Data
-    @pytest.mark.asyncio
     async def test_empty_data_handling(self, unit_of_work, test_data_tracker):
         """Test E2E handling when no data is available to import."""
 
@@ -262,7 +258,6 @@ class TestLastfmImportE2E:
             assert raw_plays_metric == 0
 
     # E2E TEST 4: Critical Path - Checkpoint Persistence
-    @pytest.mark.asyncio
     async def test_checkpoint_persistence_e2e(self, unit_of_work, test_data_tracker):
         """Test checkpoint creation and persistence through complete workflow."""
 

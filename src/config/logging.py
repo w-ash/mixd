@@ -7,8 +7,7 @@ external API calls, and integration with third-party libraries like Prefect.
 Key Components:
 --------------
 - Structured logging with Loguru
-- Startup information logging
-- Third-party logging integration
+- Progress.console unified output coordination
 
 Public API:
 ----------
@@ -19,13 +18,6 @@ get_logger(name: str) -> Logger
     Get a context-aware logger for your module
     Args: name - Usually __name__ from the calling module
     Usage: logger = get_logger(__name__)
-
-log_startup_info() -> None
-    Log system configuration and API status at startup
-    Call once when application initializes
-
-configure_prefect_logging() -> None
-    Configure Prefect to use our Loguru setup
 
 Quick Start:
 -----------
@@ -45,7 +37,7 @@ Quick Start:
 import logging
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, override
 
 from loguru import logger
 
@@ -148,6 +140,21 @@ def setup_loguru_logger(verbose: bool = False) -> None:
     )
 
 
+def setup_script_logger(script_name: str) -> None:
+    """Lightweight logging config for standalone scripts — console only, no file."""
+    logger.configure(
+        handlers=[
+            {
+                "sink": sys.stderr,
+                "level": "DEBUG",
+                "format": "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
+                "colorize": True,
+            },
+        ],
+        extra={"service": script_name, "module": script_name},
+    )
+
+
 # =============================================================================
 # LOGGER FACTORY
 # =============================================================================
@@ -177,51 +184,6 @@ def get_logger(name: str) -> Logger:
         module=name,
         service="narada",
     )
-
-
-# =============================================================================
-# STARTUP LOGGING
-# =============================================================================
-
-
-def log_startup_info() -> None:
-    """Log application configuration on startup.
-
-    Displays a startup banner and logs all configuration values at debug level.
-    Should be called once during application initialization.
-
-    Example:
-        >>> log_startup_info()
-    """
-    local_logger = get_logger(__name__)  # Get a properly bound logger
-    separator = "=" * 50
-
-    # Startup banner and config details
-    local_logger.info("")
-    local_logger.info(separator, markup=True)
-    local_logger.info("🎵 Narada Music Integration Platform", markup=True)
-    local_logger.info(separator, markup=True)
-    local_logger.info("")
-
-    # Log configuration details in a more readable format
-    local_logger.debug("Configuration:")
-
-    # Log each config section
-    config_dict = settings.model_dump()
-    for section_name, section_values in config_dict.items():
-        local_logger.debug(f"  {section_name.upper()}:")
-        if isinstance(section_values, dict):
-            for key, val in cast(dict[str, Any], section_values).items():
-                display_val = str(val) if isinstance(val, Path) else val
-                local_logger.debug(f"    {key.upper()}: {display_val}")
-        else:
-            if isinstance(section_values, Path):
-                section_val = str(section_values)
-            else:
-                section_val = section_values
-            local_logger.debug(f"    {section_val}")
-
-    local_logger.info("")
 
 
 # =============================================================================
@@ -441,51 +403,3 @@ def restore_standard_console_output() -> None:
 
         loguru_logger.remove()
         setup_loguru_logger()
-
-
-# =============================================================================
-# THIRD-PARTY LOGGING INTEGRATION
-# =============================================================================
-
-
-def configure_prefect_logging() -> None:
-    """Configure Prefect to use our Loguru setup without changing our existing patterns.
-
-    Sets up a custom handler that forwards Prefect logs to Loguru while
-    maintaining the existing logging configuration and patterns.
-
-    Note:
-        - Creates a bridge between Python's logging and Loguru
-        - Preserves module context from original log records
-        - Disables propagation to prevent duplicate logs
-    """
-
-    # Create a simple handler that passes Prefect logs to Loguru
-    class PrefectLoguruHandler(logging.Handler):
-        """Custom logging handler that forwards Prefect logs to Loguru.
-
-        Bridges Python's standard logging with Loguru while preserving
-        module context and preventing duplicate log entries.
-        """
-
-        @override
-        def emit(self, record: logging.LogRecord) -> None:
-            """Process a log record and forward it to Loguru.
-
-            Args:
-                record: Python logging.LogRecord to process
-            """
-            # Get corresponding Loguru level
-            level = logger.level(record.levelname).name
-
-            # Extract message and maintain original format
-            msg = self.format(record)
-
-            # Pass to loguru with appropriate module context
-            module_name = record.name
-            logger.bind(module=module_name).log(level, msg)
-
-    # Configure the Prefect logger
-    prefect_logger = logging.getLogger("prefect")
-    prefect_logger.handlers = [PrefectLoguruHandler()]
-    prefect_logger.propagate = False

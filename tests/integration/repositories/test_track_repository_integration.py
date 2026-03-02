@@ -2,17 +2,13 @@
 
 from uuid import uuid4
 
-import pytest
-
 from src.domain.entities import Artist, Track
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
-@pytest.mark.integration
 class TestTrackRepositoryIntegration:
     """Integration tests for track repository with real database operations."""
 
-    @pytest.mark.asyncio
     async def test_save_and_retrieve_track(self, db_session, test_data_tracker):
         """Test saving and retrieving a track with automatic cleanup tracking."""
         uow = get_unit_of_work(db_session)
@@ -46,7 +42,6 @@ class TestTrackRepositoryIntegration:
         assert len(retrieved_track.artists) == 1
         assert retrieved_track.artists[0].name == test_track.artists[0].name
 
-    @pytest.mark.asyncio
     async def test_find_tracks_by_ids_operations(self, db_session, test_data_tracker):
         """Test find_tracks_by_ids with empty list, single track, multiple tracks, and missing IDs."""
         uow = get_unit_of_work(db_session)
@@ -97,7 +92,6 @@ class TestTrackRepositoryIntegration:
         assert saved_track1.id in missing_result
         assert 99999 not in missing_result
 
-    @pytest.mark.asyncio
     async def test_track_with_connector_identifiers(
         self, db_session, test_data_tracker
     ):
@@ -138,7 +132,6 @@ class TestTrackRepositoryIntegration:
             len(retrieved_track.connector_track_identifiers) >= 1
         )  # Identifiers persist
 
-    @pytest.mark.asyncio
     async def test_bulk_track_operations(self, db_session, test_data_tracker):
         """Test bulk operations and track management scenarios."""
         uow = get_unit_of_work(db_session)
@@ -175,7 +168,6 @@ class TestTrackRepositoryIntegration:
             retrieved = bulk_result[saved_track.id]
             assert retrieved.title.startswith("TEST_BulkTrack_")
 
-    @pytest.mark.asyncio
     async def test_track_update_operations(self, db_session, test_data_tracker):
         """Test track update and modification scenarios."""
         uow = get_unit_of_work(db_session)

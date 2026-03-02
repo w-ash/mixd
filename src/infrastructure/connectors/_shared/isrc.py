@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 ISRC_LENGTH = 12
 
 
-def validate_isrc_format(isrc: str) -> bool:
+def _validate_isrc_format(isrc: str) -> bool:
     """Validate ISRC format (12 alphanumeric characters).
 
     Args:
@@ -41,7 +41,7 @@ def normalize_isrc(isrc: str) -> str | None:
 
     normalized = isrc.replace("-", "").upper()
 
-    if not validate_isrc_format(normalized):
+    if not _validate_isrc_format(normalized):
         logger.warning(f"Invalid ISRC format: {isrc}")
         return None
 

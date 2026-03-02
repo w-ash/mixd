@@ -17,7 +17,6 @@ from src.domain.playlist.execution_strategies import (
 )
 
 
-@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.performance
 class TestLargePlaylistPerformance:
@@ -50,7 +49,6 @@ class TestLargePlaylistPerformance:
         ]
         return Playlist.from_tracklist(name="10K Test Playlist", tracklist=tracks)
 
-    @pytest.mark.asyncio
     async def test_5k_playlist_idempotency_performance(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -70,7 +68,6 @@ class TestLargePlaylistPerformance:
         assert execution_time < 2.0
         print(f"5K playlist idempotency check: {execution_time:.3f}s")
 
-    @pytest.mark.asyncio
     async def test_10k_playlist_idempotency_performance(
         self, large_playlist_10k, db_session, test_data_tracker
     ):
@@ -90,7 +87,6 @@ class TestLargePlaylistPerformance:
         assert execution_time < 5.0
         print(f"10K playlist idempotency check: {execution_time:.3f}s")
 
-    @pytest.mark.asyncio
     async def test_5k_playlist_complete_reversal(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -117,7 +113,6 @@ class TestLargePlaylistPerformance:
             f"5K playlist complete reversal: {execution_time:.3f}s, {len(move_ops)} moves"
         )
 
-    @pytest.mark.asyncio
     async def test_5k_playlist_partial_reorder(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -156,7 +151,6 @@ class TestLargePlaylistPerformance:
             f"5K playlist partial reorder: {execution_time:.3f}s, {len(move_ops)} moves"
         )
 
-    @pytest.mark.asyncio
     async def test_api_strategy_large_playlist(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -183,7 +177,6 @@ class TestLargePlaylistPerformance:
 
         print(f"API strategy planning for 5K playlist: {execution_time:.3f}s")
 
-    @pytest.mark.asyncio
     async def test_canonical_strategy_large_playlist(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -207,7 +200,6 @@ class TestLargePlaylistPerformance:
 
         print(f"Canonical strategy planning for 5K playlist: {execution_time:.3f}s")
 
-    @pytest.mark.asyncio
     async def test_duplicate_heavy_playlist_performance(
         self, db_session, test_data_tracker
     ):
@@ -241,7 +233,6 @@ class TestLargePlaylistPerformance:
 
         print(f"5K duplicate-heavy playlist reversal: {execution_time:.3f}s")
 
-    @pytest.mark.asyncio
     async def test_memory_efficiency_large_playlist(
         self, large_playlist_10k, db_session, test_data_tracker
     ):
@@ -277,7 +268,6 @@ class TestLargePlaylistPerformance:
 
         print(f"Memory usage for 10K playlist operations: +{memory_increase:.1f}MB")
 
-    @pytest.mark.asyncio
     async def test_concurrent_large_playlist_operations(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
@@ -325,8 +315,6 @@ class TestLargePlaylistPerformance:
         results = await test_concurrent()
         assert len(results) == 3
 
-    @pytest.mark.skip(reason="Only run for stress testing - takes significant time")
-    @pytest.mark.asyncio
     async def test_stress_test_10k_worst_case(
         self, large_playlist_10k, db_session, test_data_tracker
     ):

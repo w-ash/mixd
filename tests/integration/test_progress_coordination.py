@@ -9,7 +9,6 @@ import asyncio
 import io
 import logging
 
-import pytest
 from rich.console import Console
 
 from src.config.logging import (
@@ -183,7 +182,6 @@ class TestProgressConsoleCoordination:
             # Clean up
             await provider.stop_display()
 
-    @pytest.mark.asyncio
     async def test_multiple_operations_coordination(self):
         """Test that multiple simultaneous operations coordinate properly."""
         provider = RichProgressProvider()

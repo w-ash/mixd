@@ -1,5 +1,6 @@
 ---
-globs: src/infrastructure/**
+paths:
+  - "src/infrastructure/**"
 ---
 # Infrastructure Layer Rules
 - NEVER expose SQLAlchemy models to application layer — always convert to domain entities

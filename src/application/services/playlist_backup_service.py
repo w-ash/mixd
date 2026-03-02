@@ -5,24 +5,16 @@ exposing infrastructure concerns like database sessions or connector management.
 """
 
 from src.application.services.connector_playlist_sync_service import (
-    ConnectorPlaylistSyncService,
+    sync_connector_playlist,
 )
+from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.use_cases.create_canonical_playlist import (
-    CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistResult,
-    CreateCanonicalPlaylistUseCase,
-)
-from src.application.use_cases.read_canonical_playlist import (
-    ReadCanonicalPlaylistCommand,
-    ReadCanonicalPlaylistUseCase,
 )
 from src.application.use_cases.update_canonical_playlist import (
-    UpdateCanonicalPlaylistCommand,
     UpdateCanonicalPlaylistResult,
-    UpdateCanonicalPlaylistUseCase,
 )
 from src.config import get_logger
-from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors import (
     discover_connectors,  # Phase 5: move to injected ConnectorRegistry
@@ -68,72 +60,16 @@ async def run_playlist_backup(
         uow: UnitOfWorkProtocol,
     ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
         # Step 1: Sync connector playlist (fetch + store in database)
-        sync_service = ConnectorPlaylistSyncService()
-        connector_playlist = await sync_service.sync_connector_playlist(
+        connector_playlist = await sync_connector_playlist(
             connector_name, playlist_id, uow
         )
 
         if not connector_playlist or not connector_playlist.items:
             raise ValueError(f"Playlist not found or empty: {playlist_id}")
 
-        # Step 2: Check if playlist already exists locally
-        existing_playlist = None
-        try:
-            read_use_case = ReadCanonicalPlaylistUseCase()
-            read_command = ReadCanonicalPlaylistCommand(
-                playlist_id=playlist_id, connector=connector_name
-            )
-            result = await read_use_case.execute(read_command, uow)
-            existing_playlist = result.playlist
-            if existing_playlist:
-                logger.info(
-                    "Found existing local playlist",
-                    local_id=existing_playlist.id,
-                    name=existing_playlist.name,
-                )
-        except ValueError:
-            logger.info("No existing local playlist found - will create new one")
-
-        # Step 3: Create or update playlist with ConnectorPlaylist as typed field
-        if existing_playlist:
-            update_use_case = UpdateCanonicalPlaylistUseCase()
-            update_command = UpdateCanonicalPlaylistCommand(
-                playlist_id=str(existing_playlist.id),
-                new_tracklist=TrackList(),
-                connector_playlist=connector_playlist,
-                playlist_name=connector_playlist.name,
-                playlist_description=connector_playlist.description
-                or f"Updated from {connector_name}",
-            )
-            result = await update_use_case.execute(update_command, uow)
-
-            logger.info(
-                "Updated existing playlist",
-                playlist_id=result.playlist.id,
-                operations=result.operations_performed,
-                tracks_added=result.tracks_added,
-                tracks_removed=result.tracks_removed,
-            )
-            return result
-        else:
-            create_use_case = CreateCanonicalPlaylistUseCase()
-            create_command = CreateCanonicalPlaylistCommand(
-                name=connector_playlist.name,
-                tracklist=TrackList(),
-                connector_playlist=connector_playlist,
-                connector_name=connector_name,
-                connector_id=playlist_id,
-                description=connector_playlist.description
-                or f"Imported from {connector_name}",
-            )
-            result = await create_use_case.execute(create_command, uow)
-
-            logger.info(
-                "Created new playlist",
-                playlist_id=result.playlist.id,
-                name=result.playlist.name,
-                tracks_created=result.tracks_created,
-            )
-            return result
+        # Step 2: Create or update canonical playlist from connector data
+        return await upsert_canonical_playlist(
+            connector_playlist, connector_name, playlist_id, uow
+        )
 
     return await execute_use_case(_backup)

@@ -16,7 +16,6 @@ from src.domain.playlist.diff_engine import (
 )
 
 
-@pytest.mark.unit
 class TestLongestIncreasingSubsequence:
     """Test the core LIS algorithm for correctness."""
 

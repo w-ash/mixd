@@ -14,6 +14,7 @@ import asyncio
 import json
 import sys
 
+from src.config import setup_script_logger
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 # Well-known test data
@@ -38,6 +39,7 @@ def dump(label: str, data: object) -> None:
 
 
 async def main() -> None:
+    setup_script_logger("diagnose_spotify")
     client = SpotifyAPIClient()
     print("Spotify API — all read endpoints")
     print("=" * 60)

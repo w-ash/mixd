@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from src.config import setup_loguru_logger
-from src.interface.cli.console import get_console, should_use_live_display
+from src.interface.cli.console import get_console
 
 VERSION = version("narada")
 
@@ -36,79 +36,62 @@ def version_command() -> None:
 
 @app.callback()
 def init_cli(
-    ctx: typer.Context,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Enable verbose output"),
     ] = False,
 ) -> None:
     """Initialize Narada CLI with Rich console management."""
-    # Store configuration in context for subcommands
-    _ = ctx.ensure_object(dict)  # pyright: ignore[reportUnknownVariableType]
-    ctx.obj["verbose"] = verbose
-    ctx.obj["use_live_display"] = should_use_live_display(ctx)
-    ctx.obj["console"] = console
-
-    # Setup logging first
     setup_loguru_logger(verbose)
-
-    # Create data directory
     Path("data").mkdir(exist_ok=True)
 
 
-def _register_commands():
+def _register_commands() -> None:
     """Register all CLI commands."""
-    try:
-        # Import command modules here to avoid circular imports
-        from src.interface.cli import (
-            history_commands,
-            likes_commands,
-            playlist_commands,
-            track_commands,
-            workflow_commands,
-        )
+    # Import command modules here to avoid circular imports
+    from src.interface.cli import (
+        history_commands,
+        likes_commands,
+        playlist_commands,
+        track_commands,
+        workflow_commands,
+    )
 
-        # Add command groups using Typer best practices
-        app.add_typer(
-            workflow_commands.app,
-            name="workflow",
-            help="Execute and manage playlist workflows",
-            rich_help_panel="⚡ Workflow Execution",
-        )
+    # Add command groups using Typer best practices
+    app.add_typer(
+        workflow_commands.app,
+        name="workflow",
+        help="Execute and manage playlist workflows",
+        rich_help_panel="⚡ Workflow Execution",
+    )
 
-        app.add_typer(
-            playlist_commands.app,
-            name="playlist",
-            help="Manage stored playlists and data operations",
-            rich_help_panel="🎵 Playlist Management",
-        )
+    app.add_typer(
+        playlist_commands.app,
+        name="playlist",
+        help="Manage stored playlists and data operations",
+        rich_help_panel="🎵 Playlist Management",
+    )
 
-        app.add_typer(
-            history_commands.app,
-            name="history",
-            help="Import and manage your music play history",
-            rich_help_panel="🔄 Track Data Sync",
-        )
+    app.add_typer(
+        history_commands.app,
+        name="history",
+        help="Import and manage your music play history",
+        rich_help_panel="🔄 Track Data Sync",
+    )
 
-        app.add_typer(
-            likes_commands.app,
-            name="likes",
-            help="Import and export your liked tracks across music services",
-            rich_help_panel="🔄 Track Data Sync",
-        )
+    app.add_typer(
+        likes_commands.app,
+        name="likes",
+        help="Import and export your liked tracks across music services",
+        rich_help_panel="🔄 Track Data Sync",
+    )
 
-        app.add_typer(
-            track_commands.track_app,
-            name="tracks",
-            help="Track management operations including merging duplicates",
-            rich_help_panel="🎵 Track Operations",
-        )
-
-    except Exception as e:
-        console.print(f"[red]Failed to register commands: {e}[/red]")
-        import traceback
-
-        console.print("[dim]" + traceback.format_exc() + "[/dim]")
+    app.add_typer(
+        track_commands.track_app,
+        name="tracks",
+        help="Track management operations including merging duplicates",
+        rich_help_panel="🎵 Track Operations",
+    )
 
 
 def main() -> int:

@@ -29,16 +29,6 @@ class NodeContext:
     def __init__(self, data: dict[str, Any]) -> None:
         object.__setattr__(self, "data", data)
 
-    def get(self, path: str, default: Any = None) -> Any:
-        """Get value from nested context using dot notation."""
-        parts = path.split(".")
-        current = self.data
-        for part in parts:
-            if not isinstance(current, dict) or part not in current:
-                return default
-            current = current[part]
-        return current
-
     def extract_tracklist(self) -> TrackList:
         """Extract primary tracklist from context.
 
@@ -74,6 +64,10 @@ class NodeContext:
                 logger.warning(f"Invalid task result for {task_id}: not a dictionary")
                 continue
 
+            if "tracklist" not in task_result:
+                logger.warning(f"Task result for {task_id} missing 'tracklist' key")
+                continue
+
             # isinstance confirmed dict; bridge through object to satisfy pyright's overlap check
             node_result = cast(NodeResult, cast(object, task_result))
             tracklists.append(node_result["tracklist"])
@@ -101,21 +95,18 @@ class NodeContext:
         return workflow_context
 
     def extract_use_cases(self) -> UseCaseProvider:
-        """Extract use case provider with validation.
+        """Extract use case provider via workflow context.
 
         Returns:
             UseCaseProvider for getting use case instances
 
         Raises:
-            ValueError: If use case provider not found
+            ValueError: If workflow context or use case provider not found
         """
-        use_cases = self.data.get("use_cases")
-        if not use_cases:
-            raise ValueError("Use case provider not found in context")
-        return use_cases
+        return self.extract_workflow_context().use_cases
 
     def get_connector(self, connector_name: str) -> Any:
-        """Get connector instance with validation.
+        """Get connector instance via workflow context's connector registry.
 
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
@@ -126,14 +117,11 @@ class NodeContext:
         Raises:
             ValueError: If connector registry or specific connector not found
         """
-        connector_registry = self.data.get("connectors")
-        if not connector_registry:
-            raise ValueError("No connector registry available")
-
-        available_connectors = connector_registry.list_connectors()
+        registry = self.extract_workflow_context().connectors
+        available_connectors = registry.list_connectors()
         if connector_name not in available_connectors:
             raise ValueError(
                 f"Unsupported connector: {connector_name}. Available: {available_connectors}"
             )
 
-        return connector_registry.get_connector(connector_name)
+        return registry.get_connector(connector_name)

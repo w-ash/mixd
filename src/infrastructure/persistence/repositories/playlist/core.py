@@ -335,20 +335,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 record.sort_key = sort_key  # Update position only
                 record.updated_at = now
                 records_to_update.append(record)
-
-                logger.debug(
-                    f"Reusing record {record.id} for track {entry.track.id} at position {idx}"
-                )
             else:
                 # No existing record for this track - create new membership instance
                 # Direct access to added_at from PlaylistEntry - clean architecture!
                 added_at = entry.added_at
-                if added_at:
-                    logger.debug(
-                        "Using added_at from PlaylistEntry for new record",
-                        track_id=entry.track.id,
-                        added_at=added_at,
-                    )
 
                 records_to_create.append(
                     DBPlaylistTrack(
@@ -361,18 +351,14 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                     )
                 )
 
-                logger.debug(
-                    f"Creating new record for track {entry.track.id} at position {idx}"
-                )
-
         # Collect unconsumed records (tracks removed from playlist)
         records_to_delete: list[DBPlaylistTrack] = []
-        for track_id, remaining_records in available_records.items():
-            for record in remaining_records:
-                records_to_delete.append(record)
-                logger.debug(
-                    f"Deleting unconsumed record {record.id} for track {track_id}"
-                )
+        for remaining_records in available_records.values():
+            records_to_delete.extend(remaining_records)
+
+        logger.debug(
+            f"Playlist sync: {len(records_to_update)} reused, {len(records_to_create)} created, {len(records_to_delete)} deleted"
+        )
 
         # Execute database operations
         if records_to_update:

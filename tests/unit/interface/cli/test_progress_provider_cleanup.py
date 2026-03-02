@@ -5,8 +5,6 @@ TDD test to ensure cleanup tasks don't leak when display is stopped.
 
 import asyncio
 
-import pytest
-
 from src.domain.entities.progress import OperationStatus, ProgressOperation
 from src.interface.cli.progress_provider import RichProgressProvider
 
@@ -14,7 +12,6 @@ from src.interface.cli.progress_provider import RichProgressProvider
 class TestRichProgressProviderCleanup:
     """Test that RichProgressProvider properly cleans up async tasks."""
 
-    @pytest.mark.asyncio
     async def test_cleanup_tasks_are_cancelled_on_stop(self):
         """Test that pending cleanup tasks are cancelled when display stops.
 
@@ -59,7 +56,6 @@ class TestRichProgressProviderCleanup:
             f"Found {len(pending_tasks)} pending cleanup tasks that should have been cancelled"
         )
 
-    @pytest.mark.asyncio
     async def test_multiple_operations_cleanup_cancelled(self):
         """Test that multiple pending cleanup tasks are all cancelled."""
         provider = RichProgressProvider(show_rate=False)

@@ -10,13 +10,10 @@ import threading
 import time
 from typing import Any
 
-import pytest
-
 
 class TestThreadPoolConfiguration:
     """Test thread pool configuration using standard asyncio patterns."""
 
-    @pytest.mark.asyncio
     async def test_default_executor_configuration(self):
         """Test configuring default executor for better concurrency."""
 
@@ -83,7 +80,6 @@ class TestThreadPoolConfiguration:
                 custom_executor.shutdown(wait=False)
             # Don't restore None executor - let asyncio create a new default one
 
-    @pytest.mark.asyncio
     async def test_lastfm_scale_simulation_with_custom_executor(self):
         """Test Last.fm scale (50 calls) with custom executor."""
 
@@ -168,7 +164,6 @@ class TestThreadPoolConfiguration:
             if "custom_executor" in locals():
                 custom_executor.shutdown(wait=False)
 
-    @pytest.mark.asyncio
     async def test_thread_pool_sizing_recommendations(self):
         """Test different thread pool sizes to find optimal configuration."""
 

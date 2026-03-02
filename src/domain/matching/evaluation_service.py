@@ -8,14 +8,18 @@ This replaces the business logic previously scattered across:
 - Infrastructure components that were incorrectly making business decisions
 """
 
-from src.config import get_logger, settings
+from attrs import define
+from loguru import logger as _loguru_logger
+
 from src.domain.entities import Track
 from src.domain.matching.algorithms import calculate_confidence
+from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import MatchResult, MatchResultsById, RawProviderMatch
 
-logger = get_logger(__name__)
+logger = _loguru_logger.bind(module=__name__)
 
 
+@define(frozen=True, slots=True)
 class TrackMatchEvaluationService:
     """Pure business logic for track matching and confidence scoring.
 
@@ -29,6 +33,17 @@ class TrackMatchEvaluationService:
     Zero external dependencies - this is the heart of the matching domain.
     """
 
+    config: MatchingConfig
+
+    def _get_threshold(self, match_method: str) -> int:
+        """Look up acceptance threshold for a match method."""
+        thresholds = {
+            "isrc": self.config.threshold_isrc,
+            "mbid": self.config.threshold_mbid,
+            "artist_title": self.config.threshold_artist_title,
+        }
+        return thresholds.get(match_method, self.config.threshold_default)
+
     def should_accept_match(self, confidence: int, match_method: str) -> bool:
         """Business rule for determining if a match should be accepted.
 
@@ -39,17 +54,7 @@ class TrackMatchEvaluationService:
         Returns:
             True if match meets business criteria for acceptance
         """
-        # Get threshold from configuration
-        if match_method == "isrc":
-            threshold = settings.matching.threshold_isrc
-        elif match_method == "mbid":
-            threshold = settings.matching.threshold_mbid
-        elif match_method == "artist_title":
-            threshold = settings.matching.threshold_artist_title
-        else:
-            threshold = settings.matching.threshold_default
-
-        return confidence >= threshold
+        return confidence >= self._get_threshold(match_method)
 
     def evaluate_single_match(
         self,
@@ -79,7 +84,10 @@ class TrackMatchEvaluationService:
 
         # Calculate confidence using pure domain algorithm
         confidence, evidence = calculate_confidence(
-            internal_track_data, raw_match["service_data"], raw_match["match_method"]
+            internal_track_data,
+            raw_match["service_data"],
+            raw_match["match_method"],
+            self.config,
         )
 
         # Apply business rule for match acceptance
@@ -142,17 +150,7 @@ class TrackMatchEvaluationService:
             if match_result.success:
                 results[track.id] = match_result
             else:
-                # Log rejected matches with key details for debugging
-                # Get threshold from configuration
-                if match_result.match_method == "isrc":
-                    threshold = settings.matching.threshold_isrc
-                elif match_result.match_method == "mbid":
-                    threshold = settings.matching.threshold_mbid
-                elif match_result.match_method == "artist_title":
-                    threshold = settings.matching.threshold_artist_title
-                else:
-                    threshold = settings.matching.threshold_default
-
+                threshold = self._get_threshold(match_result.match_method)
                 logger.warning(
                     f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
                     + f"(confidence {match_result.confidence} < {threshold})",

@@ -4,15 +4,12 @@ This module provides comprehensive tests for the logging system to ensure
 backward compatibility during refactoring and verify all logging features work correctly.
 """
 
-import logging
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
 from src.config.logging import (
-    configure_prefect_logging,
     get_logger,
-    log_startup_info,
     setup_loguru_logger,
 )
 from src.config.settings import LoggingConfig
@@ -78,32 +75,6 @@ class TestCurrentLoggingBehavior:
                 test_logger = get_logger(__name__)
                 test_logger.debug("Debug message in verbose mode")
                 test_logger.info("Info message in verbose mode")
-
-    def test_log_startup_info(self):
-        """Test log_startup_info function."""
-        # Should not raise
-        log_startup_info()
-
-    def test_configure_prefect_logging(self):
-        """Test Prefect logging configuration."""
-        # Should not raise
-        configure_prefect_logging()
-
-        # Verify Prefect logger is configured
-        prefect_logger = logging.getLogger("prefect")
-        assert len(prefect_logger.handlers) > 0
-        assert not prefect_logger.propagate
-
-    def test_prefect_loguru_handler_emit(self):
-        """Test PrefectLoguruHandler.emit method."""
-        configure_prefect_logging()
-
-        # Create a test log record
-        prefect_logger = logging.getLogger("prefect.test")
-
-        # Should not raise when logging
-        prefect_logger.info("Test prefect message")
-        prefect_logger.error("Test prefect error")
 
 
 class TestLoggingIntegration:

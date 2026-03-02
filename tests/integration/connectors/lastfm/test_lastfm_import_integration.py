@@ -44,7 +44,6 @@ class TestLastfmPlayImporterIntegration:
             yield importer, mock_connector
 
     # INTEGRATION TEST 1: End-to-End Connector Play Creation
-    @pytest.mark.asyncio
     async def test_connector_play_creation_with_real_database(
         self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
     ):
@@ -105,7 +104,6 @@ class TestLastfmPlayImporterIntegration:
         assert we_will_rock_play.ms_played is None  # Last.fm doesn't provide this
 
     # INTEGRATION TEST 2: Base Class Integration (UnitOfWork Pattern)
-    @pytest.mark.asyncio
     async def test_base_class_integration_with_uow(
         self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
     ):
@@ -148,7 +146,6 @@ class TestLastfmPlayImporterIntegration:
         # This validates the save operation completed without errors
 
     # INTEGRATION TEST 3: Error Handling with Real Dependencies
-    @pytest.mark.asyncio
     async def test_error_handling_with_real_dependencies(
         self, lastfm_importer_with_mocked_api, unit_of_work
     ):
@@ -215,7 +212,6 @@ class TestLastfmPlayImporterIntegration:
         assert end.date() == datetime.now(UTC).date()
 
     # INTEGRATION TEST 5: Metadata Preservation (Business Value)
-    @pytest.mark.asyncio
     async def test_metadata_preservation_lastfm_specific(
         self, lastfm_importer_with_mocked_api, unit_of_work
     ):

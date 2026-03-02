@@ -1,0 +1,21 @@
+---
+paths:
+  - "src/**"
+---
+# Implementation Completeness
+- **Every source change requires corresponding tests** — a feature is not done until tests exist and pass
+- After implementing, verify a test file exists at the mirror path:
+  - `src/domain/**` → `tests/unit/domain/`
+  - `src/application/use_cases/**` → `tests/unit/application/use_cases/`
+  - `src/application/workflows/**` → `tests/unit/application/workflows/`
+  - `src/application/services/**` → `tests/unit/application/services/`
+  - `src/application/metadata_transforms/**` → `tests/unit/application/metadata_transforms/`
+  - `src/infrastructure/connectors/<name>/**` → `tests/unit/infrastructure/connectors/<name>/`
+  - `src/infrastructure/persistence/repositories/**` → `tests/integration/repositories/`
+- **Test level by layer**:
+  - Domain → unit tests (pure logic, no mocks needed)
+  - Application use cases → unit tests with `make_mock_uow()` from `tests.fixtures`
+  - Infrastructure connectors → unit tests with `AsyncMock` clients
+  - Repositories → integration tests with `db_session`
+- **Minimum coverage**: happy path + at least one error/edge case per public function
+- Run tests after implementation: `poetry run pytest tests/path/to/test_file.py -x`

@@ -26,7 +26,6 @@ from src.domain.entities.track import (
 )
 
 
-@pytest.mark.unit
 class TestTrackEntity:
     """Test core track entity behavior and business rules."""
 
@@ -256,7 +255,6 @@ class TestConnectorTrackMappingEntity:
                 )
 
 
-@pytest.mark.unit
 class TestSyncCheckpoint:
     """Test SyncCheckpoint entity behavior."""
 
@@ -278,7 +276,6 @@ class TestSyncCheckpoint:
         assert checkpoint.last_timestamp is None  # Original unchanged
 
 
-@pytest.mark.unit
 class TestPlayRecord:
     """Test PlayRecord and factory functions."""
 
@@ -327,7 +324,6 @@ class TestPlayRecord:
         assert record.service_metadata["loved"] is True
 
 
-@pytest.mark.unit
 class TestTrackPlayEntity:
     """Test TrackPlay entity behavior."""
 
@@ -377,7 +373,6 @@ class TestTrackPlayEntity:
         assert track.id == 123
 
 
-@pytest.mark.unit
 class TestOperationResultEntity:
     """Test OperationResult behavior."""
 
@@ -398,7 +393,6 @@ class TestOperationResultEntity:
         assert result.get_metric(3, "status", "not_found") == "not_found"
 
 
-@pytest.mark.unit
 class TestEnsureUtc:
     """Test UTC timezone enforcement utility."""
 

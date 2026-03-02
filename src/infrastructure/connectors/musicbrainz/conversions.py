@@ -30,23 +30,6 @@ def _ensure_recording(
     return MusicBrainzRecording.model_validate(data)
 
 
-def extract_mbid_from_recording(
-    recording_data: dict[str, Any] | MusicBrainzRecording,
-) -> str | None:
-    """Extract MBID from MusicBrainz recording data."""
-    if not recording_data:
-        return None
-
-    try:
-        recording = _ensure_recording(recording_data)
-    except Exception:
-        logger.debug("Failed to validate recording data for MBID extraction")
-        return None
-
-    logger.debug(f"Extracted MBID: {recording.id}")
-    return recording.id
-
-
 def extract_recording_metadata(
     recording_data: dict[str, Any] | MusicBrainzRecording,
 ) -> dict[str, str | int]:

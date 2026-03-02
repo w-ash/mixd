@@ -1,15 +1,16 @@
-"""Root test configuration with pytest 8.4.1 best practices.
+"""Root test configuration with pytest 9+ best practices.
 
 Modern test fixtures providing:
 - Isolated database sessions with automatic cleanup
 - Comprehensive test data management and tracking
-- 2025 pytest async fixture patterns
+- 2026 pytest async fixture patterns (asyncio_mode=auto)
 - Proper resource cleanup and test isolation
 """
 
 from collections.abc import AsyncGenerator
 import os
 import pathlib
+import sys
 import tempfile
 from uuid import uuid4
 
@@ -27,6 +28,34 @@ from src.infrastructure.persistence.database.db_connection import (
 # pytest-asyncio handles event loop management internally without custom policy fixtures
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Auto-apply unit/integration markers based on test file location.
+
+    Tests under tests/unit/ get @pytest.mark.unit, tests under
+    tests/integration/ get @pytest.mark.integration. This replaces
+    per-function decorators and makes `-m "unit"` / `-m "integration"`
+    filtering reliable without any boilerplate.
+    """
+    for item in items:
+        path = str(item.fspath)
+        if "/tests/unit/" in path:
+            item.add_marker(pytest.mark.unit)
+        elif "/tests/integration/" in path:
+            item.add_marker(pytest.mark.integration)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _suppress_file_logging():
+    """Prevent tests from writing to the production log file."""
+    from loguru import logger as loguru_logger
+
+    loguru_logger.configure(
+        handlers=[
+            {"sink": sys.stderr, "level": "WARNING", "format": "{level} | {message}"},
+        ],
+    )
+
+
 # Modern async generator typing for pytest 8.4.1
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession]:
@@ -36,7 +65,7 @@ async def db_session() -> AsyncGenerator[AsyncSession]:
     - Unique temporary database per test
     - Automatic schema initialization
     - Complete cleanup after each test
-    - Pytest 8.4.1 async generator pattern
+    - Pytest 9+ async generator pattern
     """
     # Create unique database file for complete test isolation
     db_file = f"{tempfile.gettempdir()}/test_narada_{uuid4().hex}.db"
@@ -229,7 +258,7 @@ async def test_data_tracker(
 ) -> AsyncGenerator[TestDataTracker]:
     """Modern test data tracking fixture with automatic cleanup.
 
-    Pytest 8.4.1 pattern for comprehensive test data management:
+    Pytest 9+ pattern for comprehensive test data management:
     - Tracks all created test data
     - Automatic cleanup after each test
     - Hard delete cleanup for the new architecture

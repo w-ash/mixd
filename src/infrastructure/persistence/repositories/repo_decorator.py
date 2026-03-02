@@ -179,6 +179,18 @@ def db_operation(operation_name: str | None = None):
                 )
                 raise
 
+            except ValueError as e:
+                # Handle domain value errors (e.g. "not found" from get_by_id)
+                exec_time = (time.perf_counter() - start_time) * 1000
+                logger.debug(
+                    f"Domain value error: {repo_name}.{func_name}",
+                    operation=func_name,
+                    error=str(e),
+                    exec_time_ms=exec_time,
+                    **context,
+                )
+                raise
+
             except Exception as e:
                 # Handle unexpected errors
                 exec_time = (time.perf_counter() - start_time) * 1000
