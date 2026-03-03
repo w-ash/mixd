@@ -5,6 +5,10 @@ Pure utility functions with zero external dependencies.
 
 from datetime import UTC, datetime
 
+# Metric values stored per-track: play counts (int), averages (float),
+# timestamps (datetime), or absent (None)
+type MetricValue = int | float | datetime | None
+
 
 def ensure_utc(dt: datetime | None) -> datetime | None:
     """Ensure datetime is timezone-aware with UTC."""

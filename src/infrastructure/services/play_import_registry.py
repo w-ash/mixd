@@ -5,14 +5,22 @@ service requests to appropriate connector factories without the application laye
 needing to know about specific connectors.
 """
 
-from collections.abc import Callable
-from typing import Any
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: **kwargs variadic dispatch, import params
+
+from collections.abc import Awaitable, Callable
 
 from src.domain.repositories import (
     PlayImporterProtocol,
     PlayResolverProtocol,
     UnitOfWorkProtocol,
 )
+
+# Concrete factory types — eliminates Callable[..., Any]
+type _ImporterFactory = Callable[[UnitOfWorkProtocol], Awaitable[PlayImporterProtocol]]
+type _ResolverFactory = Callable[
+    [UnitOfWorkProtocol | None], Awaitable[PlayResolverProtocol]
+]
 
 
 class PlayImportServiceRegistry:
@@ -23,8 +31,8 @@ class PlayImportServiceRegistry:
     boundaries while enabling extensibility.
     """
 
-    _importer_factories: dict[str, Callable[..., Any]]
-    _resolver_factories: dict[str, Callable[..., Any]]
+    _importer_factories: dict[str, _ImporterFactory]
+    _resolver_factories: dict[str, _ResolverFactory]
 
     def __init__(self):
         """Initialize registry with known service mappings."""

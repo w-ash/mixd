@@ -4,7 +4,7 @@ Locks down current behavior of playlist_source, source_liked_tracks,
 and source_played_tracks before workflow cleanup.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -117,7 +117,7 @@ class TestSourceLikedTracks:
     """Tests for source_liked_tracks node."""
 
     async def test_delegates_to_use_case(self, sample_tracks):
-        """source_liked_tracks creates command and delegates to GetLikedTracksUseCase."""
+        """source_liked_tracks creates command and delegates via execute_use_case."""
         from src.application.workflows.source_nodes import source_liked_tracks
 
         mock_result = MagicMock()
@@ -130,14 +130,15 @@ class TestSourceLikedTracks:
         context = {"workflow_context": wf_ctx}
         config = {"limit": 50, "sort_by": "liked_at_desc"}
 
-        with patch("src.application.workflows.source_nodes.GetLikedTracksUseCase"):
-            result = await source_liked_tracks(context, config)
+        result = await source_liked_tracks(context, config)
 
         assert "tracklist" in result
         assert len(result["tracklist"].tracks) == 2
+        wf_ctx.execute_use_case.assert_awaited_once()
 
     async def test_enforces_limit_cap(self, sample_tracks):
         """Limit is capped at 10000."""
+        from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
         from src.application.workflows.source_nodes import source_liked_tracks
 
         mock_result = MagicMock()
@@ -150,23 +151,19 @@ class TestSourceLikedTracks:
         context = {"workflow_context": wf_ctx}
         config = {"limit": 99999}
 
-        with (
-            patch("src.application.workflows.source_nodes.GetLikedTracksUseCase"),
-            patch(
-                "src.application.workflows.source_nodes.GetLikedTracksCommand"
-            ) as mock_cmd,
-        ):
-            await source_liked_tracks(context, config)
-            # The command should have been created with capped limit
-            mock_cmd.assert_called_once()
-            assert mock_cmd.call_args.kwargs["limit"] == 10000
+        await source_liked_tracks(context, config)
+        # The command passed to execute_use_case should have capped limit
+        _, call_kwargs = wf_ctx.execute_use_case.call_args
+        command = call_kwargs.get("command") or wf_ctx.execute_use_case.call_args[0][1]
+        assert isinstance(command, GetLikedTracksCommand)
+        assert command.limit == 10000
 
 
 class TestSourcePlayedTracks:
     """Tests for source_played_tracks node."""
 
     async def test_delegates_to_use_case(self, sample_tracks):
-        """source_played_tracks creates command and delegates to GetPlayedTracksUseCase."""
+        """source_played_tracks creates command and delegates via execute_use_case."""
         from src.application.workflows.source_nodes import source_played_tracks
 
         mock_result = MagicMock()
@@ -179,8 +176,8 @@ class TestSourcePlayedTracks:
         context = {"workflow_context": wf_ctx}
         config = {"limit": 100, "days_back": 30, "sort_by": "played_at_desc"}
 
-        with patch("src.application.workflows.source_nodes.GetPlayedTracksUseCase"):
-            result = await source_played_tracks(context, config)
+        result = await source_played_tracks(context, config)
 
         assert "tracklist" in result
         assert len(result["tracklist"].tracks) == 2
+        wf_ctx.execute_use_case.assert_awaited_once()

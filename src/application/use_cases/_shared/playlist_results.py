@@ -4,6 +4,9 @@ Replaces tuple-based returns with strongly-typed result objects using Python 3.1
 features for better type safety and maintainability.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from typing import Any, TypedDict
 
 from attrs import define

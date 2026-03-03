@@ -8,6 +8,9 @@ For actual batch processing, use the specialized processors:
 - SimpleBatchProcessor: Basic chunking operations
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from enum import Enum
 from typing import Any
 

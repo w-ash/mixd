@@ -3,13 +3,19 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from datetime import datetime
 from typing import Any, Literal, Self, TypedDict, cast
 
 import attrs
 from attrs import define, field, validators
 
-from .shared import utc_now_factory
+from .shared import (
+    MetricValue,
+    utc_now_factory,
+)
 
 
 @define(frozen=True, slots=True)
@@ -89,7 +95,7 @@ class Track:
         connector: str,
         attribute: str,
         default: object = None,
-    ) -> Any:
+    ) -> object:
         """Get a specific attribute from connector metadata."""
         return self.connector_metadata.get(connector, {}).get(attribute, default)
 
@@ -191,7 +197,7 @@ class TrackListMetadata(TypedDict, total=False):
     """
 
     # Enrichment data (written by enrichers, read by transforms)
-    metrics: dict[str, dict[int, Any]]  # metric_name → track_id → value
+    metrics: dict[str, dict[int, MetricValue]]  # metric_name → track_id → value
     fresh_metric_ids: dict[str, list[int]]  # metric_name → freshly-fetched track IDs
 
     # Source tracking (written by source nodes & combiners)
@@ -240,5 +246,5 @@ class TrackList:
         new_metadata[key] = value
         return self.__class__(
             tracks=self.tracks,
-            metadata=cast(TrackListMetadata, cast(object, new_metadata)),
+            metadata=cast(TrackListMetadata, new_metadata),
         )

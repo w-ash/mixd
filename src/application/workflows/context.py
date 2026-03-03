@@ -4,7 +4,10 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
-from collections.abc import Callable, Coroutine
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: connector config dicts, connector instance cache
+
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from attrs import define
@@ -21,6 +24,7 @@ from src.infrastructure.persistence.database.db_connection import get_session
 from .protocols import (
     ConnectorRegistry,
     MetricConfigProvider,
+    UseCase,
     UseCaseProvider,
     WorkflowContext,
 )
@@ -34,8 +38,8 @@ class ConnectorRegistryImpl:
     instances so repeated calls return the same connector (same httpx pool).
     """
 
-    _connectors: dict[str, Any]
-    _cache: dict[str, Any]
+    _connectors: dict[str, Any]  # heterogeneous connector config dicts
+    _cache: dict[str, Any]  # heterogeneous connector instances
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""
@@ -44,7 +48,7 @@ class ConnectorRegistryImpl:
         self._connectors = discover_connectors()
         self._cache = {}
 
-    def get_connector(self, name: str):
+    def get_connector(self, name: str) -> object:
         """Get (or create) a connector instance for the specified music service.
 
         Args:
@@ -80,8 +84,10 @@ class ConnectorRegistryImpl:
         Must be called when the workflow completes (success or failure) to avoid
         leaking httpx connection pools until GC.
         """
+        from src.application.connector_protocols import Closeable
+
         for connector in self._cache.values():
-            if hasattr(connector, "aclose"):
+            if isinstance(connector, Closeable):
                 await connector.aclose()
         self._cache.clear()
 
@@ -92,6 +98,9 @@ class UseCaseProviderImpl:
     Creates instances of use cases that handle playlist operations like
     creating playlists, matching tracks between services, enriching track
     metadata, and synchronizing playlists across music services.
+
+    Each method returns its concrete type so pyright can propagate result
+    types through ``execute_use_case`` generics.
     """
 
     async def get_create_canonical_playlist_use_case(self):
@@ -112,6 +121,20 @@ class UseCaseProviderImpl:
         from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
 
         return EnrichTracksUseCase()
+
+    async def get_liked_tracks_use_case(self):
+        from src.application.use_cases.get_liked_tracks import (
+            GetLikedTracksUseCase,
+        )
+
+        return GetLikedTracksUseCase()
+
+    async def get_played_tracks_use_case(self):
+        from src.application.use_cases.get_played_tracks import (
+            GetPlayedTracksUseCase,
+        )
+
+        return GetPlayedTracksUseCase()
 
     async def get_update_canonical_playlist_use_case(self):
         from src.application.use_cases.update_canonical_playlist import (
@@ -147,13 +170,13 @@ class ConcreteWorkflowContext:
     connectors: ConnectorRegistry
     use_cases: UseCaseProvider
     metric_config: MetricConfigProvider
-    shared_session: Any = (
+    shared_session: AsyncSession | None = (
         None  # Optional shared session for workflow transaction boundaries
     )
 
     async def _with_uow[TResult](
         self,
-        fn: Callable[[UnitOfWorkProtocol], Coroutine[Any, Any, TResult]],
+        fn: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
     ) -> TResult:
         """Acquire a UnitOfWork and run an async function against it.
 
@@ -174,7 +197,7 @@ class ConcreteWorkflowContext:
 
     async def execute_service[TResult](
         self,
-        service_fn: Callable[[UnitOfWorkProtocol], Coroutine[Any, Any, TResult]],
+        service_fn: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
     ) -> TResult:
         """Execute an arbitrary async operation with a UnitOfWork.
 
@@ -190,18 +213,22 @@ class ConcreteWorkflowContext:
         """
         return await self._with_uow(service_fn)
 
-    async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
+    async def execute_use_case[TCommand, TResult](
+        self,
+        use_case_getter: Callable[[], Awaitable[UseCase[TCommand, TResult]]],
+        command: TCommand,
+    ) -> TResult:
         """Execute a business logic use case with proper resource management.
 
         Handles database session lifecycle, unit of work creation, and
         cleanup automatically for any workflow use case execution.
 
         Args:
-            use_case_getter: Async function that returns a use case instance
-            command: Command object containing operation parameters
+            use_case_getter: Async function that returns a configured use case.
+            command: Command object containing operation parameters.
 
         Returns:
-            Result from the executed use case
+            Typed result from the executed use case.
         """
         use_case = await use_case_getter()
         return await self._with_uow(lambda uow: use_case.execute(command, uow))

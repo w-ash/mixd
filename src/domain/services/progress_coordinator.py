@@ -5,6 +5,9 @@ and derived metric calculations. Ensures progress monotonicity, prevents event
 flooding, and maintains operation state consistency.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any

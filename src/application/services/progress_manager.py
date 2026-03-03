@@ -5,6 +5,9 @@ Handles subscriber management, error isolation, and coordinates with the
 ProgressCoordinator domain service for business rule enforcement.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 import asyncio
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4

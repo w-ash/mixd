@@ -101,7 +101,10 @@ def filter_by_play_history(
 
             # Apply play count constraints
             if min_plays is not None or max_plays is not None:
-                play_count = play_counts.get(track.id, 0)
+                raw_count = play_counts.get(track.id, 0)
+                play_count = (
+                    int(raw_count) if isinstance(raw_count, (int, float)) else 0
+                )
 
                 if min_plays is not None and play_count < min_plays:
                     return False
@@ -220,7 +223,8 @@ def sort_by_play_history(
 
             # If no time constraints, use total play count
             if effective_after is None and effective_before is None:
-                return all_play_counts.get(track.id, 0)
+                raw = all_play_counts.get(track.id, 0)
+                return int(raw) if isinstance(raw, (int, float)) else 0
 
             # For time-constrained sorting, we need to check if the track was played
             # within the time window. Since we only have last_played_dates (not all play dates),
@@ -242,7 +246,8 @@ def sort_by_play_history(
                 return 0
 
             # Track was played within window, use its total play count as proxy
-            return all_play_counts.get(track.id, 0)
+            raw = all_play_counts.get(track.id, 0)
+            return int(raw) if isinstance(raw, (int, float)) else 0
 
         # Sort tracks by play count
         sorted_tracks = sorted(

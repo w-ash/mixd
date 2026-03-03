@@ -4,10 +4,13 @@ Modern Typer implementation with progressive discovery, Rich UI, and clean separ
 of concerns. Follows [tool] [noun] [verb] command patterns for consistency.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
+
 from collections.abc import Sequence
 import json
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -25,6 +28,17 @@ from src.interface.cli.ui import display_operation_result
 
 console = get_console()
 err_console = get_error_console()
+
+
+class _WorkflowInfo(TypedDict):
+    """Typed shape for workflow metadata loaded from JSON definitions."""
+
+    id: str
+    name: str
+    description: str
+    task_count: int
+    path: str
+
 
 # Create workflow app following 2025 Typer patterns
 app = typer.Typer(
@@ -143,7 +157,7 @@ def _show_interactive_workflow_browser() -> None:
         )
 
 
-def _prompt_for_workflow_selection(workflows: Sequence[dict[str, Any]]) -> str | None:
+def _prompt_for_workflow_selection(workflows: Sequence[_WorkflowInfo]) -> str | None:
     """Enhanced workflow selection with fuzzy matching support."""
     # Build choices: numbers, IDs, and common exit terms
     choices: list[str] = []
@@ -173,7 +187,7 @@ def _prompt_for_workflow_selection(workflows: Sequence[dict[str, Any]]) -> str |
 
 
 def _execute_workflow(
-    workflow_info: dict[str, Any],
+    workflow_info: _WorkflowInfo,
     show_results: bool,
     output_format: Literal["table", "json"],
     quiet: bool,
@@ -182,7 +196,9 @@ def _execute_workflow(
     try:
         # Load workflow definition
         workflow_path = Path(workflow_info["path"])
-        workflow_def = json.loads(workflow_path.read_text(encoding="utf-8"))
+        workflow_def: dict[str, Any] = json.loads(  # type: ignore[reportAny]  # json.loads
+            workflow_path.read_text(encoding="utf-8")
+        )
 
         if not quiet:
             console.print(
@@ -228,7 +244,7 @@ def _execute_workflow(
         raise typer.Exit(1) from e
 
 
-def _display_workflows_table(workflows: Sequence[dict[str, Any]]) -> None:
+def _display_workflows_table(workflows: Sequence[_WorkflowInfo]) -> None:
     """Display workflows in a Rich table for reference."""
     table = Table(
         title="Available Workflows",
@@ -256,28 +272,28 @@ def _display_workflows_table(workflows: Sequence[dict[str, Any]]) -> None:
     console.print(table)
 
 
-def _get_available_workflows() -> list[dict[str, Any]]:
-    """Get available workflow definitions with metadata.
-
-    Returns list of workflow info dictionaries with id, name, description,
-    task_count, and path fields.
-    """
+def _get_available_workflows() -> list[_WorkflowInfo]:
+    """Get available workflow definitions with metadata."""
     definitions_path = get_workflow_definitions_path()
-    workflows: list[dict[str, Any]] = []
+    workflows: list[_WorkflowInfo] = []
 
     if not definitions_path.exists():
         return workflows
 
     for json_file in definitions_path.glob("*.json"):
         try:
-            definition = json.loads(json_file.read_text())
-            workflows.append({
-                "id": definition.get("id", json_file.stem),
-                "name": definition.get("name", "Unknown"),
-                "description": definition.get("description", ""),
-                "task_count": len(definition.get("tasks", [])),
-                "path": str(json_file),
-            })
+            definition: dict[str, object] = json.loads(json_file.read_text())  # type: ignore[reportAny]  # json.loads
+            tasks_raw = definition.get("tasks")
+            task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0  # type: ignore[reportAny]  # JSON list element type unknown
+            workflows.append(
+                _WorkflowInfo(
+                    id=str(definition.get("id", json_file.stem)),
+                    name=str(definition.get("name", "Unknown")),
+                    description=str(definition.get("description", "")),
+                    task_count=task_count,
+                    path=str(json_file),
+                )
+            )
         except (OSError, json.JSONDecodeError) as e:
             console.print(
                 f"[yellow]Warning: Could not parse {json_file.name}: {e}[/yellow]"

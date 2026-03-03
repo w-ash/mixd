@@ -6,6 +6,9 @@ single public interface while the internal implementation is split across
 SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response dicts, connector facade delegation
+
 from typing import Any, ClassVar, override
 
 from attrs import define, field
@@ -111,16 +114,14 @@ class SpotifyConnector(BaseAPIConnector):
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
         raw_metadata = await self._operations.get_tracks_by_ids(spotify_ids)
 
-        # Map back to track.id format expected by the protocol
+        # Map back to track.id format expected by the protocol (requires dict)
         return {
-            track.id: raw_metadata[spotify_id]
+            track.id: raw_metadata[spotify_id].model_dump()
             for track, spotify_id in spotify_mapped
             if spotify_id in raw_metadata and track.id is not None
         }
 
-    async def get_tracks_by_ids(
-        self, track_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
+    async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
         """Fetch multiple tracks from Spotify in bulk."""
         return await self._operations.get_tracks_by_ids(track_ids)
 

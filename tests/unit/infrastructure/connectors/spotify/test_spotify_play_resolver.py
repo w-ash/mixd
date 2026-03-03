@@ -10,11 +10,36 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyAlbum,
+    SpotifyArtist,
+    SpotifyLinkedFrom,
+    SpotifyTrack,
+)
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
 from tests.fixtures.factories import make_track
+
+
+def _make_spotify_track(
+    spotify_id: str,
+    name: str = "Test Song",
+    artist_name: str = "Test Artist",
+    album_name: str = "Test Album",
+    duration_ms: int = 300000,
+    linked_from_id: str | None = None,
+) -> SpotifyTrack:
+    """Create a minimal SpotifyTrack Pydantic model for testing."""
+    return SpotifyTrack(
+        id=spotify_id,
+        name=name,
+        artists=[SpotifyArtist(name=artist_name)],
+        album=SpotifyAlbum(name=album_name),
+        duration_ms=duration_ms,
+        linked_from=SpotifyLinkedFrom(id=linked_from_id) if linked_from_id else None,
+    )
 
 
 def _make_connector_play(
@@ -197,13 +222,7 @@ class TestResolverTrackResolution:
         """Missing mappings should trigger Spotify API lookup + track creation."""
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "4iV5W9uYEdYUVa79Axb7Rh": {
-                "id": "4iV5W9uYEdYUVa79Axb7Rh",
-                "name": "Test Song",
-                "artists": [{"name": "Test Artist"}],
-                "album": {"name": "Test Album"},
-                "duration_ms": 300000,
-            }
+            "4iV5W9uYEdYUVa79Axb7Rh": _make_spotify_track("4iV5W9uYEdYUVa79Axb7Rh"),
         }
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
@@ -266,14 +285,10 @@ class TestResolverRelinking:
         """When Spotify relinks a track, both old and new IDs should be mapped."""
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "oldTrackId123456789012": {
-                "id": "newTrackId123456789012",  # API returns different ID
-                "name": "Test Song",
-                "artists": [{"name": "Test Artist"}],
-                "album": {"name": "Test Album"},
-                "duration_ms": 300000,
-                "linked_from": {"id": "oldTrackId123456789012"},  # Original ID
-            }
+            "oldTrackId123456789012": _make_spotify_track(
+                "newTrackId123456789012",
+                linked_from_id="oldTrackId123456789012",
+            ),
         }
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 

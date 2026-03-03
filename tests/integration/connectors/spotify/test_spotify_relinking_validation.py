@@ -14,6 +14,13 @@ from src.application.use_cases.match_and_identify_tracks import (
 )
 from src.domain.entities.track import Artist, Track, TrackList
 from src.infrastructure.connectors.spotify import SpotifyConnector
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyAlbum,
+    SpotifyArtist,
+    SpotifyExternalIds,
+    SpotifyLinkedFrom,
+    SpotifyTrack,
+)
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -21,25 +28,17 @@ class TestSpotifyRelinkingValidation:
     """Test suite for validating Spotify relinking and canonical track deduplication."""
 
     @pytest.fixture
-    def relinked_track_data(self):
-        """Sample track data showing Spotify relinking behavior."""
-        return {
-            # Current track ID (what Spotify returns now)
-            "current_id_456": {
-                "id": "current_id_456",
-                "name": "Saturday",
-                "artists": [{"name": "The Clientele"}],
-                "album": {"name": "A Fading Summer"},
-                "duration_ms": 229133,
-                "external_ids": {"isrc": "GBUM71505078"},
-                # This indicates the track was requested with an old ID
-                "linked_from": {
-                    "id": "old_id_123",  # Original ID from import file
-                    "type": "track",
-                    "uri": "spotify:track:old_id_123",
-                },
-            }
-        }
+    def relinked_spotify_track(self) -> SpotifyTrack:
+        """Sample SpotifyTrack showing Spotify relinking behavior."""
+        return SpotifyTrack(
+            id="current_id_456",
+            name="Saturday",
+            artists=[SpotifyArtist(name="The Clientele")],
+            album=SpotifyAlbum(name="A Fading Summer"),
+            duration_ms=229133,
+            external_ids=SpotifyExternalIds(isrc="GBUM71505078"),
+            linked_from=SpotifyLinkedFrom(id="old_id_123"),
+        )
 
     @pytest.fixture
     def import_play_records(self):
@@ -70,7 +69,7 @@ class TestSpotifyRelinkingValidation:
         ]
 
     async def test_spotify_connector_handles_relinking_correctly(
-        self, relinked_track_data
+        self, relinked_spotify_track: SpotifyTrack
     ):
         """Test that SpotifyConnector maps both old and new IDs to the same track data."""
         from unittest.mock import AsyncMock, patch
@@ -83,8 +82,8 @@ class TestSpotifyRelinkingValidation:
 
             # Mock get_tracks_by_ids to simulate relinking behavior
             mock_operations.get_tracks_by_ids.return_value = {
-                "old_id_123": relinked_track_data["current_id_456"],
-                "current_id_456": relinked_track_data["current_id_456"],
+                "old_id_123": relinked_spotify_track,
+                "current_id_456": relinked_spotify_track,
             }
 
             mock_operations_class.return_value = mock_operations
@@ -99,27 +98,28 @@ class TestSpotifyRelinkingValidation:
             assert "old_id_123" in result, "Original ID should be mapped"
             assert "current_id_456" in result, "Current ID should be mapped"
 
-            # Both should reference the same track data
+            # Both should reference the same SpotifyTrack
             old_track_data = result["old_id_123"]
             current_track_data = result["current_id_456"]
 
-            assert old_track_data["id"] == "current_id_456", (
+            assert old_track_data.id == "current_id_456", (
                 "Should return current track ID"
             )
-            assert old_track_data["name"] == "Saturday", (
+            assert old_track_data.name == "Saturday", (
                 "Should have correct track name"
             )
-            assert old_track_data["linked_from"]["id"] == "old_id_123", (
+            assert old_track_data.linked_from is not None
+            assert old_track_data.linked_from.id == "old_id_123", (
                 "Should preserve original ID"
             )
 
             # Both entries should be identical
-            assert old_track_data == current_track_data, (
+            assert old_track_data is current_track_data, (
                 "Both IDs should map to identical data"
             )
 
     async def test_identity_resolution_creates_single_canonical_track(
-        self, db_session, relinked_track_data
+        self, db_session, relinked_spotify_track: SpotifyTrack
     ):
         """Test that MatchAndIdentifyTracksUseCase creates ONE canonical track for relinked tracks."""
 

@@ -6,6 +6,9 @@ This is application-layer knowledge — the domain provides pure sort functions,
 and this module makes the routing decisions.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from collections.abc import Callable
 from typing import Any
 
@@ -75,7 +78,7 @@ def route_metric_sorting(cfg: dict[str, Any]) -> Transform | TrackList:
     if not metric_name:
         raise ValueError("metric_name is required for metric sorting")
 
-    reverse = cfg.get("reverse", True)
+    reverse: bool = bool(cfg.get("reverse", True))
     category = classify_metric(metric_name)
 
     if category == "track_attribute":

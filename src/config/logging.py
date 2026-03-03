@@ -34,12 +34,16 @@ Quick Start:
     ```
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Pydantic settings validators, loguru config
+
 import logging
 from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any, override
 
 from loguru import logger
+from rich.console import Console
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -191,7 +195,7 @@ def get_logger(name: str) -> Logger:
 # =============================================================================
 
 
-def enable_unified_console_output(progress_console: Any) -> None:
+def enable_unified_console_output(progress_console: Console) -> None:
     """Enable unified console output through Rich Progress.console for coordinated display.
 
     Routes all logging (Loguru + Python/Prefect) through Progress.console to ensure

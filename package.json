@@ -1,0 +1,10 @@
+{
+	"scripts": {
+		"dev": "concurrently --raw \"poetry run narada-api\" \"pnpm --prefix web dev\""
+	},
+	"devDependencies": {
+		"concurrently": "^9.2.1",
+		"msw": "^2.12.10",
+		"orval": "^8.5.1"
+	}
+}

@@ -18,7 +18,7 @@ You are a Vitest + React Testing Library + Playwright specialist for narada's we
 - ✅ Test component rendering and user interactions
 - ✅ Use React Testing Library (not Enzyme)
 
-**Integration Tests (35%)** - `src/**/*.integration.test.tsx`:
+**Integration Tests (35%)** - `src/**/*.test.tsx` (same naming convention):
 - ✅ Real Tanstack Query with MSW (Mock Service Worker)
 - ✅ Test data fetching + rendering
 - ✅ Test user flows across multiple components
@@ -96,29 +96,17 @@ screen.getByClassName('playlist-card')  // Breaks when styling changes
 
 ### Mocking Tanstack Query
 
-**Component Tests with Mocked Queries**:
+**Component Tests with Mocked Queries** (use renderWithProviders):
 ```tsx
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@/test/test-utils'
+import { screen, waitFor } from '@testing-library/react'
 
 test('displays playlist after loading', async () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },  // Disable retries in tests
-    },
-  })
+  // MSW handlers from Orval are pre-loaded in setup.ts
+  // Override specific endpoints per-test if needed:
+  // server.use(http.get("*/api/v1/playlists/:id", () => HttpResponse.json({...})))
 
-  // Mock the fetch function
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ id: '1', name: 'Test Playlist' }),
-  })
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <PlaylistView playlistId="1" />
-    </QueryClientProvider>
-  )
+  renderWithProviders(<PlaylistView playlistId="1" />)
 
   expect(screen.getByText(/loading/i)).toBeInTheDocument()
 
@@ -128,34 +116,26 @@ test('displays playlist after loading', async () => {
 })
 ```
 
-**Integration Tests with MSW**:
+**Integration Tests with MSW** (use shared server from setup.ts):
 ```tsx
-import { setupServer } from 'msw/node'
+import { renderWithProviders } from '@/test/test-utils'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-
-// Setup MSW server
-const server = setupServer(
-  http.get('/api/playlists/:id', ({ params }) => {
-    return HttpResponse.json({
-      id: params.id,
-      name: 'Test Playlist',
-      track_count: 10,
-    })
-  })
-)
-
-beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
-afterAll(() => server.close())
+import { server } from '@/test/setup'
 
 test('fetches and displays playlist', async () => {
-  const queryClient = new QueryClient()
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <PlaylistView playlistId="1" />
-    </QueryClientProvider>
+  // Override the auto-generated MSW handler for this specific test
+  server.use(
+    http.get('*/api/v1/playlists/:id', ({ params }) => {
+      return HttpResponse.json({
+        id: Number(params.id),
+        name: 'Test Playlist',
+        track_count: 10,
+      })
+    })
   )
+
+  renderWithProviders(<PlaylistView playlistId="1" />)
 
   await waitFor(() => {
     expect(screen.getByText('Test Playlist')).toBeInTheDocument()
@@ -207,7 +187,7 @@ import { test, expect } from '@playwright/test'
 
 test('user can create, view, and delete playlist', async ({ page }) => {
   // Navigate to playlists page
-  await page.goto('http://localhost:3000/playlists')
+  await page.goto('http://localhost:5173/playlists')
 
   // Create playlist
   await page.click('button:has-text("New Playlist")')
@@ -234,7 +214,7 @@ test('user can create, view, and delete playlist', async ({ page }) => {
 **Track Search Flow**:
 ```typescript
 test('user can search and filter tracks', async ({ page }) => {
-  await page.goto('http://localhost:3000/tracks')
+  await page.goto('http://localhost:5173/tracks')
 
   // Search for track
   await page.fill('input[placeholder="Search tracks"]', 'Bohemian')
@@ -260,7 +240,7 @@ test('user can search and filter tracks', async ({ page }) => {
 export default {
   testDir: './e2e',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:5173',  // Vite dev server port
     viewport: { width: 1280, height: 720 },  // Desktop only
   },
   projects: [
@@ -333,7 +313,7 @@ When consulted for frontend test strategy:
    - User interactions (button clicks, form submissions)
 
 5. **Recommend Test Organization**
-   - File naming: `Component.test.tsx` or `Component.integration.test.tsx`
+   - File naming: `Component.test.tsx` (all test types use the same convention)
    - Test grouping: `describe` blocks for logical grouping
    - Shared setup: beforeEach, afterEach
 
@@ -395,6 +375,29 @@ describe('PlaylistCard', () => {
 - E2E: 0 (covered by playlist flow)
 - **Ratio**: 100% component ✅ (presentational component)
 ```
+
+## Narada Test Infrastructure
+
+**Test Setup** (`web/src/test/setup.ts`):
+- Bootstraps MSW server with auto-generated Orval handlers
+- Runs `beforeAll(() => server.listen())`, `afterEach(() => server.resetHandlers())`, `afterAll(() => server.close())`
+- Referenced by `vitest.config.ts` as `setupFiles`
+
+**Test Utilities** (`web/src/test/test-utils.tsx`):
+- `renderWithProviders(ui, options?)` — wraps component with:
+  - Test QueryClient (`retry: false`, `gcTime: 0` — no cache bleed between tests)
+  - `MemoryRouter` with configurable `initialEntries`
+- Use for any component that depends on hooks, routing, or Tanstack Query
+- Simple presentational components: direct `render()` from `@testing-library/react`
+
+**Path Alias**:
+- `@/` maps to `web/src/` — use in all test imports: `import { renderWithProviders } from "@/test/test-utils"`
+
+**MSW Pattern**:
+- Auto-generated handlers from Orval live in `web/src/api/generated/**/*.msw.ts`
+- Pre-loaded in `setup.ts` — tests start with default mock responses
+- Override per-test: `server.use(http.get("*/api/v1/playlists", () => HttpResponse.json({...})))`
+- Glob prefix `*/` matches any origin — works with Vite proxy
 
 ## Common Frontend Test Issues
 

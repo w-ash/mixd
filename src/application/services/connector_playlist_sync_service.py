@@ -42,9 +42,12 @@ async def sync_connector_playlist(
         playlist_id=playlist_id,
     )
 
-    # Get connector instance to fetch fresh data
-    connector_provider = uow.get_service_connector_provider()
-    connector_instance = connector_provider.get_connector(connector_name)
+    # Get typed connector instance for playlist operations
+    from src.application.use_cases._shared.connector_resolver import (
+        resolve_playlist_connector,
+    )
+
+    connector_instance = resolve_playlist_connector(connector_name, uow)
 
     # Step 1: Fetch fresh playlist data from external service
     connector_playlist = await connector_instance.get_playlist(playlist_id)

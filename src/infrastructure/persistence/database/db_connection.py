@@ -7,6 +7,9 @@ This module is responsible for:
 - Transaction handling
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: SQLAlchemy engine/session factory types
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import os

@@ -12,11 +12,10 @@ from src.domain.entities import (
     OperationResult,
     PlayRecord,
     SyncCheckpoint,
-    TrackContextFields,
-    TrackPlay,
     create_lastfm_play_record,
     ensure_utc,
 )
+from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.track import (
     Artist,
     ConnectorTrackMapping,
@@ -322,55 +321,6 @@ class TestPlayRecord:
         )
         assert record.service_metadata["mbid"] == "123-456-789"
         assert record.service_metadata["loved"] is True
-
-
-class TestTrackPlayEntity:
-    """Test TrackPlay entity behavior."""
-
-    def test_track_play_metadata_extraction(self):
-        """Test TrackPlay metadata extraction."""
-        context = {
-            TrackContextFields.TRACK_NAME: "Song Title",
-            TrackContextFields.ARTIST_NAME: "Artist Name",
-            TrackContextFields.ALBUM_NAME: "Album Name",
-        }
-
-        track_play = TrackPlay(
-            track_id=123,
-            service="spotify",
-            played_at=datetime.now(UTC),
-            ms_played=240000,
-            context=context,
-        )
-
-        metadata = track_play.to_track_metadata()
-        assert metadata["title"] == "Song Title"
-        assert metadata["artist"] == "Artist Name"
-        assert metadata["album"] == "Album Name"
-        assert metadata["duration_ms"] == 240000
-
-    def test_track_play_to_track(self):
-        """Test converting TrackPlay to Track."""
-        context = {
-            TrackContextFields.TRACK_NAME: "Song Title",
-            TrackContextFields.ARTIST_NAME: "Artist Name",
-            TrackContextFields.ALBUM_NAME: "Album Name",
-        }
-
-        track_play = TrackPlay(
-            track_id=123,
-            service="spotify",
-            played_at=datetime.now(UTC),
-            ms_played=240000,
-            context=context,
-        )
-
-        track = track_play.to_track()
-        assert track.title == "Song Title"
-        assert track.artists[0].name == "Artist Name"
-        assert track.album == "Album Name"
-        assert track.duration_ms == 240000
-        assert track.id == 123
 
 
 class TestOperationResultEntity:

@@ -8,6 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors.spotify.matching_provider import SpotifyProvider
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyAlbum,
+    SpotifyArtist,
+    SpotifyExternalIds,
+    SpotifyTrack,
+)
 from tests.fixtures.factories import make_track
 
 
@@ -22,15 +28,6 @@ def _make_spotify_track_model(
     mock = MagicMock()
     mock.id = track_id
     mock.name = name
-    mock.model_dump.return_value = {
-        "id": track_id,
-        "name": name,
-        "artists": [{"name": artist_name}],
-        "duration_ms": duration_ms,
-        "album": {"name": "Test Album", "release_date": "2024-01-01"},
-        "popularity": 50,
-        "external_ids": {"isrc": isrc} if isrc else {},
-    }
     return mock
 
 
@@ -172,19 +169,19 @@ class TestSpotifyProviderCreateRawMatch:
     """Test raw match creation from Spotify API response data."""
 
     def test_extracts_correct_fields(self):
-        """Should extract all relevant fields from Spotify track data."""
+        """Should extract all relevant fields from SpotifyTrack model."""
         provider, _ = _make_provider()
-        spotify_data = {
-            "id": "sp_123",
-            "name": "Test Song",
-            "artists": [{"name": "Artist 1"}, {"name": "Artist 2"}],
-            "duration_ms": 240_000,
-            "album": {"name": "Test Album", "release_date": "2024-01-01"},
-            "popularity": 75,
-            "external_ids": {"isrc": "USRC11111111"},
-        }
+        spotify_track = SpotifyTrack(
+            id="sp_123",
+            name="Test Song",
+            artists=[SpotifyArtist(name="Artist 1"), SpotifyArtist(name="Artist 2")],
+            duration_ms=240_000,
+            album=SpotifyAlbum(name="Test Album", release_date="2024-01-01"),
+            popularity=75,
+            external_ids=SpotifyExternalIds(isrc="USRC11111111"),
+        )
 
-        result = provider._create_raw_match(spotify_data, "isrc")
+        result = provider._create_raw_match(spotify_track, "isrc")
 
         assert result is not None
         assert result["connector_id"] == "sp_123"
@@ -200,28 +197,32 @@ class TestSpotifyProviderCreateRawMatch:
     def test_handles_missing_optional_fields(self):
         """Should handle missing optional fields gracefully."""
         provider, _ = _make_provider()
-        spotify_data = {
-            "id": "sp_minimal",
-            "name": "Minimal Track",
-            "artists": [],
-            "duration_ms": None,
-        }
+        spotify_track = SpotifyTrack(
+            id="sp_minimal",
+            name="Minimal Track",
+            artists=[],
+            duration_ms=0,
+        )
 
-        result = provider._create_raw_match(spotify_data, "artist_title")
+        result = provider._create_raw_match(spotify_track, "artist_title")
 
         assert result is not None
         assert result["connector_id"] == "sp_minimal"
         assert result["service_data"]["artist"] == ""
         assert result["service_data"]["artists"] == []
-        assert result["service_data"]["duration_ms"] is None
+        assert result["service_data"]["duration_ms"] == 0
 
     def test_returns_none_on_exception(self):
         """Should return None if data extraction fails."""
         provider, _ = _make_provider()
-        # Missing required 'id' key
-        bad_data: dict[str, object] = {"name": "No ID"}
+        # Pass a MagicMock that will raise on attribute access
+        bad_model = MagicMock(spec=[])
+        bad_model.id = "sp_123"
+        bad_model.name = "Test"
+        # artists attribute raises when iterated
+        bad_model.artists = MagicMock(side_effect=RuntimeError("broken"))
 
-        result = provider._create_raw_match(bad_data, "isrc")
+        result = provider._create_raw_match(bad_model, "isrc")
 
         assert result is None
 

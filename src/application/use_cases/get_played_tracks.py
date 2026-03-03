@@ -5,6 +5,9 @@ music service (Spotify, Last.fm), and sorting preferences. Returns tracks with
 play count metadata for further analysis.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 

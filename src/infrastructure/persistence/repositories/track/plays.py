@@ -1,5 +1,8 @@
 """Track repository for play operations."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: SQLAlchemy column types, JSON fields
+
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
@@ -149,8 +152,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         )
 
         # Return count of actually inserted records and duplicate count
-        inserted_count = len(play_data) if isinstance(result, list) else result
-        return (inserted_count, duplicate_count)
+        return (result, duplicate_count)
 
     async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[PlayLookupKey]:
         """Find existing plays that match the lookup keys.

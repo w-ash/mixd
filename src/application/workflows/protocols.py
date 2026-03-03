@@ -11,16 +11,51 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
-from typing import Any, Protocol, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import Protocol, TypedDict
 
+from src.application.use_cases.create_canonical_playlist import (
+    CreateCanonicalPlaylistUseCase,
+)
+from src.application.use_cases.create_connector_playlist import (
+    CreateConnectorPlaylistUseCase,
+)
+from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
+from src.application.use_cases.get_liked_tracks import GetLikedTracksUseCase
+from src.application.use_cases.get_played_tracks import GetPlayedTracksUseCase
+from src.application.use_cases.read_canonical_playlist import (
+    ReadCanonicalPlaylistUseCase,
+)
+from src.application.use_cases.update_canonical_playlist import (
+    UpdateCanonicalPlaylistUseCase,
+)
+from src.application.use_cases.update_connector_playlist import (
+    UpdateConnectorPlaylistUseCase,
+)
 from src.domain.entities.track import TrackList
+from src.domain.repositories import UnitOfWorkProtocol
+
+
+class UseCase[TCommand, TResult](Protocol):
+    """Protocol for use cases invoked by workflow nodes.
+
+    All workflow-facing use cases accept a command and a UnitOfWork,
+    returning a typed result. This enables generic dispatch in
+    ``execute_use_case`` so pyright can infer concrete result types.
+    """
+
+    async def execute(self, command: TCommand, uow: UnitOfWorkProtocol) -> TResult: ...
 
 
 class ConnectorRegistry(Protocol):
     """Dynamic access to multiple music service connectors (Spotify, Last.fm, MusicBrainz)."""
 
-    def get_connector(self, name: str) -> Any:
-        """Get specific music service connector."""
+    def get_connector(self, name: str) -> object:
+        """Get specific music service connector.
+
+        Returns object; callers narrow via capability protocols
+        (PlaylistConnector, LikedTrackConnector, etc.).
+        """
         ...
 
     def list_connectors(self) -> list[str]:
@@ -33,29 +68,51 @@ class ConnectorRegistry(Protocol):
 
 
 class UseCaseProvider(Protocol):
-    """Provides business logic use cases with dependency injection."""
+    """Provides business logic use cases with dependency injection.
 
-    async def get_create_canonical_playlist_use_case(self) -> Any:
+    Each method returns its concrete use case type, enabling pyright to
+    infer result types through ``execute_use_case``'s generic signature.
+    """
+
+    async def get_create_canonical_playlist_use_case(
+        self,
+    ) -> CreateCanonicalPlaylistUseCase:
         """Get use case for creating master playlist definitions."""
         ...
 
-    async def get_create_connector_playlist_use_case(self) -> Any:
+    async def get_create_connector_playlist_use_case(
+        self,
+    ) -> CreateConnectorPlaylistUseCase:
         """Get use case for creating service-specific playlists."""
         ...
 
-    async def get_enrich_tracks_use_case(self) -> Any:
+    async def get_enrich_tracks_use_case(self) -> EnrichTracksUseCase:
         """Get use case for enriching tracks with cross-service metadata."""
         ...
 
-    async def get_read_canonical_playlist_use_case(self) -> Any:
+    async def get_liked_tracks_use_case(self) -> GetLikedTracksUseCase:
+        """Get use case for retrieving user's liked/favorited tracks."""
+        ...
+
+    async def get_played_tracks_use_case(self) -> GetPlayedTracksUseCase:
+        """Get use case for retrieving user's listening history."""
+        ...
+
+    async def get_read_canonical_playlist_use_case(
+        self,
+    ) -> ReadCanonicalPlaylistUseCase:
         """Get use case for reading master playlist definitions."""
         ...
 
-    async def get_update_canonical_playlist_use_case(self) -> Any:
+    async def get_update_canonical_playlist_use_case(
+        self,
+    ) -> UpdateCanonicalPlaylistUseCase:
         """Get use case for updating master playlist definitions."""
         ...
 
-    async def get_update_connector_playlist_use_case(self) -> Any:
+    async def get_update_connector_playlist_use_case(
+        self,
+    ) -> UpdateConnectorPlaylistUseCase:
         """Get use case for updating service-specific playlists."""
         ...
 
@@ -78,7 +135,11 @@ class WorkflowContext(Protocol):
         """Metric registry access for enricher configuration."""
         ...
 
-    async def execute_service(self, service_fn: Any, /) -> Any:
+    async def execute_service[TResult](
+        self,
+        service_fn: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
+        /,
+    ) -> TResult:
         """Execute an async operation with a UnitOfWork.
 
         General-purpose method for service calls or any async function
@@ -92,15 +153,23 @@ class WorkflowContext(Protocol):
         """
         ...
 
-    async def execute_use_case(self, use_case_getter: Any, command: Any) -> Any:
+    async def execute_use_case[TCommand, TResult](
+        self,
+        use_case_getter: Callable[[], Awaitable[UseCase[TCommand, TResult]]],
+        command: TCommand,
+    ) -> TResult:
         """Execute business logic with automatic transaction management.
 
+        The generic signature allows pyright to infer the concrete result
+        type from the use case getter — e.g. passing ``get_enrich_tracks_use_case``
+        lets callers access ``result.enriched_tracklist`` without casts.
+
         Args:
-            use_case_getter: Async function that returns configured use case
-            command: Command object containing operation parameters
+            use_case_getter: Async function that returns a configured use case.
+            command: Command object containing operation parameters.
 
         Returns:
-            Result from use case execution
+            Typed result from the executed use case.
         """
         ...
 

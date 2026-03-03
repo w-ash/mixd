@@ -880,7 +880,7 @@ src/infrastructure/connectors/spotify/
 └── utilities.py           # Spotify-specific helpers
 
 src/infrastructure/connectors/_shared/
-├── error_classification.py  # ErrorClassifier protocol + HTTPErrorClassifier base
+├── error_classifier.py      # ErrorClassifier protocol + HTTPErrorClassifier base
 ├── failure_handling.py      # Match failure logging and utilities
 ├── inward_track_resolver.py # Base class for connector ID → canonical track resolution
 ├── isrc.py                  # Shared ISRC normalization/validation

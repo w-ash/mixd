@@ -5,6 +5,8 @@ with PlaylistEntry objects (tracks + position metadata), handling bulk operation
 duplicate preservation, and performance optimization across create and update use cases.
 """
 
+# pyright: reportAny=false
+
 from datetime import datetime
 
 from src.config import get_logger, settings
@@ -83,9 +85,12 @@ class ConnectorPlaylistProcessingService:
         # Instead of making additional API calls that scramble ordering,
         # extract unique track data from playlist items that already contain full track info
 
-        # Get connector instance for track conversion
-        connector_provider = uow.get_service_connector_provider()
-        connector_instance = connector_provider.get_connector(connector_name)
+        # Get typed connector instance for track conversion
+        from src.application.use_cases._shared.connector_resolver import (
+            resolve_track_conversion_connector,
+        )
+
+        connector_instance = resolve_track_conversion_connector(connector_name, uow)
 
         # Collect unique tracks while preserving the data we already have
         seen_track_ids: set[str] = set()

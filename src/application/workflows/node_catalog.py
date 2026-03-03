@@ -13,6 +13,7 @@ touching transform_definitions.py.
 
 from .destination_nodes import create_playlist, update_playlist
 from .node_factories import (
+    build_external_enrichment_config,
     build_play_history_enrichment_config,
     create_enricher_node,
     make_combiner_node,
@@ -48,10 +49,13 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(
-    create_enricher_node({
-        "connector": "lastfm",
-        "attributes": ["lastfm_user_playcount", "lastfm_global_playcount"],
-    }),
+    create_enricher_node(
+        build_external_enrichment_config({
+            "connector": "lastfm",
+            "attributes": ["lastfm_user_playcount", "lastfm_global_playcount"],
+        }),
+        enricher_label="lastfm",
+    ),
 )
 
 _ = node(
@@ -60,10 +64,13 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(
-    create_enricher_node({
-        "connector": "spotify",
-        "attributes": ["spotify_popularity", "explicit_flag"],
-    }),
+    create_enricher_node(
+        build_external_enrichment_config({
+            "connector": "spotify",
+            "attributes": ["spotify_popularity", "explicit_flag"],
+        }),
+        enricher_label="spotify",
+    ),
 )
 
 _ = node(

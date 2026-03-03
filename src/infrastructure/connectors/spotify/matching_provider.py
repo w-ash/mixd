@@ -4,7 +4,7 @@ This provider handles communication with the Spotify API and transforms
 Spotify track data into our domain MatchResult objects.
 """
 
-from typing import Any, override
+from typing import override
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities import Track
@@ -22,6 +22,8 @@ from src.infrastructure.connectors._shared.failure_handling import (
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
 )
+from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
 logger = get_logger(__name__)
 
@@ -29,11 +31,11 @@ logger = get_logger(__name__)
 class SpotifyProvider(BaseMatchingProvider):
     """Spotify track matching provider."""
 
-    connector_instance: Any
+    connector_instance: SpotifyAPIClient
 
     _matching_config: MatchingConfig
 
-    def __init__(self, connector_instance: Any) -> None:
+    def __init__(self, connector_instance: SpotifyAPIClient) -> None:
         """Initialize with Spotify connector.
 
         Args:
@@ -84,7 +86,7 @@ class SpotifyProvider(BaseMatchingProvider):
             try:
                 result = await self.connector_instance.search_by_isrc(track.isrc)
                 if result and result.id:
-                    raw_match = self._create_raw_match(result.model_dump(), "isrc")
+                    raw_match = self._create_raw_match(result, "isrc")
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
@@ -175,9 +177,7 @@ class SpotifyProvider(BaseMatchingProvider):
                 )
 
                 if best.id:
-                    raw_match = self._create_raw_match(
-                        best.model_dump(), "artist_title"
-                    )
+                    raw_match = self._create_raw_match(best, "artist_title")
                     if raw_match:
                         matches[track.id] = raw_match
                     else:
@@ -210,7 +210,7 @@ class SpotifyProvider(BaseMatchingProvider):
         return matches, failures
 
     def _create_raw_match(
-        self, spotify_track: dict[str, Any], match_method: str
+        self, spotify_track: SpotifyTrack, match_method: str
     ) -> RawProviderMatch | None:
         """Create raw match data from Spotify track data.
 
@@ -218,31 +218,32 @@ class SpotifyProvider(BaseMatchingProvider):
         any business logic, confidence scoring, or match decisions.
 
         Args:
-            spotify_track: Spotify API response.
+            spotify_track: Validated Spotify track model.
             match_method: Match method used ("isrc" or "artist_title").
 
         Returns:
             Raw provider match data, or None if creation fails.
         """
         try:
-            spotify_id = spotify_track["id"]
-
             # Extract service data without any business logic
-            artists = spotify_track.get("artists", [])
             service_data = {
-                "title": spotify_track.get("name"),
-                "artist": artists[0].get("name", "") if artists else "",
-                "album": spotify_track.get("album", {}).get("name"),
-                "artists": [a.get("name", "") for a in artists],
-                "duration_ms": spotify_track.get("duration_ms"),
-                "release_date": spotify_track.get("album", {}).get("release_date"),
-                "popularity": spotify_track.get("popularity"),
-                "isrc": spotify_track.get("external_ids", {}).get("isrc"),
+                "title": spotify_track.name,
+                "artist": spotify_track.artists[0].name
+                if spotify_track.artists
+                else "",
+                "album": spotify_track.album.name if spotify_track.album else None,
+                "artists": [a.name for a in spotify_track.artists],
+                "duration_ms": spotify_track.duration_ms,
+                "release_date": spotify_track.album.release_date
+                if spotify_track.album
+                else None,
+                "popularity": spotify_track.popularity,
+                "isrc": spotify_track.external_ids.isrc,
             }
 
             # Return raw data - no confidence calculation or business logic
             return RawProviderMatch(
-                connector_id=spotify_id,
+                connector_id=spotify_track.id,
                 match_method=match_method,
                 service_data=service_data,
             )

@@ -1,7 +1,8 @@
 # API Contracts
 
-> Skeletal endpoint reference. Schemas are stubs -- filled during implementation.
-> Each endpoint notes which existing use case backs it and whether it needs to be built.
+> Endpoint reference for the Narada REST API.
+> Each endpoint notes which existing use case backs it and its implementation status.
+> Implemented endpoints have concrete schemas; future endpoints have stub schemas.
 
 ---
 
@@ -33,22 +34,29 @@ All errors follow a consistent format:
 ```json
 {
   "error": {
-    "code": "PLAYLIST_NOT_FOUND",
-    "message": "Playlist with ID 42 not found",
-    "details": { "playlist_id": 42 }
+    "code": "NOT_FOUND",
+    "message": "Playlist 42 not found",
+    "details": null
   }
 }
 ```
 
-| HTTP Status | Meaning |
-|-------------|---------|
-| `400` | Invalid request (bad input, validation failure) |
-| `404` | Resource not found |
-| `409` | Conflict (operation already running, duplicate resource) |
-| `422` | Validation error (invalid workflow definition, bad JSON) |
-| `429` | Rate limited (forwarded from connector APIs) |
-| `500` | Internal server error |
-| `503` | Service unavailable (connector not connected) |
+Exception-to-HTTP mapping is handled by `src/interface/api/middleware.py`:
+
+| Exception | HTTP Status | Error Code | Notes |
+|-----------|-------------|------------|-------|
+| `NotFoundError` | `404` | `NOT_FOUND` | Domain exception from `src/domain/exceptions.py` |
+| `ValueError` | `400` | `VALIDATION_ERROR` | Input validation failures |
+| `RequestValidationError` | `422` | (FastAPI default) | Pydantic schema violations (automatic) |
+| Unhandled `Exception` | `500` | `INTERNAL_ERROR` | Generic message, details logged server-side |
+
+Future status codes (not yet implemented):
+
+| HTTP Status | Meaning | Milestone |
+|-------------|---------|-----------|
+| `409` | Conflict (operation already running, duplicate resource) | v0.3.1 |
+| `429` | Rate limited (forwarded from connector APIs) | v0.3.1 |
+| `503` | Service unavailable (connector not connected) | v0.4.0 |
 
 ### Pagination
 
@@ -109,6 +117,17 @@ Same use case code emits the same `ProgressEvent` objects — each interface jus
 - Route handlers are ~5-10 lines each
 - No new "web-specific" business logic — if the CLI can do it, the API can do it
 - Each endpoint table below shows its backing use case — that's the actual code that runs
+
+---
+
+## 0. Health
+
+```
+GET    /health
+       → { status: "ok", version: "0.3.0" }
+```
+- **Use case**: None (static response)
+- **Status**: ✅ Implemented (v0.3.0)
 
 ---
 
@@ -241,37 +260,38 @@ GET    /playlists
        → { data: PlaylistSummary[], total, limit, offset }
 ```
 - **Use case**: `ListPlaylistsUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
 
 ```
 POST   /playlists
        body: { name: str, description?: str }
-       → Playlist
+       → PlaylistDetail (status 201)
 ```
 - **Use case**: `CreateCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
 
 ```
 GET    /playlists/{id}
-       → Playlist (with entries)
+       → PlaylistDetail (with entries)
 ```
 - **Use case**: `ReadCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
 
 ```
 PATCH  /playlists/{id}
        body: { name?: str, description?: str }
-       → Playlist
+       → PlaylistDetail
 ```
 - **Use case**: `UpdateCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
+- **Note**: `null` fields are ignored (preserve existing); empty string `""` clears the field
 
 ```
 DELETE /playlists/{id}
        → 204
 ```
 - **Use case**: `DeleteCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
 
 ```
 GET    /playlists/{id}/tracks
@@ -279,7 +299,7 @@ GET    /playlists/{id}/tracks
        → { data: PlaylistEntry[], total, limit, offset }
 ```
 - **Use case**: `ReadCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: ✅ Implemented (v0.3.0)
 
 ```
 POST   /playlists/{id}/tracks
@@ -287,14 +307,14 @@ POST   /playlists/{id}/tracks
        → { data: PlaylistEntry[] }
 ```
 - **Use case**: `UpdateCanonicalPlaylistUseCase`
-- **Status**: Exists (batch variant needs implementation)
+- **Status**: Needs API route (use case exists)
 
 ```
 DELETE /playlists/{id}/tracks/{entry_id}
        → 204
 ```
 - **Use case**: `UpdateCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: Needs API route (use case exists)
 
 ```
 DELETE /playlists/{id}/tracks
@@ -310,7 +330,7 @@ PATCH  /playlists/{id}/tracks/reorder
        → 204
 ```
 - **Use case**: `UpdateCanonicalPlaylistUseCase`
-- **Status**: Exists
+- **Status**: Needs API route (use case exists)
 
 ```
 PATCH  /playlists/{id}/tracks/move
@@ -335,7 +355,7 @@ POST   /playlists/{id}/links
        → PlaylistMapping
 ```
 - **Use case**: `CreateConnectorPlaylistUseCase`
-- **Status**: Exists
+- **Status**: Needs API route (use case exists)
 
 ```
 PATCH  /playlists/{id}/links/{link_id}
@@ -343,7 +363,7 @@ PATCH  /playlists/{id}/links/{link_id}
        → PlaylistMapping
 ```
 - **Use case**: `UpdateConnectorPlaylistUseCase`
-- **Status**: Exists
+- **Status**: Needs API route (use case exists)
 
 ```
 DELETE /playlists/{id}/links/{link_id}
@@ -358,9 +378,11 @@ POST   /playlists/{id}/links/{link_id}/sync
        → { operation_id: str }
 ```
 - **Use case**: `UpdateConnectorPlaylistUseCase`
-- **Status**: Exists
+- **Status**: Needs API route (use case exists)
 
-### Playlist Object Schemas (stub)
+### Playlist Object Schemas
+
+Defined in `src/interface/api/schemas/playlists.py`.
 
 ```json
 // PlaylistSummary (list view)
@@ -369,20 +391,35 @@ POST   /playlists/{id}/links/{link_id}/sync
   "name": "string",
   "description": "string | null",
   "track_count": 42,
-  "connector_links": ["spotify", "apple_music"],
-  "updated_at": "ISO8601"
+  "connector_links": ["spotify"],
+  "updated_at": "2026-03-01T12:00:00"
+}
+
+// PlaylistDetail (extends PlaylistSummary)
+{
+  "id": 1,
+  "name": "string",
+  "description": "string | null",
+  "track_count": 42,
+  "connector_links": ["spotify"],
+  "updated_at": "2026-03-01T12:00:00",
+  "entries": [PlaylistEntry]
 }
 
 // PlaylistEntry
 {
-  "id": 1,
   "position": 0,
-  "track": { "id": 42, "title": "...", "artists": [{"name": "..."}] },
-  "added_at": "ISO8601 | null",
-  "added_by": "string | null"
+  "track": {
+    "id": 42,
+    "title": "string",
+    "artists": [{ "name": "string" }],
+    "album": "string | null",
+    "duration_ms": 180000
+  },
+  "added_at": "2026-03-01T12:00:00 | null"
 }
 
-// PlaylistMapping
+// PlaylistMapping (stub -- not yet implemented)
 {
   "id": 1,
   "connector": "spotify",
@@ -657,10 +694,11 @@ data: {"operation_id":"uuid","status":"COMPLETED","current":5000,"total":5000,"m
 
 ```
 GET    /connectors
-       → { data: [{ name: str, connected: bool, last_used: ISO8601 | null }] }
+       → ConnectorStatus[]
 ```
-- **Use case**: Connector status query
-- **Status**: Needs implementation
+- **Use case**: Reads filesystem/environment state directly (no use case — connector-specific logic)
+- **Status**: ✅ Implemented (v0.3.0)
+- **Note**: Returns a **flat array**, not the standard `{ data: [...] }` envelope. This endpoint reads credential files and environment variables rather than querying the database, so it doesn't go through a use case. Spotify includes silent token refresh — if the cached token is expired but a refresh_token exists, the endpoint refreshes it before responding.
 
 ```
 GET    /connectors/spotify/auth-url
@@ -719,23 +757,53 @@ GET    /connectors/{connector}/playlists
 
 ---
 
+### Connector Status Schema
+
+Defined in `src/interface/api/schemas/connectors.py`.
+
+```json
+// ConnectorStatus
+{
+  "name": "spotify",
+  "connected": true,
+  "account_name": "display_name | null",
+  "token_expires_at": 1709312400
+}
+```
+
+Fields:
+- `name`: connector identifier (`"spotify"`, `"lastfm"`, `"musicbrainz"`, `"apple"`)
+- `connected`: whether valid credentials exist
+- `account_name`: display name if available (Spotify: fetched via `/me`, Last.fm: from settings, others: null)
+- `token_expires_at`: Unix timestamp (Spotify only, null for others)
+
+---
+
 ## Use Case Mapping Summary
 
-### Existing Use Cases (need API wrappers only)
+### Implemented API Routes (v0.3.0)
 
-| Use Case | API Endpoints |
-|----------|--------------|
-| `ListPlaylistsUseCase` | `GET /playlists` |
-| `CreateCanonicalPlaylistUseCase` | `POST /playlists` |
-| `ReadCanonicalPlaylistUseCase` | `GET /playlists/{id}`, `GET /playlists/{id}/tracks` |
-| `UpdateCanonicalPlaylistUseCase` | `PATCH /playlists/{id}`, playlist track operations, reorder |
-| `DeleteCanonicalPlaylistUseCase` | `DELETE /playlists/{id}` |
-| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` |
-| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync |
-| `SyncLikesUseCase` | `POST /imports/spotify/likes`, `POST /imports/lastfm/export-likes` |
-| `ImportPlayHistoryUseCase` | `POST /imports/lastfm/history`, `POST /imports/spotify/history` |
-| `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` |
-| `EnrichTracksUseCase` | Internal (used by workflows) |
+| Use Case | API Endpoints | Route File |
+|----------|--------------|------------|
+| `ListPlaylistsUseCase` | `GET /playlists` | `routes/playlists.py` |
+| `CreateCanonicalPlaylistUseCase` | `POST /playlists` | `routes/playlists.py` |
+| `ReadCanonicalPlaylistUseCase` | `GET /playlists/{id}`, `GET /playlists/{id}/tracks` | `routes/playlists.py` |
+| `UpdateCanonicalPlaylistUseCase` | `PATCH /playlists/{id}` | `routes/playlists.py` |
+| `DeleteCanonicalPlaylistUseCase` | `DELETE /playlists/{id}` | `routes/playlists.py` |
+| *(no use case)* | `GET /connectors` | `routes/connectors.py` |
+| *(no use case)* | `GET /health` | `routes/health.py` |
+
+### Use Cases With Existing Logic (Need API Routes)
+
+| Use Case | API Endpoints | Milestone |
+|----------|--------------|-----------|
+| `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.1+ |
+| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.0 |
+| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.0 |
+| `SyncLikesUseCase` | `POST /imports/spotify/likes`, `POST /imports/lastfm/export-likes` | v0.3.1 |
+| `ImportPlayHistoryUseCase` | `POST /imports/lastfm/history`, `POST /imports/spotify/history` | v0.3.1 |
+| `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` | v0.3.2 |
+| `EnrichTracksUseCase` | Internal (used by workflows) | — |
 
 ### Use Cases Needing Implementation
 
@@ -749,7 +817,7 @@ GET    /connectors/{connector}/playlists
 | `GetTrackConnectorMappingsUseCase` | v0.3.2 | `GET /tracks/{id}/mappings` |
 | `GetTrackStatsUseCase` | v0.3.3 | `GET /stats/dashboard` |
 | `GetConnectorMappingStatsUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
-| `GetSyncStatusUseCase` | v0.3.3 | `GET /connectors`, `GET /imports/checkpoints` |
+| `GetSyncStatusUseCase` | v0.3.3 | `GET /imports/checkpoints` |
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | Workflow CRUD | v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
 | Workflow execution | v0.4.0 | `POST /workflows/{id}/run` |

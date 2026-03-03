@@ -29,7 +29,7 @@ from tenacity import (
 )
 
 from src.config import get_logger
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
 )
 

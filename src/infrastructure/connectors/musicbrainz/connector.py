@@ -6,6 +6,9 @@ single public interface while the internal implementation is split across
 MusicBrainzAPIClient and conversion utilities.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: API response data, framework types
+
 from typing import Any, override
 
 from attrs import define, field

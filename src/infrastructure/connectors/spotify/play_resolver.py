@@ -4,6 +4,9 @@ Handles Spotify's comprehensive metadata including behavioral data, technical me
 and sophisticated duration-based filtering.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 from collections.abc import Callable
 from typing import Any
 

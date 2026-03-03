@@ -5,6 +5,9 @@ fetching missing metrics from external APIs, converting values to standardized
 formats, and persisting results for future use.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from typing import TYPE_CHECKING, Any
 
 from attrs import define, field

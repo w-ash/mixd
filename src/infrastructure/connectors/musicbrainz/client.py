@@ -9,6 +9,8 @@ Provides a thin wrapper around the MusicBrainz JSON API with:
 No authentication required — MusicBrainz read-only endpoints are public.
 """
 
+# pyright: reportAny=false
+
 import asyncio
 import time
 from typing import ClassVar, override

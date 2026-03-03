@@ -201,7 +201,9 @@ class TestUpdateCanonicalPlaylistUseCase:
         assert saved.name == "New Name"
 
     async def test_invalid_playlist_id_raises(self, mock_uow):
-        """Test that non-numeric playlist ID raises ValueError when not found."""
+        """Test that non-numeric playlist ID raises NotFoundError when not found."""
+        from src.domain.exceptions import NotFoundError
+
         mock_uow.get_playlist_repository().get_playlist_by_id.side_effect = ValueError(
             "invalid"
         )
@@ -214,7 +216,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         )
         use_case = UpdateCanonicalPlaylistUseCase()
 
-        with pytest.raises(ValueError):
+        with pytest.raises(NotFoundError):
             await use_case.execute(command, mock_uow)
 
         mock_uow.rollback.assert_called_once()
@@ -252,3 +254,60 @@ class TestUpdateCanonicalPlaylistUseCase:
         result = await use_case.execute(command, mock_uow)
 
         assert result.confidence_score == 1.0
+
+    async def test_metadata_only_update_with_no_tracks(self, mock_uow):
+        """Test metadata-only update (no tracks) takes the short-circuit path."""
+        current = make_playlist_with_entries(1, [10], "Old Name")
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        command = UpdateCanonicalPlaylistCommand(
+            playlist_id="1",
+            playlist_name="New Name",
+        )
+        use_case = UpdateCanonicalPlaylistUseCase()
+
+        result = await use_case.execute(command, mock_uow)
+
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args_list[0][0][0]
+        assert saved.name == "New Name"
+        assert result.operations_performed == 0
+
+    async def test_clear_description_with_empty_string(self, mock_uow):
+        """Test that passing empty string clears the description (not ignored)."""
+        from attrs import evolve
+
+        base = make_playlist_with_entries(1, [10], "My Playlist")
+        current = evolve(base, description="Old description")
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        command = UpdateCanonicalPlaylistCommand(
+            playlist_id="1",
+            playlist_description="",
+        )
+        use_case = UpdateCanonicalPlaylistUseCase()
+
+        await use_case.execute(command, mock_uow)
+
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args_list[0][0][0]
+        assert saved.description == ""
+
+    async def test_none_description_preserves_existing(self, mock_uow):
+        """Test that None description leaves existing description unchanged."""
+        from attrs import evolve
+
+        base = make_playlist_with_entries(1, [10], "My Playlist")
+        current = evolve(base, description="Keep this")
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        command = UpdateCanonicalPlaylistCommand(
+            playlist_id="1",
+            playlist_name="New Name",
+            # playlist_description deliberately omitted (defaults to None)
+        )
+        use_case = UpdateCanonicalPlaylistUseCase()
+
+        await use_case.execute(command, mock_uow)
+
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args_list[0][0][0]
+        assert saved.name == "New Name"
+        assert saved.description == "Keep this"

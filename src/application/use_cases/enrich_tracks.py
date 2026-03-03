@@ -7,6 +7,9 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from typing import Any, Literal, Never
 
 from attrs import define, field

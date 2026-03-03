@@ -58,29 +58,26 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - **Interface Restructuring**: Moved CLI-specific code out of shared/, extracted interactive menu pattern, moved async executor to CLI layer
         - **Web Readiness**: Created `application/runner.py` with `execute_use_case[TResult]()` — both CLI and FastAPI share this runner
 
-- [ ] **Advanced Transformer Workflow nodes**
-    - Status: 🔄 In Progress (~40% complete)
+- [x] **Advanced Transformer Workflow nodes**
+    - Status: ✅ Completed (2026-03-01)
     - Effort: M
     - What: Implement additional transformer nodes for workflow system
     - Why: More transformation options enable more powerful workflows
     - Dependencies: v0.2.6 completion (Enhanced Playlist Naming foundation)
     - Notes:
-        - ✅ **COMPLETED**:
-            - `combiner.merge_playlists` - Combines multiple playlists (concatenates)
-            - `combiner.concatenate_playlists` - Joins playlists in specified order
-            - `combiner.interleave_playlists` - Interleaves tracks from multiple sources
-            - `selector.limit_tracks` - Selection with methods: first, last, random
-            - `sorter.weighted_shuffle` - Randomization with configurable shuffle strength (0.0-1.0)
-        - 🔜 **REMAINING**:
-            - Sort by date first played
-            - Sort by date most recently played
-            - Additional combining strategies (if needed)
-            - Production workflow templates showcasing new capabilities
+        - `combiner.merge_playlists` - Combines multiple playlists (concatenates)
+        - `combiner.concatenate_playlists` - Joins playlists in specified order
+        - `combiner.interleave_playlists` - Interleaves tracks from multiple sources
+        - `selector.limit_tracks` - Selection with methods: first, last, random
+        - `sorter.weighted_shuffle` - Randomization with configurable shuffle strength (0.0-1.0)
+        - `sorter.by_first_played` - Sort by date first played
+        - `sorter.by_last_played` - Sort by date most recently played
+        - 18 production workflow templates in `definitions/`
 
 ### v0.3.0: Web UI Foundation + Playlists (Vertical Slice 1)
-**Goal**: Stand up FastAPI + React with the dark editorial design system. Deliver one complete feature — playlist CRUD — proving the full-stack architecture end-to-end using entirely existing use cases.
+**Goal**: Stand up FastAPI + React with the dark editorial design system. Deliver two foundational features — playlist CRUD and connector settings — proving the full-stack architecture end-to-end using entirely existing use cases.
 
-**Context**: 11 of 15 use cases already exist. The `execute_use_case()` runner (v0.2.7) is ready for both CLI and FastAPI. All 5 playlist use cases work today. This milestone adds no new backend logic — it builds the API + UI layers and validates the architecture with a real feature.
+**Context**: 11 of 15 use cases already exist. The `execute_use_case()` runner (v0.2.7) is ready for both CLI and FastAPI. All 5 playlist use cases work today. This milestone adds no new backend logic — it builds the API + UI layers and validates the architecture with a real feature. Settings provides the canonical entry point for connecting services.
 
 **Why playlists first**: Full use case coverage already exists (`ListPlaylists`, `CreateCanonicalPlaylist`, `ReadCanonicalPlaylist`, `UpdateCanonicalPlaylist`, `DeleteCanonicalPlaylist`). Maximum frontend validation with minimum backend work.
 
@@ -88,57 +85,67 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 #### FastAPI Foundation Epic
 
-- [ ] **FastAPI Application Setup**
+- [x] **FastAPI Application Setup**
     - Effort: M
+    - Status: ✅ Completed (2026-03-02)
     - What: Create FastAPI service with playlist REST API endpoints and health check
     - Why: Web interface needs programmatic access to use cases; playlists are the first slice
     - Dependencies: None (use cases already exist)
-    - Status: 🔜 Not Started
     - Notes:
         - Pydantic v2 with `from_attributes=True`; settings via `pydantic_settings.BaseSettings` + `@lru_cache()`
         - Project structure: `src/interface/api/` with app factory, routers, schemas, dependencies
         - Dependency injection via `execute_use_case()` runner (✅ already built)
-        - Error handling middleware — format defined in [03-api-contracts.md](web-ui/03-api-contracts.md#conventions)
+        - Error handling middleware with `NotFoundError` → 404, `ValueError` → 400, `Exception` → 500
         - Security: CORS `allow_origins = ["http://localhost:5173"]` for dev
         - Authentication: None (single-user local development); OAuth deferred to v0.5.0
-        - **Endpoints (this milestone)**: `GET /health`, `GET /playlists`, `POST /playlists`, `GET /playlists/{id}`, `PATCH /playlists/{id}`, `DELETE /playlists/{id}`, `GET /playlists/{id}/tracks`
-        - Full endpoint listing with use-case mappings in [03-api-contracts.md](web-ui/03-api-contracts.md)
-        - **SPA catch-all route**: Serve `index.html` for all non-`/api/*` paths — required for client-side routing (React Router handles `/playlists/123`, but direct URL navigation or page refresh returns 404 without this)
+        - **Endpoints**: `GET /health`, `GET /connectors`, `GET /playlists`, `POST /playlists`, `GET /playlists/{id}`, `PATCH /playlists/{id}`, `DELETE /playlists/{id}`, `GET /playlists/{id}/tracks`
+        - SPA catch-all route serves `index.html` for client-side routing
+        - 41 integration tests (httpx ASGITransport + isolated SQLite per test)
 
 #### React Application Foundation Epic
 
-- [ ] **React App + Design System Foundation**
+- [x] **React App + Design System Foundation**
     - Effort: L
-    - What: Vite 6 + React 19 + TypeScript project with pnpm, shadcn/ui, Tailwind v4 editorial design tokens, and Tanstack Query
+    - Status: ✅ Completed (2026-03-02)
+    - What: Vite 7 + React 19 + TypeScript project with pnpm, shadcn/ui, Tailwind v4 editorial design tokens, and Tanstack Query
     - Why: Establish the frontend stack and distinctive visual identity in one go — every subsequent milestone adds pages to a working app
     - Dependencies: FastAPI Application Setup
-    - Status: 🔜 Not Started
     - Notes:
-        - Tech stack, project structure, and architectural decisions in [04-frontend-architecture.md](web-ui/04-frontend-architecture.md)
-        - Tailwind v4 `@theme` tokens: dark editorial palette (OKLCH warm colors), Space Grotesk / Newsreader / JetBrains Mono typography
-        - **shadcn/ui + Tailwind v4**: Use `tw-animate-css` (not `tailwindcss-animate` — deprecated for Tailwind v4). Use `@theme inline` directive carefully to avoid dark-mode variable collisions
-        - shadcn/ui primitives: Button, Card, Table, Input, Dialog, Toast, Skeleton — customized to warm dark aesthetic
-        - App shell: Sidebar navigation, PageLayout, React Router routes
-        - **OpenAPI codegen**: Set up Orval or openapi-ts with TanStack Query plugin — generates typed hooks + MSW mock handlers from FastAPI's `/openapi.json`. See [04-frontend-architecture.md](web-ui/04-frontend-architecture.md#api-client-generation-openapi-codegen)
-        - Tanstack Query integration with generated API hooks (not hand-written)
-        - Claude Code design skill at `.claude/skills/frontend-design/SKILL.md` for session-level guidance
-        - WCAG 2.2 Level AA compliance (target, not optional)
+        - Tailwind v4 `@theme` tokens: dark editorial OKLCH palette, Space Grotesk / Newsreader / JetBrains Mono typography
+        - shadcn/ui primitives customized to warm dark aesthetic (Button, Card, Table, Input, Dialog, Toast, Skeleton)
+        - App shell: Sidebar navigation, PageLayout with ErrorBoundary, React Router routes
+        - Orval v8 codegen: tags-split mode, Tanstack Query hooks, MSW mock handlers from `web/openapi.json`
+        - `customFetch()` mutator + `ApiError` class in `web/src/api/client.ts`
+        - Biome for lint+format (not ESLint/Prettier)
+        - 69 Vitest tests across 12 test files
 
 #### Playlists Page Epic
 
-- [ ] **Playlists Pages**
+- [x] **Playlists Pages**
     - Effort: M
-    - What: Playlist List page, Playlist Detail page, Create/Edit playlist modals
+    - Status: ✅ Completed (2026-03-02)
+    - What: Playlist List page, Playlist Detail page, Create/Edit/Delete playlist modals
     - Why: First working vertical slice — proves the full stack end-to-end
     - Dependencies: React App + Design System Foundation
-    - Status: 🔜 Not Started
     - Notes:
-        - Playlist List (`/playlists`): table with name, track count, linked connectors, last updated
-        - Playlist Detail (`/playlists/:id`): header with metadata, track list table, delete action
-        - Create Playlist modal: name, description
+        - Playlist List (`/playlists`): table with name, description, track count, linked connector icons, last updated, pagination
+        - Playlist Detail (`/playlists/:id`): stats bar, track table, edit/delete dialogs
+        - Create Playlist modal: name + description, mutation with cache invalidation
         - Empty states for no playlists and empty playlists
-        - User journeys and edge cases in [01-user-flows.md](web-ui/01-user-flows.md)
-        - Page hierarchy, routes, and empty states in [02-information-architecture.md](web-ui/02-information-architecture.md)
+
+#### Settings Page Epic
+
+- [x] **Settings Page**
+    - Effort: S
+    - Status: ✅ Completed (2026-03-02)
+    - What: Connector status display with silent Spotify token refresh
+    - Why: Users need to see which connectors are connected from day one; Settings is the canonical entry point for connecting services
+    - Dependencies: FastAPI Application Setup
+    - Notes:
+        - Settings (`/settings`): connector cards showing auth status per service
+        - `GET /connectors` endpoint: reads `.spotify_cache` + env vars, returns connection status, account name, token expiry
+        - Silent Spotify token refresh when expired (bypasses browser OAuth fallback)
+        - MusicBrainz = always available, Apple Music = stub (under development)
 
 ---
 
@@ -349,15 +356,14 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 - [ ] **Dashboard Page**
     - Effort: M
-    - What: Landing page with stat cards, connector health badges, freshness alerts, and contextual actions
+    - What: Landing page with stat cards, connector health badges, freshness alerts, and activity feed
     - Why: First thing users see — ties the whole app together
     - Dependencies: Dashboard Stats Endpoints
     - Status: 🔜 Not Started
     - Notes:
         - Dashboard (`/`): stat cards (total tracks, playlists, plays), connector health badges, freshness alerts
         - Recent activity feed (last imports, last workflow runs)
-        - Contextual import prompts (e.g., "Last.fm not synced in 7 days — Import now?")
-        - Onboarding card for first-time users (manual connector setup at this stage; OAuth in v0.5.0)
+        - Freshness alerts link to Import Center; connector issues link to Settings (informational, not action buttons)
 
 ---
 
@@ -408,19 +414,6 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Backed by existing `CreateConnectorPlaylistUseCase`, `UpdateConnectorPlaylistUseCase`
         - Playlist Links sub-page (`/playlists/:id/links`): linked connectors, sync direction, push/pull buttons
         - Enhance playlist listing to show connector linkage (which playlists are linked where)
-
-#### Settings Page Epic
-
-- [ ] **Settings Page**
-    - Effort: S
-    - What: Connector status display and manual token configuration
-    - Why: Users need to see which connectors are connected and configure them
-    - Dependencies: None
-    - Status: 🔜 Not Started
-    - Notes:
-        - Settings (`/settings`): connector cards showing auth status
-        - Manual token input for local development (OAuth in v0.5.0)
-        - Link to CLI for operations not yet available in web UI
 
 ---
 
@@ -484,6 +477,9 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - **E2E** (Playwright): Chromium only, desktop only, critical user flows (playlist CRUD, track search, workflow execution, import with progress)
         - **Coverage targets**: Backend 80% overall / 85% domain+application, Frontend 60%, E2E 100% critical flows
         - Frontend testing strategy in [04-frontend-architecture.md](web-ui/04-frontend-architecture.md)
+        - **API route tests**: `tests/integration/api/` — auto-marked integration, share `db_session` fixture
+        - **E2E location**: `web/e2e/` — co-located with frontend, runs against dev server
+        - **Frontend tests**: Co-located with source in `web/src/`, MSW handlers in `web/src/test/`
 
 #### Type Safety & Quality Epic
 
@@ -710,7 +706,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
     - Notes:
         - Pydantic models for JSON:API response shapes
         - Refactor existing `AppleMusicErrorClassifier` to modern hook pattern
-        - Reuse: `_shared/http_client.py`, `_shared/retry_policies.py`, `_shared/error_classification.py`
+        - Reuse: `_shared/http_client.py`, `_shared/retry_policies.py`, `_shared/error_classifier.py`
 
 - [ ] **Apple Music Track Resolution & Matching**
     - Effort: M

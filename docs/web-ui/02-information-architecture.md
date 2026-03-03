@@ -9,7 +9,7 @@
 
 ```
 Narada
-├── Dashboard        /                    Stats, health, quick actions
+├── Dashboard        /                    Stats, health, activity feed
 ├── Library          /library             Track browsing & search
 ├── Playlists        /playlists           List, detail, edit, links
 ├── Workflows        /workflows           List, run, edit, visualize
@@ -28,10 +28,8 @@ Dashboard and Stats are merged into a single page at `/`. The dashboard IS the s
 | `/` | Dashboard | Flow 7.1 | Stats, connector health, freshness alerts, recent activity |
 | `/library` | Track List | Flow 2.1 | Paginated, searchable, filterable |
 | `/library/:id` | Track Detail | Flow 2.2, 2.3 | Metadata, mappings, likes, play history, actions |
-| `/playlists` | Playlist List | Flow 3.1 | All canonical playlists |
-| `/playlists/new` | Create Playlist | Flow 3.3 | Modal or dedicated page |
-| `/playlists/:id` | Playlist Detail | Flow 3.2, 3.4, 3.5, 3.6 | Track list, add/remove/reorder |
-| `/playlists/:id/edit` | Edit Playlist | Flow 3.2 | Inline or modal for name/description |
+| `/playlists` | Playlist List | Flow 3.1 | All canonical playlists. Create uses modal dialog, not a route. |
+| `/playlists/:id` | Playlist Detail | Flow 3.2, 3.3, 3.4, 3.5, 3.6 | Track list, add/remove/reorder. Edit name/description uses inline dialog. |
 | `/playlists/:id/links` | Connector Links | Flow 5.1, 5.2, 5.3, 5.4 | Link management, sync direction, push/pull |
 | `/workflows` | Workflow List | Flow 6.1 | All workflows with last run status |
 | `/workflows/new` | Create Workflow | Flow 6.4 | JSON editor (v0.4.0), visual builder (v0.7.0) |
@@ -40,36 +38,24 @@ Dashboard and Stats are merged into a single page at `/`. The dashboard IS the s
 | `/imports` | Import Center | Flow 4.1 | Available operations, checkpoints, activity feed |
 | `/settings` | Settings | Flow 1.1, 1.2 | Connector auth, reconnect, preferences |
 
+> **Implementation note**: Playlist creation and editing use modal dialogs on the list/detail page rather than dedicated routes (`/playlists/new`, `/playlists/:id/edit`). This keeps the user in context and avoids unnecessary navigation for lightweight CRUD forms.
+
 ---
 
 ## Empty States
 
-Every page has an empty state for first-time users. These differ from "all deleted" states.
+Every page has an empty state. Text guides users to the canonical location for the relevant action — no duplicate action buttons.
 
-| Page | First-Time Empty State | All-Deleted Empty State |
-|------|----------------------|------------------------|
-| Dashboard `/` | "Welcome to Narada. Connect a music service to get started." [Connect Spotify] [Connect Last.fm] | N/A (dashboard always shows something) |
-| Library `/library` | "No tracks yet. Import your liked songs or listening history." [Import Liked Songs] [Import History] | "No tracks. Import data to populate your library." [Import] |
-| Playlists `/playlists` | "No playlists yet. Create one or import from a connected service." [Create Playlist] | "No playlists. Create one?" [Create Playlist] |
-| Workflows `/workflows` | "No workflows yet. Workflows let you build smart playlists using your own rules." [Browse Templates] [Create Workflow] | "No workflows. Create one?" [Create Workflow] |
-| Imports `/imports` | "No import history. Connect a service to start importing." [Go to Settings] | Shows available operations even with no history |
-| Playlist Detail (no tracks) | "This playlist is empty. Add tracks to get started." [Add Tracks] | Same |
-| Track Detail (no mappings) | "Not mapped to any services. This track exists only in your Narada library." | Same |
-| Track Detail (no plays) | "No play data. Import your listening history to see plays." [Import History] | Same |
-
----
-
-## Contextual Import Entry Points
-
-Import actions appear not just on `/imports` but also in context:
-
-| Location | Condition | Action Shown |
-|----------|-----------|-------------|
-| Dashboard | Spotify connected, no liked songs imported | "Import Liked Songs" card |
-| Dashboard | Stale checkpoint (>7 days) | "Re-sync" badge with one-click action |
-| Library (empty) | No tracks | "Import Liked Songs" / "Import History" |
-| Track Detail | No play history for track | "Import Listening History" link |
-| Playlist Links | No linked playlists | "Link to External Playlist" prompt |
+| Page | Empty State |
+|------|------------|
+| Dashboard `/` | "Connect services in Settings to get started." |
+| Library `/library` | "No tracks yet. Import data from the Import Center." |
+| Playlists `/playlists` | "No playlists yet. Create your first playlist to start curating your music collection." [New Playlist] |
+| Workflows `/workflows` | "No workflows yet." [Create Workflow] |
+| Imports `/imports` | "No import history. Connect a service in Settings first." Available operations cards still shown. |
+| Playlist Detail (no tracks) | "This playlist is empty. Add tracks by linking a connector playlist or using workflows." |
+| Track Detail (no mappings) | "Not mapped to any services. This track exists only in your Narada library." |
+| Track Detail (no plays) | "No play data. Import listening history from the Import Center." |
 
 ---
 
@@ -89,10 +75,10 @@ Touch targets: minimum 44x44px per WCAG 2.2 AA.
 
 | Flow | Pages Involved |
 |------|---------------|
-| 1. First-Time Setup | Dashboard, Settings |
+| 1. Connecting Services | Settings |
 | 2. Browsing the Library | Library, Track Detail |
 | 3. Managing Playlists | Playlists, Playlist Detail, Create Playlist |
-| 4. Importing Data | Imports, Dashboard (contextual) |
+| 4. Importing Data | Imports |
 | 5. Managing Connector Links | Playlist Detail, Links sub-page |
 | 6. Workflows | Workflows, Workflow Detail, Create/Edit Workflow |
 | 7. Dashboard & Data Quality | Dashboard, Library (filtered for unmatched) |

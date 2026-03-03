@@ -5,6 +5,9 @@ platform (canonical database vs external API). Enables DRY compliance by using
 the same diff logic with different execution approaches.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 import bisect
 from typing import Any, Protocol
 

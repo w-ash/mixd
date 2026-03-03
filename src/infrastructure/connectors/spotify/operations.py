@@ -16,6 +16,9 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Spotify API response data
+
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, Never
@@ -31,6 +34,7 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.playlist import PlaylistOperation
+from src.domain.repositories.interfaces import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_playlist_to_connector,
@@ -40,6 +44,7 @@ from src.infrastructure.connectors.spotify.conversions import (
     parse_spotify_timestamp,
     validate_non_empty,
 )
+from src.infrastructure.connectors.spotify.models import SpotifyTrack
 from src.infrastructure.connectors.spotify.playlist_sync_operations import (
     SpotifyPlaylistSyncOperations,
 )
@@ -74,14 +79,12 @@ class SpotifyOperations:
 
     # Bulk Track Operations
 
-    async def get_tracks_by_ids(
-        self, track_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
+    async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
         """Fetch multiple tracks from Spotify with simple bulk batching."""
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
 
-        results: dict[str, dict[str, Any]] = {}
+        results: dict[str, SpotifyTrack] = {}
 
         # Process in batches using Spotify's bulk API (50 tracks per call)
         batch_size = settings.api.spotify_batch_size
@@ -99,15 +102,13 @@ class SpotifyOperations:
                 if validated_tracks:
                     for track in validated_tracks:
                         current_id = track.id
-                        # Convert to dict for downstream compatibility
-                        track_dict = track.model_dump()
-                        results[current_id] = track_dict
+                        results[current_id] = track
 
                         # Handle Spotify relinking: if track has linked_from,
                         # also map the original track ID to this data
                         if track.linked_from:
                             original_id = track.linked_from.id
-                            results[original_id] = track_dict
+                            results[original_id] = track
                             logger.debug(
                                 f"Relinked track found: {original_id} -> {current_id}"
                             )
@@ -143,9 +144,9 @@ class SpotifyOperations:
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
         spotify_data = await self.get_tracks_by_ids(spotify_ids)
 
-        # Map back to track.id format expected by enricher
+        # Map back to track.id format expected by enricher (protocol requires dict)
         return {
-            track.id: spotify_data[spotify_id]
+            track.id: spotify_data[spotify_id].model_dump()
             for track, spotify_id in spotify_mapped
             if spotify_id is not None
             and track.id is not None
@@ -337,7 +338,7 @@ class SpotifyOperations:
         playlist_id: str,
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo: Any = None,
+        track_repo: TrackRepositoryProtocol | None = None,
     ) -> str | None:
         """Execute a list of differential playlist operations.
 

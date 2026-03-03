@@ -4,7 +4,7 @@ from typing import override
 
 import httpx
 
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
 

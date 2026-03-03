@@ -11,17 +11,47 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 ---
 
-## 1. First-Time Setup
+## 1. Connecting Services
+
+> **Staged approach**: In v0.3.0–v0.4.0 (local development), connectors use CLI-established credentials read from the local filesystem and environment. In v0.5.0 (deployed), full web OAuth flows replace manual credential management. Both stages share the same Settings page UI — only the auth mechanism behind **Connect** changes.
 
 ### 1.1 Connect Spotify
 
-**Trigger**: User opens Narada for the first time (or navigates to Settings with no connectors linked).
+**Trigger**: User navigates to Settings to connect a music service.
+
+#### v0.3.0–v0.4.0: Local credential detection
+
+The web UI reads existing credentials established by the CLI (`narada` commands or direct env var configuration).
 
 **Steps**:
 
-1. Dashboard shows an **onboarding card**: "Connect your music services to get started."
-   - Two prominent buttons: **Connect Spotify**, **Connect Last.fm**
-   - Below: muted text "You can also connect services later from Settings."
+1. Settings page (`/settings`) shows available connectors with connection status.
+
+2. **Spotify** checks for a valid token in the `.spotify_cache` file (same file the CLI writes).
+   - If found and not expired: shows **Connected** with the account name.
+   - If expired: backend attempts a token refresh using the stored refresh token.
+   - If missing or refresh fails: shows **Not Connected** with guidance: "Run `narada likes import-spotify` from the CLI to authenticate, or paste credentials below."
+
+3. **Manual token input** (fallback): Settings provides a text field to paste a Spotify OAuth token directly. This is for development convenience — the CLI remains the primary auth method.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Check status | `GET /connectors` | Read `.spotify_cache` + validate | Needs implementation |
+| Manual input | `POST /connectors/spotify/token` | Store token to `.spotify_cache` | Needs implementation |
+
+**Edge cases**:
+- Token expired and refresh fails: show **Disconnected** with re-auth guidance.
+- `.spotify_cache` file doesn't exist: show **Not Connected** with CLI instructions.
+- User is already connected: "Connect Spotify" button becomes "Reconnect Spotify" (for re-auth via CLI).
+
+#### v0.5.0: Web OAuth flow
+
+With `DatabaseTokenStorage` and a hosted callback URL, the Settings page handles the full OAuth redirect.
+
+**Steps**:
+
+1. Settings page (`/settings`) shows available connectors. Each has a **Connect** button (or **Reconnect** if previously connected).
 
 2. User clicks **Connect Spotify**.
    - Frontend calls `GET /connectors/spotify/auth-url`.
@@ -29,35 +59,60 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 3. User grants permission on Spotify.
    - Spotify redirects to `GET /auth/spotify/callback?code=...&state=...`.
-   - Backend exchanges code for tokens, stores them.
+   - Backend exchanges code for tokens, stores them in `oauth_tokens` table via `DatabaseTokenStorage`.
    - Browser redirects to `/settings` with a success toast: "Spotify connected."
 
 4. Settings page now shows Spotify as **Connected** with the account name.
-   - The onboarding card on Dashboard updates: Spotify shows a checkmark. Last.fm still shows "Connect."
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `GET /connectors/spotify/auth-url` | Generate OAuth URL | Needs implementation |
-| 3 | `GET /auth/spotify/callback` | Exchange code for tokens | Needs implementation |
+| 2 | `GET /connectors/spotify/auth-url` | Generate OAuth URL | Needs implementation (v0.5.0) |
+| 3 | `GET /auth/spotify/callback` | Exchange code, store via `DatabaseTokenStorage` | Needs implementation (v0.5.0) |
 | 4 | `GET /connectors` | List connector status | Needs implementation |
 
 **Edge cases**:
 - User denies OAuth consent: callback receives `error=access_denied`. Redirect to `/settings` with error toast: "Spotify connection cancelled."
 - Token exchange fails (network error, expired code): Show error toast with retry link.
-- User is already connected: `GET /connectors` shows connected state. "Connect Spotify" button becomes "Reconnect Spotify" (for re-auth).
 
 ---
 
 ### 1.2 Connect Last.fm
 
-**Trigger**: User clicks **Connect Last.fm** from onboarding card or Settings.
+**Trigger**: User navigates to Settings to connect Last.fm.
+
+#### v0.3.0–v0.4.0: Environment credentials
+
+Last.fm uses API key + username + password from environment variables. The session key is obtained at runtime via `auth.getMobileSession` and cached in memory (not persisted to disk).
 
 **Steps**:
 
-1. User clicks **Connect Last.fm**.
+1. Settings page shows Last.fm connection status.
+
+2. **Last.fm** checks for configured credentials (`LASTFM_API_KEY`, `LASTFM_USERNAME`, `LASTFM_PASSWORD` in environment).
+   - If all present: backend calls `auth.getMobileSession` to validate. Shows **Connected** with the username.
+   - If missing: shows **Not Connected** with guidance: "Set Last.fm credentials in your environment variables."
+
+3. **Manual credential input** (fallback): Settings provides fields for API key, username, and password. Backend validates by attempting `auth.getMobileSession`.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Check status | `GET /connectors` | Validate env credentials | Needs implementation |
+| Manual input | `POST /connectors/lastfm/credentials` | Validate + store credentials | Needs implementation |
+
+**Edge cases**:
+- Invalid credentials: `auth.getMobileSession` fails. Show error: "Last.fm authentication failed. Check your credentials."
+- API key valid but password wrong: same error (Last.fm doesn't distinguish).
+
+#### v0.5.0: Web auth flow
+
+With database-backed credential storage, Settings handles the Last.fm web auth flow directly.
+
+**Steps**:
+
+1. User clicks **Connect Last.fm** on the Settings page.
    - A modal opens: "Enter your Last.fm username" with a text input.
-   - Below: "We'll authenticate using Last.fm's web auth flow."
 
 2. User enters their username and clicks **Authenticate**.
    - Frontend calls the Last.fm auth URL endpoint.
@@ -65,7 +120,7 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 3. User grants permission on Last.fm.
    - Last.fm redirects back with a session token.
-   - Backend stores the session key.
+   - Backend stores the session key in the database.
    - Browser redirects to `/settings` with success toast: "Last.fm connected."
 
 4. Settings shows Last.fm as **Connected** with the username.
@@ -73,8 +128,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `GET /connectors/lastfm/auth-url` | Generate Last.fm auth URL | Needs implementation |
-| 3 | `GET /auth/lastfm/callback` | Store session key | Needs implementation |
+| 2 | `GET /connectors/lastfm/auth-url` | Generate Last.fm auth URL | Needs implementation (v0.5.0) |
+| 3 | `GET /auth/lastfm/callback` | Store session key in database | Needs implementation (v0.5.0) |
 
 **Edge cases**:
 - Last.fm auth fails: redirect with error toast.
@@ -82,79 +137,17 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 ---
 
-### 1.3 First Data Import with Progress
-
-**Trigger**: After connecting at least one service, the onboarding flow suggests importing data.
-
-**Steps**:
-
-1. After first connector is linked, the onboarding card transitions:
-   "Spotify connected! Import your data to start building your library."
-   - **Import Liked Songs** (prominent)
-   - **Import Listening History** (secondary)
-   - "Or explore the app first" (dismissive link)
-
-2. User clicks **Import Liked Songs**.
-   - Frontend calls `POST /imports/spotify/likes`.
-   - Returns `{ operation_id: "..." }` immediately.
-   - UI transitions to a **progress view** (inline, not a new page).
-
-3. Progress view shows:
-   - Operation name: "Importing Spotify liked songs"
-   - Progress bar (determinate once total is known, indeterminate initially)
-   - Current count: "347 / 1,204 tracks imported"
-   - Live message updates from SSE stream
-
-4. Frontend connects to `GET /operations/{operation_id}/progress` (SSE).
-   - Events update the progress bar in real time.
-   - On `COMPLETED`: progress view shows summary.
-     - "1,204 tracks imported. 15 already existed. 3 failed."
-     - **View Library** button.
-
-5. User clicks **View Library** and sees their tracks populated.
-
-**Backend calls**:
-| Step | Endpoint | Use Case | Status |
-|------|----------|----------|--------|
-| 2 | `POST /imports/spotify/likes` | `SyncLikesUseCase` | Exists |
-| 4 | `GET /operations/{id}/progress` | SSE progress stream | Needs implementation |
-| 4 | `GET /operations/{id}` | Snapshot fallback | Needs implementation |
-
-**Edge cases**:
-- Import already running: backend returns `409 Conflict` with existing `operation_id`. Frontend shows the existing progress.
-- SSE connection drops: frontend reconnects with `Last-Event-ID` header. If SSE unavailable, falls back to polling `GET /operations/{id}` every 2 seconds.
-- Import fails midway: progress shows `FAILED` status with error message and count of successfully imported tracks. "1,024 of 1,204 imported. Retry?" button.
-- User navigates away during import: import continues in background. A persistent **activity indicator** in the sidebar shows active operations. User can return to see progress.
-
----
-
-### 1.4 Empty-State-to-Populated Transition
-
-**Trigger**: Every page has an empty state that guides the user toward populating it.
-
-**Empty states by page**:
-
-| Page | Empty State Message | Action |
-|------|-------------------|--------|
-| Dashboard (`/`) | "Welcome to Narada. Connect a music service to get started." | Connect Spotify / Connect Last.fm |
-| Library (`/library`) | "No tracks yet. Import your liked songs or listening history." | Import Liked Songs / Import History |
-| Playlists (`/playlists`) | "No playlists yet. Create one or import from a connected service." | Create Playlist / Import from Spotify |
-| Workflows (`/workflows`) | "No workflows yet. Workflows let you build smart playlists using your own rules." | Browse Templates / Create Workflow |
-| Imports (`/imports`) | "No import history. Connect a service to start importing." | Go to Settings |
-
-**Behavior**: Empty states disappear permanently once the page has data. They never re-appear even if all data is deleted (that's a different state -- "all items deleted" shows "No playlists. Create one?" without the onboarding framing).
-
----
-
 ## 2. Browsing the Library
 
-### 2.1 Track List
+> **Available starting v0.3.2.** Requires `ListTracksUseCase`, `SearchTracksUseCase`, and `GetTrackDetailsUseCase`.
+
+### 2.1 Library
 
 **Trigger**: User clicks **Library** in the sidebar navigation.
 
 **Steps**:
 
-1. Library page loads with a **paginated track list**.
+1. Library page loads with a **paginated track table**.
    - Default sort: recently added (most recent first).
    - Shows: title, artist(s), album, duration, connector icons (which services have this track).
    - Pagination: 50 tracks per page with offset controls.
@@ -303,11 +296,11 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 1. Playlist detail page (`/playlists/{id}`) loads:
    - **Header**: Playlist name, description, track count, total duration, connector links
-   - **Track list**: Ordered table with columns:
+   - **Tracks**: Ordered table with columns:
      - Position (#), Title, Artist(s), Album, Duration, Added At, Actions (remove button)
    - **Connector Links** summary: "Linked to Spotify: 'My Playlist'" with sync status badge
 
-2. Track list supports:
+2. The track table supports:
    - **Reorder** via drag-and-drop (or up/down arrow buttons for accessibility)
    - **Remove** individual tracks (X button with confirmation)
    - **Batch operations**: Multi-select checkbox column. Selected tracks enable "Remove Selected" action.
@@ -329,7 +322,7 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 | Delete | `DELETE /playlists/{id}` | `DeleteCanonicalPlaylistUseCase` | Exists |
 
 **Edge cases**:
-- Very large playlist (>1,000 tracks): Paginate track list. Drag-and-drop reorder only works within visible page; full reorder uses a "Move to position" input.
+- Very large playlist (>1,000 tracks): Paginate the track table. Drag-and-drop reorder only works within visible page; full reorder uses a "Move to position" input.
 - Concurrent edit: If another operation (workflow, sync) modifies the playlist while user is viewing, stale data is possible. Tanstack Query's stale-while-revalidate handles this, but destructive operations should re-fetch before applying.
 
 ---
@@ -453,6 +446,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 ## 4. Importing Data & Monitoring Sync
 
+> **Available starting v0.3.1.** Requires `SSEProgressProvider` and import API routes. Import use cases already exist.
+
 ### 4.1 Import Center
 
 **Trigger**: User clicks **Imports** in the sidebar.
@@ -475,11 +470,6 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
    - **Recent Operations** section (activity feed):
      - Last 20 operations with: name, status, started_at, duration, summary
      - Click to expand for full result details
-
-2. **Contextual import entry points** also exist on other pages:
-   - Library (empty state): "Import Liked Songs"
-   - Track detail (no play history): "Import Listening History"
-   - Dashboard (stale data indicator): "Re-sync"
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
@@ -533,7 +523,7 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 **Edge cases**:
 - Last.fm API rate limited (429): Backend handles retries transparently. Progress message shows "Rate limited, waiting..." SSE events continue.
 - Import takes very long (>10 min for large histories): Progress continues. Browser tab shows operation name in title. Notification on completion if tab is backgrounded.
-- User cancels: `POST /operations/{id}/cancel`. Backend stops fetching new pages. Already-imported plays are kept. Checkpoint updated to last successful page.
+- User cancels: graceful halt; already-imported plays are kept, checkpoint updated to last successful page (see Cross-Cutting Concerns: Operation Cancellation).
 - Network interruption during import: Backend continues (import runs server-side). Frontend reconnects SSE. On reconnect, catches up via `Last-Event-ID`.
 
 ---
@@ -619,7 +609,7 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
    - **Green** "Up to date": synced within configured freshness threshold
    - **Yellow** "X days ago": approaching staleness
    - **Red** "Stale": exceeds freshness threshold
-   - Clicking a stale row offers a one-click "Re-sync" button.
+   - Clicking a stale row navigates to the corresponding Import Center operation card to re-run.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
@@ -629,6 +619,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 ---
 
 ## 5. Managing Connector Links
+
+> **Available starting v0.4.0.** Requires connector playlist linking use cases and playlist links API routes.
 
 ### 5.1 Viewing Linked External Playlists
 
@@ -756,6 +748,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 ---
 
 ## 6. Workflows
+
+> **Available starting v0.4.0.** Requires workflow persistence (`workflows` table), CRUD use cases, and workflow API routes. Visual builder and LLM-assisted creation are later milestones (v0.7.0, v0.8.0).
 
 ### 6.1 Workflow List
 
@@ -906,7 +900,7 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
    - User clicks **Preview**.
    - Calls `POST /workflows/{id}/preview` (or `POST /workflows/preview` for unsaved).
    - Backend executes the workflow but skips destination writes.
-   - Returns: preview of output tracklist (track names, count) and per-node execution summary.
+   - Returns: preview of the resulting playlist (track names, count) and per-node execution summary.
    - Displayed in a side panel.
 
 **Backend calls**:
@@ -954,6 +948,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 ## 7. Dashboard & Data Quality
 
+> **Dashboard available starting v0.3.3.** Requires stats aggregation use cases. Unmatched tracks review (7.2) requires `GetUnmappedTracksUseCase` from v0.6.0.
+
 ### 7.1 Dashboard Overview
 
 **Trigger**: User navigates to `/` (home page / dashboard).
@@ -969,20 +965,16 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 
 2. **Connector Health** section:
    - Status per connector: Connected/Disconnected, Last API call status, Token expiry
-   - Quick actions: Reconnect, Re-sync
+   - Connectors needing attention (expired token, disconnected) link to Settings
 
 3. **Data Freshness** alerts:
-   - "Spotify liked songs last synced 14 days ago" (with re-sync button)
+   - "Spotify liked songs last synced 14 days ago" (links to Import Center)
    - "Last.fm play history up to date"
    - Staleness thresholds configurable in settings
 
 4. **Recent Activity** feed:
    - Last 10 operations with status and timestamp
    - Click to see details
-
-5. **Quick Actions** section:
-   - "Import Liked Songs", "Import History", "Run Workflow"
-   - Most relevant action highlighted based on data state
 
 **Backend calls**:
 | Section | Endpoint | Use Case | Status |

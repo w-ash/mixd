@@ -7,6 +7,9 @@ business logic to the domain layer and all infrastructure concerns to the infras
 This replaces MatchTracksUseCase and will become the single way to resolve track identities.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from typing import Any
 
 from attrs import define, field

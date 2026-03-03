@@ -5,6 +5,9 @@ Implements clean architecture by providing creation functions for all Spotify se
 without exposing Spotify internals to other layers.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 from typing import Any
 
 from src.domain.repositories import PlayImporterProtocol

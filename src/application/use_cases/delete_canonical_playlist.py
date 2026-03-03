@@ -5,6 +5,9 @@ validation of playlist existence, optional warnings for external connections,
 and atomic transaction management to ensure data consistency.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import datetime
 from typing import Any, Never
 

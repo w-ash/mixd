@@ -5,6 +5,8 @@ use cases. Supports both local canonical playlists and external platform playlis
 (Spotify, Apple Music, etc.) with automatic ID resolution and metadata templating.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+
 from typing import Any
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -140,7 +142,7 @@ async def update_playlist(
     if not playlist_id:
         raise ValueError("Missing required 'playlist_id' for update_playlist operation")
 
-    append = config.get("append", False)
+    append: bool = bool(config.get("append", False))
 
     if connector := config.get("connector"):
         # playlist_id is connector ID - update connector with optimistic canonical sync

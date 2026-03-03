@@ -9,6 +9,9 @@ Spotify clients delegate auth to an httpx.Auth instance (SpotifyBearerAuth)
 so token injection and 401-retry are handled transparently.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: API response data, framework types
+
 from importlib.metadata import metadata
 from typing import Any
 

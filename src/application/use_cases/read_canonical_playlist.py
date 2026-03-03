@@ -4,6 +4,9 @@ Supports lookup by internal database ID or external service ID (Spotify, etc).
 Includes execution timing and error handling for playlist not found scenarios.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import datetime
 from typing import Any
 

@@ -4,19 +4,18 @@ Contains common functions used across Spotify connectors for:
 - Converting Spotify API data to domain objects
 """
 
-from typing import Any
-
 from src.domain.entities import Artist, Track
+from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
 
 def create_track_from_spotify_data(
-    spotify_id: str, spotify_data: dict[str, Any]
+    spotify_id: str, spotify_track: SpotifyTrack
 ) -> Track:
     """Create a Track domain object from Spotify API data.
 
     Args:
         spotify_id: Spotify track ID
-        spotify_data: Track data from Spotify Web API
+        spotify_track: Validated SpotifyTrack Pydantic model
 
     Returns:
         Track domain object with Spotify connector ID attached
@@ -25,32 +24,29 @@ def create_track_from_spotify_data(
         ValueError: If required fields are missing or invalid
     """
     # Validate required fields
-    title = spotify_data.get("name")
-    if not title:
+    if not spotify_track.name:
         raise ValueError(f"Missing track title for Spotify ID {spotify_id}")
 
-    artists_data = spotify_data.get("artists", [])
-    if not artists_data:
+    if not spotify_track.artists:
         raise ValueError(f"Missing artists for Spotify ID {spotify_id}")
 
     # Create Artist objects
     artists: list[Artist] = []
-    for artist_data in artists_data:
-        artist_name = artist_data.get("name")
-        if artist_name:
-            artists.append(Artist(name=artist_name))
+    for artist in spotify_track.artists:
+        if artist.name:
+            artists.append(Artist(name=artist.name))
 
     if not artists:
         raise ValueError(f"No valid artist names found for Spotify ID {spotify_id}")
 
     # Extract optional fields
-    album = spotify_data.get("album", {}).get("name")
-    duration_ms = spotify_data.get("duration_ms")
-    isrc = spotify_data.get("external_ids", {}).get("isrc")
+    album = spotify_track.album.name if spotify_track.album else None
+    duration_ms = spotify_track.duration_ms or None
+    isrc = spotify_track.external_ids.isrc
 
     # Create Track object with Spotify connector ID
     track = Track(
-        title=title,
+        title=spotify_track.name,
         artists=artists,
         album=album,
         duration_ms=duration_ms,

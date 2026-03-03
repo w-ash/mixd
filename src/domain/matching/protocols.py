@@ -4,6 +4,9 @@ These protocols define contracts for matching services without depending on
 external implementations, following the dependency inversion principle.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from typing import Any, Protocol
 
 from src.domain.entities import Track

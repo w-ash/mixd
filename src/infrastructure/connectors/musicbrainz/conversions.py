@@ -10,6 +10,9 @@ Key components:
 - ConnectorTrack construction from MusicBrainz recording data
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: API response data, framework types
+
 from typing import Any
 
 from src.config import get_logger

@@ -114,7 +114,7 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/connectors` | Status query | Needs impl |
+| GET | `/connectors` | Status query | **Built** (v0.3.0) |
 | GET | `/connectors/spotify/auth-url` | OAuth URL | Needs impl |
 | GET | `/auth/spotify/callback` | OAuth exchange → redirect | Needs impl |
 | GET | `/connectors/lastfm/auth-url` | Auth URL | Needs impl |

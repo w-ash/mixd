@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.matching_provider import LastFMProvider
 from tests.fixtures.factories import make_track
 
@@ -23,21 +24,19 @@ def _make_lastfm_track_info(
     global_playcount: int = 50_000,
     listeners: int = 5_000,
     user_loved: bool = False,
-) -> dict[str, object]:
-    """Create a LastFM track info response dict."""
-    info: dict[str, object] = {
-        "lastfm_title": title,
-        "lastfm_artist_name": artist,
-        "lastfm_url": url,
-        "lastfm_duration": duration,
-        "lastfm_user_playcount": user_playcount,
-        "lastfm_global_playcount": global_playcount,
-        "lastfm_listeners": listeners,
-        "lastfm_user_loved": user_loved,
-    }
-    if mbid:
-        info["lastfm_mbid"] = mbid
-    return info
+) -> LastFMTrackInfo:
+    """Create a LastFMTrackInfo for testing."""
+    return LastFMTrackInfo(
+        lastfm_title=title,
+        lastfm_artist_name=artist,
+        lastfm_url=url,
+        lastfm_duration=duration,
+        lastfm_user_playcount=user_playcount,
+        lastfm_global_playcount=global_playcount,
+        lastfm_listeners=listeners,
+        lastfm_user_loved=user_loved,
+        lastfm_mbid=mbid,
+    )
 
 
 def _make_provider() -> tuple[LastFMProvider, AsyncMock]:
@@ -58,7 +57,7 @@ class TestLastFMProviderFetchRawMatches:
             make_track(id=2, title="Song B", artist="Artist B"),
         ]
 
-        connector.get_external_track_data.return_value = {
+        connector.get_track_info_batch.return_value = {
             1: _make_lastfm_track_info(title="Song A", artist="Artist A"),
             2: _make_lastfm_track_info(title="Song B", artist="Artist B"),
         }
@@ -76,7 +75,7 @@ class TestLastFMProviderFetchRawMatches:
         tracks = [make_track(id=1), make_track(id=2)]
 
         # Only track 1 returned
-        connector.get_external_track_data.return_value = {
+        connector.get_track_info_batch.return_value = {
             1: _make_lastfm_track_info(),
         }
 
@@ -96,13 +95,13 @@ class TestLastFMProviderFetchRawMatches:
 
         assert len(result.matches) == 0
         assert len(result.failures) == 0
-        connector.get_external_track_data.assert_not_called()
+        connector.get_track_info_batch.assert_not_called()
 
     async def test_batch_api_failure_records_failure_for_all_tracks(self):
         """Batch API exception should produce failures for all tracks."""
         provider, connector = _make_provider()
         tracks = [make_track(id=1), make_track(id=2), make_track(id=3)]
-        connector.get_external_track_data.side_effect = RuntimeError("API down")
+        connector.get_track_info_batch.side_effect = RuntimeError("API down")
 
         result = await provider.fetch_raw_matches_for_tracks(tracks)
 
@@ -117,9 +116,10 @@ class TestLastFMProviderFetchRawMatches:
         provider, connector = _make_provider()
         tracks = [make_track(id=1)]
 
-        connector.get_external_track_data.return_value = {
-            1: {"lastfm_title": "Song", "lastfm_artist_name": "Artist"},
-            # Missing lastfm_url
+        connector.get_track_info_batch.return_value = {
+            1: LastFMTrackInfo(
+                lastfm_title="Song", lastfm_artist_name="Artist", lastfm_url=None
+            ),
         }
 
         result = await provider.fetch_raw_matches_for_tracks(tracks)
@@ -133,7 +133,7 @@ class TestLastFMProviderFetchRawMatches:
         provider, connector = _make_provider()
         tracks = [make_track(id=1)]
 
-        connector.get_external_track_data.return_value = {
+        connector.get_track_info_batch.return_value = {
             1: _make_lastfm_track_info(url="https://last.fm/music/Artist/_/Song"),
         }
 
@@ -194,7 +194,7 @@ class TestLastFMProviderCreateRawMatch:
         """Should return None if data extraction fails."""
         provider, _ = _make_provider()
 
-        result = provider._create_raw_match(None)
+        result = provider._create_raw_match(None)  # type: ignore[arg-type]
 
         assert result is None
 

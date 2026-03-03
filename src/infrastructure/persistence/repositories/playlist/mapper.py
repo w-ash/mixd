@@ -1,5 +1,8 @@
 """Playlist repository mappers for domain-persistence conversions."""
 
+# pyright: reportExplicitAny=false, reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportAny=false
+# Legitimate Any: SQLAlchemy JSON columns, dynamic relationship traversal via safe_fetch_relationship
+
 from datetime import UTC, datetime
 from typing import Any, override
 
@@ -174,6 +177,8 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             description=db_model.description,
             entries=playlist_entries,
             connector_playlist_identifiers=connector_playlist_identifiers,
+            updated_at=db_model.updated_at,
+            track_count=len(playlist_entries),
         )
 
     @override

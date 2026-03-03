@@ -4,8 +4,11 @@ Calculates minimal track changes (add/remove/move) to update external service
 playlists while preserving track timestamps and minimizing API calls.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from attrs import define, field
 
@@ -33,8 +36,19 @@ from src.domain.entities.track import TrackList
 from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
 from src.domain.playlist.execution_strategies import get_execution_strategy
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import ConnectorPlaylistRepositoryProtocol
 
 logger = get_logger(__name__)
+
+
+class _ConnectorApiResult(TypedDict):
+    """Result from executing playlist operations against a connector API."""
+
+    success: bool
+    api_calls_made: int
+    metadata: dict[str, Any]
+    error: str | None
+    partial_success: bool
 
 
 @define(frozen=True, slots=True)
@@ -188,8 +202,11 @@ class UpdateConnectorPlaylistUseCase:
         return operation_success, partial_success
 
     async def _get_existing_connector_playlist(
-        self, connector_repo: Any, connector_name: str, playlist_id: str
-    ) -> Any | None:
+        self,
+        connector_repo: ConnectorPlaylistRepositoryProtocol,
+        connector_name: str,
+        playlist_id: str,
+    ) -> ConnectorPlaylist | None:
         """Retrieve existing connector playlist record if it exists.
 
         Args:
@@ -253,7 +270,7 @@ class UpdateConnectorPlaylistUseCase:
 
     async def _persist_connector_playlist_with_verification(
         self,
-        connector_repo: Any,
+        connector_repo: ConnectorPlaylistRepositoryProtocol,
         playlist_entity: ConnectorPlaylist,
         command: UpdateConnectorPlaylistCommand,
         updated_items_count: int,
@@ -559,7 +576,7 @@ class UpdateConnectorPlaylistUseCase:
         sequenced_operations: list[PlaylistOperation],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
-    ) -> dict[str, Any]:
+    ) -> _ConnectorApiResult:
         """Executes playlist operations via connector with enhanced state validation."""
         # Pre-execution state validation
         if not sequenced_operations:
@@ -617,13 +634,13 @@ class UpdateConnectorPlaylistUseCase:
                 validation_passed=operation_success,
             )
 
-            return {
-                "success": operation_success,
-                "api_calls_made": len(sequenced_operations),
-                "metadata": external_metadata,
-                "error": None,
-                "partial_success": partial_success,
-            }
+            return _ConnectorApiResult(
+                success=operation_success,
+                api_calls_made=len(sequenced_operations),
+                metadata=dict(external_metadata),
+                error=None,
+                partial_success=partial_success,
+            )
 
         except Exception as e:
             # Classify error using pattern matching utility

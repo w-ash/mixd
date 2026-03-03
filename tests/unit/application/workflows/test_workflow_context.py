@@ -47,10 +47,6 @@ class TestWorkflowContext:
         spotify_connector = context.connectors.get_connector("spotify")
         assert spotify_connector is not None
 
-    async def test_workflow_context_session_via_get_session(self):
-        """Test that get_session() works for _with_uow fallback path."""
-        from src.infrastructure.persistence.database.db_connection import get_session
-
-        # get_session() is now called directly in _with_uow (no wrapper)
-        async with get_session() as session:
-            assert session is not None
+    async def test_workflow_context_session_via_get_session(self, db_session):
+        """Test that a database session works for _with_uow fallback path."""
+        assert db_session is not None

@@ -7,6 +7,7 @@ and correctly handles not-found scenarios.
 import pytest
 
 from src.application.use_cases._shared.playlist_resolver import resolve_playlist
+from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_playlist
 from tests.fixtures.mocks import make_mock_uow
 
@@ -33,13 +34,13 @@ class TestResolvePlaylist:
         )
 
     async def test_integer_id_not_found_raises(self, mock_uow):
-        """Integer ID that raises ValueError in repo propagates as ValueError."""
+        """Integer ID not found raises NotFoundError after exhausting fallbacks."""
         mock_uow.get_playlist_repository().get_playlist_by_id.side_effect = ValueError(
             "not found"
         )
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = None
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(NotFoundError, match="not found"):
             await resolve_playlist("999", mock_uow)
 
     async def test_integer_id_not_found_returns_none(self, mock_uow):

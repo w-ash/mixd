@@ -7,7 +7,7 @@ This module provides common functionality used across all connectors:
 """
 
 from src.domain.matching.protocols import MatchProvider
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
     classify_unknown_error,
 )

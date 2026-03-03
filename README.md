@@ -288,7 +288,8 @@ Comprehensive documentation is available in the `/docs` directory:
 - **[API.md](docs/API.md)** - Complete CLI command reference
 - **[workflow_guide.md](docs/workflow_guide.md)** - Workflow system documentation
 - **[likes_sync_guide.md](docs/likes_sync_guide.md)** - Likes synchronization between Spotify and Last.fm
-- **[BACKLOG.md](BACKLOG.md)** - Project roadmap and planned features
+- **[ROADMAP.md](ROADMAP.md)** - Strategic roadmap and version plan
+- **[BACKLOG.md](docs/BACKLOG.md)** - Detailed epics and task breakdowns
 - **[CLAUDE.md](CLAUDE.md)** - Development commands and style guide
 
 ## License

@@ -5,6 +5,8 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
+# pyright: reportExplicitAny=false
+
 from typing import Any, cast
 
 from attrs import define
@@ -35,17 +37,20 @@ class NodeContext:
         Supports both workflow contexts (with upstream_task_id) and direct contexts
         (with tracklist key) for testing compatibility.
         """
-        # Check for workflow context with upstream task
+        # Check for workflow context with upstream task — data dict is Prefect's
+        # heterogeneous context (task results, metadata, workflow_context), inherently Any-valued
         if "upstream_task_id" in self.data:
-            upstream_id = self.data["upstream_task_id"]
-            if upstream_id in self.data and "tracklist" in self.data[upstream_id]:
-                return self.data[upstream_id]["tracklist"]
+            upstream_id = str(self.data["upstream_task_id"])  # type: ignore[reportAny]
+            upstream_data = self.data.get(upstream_id)
+            if isinstance(upstream_data, dict) and "tracklist" in upstream_data:
+                result: object = upstream_data["tracklist"]  # type: ignore[reportAny]  # dict narrowed from Any
+                if isinstance(result, TrackList):
+                    return result
 
         # Check for direct tracklist (testing/simple contexts)
-        if "tracklist" in self.data:
-            tracklist = self.data["tracklist"]
-            if isinstance(tracklist, TrackList):
-                return tracklist
+        raw_tracklist: object = self.data.get("tracklist")
+        if isinstance(raw_tracklist, TrackList):
+            return raw_tracklist
 
         raise ValueError(
             "Missing required tracklist from upstream node or direct context"
@@ -59,7 +64,7 @@ class NodeContext:
                 logger.warning(f"Task ID not found in context: {task_id}")
                 continue
 
-            task_result = self.data[task_id]
+            task_result: object = self.data[task_id]  # type: ignore[reportAny]  # Prefect context dict
             if not isinstance(task_result, dict):
                 logger.warning(f"Invalid task result for {task_id}: not a dictionary")
                 continue
@@ -68,8 +73,7 @@ class NodeContext:
                 logger.warning(f"Task result for {task_id} missing 'tracklist' key")
                 continue
 
-            # isinstance confirmed dict; bridge through object to satisfy pyright's overlap check
-            node_result = cast(NodeResult, cast(object, task_result))
+            node_result = cast(NodeResult, task_result)
             tracklists.append(node_result["tracklist"])
 
         if not tracklists:
@@ -89,7 +93,7 @@ class NodeContext:
         Raises:
             ValueError: If workflow context not found
         """
-        workflow_context = self.data.get("workflow_context")
+        workflow_context: WorkflowContext = self.data.get("workflow_context")  # type: ignore[reportAny]  # Prefect context dict
         if not workflow_context:
             raise ValueError("Workflow context not found in context")
         return workflow_context
@@ -105,14 +109,14 @@ class NodeContext:
         """
         return self.extract_workflow_context().use_cases
 
-    def get_connector(self, connector_name: str) -> Any:
+    def get_connector(self, connector_name: str) -> object:
         """Get connector instance via workflow context's connector registry.
 
         Args:
             connector_name: Name of connector to retrieve (e.g., "spotify", "lastfm")
 
         Returns:
-            Connector instance (service-specific, heterogeneous interfaces)
+            Connector instance — callers narrow via capability protocols
 
         Raises:
             ValueError: If connector registry or specific connector not found

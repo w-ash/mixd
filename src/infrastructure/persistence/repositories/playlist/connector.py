@@ -1,5 +1,8 @@
 """Connector playlist repository implementation."""
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: SQLAlchemy column types, JSON fields
+
 from typing import Any
 
 from sqlalchemy import Select

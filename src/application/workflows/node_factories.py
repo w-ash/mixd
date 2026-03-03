@@ -14,11 +14,15 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 # Import for enrichment functionality
+from src.application.connector_protocols import TrackMetadataConnector
 from src.application.use_cases.enrich_tracks import (
+    ConnectorType,
     EnrichmentConfig,
     EnrichTracksCommand,
 )
@@ -156,7 +160,7 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
 
     async def node_impl(context: dict[str, Any], _config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
         ctx = NodeContext(context)
-        upstream_task_ids = context.get("upstream_task_ids", [])
+        upstream_task_ids: list[str] = context.get("upstream_task_ids", [])
 
         if not upstream_task_ids:
             raise ValueError(f"Combiner node {operation} requires upstream tasks")
@@ -186,15 +190,27 @@ type _EnrichmentConfigBuilder = Callable[
 ]
 
 
-def _build_external_enrichment_config(
-    static_config: dict[str, Any],
+class _EnricherStaticConfig(TypedDict, total=False):
+    """Static registration-time config for enricher nodes (used in node_catalog.py)."""
+
+    connector: ConnectorType
+    attributes: list[str]
+
+
+def build_external_enrichment_config(
+    static_config: _EnricherStaticConfig,
 ) -> _EnrichmentConfigBuilder:
     """Build config builder for external-metadata enrichment (Last.fm, Spotify).
 
     Captures the static registration-time config (connector name, attribute list)
     and returns a builder that resolves metric names at execution time via DI.
+
+    Raises:
+        ValueError: If config doesn't specify a 'connector'
     """
-    connector = static_config["connector"]
+    connector = static_config.get("connector")
+    if not connector:
+        raise ValueError("Enricher configuration must specify a 'connector' type")
     attribute_names = static_config.get("attributes", ["user_playcount"])
 
     def builder(ctx: NodeContext, _config: dict[str, Any]) -> EnrichmentConfig:
@@ -205,7 +221,7 @@ def _build_external_enrichment_config(
         return EnrichmentConfig(
             enrichment_type="external_metadata",
             connector=connector,
-            connector_instance=ctx.get_connector(connector),
+            connector_instance=cast(TrackMetadataConnector, ctx.get_connector(connector)),
             track_metric_names=metric_names,
         )
 
@@ -224,33 +240,18 @@ def build_play_history_enrichment_config(
 
 
 def create_enricher_node(
-    config_or_builder: dict[str, Any] | _EnrichmentConfigBuilder,
+    build_config: _EnrichmentConfigBuilder,
+    enricher_label: str = "play_history",
 ) -> NodeFn:
     """Create a node that enriches tracks with metadata.
 
-    Unified factory for both external-service enrichment (Last.fm, Spotify)
-    and internal play-history enrichment. The only difference is how the
-    EnrichmentConfig is built — everything else is shared.
-
     Args:
-        config_or_builder: Either a static config dict with 'connector' key
-            (for external enrichment) or a config-builder callable.
+        build_config: Callable that constructs an EnrichmentConfig from node context.
+        enricher_label: Label for logging (e.g., "lastfm", "play_history").
 
     Returns:
         Async function that enriches track collections
-
-    Raises:
-        ValueError: If dict config doesn't specify a 'connector'
     """
-    # Support both the dict-based API (for external enrichers) and direct builder
-    if isinstance(config_or_builder, dict):
-        if not config_or_builder.get("connector"):
-            raise ValueError("Enricher configuration must specify a 'connector' type")
-        build_config = _build_external_enrichment_config(config_or_builder)
-        enricher_label = config_or_builder["connector"]
-    else:
-        build_config = config_or_builder
-        enricher_label = "play_history"
 
     async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)

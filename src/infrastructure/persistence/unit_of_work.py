@@ -4,7 +4,10 @@ This module provides the concrete implementation of the UnitOfWork pattern,
 handling transaction management and repository creation using a shared database session.
 """
 
-from typing import Any, Self
+# pyright: reportExplicitAny=false
+# Legitimate Any: SQLAlchemy column types, JSON fields
+
+from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +20,7 @@ from src.domain.repositories.interfaces import (
     MetricsRepositoryProtocol,
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
+    ServiceConnectorProvider,
     TrackIdentityServiceProtocol,
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
@@ -56,7 +60,7 @@ class DatabaseUnitOfWork:
 
     _session: AsyncSession
     _committed: bool
-    _connector_cache: dict[str, Any]
+    _connector_cache: dict[str, object]
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session.
@@ -88,8 +92,10 @@ class DatabaseUnitOfWork:
         elif not self._committed:
             await self.commit()
         # Close cached connector instances
+        from src.application.connector_protocols import Closeable
+
         for connector in self._connector_cache.values():
-            if hasattr(connector, "aclose"):
+            if isinstance(connector, Closeable):
                 await connector.aclose()
         self._connector_cache.clear()
 
@@ -145,7 +151,7 @@ class DatabaseUnitOfWork:
         connector_repo = self.get_connector_repository()
         return TrackIdentityServiceImpl(track_repo, connector_repo)
 
-    def get_service_connector_provider(self) -> Any:
+    def get_service_connector_provider(self) -> ServiceConnectorProvider:
         """Get service connector provider with per-UoW instance caching."""
         from src.infrastructure.connectors import discover_connectors
 
@@ -154,7 +160,7 @@ class DatabaseUnitOfWork:
         class CachingConnectorProvider:
             """Connector provider that caches instances for the UoW's lifetime."""
 
-            def get_connector(self, service_name: str):
+            def get_connector(self, service_name: str) -> object:
                 if service_name in cache:
                     return cache[service_name]
                 connectors = discover_connectors()
@@ -171,7 +177,3 @@ class DatabaseUnitOfWork:
         from src.infrastructure.services.track_merge_service import TrackMergeService
 
         return TrackMergeService()
-
-    def get_session(self) -> AsyncSession:
-        """Get the underlying database session for bulk operations."""
-        return self._session

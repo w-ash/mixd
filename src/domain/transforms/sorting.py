@@ -11,6 +11,9 @@ All sorting functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from collections.abc import Callable
 from typing import Any
 

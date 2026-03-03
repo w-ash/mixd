@@ -4,6 +4,8 @@ Scans the connectors package for modules implementing the `get_connector_config(
 interface and builds a cached registry of available connectors.
 """
 
+# pyright: reportAny=false
+
 import importlib
 import pkgutil
 import sys

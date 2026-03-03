@@ -7,6 +7,7 @@ from .node_context import NodeContext
 
 # Factory tools for creating nodes programmatically
 from .node_factories import (
+    build_external_enrichment_config,
     create_enricher_node,
     make_combiner_node,
     make_node,
@@ -20,6 +21,7 @@ from .registry_validation import validate_registry
 # Export clean public API
 __all__ = [
     "NodeContext",
+    "build_external_enrichment_config",
     "create_enricher_node",
     "get_node",
     "make_combiner_node",

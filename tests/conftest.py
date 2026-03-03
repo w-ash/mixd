@@ -28,6 +28,18 @@ from src.infrastructure.persistence.database.db_connection import (
 # pytest-asyncio handles event loop management internally without custom policy fixtures
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Prevent tests from accidentally using the production database.
+
+    Fires before any test collection or fixture runs. Tests using the
+    ``db_session`` fixture are unaffected because it overrides DATABASE_URL
+    per-test. Tests that bypass ``db_session`` and call ``get_session()``
+    directly will harmlessly connect to this throwaway path instead of
+    the production database.
+    """
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///tmp/pytest_guard_DO_NOT_USE.db"
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Auto-apply unit/integration markers based on test file location.
 

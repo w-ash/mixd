@@ -10,6 +10,9 @@ The configuration is organized into logical groups:
 - BatchConfig: Batch processing and progress reporting settings
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Pydantic settings validators, loguru config
+
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -182,6 +185,15 @@ class MatchingConfig(BaseModel):
     identical_similarity_score: float = 1.0
 
 
+class ServerConfig(BaseModel):
+    """HTTP server and middleware configuration."""
+
+    cors_origins: list[str] = Field(
+        default=["http://localhost:5173"],
+        description="Allowed CORS origins (Vite dev server by default)",
+    )
+
+
 class FreshnessConfig(BaseModel):
     """Data freshness configuration in hours."""
 
@@ -221,6 +233,7 @@ class Settings(BaseSettings):
     import_settings: ImportConfig = Field(default_factory=ImportConfig)
     matching: MatchingConfig = Field(default_factory=MatchingConfig)
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)
 
     # Top-level settings
     data_dir: Path = Field(
@@ -274,6 +287,14 @@ class Settings(BaseSettings):
         for env_key, field_key in cred_mapping.items():
             if env_key in data:
                 transformed.setdefault("credentials", {})[field_key] = data.pop(env_key)
+
+        # Server mappings
+        server_mapping = {
+            "cors_origins": "cors_origins",
+        }
+        for env_key, field_key in server_mapping.items():
+            if env_key in data:
+                transformed.setdefault("server", {})[field_key] = data.pop(env_key)
 
         # Merge transformed nested structure back into data
         data.update(transformed)

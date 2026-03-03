@@ -4,7 +4,11 @@ This service provides the infrastructure layer implementation of track identity 
 while delegating to the new unambiguous identity pipeline components.
 """
 
-from typing import Any, override
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: **kwargs variadic dispatch, import params
+
+from collections.abc import Callable
+from typing import Any, cast, override
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -18,9 +22,13 @@ from src.domain.repositories.interfaces import (
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
 )
+from src.infrastructure.connectors._shared.matching_provider import BaseMatchingProvider
 from src.infrastructure.connectors.lastfm import LastFMProvider
+from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.connectors.musicbrainz import MusicBrainzProvider
+from src.infrastructure.connectors.musicbrainz.connector import MusicBrainzConnector
 from src.infrastructure.connectors.spotify import SpotifyProvider
+from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 logger = get_logger(__name__)
 
@@ -35,7 +43,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
     track_repo: TrackRepositoryProtocol
     connector_repo: ConnectorRepositoryProtocol
-    _provider_classes: dict[str, type[Any]]
+    _provider_factories: dict[str, Callable[[object], BaseMatchingProvider]]
 
     def __init__(
         self,
@@ -46,11 +54,12 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         self.track_repo = track_repo
         self.connector_repo = connector_repo
 
-        # Provider mapping for different connectors
-        self._provider_classes = {
-            "spotify": SpotifyProvider,
-            "lastfm": LastFMProvider,
-            "musicbrainz": MusicBrainzProvider,
+        # Lambda factories cast the generic connector_instance to each provider's
+        # concrete client type, bridging heterogeneous __init__ signatures type-safely.
+        self._provider_factories = {
+            "spotify": lambda ci: SpotifyProvider(cast(SpotifyAPIClient, ci)),
+            "lastfm": lambda ci: LastFMProvider(cast(LastFMConnector, ci)),
+            "musicbrainz": lambda ci: MusicBrainzProvider(cast(MusicBrainzConnector, ci)),
         }
 
     @override
@@ -58,7 +67,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         self,
         tracks: list[Track],
         connector: str,
-        connector_instance: Any,
+        connector_instance: object,
         **additional_options: Any,
     ) -> dict[int, RawProviderMatch]:
         """Get raw matches from external providers.
@@ -69,14 +78,13 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         if not tracks:
             return {}
 
-        # Get the appropriate provider class
-        provider_class = self._provider_classes.get(connector)
-        if not provider_class:
+        # Get the appropriate provider factory
+        provider_factory = self._provider_factories.get(connector)
+        if not provider_factory:
             logger.warning(f"No provider available for connector: {connector}")
             return {}
 
-        # Create provider instance
-        provider = provider_class(connector_instance)
+        provider = provider_factory(connector_instance)
 
         # Fetch raw matches with structured failure handling
         result: ProviderMatchResult = await provider.fetch_raw_matches_for_tracks(

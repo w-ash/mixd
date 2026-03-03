@@ -8,6 +8,9 @@ Functions for retrieving playlists and tracks from multiple sources:
 All functions return standardized track data for playlist creation and analysis.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Prefect context dicts
+
 from typing import Any
 
 from src.application.services.connector_playlist_sync_service import (
@@ -17,14 +20,8 @@ from src.application.services.playlist_upsert import (
     build_create_playlist_command,
     build_update_playlist_command,
 )
-from src.application.use_cases.get_liked_tracks import (
-    GetLikedTracksCommand,
-    GetLikedTracksUseCase,
-)
-from src.application.use_cases.get_played_tracks import (
-    GetPlayedTracksCommand,
-    GetPlayedTracksUseCase,
-)
+from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
+from src.application.use_cases.get_played_tracks import GetPlayedTracksCommand
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
 )
@@ -108,6 +105,9 @@ async def playlist_source(
             read_command,
         )
 
+        if result.playlist is None:
+            raise ValueError(f"Canonical playlist not found: {playlist_id}")
+
         tracklist_with_source = _build_source_tracklist(
             result.playlist.tracks, result.playlist.name, "canonical", playlist_id
         )
@@ -175,36 +175,38 @@ async def playlist_source(
 
         if existing_playlist:
             logger.info(f"Updating existing canonical playlist {existing_playlist.id}")
-            command = build_update_playlist_command(
+            update_cmd = build_update_playlist_command(
                 existing_playlist, connector_playlist, connector
             )
-            use_case_getter = (
-                workflow_context.use_cases.get_update_canonical_playlist_use_case
+            update_result = await workflow_context.execute_use_case(
+                workflow_context.use_cases.get_update_canonical_playlist_use_case,
+                update_cmd,
             )
+            playlist = update_result.playlist
             action = "updated"
         else:
             logger.info(f"Creating new canonical playlist from {connector}")
-            command = build_create_playlist_command(
+            create_cmd = build_create_playlist_command(
                 connector_playlist, connector, playlist_id
             )
-            use_case_getter = (
-                workflow_context.use_cases.get_create_canonical_playlist_use_case
+            create_result = await workflow_context.execute_use_case(
+                workflow_context.use_cases.get_create_canonical_playlist_use_case,
+                create_cmd,
             )
+            playlist = create_result.playlist
             action = "created"
 
-        result = await workflow_context.execute_use_case(use_case_getter, command)
-
         tracklist_with_source = _build_source_tracklist(
-            result.playlist.tracks, result.playlist.name, connector, playlist_id
+            playlist.tracks, playlist.name, connector, playlist_id
         )
 
         logger.info(
             "playlist_source complete",
             action=action,
             source=connector,
-            playlist_id=result.playlist.id,
-            playlist_name=result.playlist.name,
-            track_count=len(result.playlist.tracks),
+            playlist_id=playlist.id,
+            playlist_name=playlist.name,
+            track_count=len(playlist.tracks),
         )
         return {"tracklist": tracklist_with_source}
 
@@ -231,12 +233,10 @@ async def source_liked_tracks(
     Returns:
         Dict with 'tracklist' containing favorited tracks and metadata.
     """
-    # Extract config with defaults
-    limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
-    connector_filter = config.get("connector_filter")
-    sort_by = config.get(
-        "sort_by", "liked_at_desc"
-    )  # Default to most recent likes first
+    # Extract config with type-narrowing (validated at workflow parse time)
+    limit: int = min(int(config.get("limit", 10000)), 10000)
+    connector_filter: str | None = config.get("connector_filter")
+    sort_by: str = str(config.get("sort_by", "liked_at_desc"))
 
     # Create command for use case
     command = GetLikedTracksCommand(
@@ -250,8 +250,9 @@ async def source_liked_tracks(
     workflow_context = ctx.extract_workflow_context()
 
     # Execute business logic in use case
-    use_case = GetLikedTracksUseCase()
-    result = await workflow_context.execute_use_case(lambda: use_case, command)
+    result = await workflow_context.execute_use_case(
+        workflow_context.use_cases.get_liked_tracks_use_case, command
+    )
 
     logger.info(
         "source_liked_tracks complete",
@@ -283,13 +284,11 @@ async def source_played_tracks(
     Returns:
         Dict with 'tracklist' containing played tracks and metadata.
     """
-    # Extract config with defaults
-    limit = min(config.get("limit", 10000), 10000)  # Enforce performance limit
-    days_back = config.get("days_back")
-    connector_filter = config.get("connector_filter")
-    sort_by = config.get(
-        "sort_by", "played_at_desc"
-    )  # Default to most recent plays first
+    # Extract config with type-narrowing (validated at workflow parse time)
+    limit: int = min(int(config.get("limit", 10000)), 10000)
+    days_back: int | None = config.get("days_back")
+    connector_filter: str | None = config.get("connector_filter")
+    sort_by: str = str(config.get("sort_by", "played_at_desc"))
 
     # Create command for use case
     command = GetPlayedTracksCommand(
@@ -304,8 +303,9 @@ async def source_played_tracks(
     workflow_context = ctx.extract_workflow_context()
 
     # Execute business logic in use case
-    use_case = GetPlayedTracksUseCase()
-    result = await workflow_context.execute_use_case(lambda: use_case, command)
+    result = await workflow_context.execute_use_case(
+        workflow_context.use_cases.get_played_tracks_use_case, command
+    )
 
     logger.info(
         "source_played_tracks complete",

@@ -5,6 +5,9 @@ business logic. All business decisions (confidence, thresholds, acceptance)
 remain in the domain layer.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 from abc import ABC, abstractmethod
 from typing import Any
 

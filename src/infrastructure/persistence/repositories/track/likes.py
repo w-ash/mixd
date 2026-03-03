@@ -214,9 +214,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         if not entities:
             return []
 
-        result = await self.bulk_upsert(
+        return await self.bulk_upsert(
             entities=entities,
             lookup_keys=["track_id", "service"],
         )
-        # bulk_upsert returns list[TDomainModel] when return_models=True (default)
-        return result if isinstance(result, list) else []

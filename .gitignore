@@ -90,6 +90,12 @@ logs/
 /data/logs/**/*.log
 
 ###################
+# Node / Frontend #
+###################
+node_modules/
+web/dist/
+
+###################
 # Project-specific #
 ###################
 var/

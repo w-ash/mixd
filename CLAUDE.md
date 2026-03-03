@@ -35,9 +35,9 @@ Powered by: import history, backup likes/playlists, cross-service identity mappi
 - **Domain** (`src/domain/`) - Pure business logic: track matching, playlist diff, metadata transforms. Zero external deps.
 - **Application** (`src/application/`) - Use case orchestration: workflow primitives (enrich, filter, sort), sync likes, import history. `async with uow:` for transactions.
 - **Infrastructure** (`src/infrastructure/`) - API adapters (Spotify/Last.fm/MusicBrainz), SQLAlchemy repos, metadata providers.
-- **Interface** (`src/interface/`) - CLI via Typer + Rich.
+- **Interface** (`src/interface/`) - CLI via Typer + Rich, Web via FastAPI + React.
 
-**Stack**: Python 3.14+, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, Typer + Rich
+**Stack**: Python 3.14+, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, Typer + Rich, FastAPI, React 19, Vite 7, Tanstack Query, Tailwind v4
 
 Layer-specific enforcement rules live in `.claude/rules/` and load automatically per path.
 
@@ -56,6 +56,13 @@ poetry run basedpyright src/         # Type check
 # Database
 poetry run alembic upgrade head      # Migrate
 poetry run alembic revision --autogenerate -m "description"  # Generate migration
+
+# Web UI (frontend)
+pnpm --prefix web dev                # Dev server (Vite, port 5173)
+pnpm --prefix web test               # Vitest component tests
+pnpm --prefix web check              # Biome lint + format check
+pnpm --prefix web build              # Production build
+pnpm --prefix web generate           # Orval codegen from openapi.json
 
 # User-facing CLI
 narada workflow                      # Interactive workflow browser
@@ -158,6 +165,55 @@ result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(cmd))
 6. Tests pass? `poetry run pytest tests/path/to/test_file.py -x`
 7. Complex feature? For multi-layer implementations, consult `test-pyramid-architect` subagent for strategy review
 
+### Full-Stack Testing
+
+**Runner commands:**
+```bash
+poetry run pytest                              # Backend fast tests (~32s)
+poetry run pytest tests/integration/api/ -m "" # API route tests
+pnpm --prefix web test                         # Frontend component tests (Vitest)
+pnpm --prefix web test:e2e                     # E2E tests (Playwright)
+```
+
+**Test placement rules:**
+
+| Source | Test Location | Runner | Type |
+|--------|---------------|--------|------|
+| `src/domain/` | `tests/unit/domain/` | pytest | unit |
+| `src/application/use_cases/` | `tests/unit/application/use_cases/` | pytest | unit |
+| `src/infrastructure/persistence/` | `tests/integration/repositories/` | pytest | integration |
+| `src/interface/api/` | `tests/integration/api/` | pytest | integration |
+| `web/src/components/` | `web/src/components/*.test.tsx` (co-located) | Vitest | unit |
+| `web/src/hooks/` | `web/src/hooks/*.test.ts` (co-located) | Vitest | integration |
+| Critical user flows | `web/e2e/*.spec.ts` | Playwright | e2e |
+
+**API route tests** (pytest, `tests/integration/api/`):
+- Use `httpx.ASGITransport` + `httpx.AsyncClient` (FastAPI's recommended async test pattern)
+- Share the `db_session` fixture for real database behavior
+- Test request validation, response shapes, error codes — not business logic (already covered by use case unit tests)
+- Auto-marked `@pytest.mark.integration` via directory path
+
+**Frontend tests** (Vitest, co-located with source):
+- Co-located: `Button.tsx` → `Button.test.tsx` (same directory)
+- MSW mocks auto-generated from OpenAPI spec via Orval codegen
+- `renderWithProviders()` wraps components with QueryClientProvider + Router
+- No global state mocking needed (Tanstack Query handles server state)
+
+**E2E tests** (Playwright, `web/e2e/`):
+- Chromium desktop only (no mobile, no cross-browser at hobbyist scale)
+- Tests run against dev server with real FastAPI backend + SQLite
+- Cover critical flows: playlist CRUD, import with progress, workflow execution
+- Disable MSW in Playwright — test real network requests
+
+**Coverage targets:**
+
+| Layer | Target |
+|-------|--------|
+| Backend (domain + application) | 85% |
+| Backend (overall) | 80% |
+| Frontend components | 60% |
+| E2E critical flows | 100% of identified flows |
+
 ## Documentation Map
 
 - **Architecture** → docs/ARCHITECTURE.md
@@ -167,3 +223,4 @@ result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(cmd))
 - **CLI Reference** → docs/API.md
 - **Backlog** → docs/BACKLOG.md
 - **Ideas** → docs/IDEAS.md
+- **Web UI Specs** → docs/web-ui/README.md

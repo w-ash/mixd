@@ -1,5 +1,9 @@
 """Repository for connector play operations."""
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: SQLAlchemy column types, JSON fields
+
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -30,7 +34,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     session: AsyncSession
     model_class: type[DBConnectorPlay]
 
-    def __init__(self, session: AsyncSession) -> None:  # pyright: ignore[reportMissingSuperCall]
+    def __init__(self, session: AsyncSession) -> None:
         """Initialize repository with session.
 
         Does not call super().__init__() because BaseRepository requires a mapper
@@ -116,13 +120,12 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         )
 
         # Return count of actually inserted records and duplicate count
-        inserted_count = len(play_data) if isinstance(result, list) else result
-        logger.info(f"Successfully inserted {inserted_count} new connector plays")
-        return (inserted_count, duplicate_count)
+        logger.info(f"Successfully inserted {result} new connector plays")
+        return (result, duplicate_count)
 
     async def _find_existing_connector_plays(
         self, plays: list[ConnectorTrackPlay]
-    ) -> set[tuple[Any, ...]]:
+    ) -> set[tuple[str, str, datetime | None, int | None]]:
         """Find existing connector plays that match the lookup keys.
 
         Uses batched queries to avoid SQLite expression tree limit.
@@ -130,7 +133,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         if not plays:
             return set()
 
-        existing_keys: set[tuple[Any, ...]] = set()
+        existing_keys: set[tuple[str, str, datetime | None, int | None]] = set()
 
         # Batch plays to avoid SQLite expression tree limit
         batch_size = 200
@@ -175,7 +178,9 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         return existing_keys
 
     def _filter_duplicates(
-        self, plays: list[ConnectorTrackPlay], existing_keys: set[tuple[Any, ...]]
+        self,
+        plays: list[ConnectorTrackPlay],
+        existing_keys: set[tuple[str, str, datetime | None, int | None]],
     ) -> list[ConnectorTrackPlay]:
         """Filter out plays that already exist in the database."""
         new_plays: list[ConnectorTrackPlay] = []

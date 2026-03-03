@@ -6,6 +6,7 @@ into a Playlist entity. Used by read, delete, and update use cases.
 
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist
+from src.domain.exceptions import NotFoundError
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -27,7 +28,7 @@ async def resolve_playlist(
         playlist_id: Internal database ID (numeric string) or external service ID.
         uow: Unit of work for repository access.
         connector: External service name for fallback lookup (default: ``"spotify"``).
-        raise_if_not_found: If ``True``, raise ``ValueError`` when the playlist
+        raise_if_not_found: If ``True``, raise ``NotFoundError`` when the playlist
             is not found.  If ``False``, return ``None``.
 
     Returns:
@@ -35,7 +36,7 @@ async def resolve_playlist(
         ``raise_if_not_found`` is ``False``.
 
     Raises:
-        ValueError: If the playlist is not found and ``raise_if_not_found`` is ``True``.
+        NotFoundError: If the playlist is not found and ``raise_if_not_found`` is ``True``.
     """
     playlist_repo = uow.get_playlist_repository()
 
@@ -50,7 +51,7 @@ async def resolve_playlist(
             return playlist
 
     if raise_if_not_found:
-        raise ValueError(f"Playlist with ID {playlist_id} not found")
+        raise NotFoundError(f"Playlist with ID {playlist_id} not found")
     return None
 
 
@@ -74,12 +75,12 @@ async def require_playlist(
         The resolved playlist.
 
     Raises:
-        ValueError: If the playlist is not found.
+        NotFoundError: If the playlist is not found.
     """
     playlist = await resolve_playlist(
         playlist_id, uow, connector=connector, raise_if_not_found=True
     )
     if playlist is None:  # pragma: no cover — raise_if_not_found=True guarantees this
         msg = f"Playlist {playlist_id} not found"
-        raise ValueError(msg)
+        raise NotFoundError(msg)
     return playlist

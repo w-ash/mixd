@@ -5,17 +5,21 @@ Handles minimal playlist updates (add/remove/move) with canonical URI resolution
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 from attrs import define, evolve, field
 
 from src.config import get_logger, settings
 from src.config.constants import BusinessLimits
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
+from src.domain.repositories.interfaces import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 logger = get_logger(__name__).bind(service="spotify_playlist_sync")
+
+type _OperationExecutor = Callable[
+    [str, list[PlaylistOperation], str | None], Awaitable[str | None]
+]
 
 
 @define(slots=True)
@@ -29,7 +33,7 @@ class SpotifyPlaylistSyncOperations:
         playlist_id: str,
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo: Any = None,
+        track_repo: TrackRepositoryProtocol | None = None,
     ) -> str | None:
         """Execute differential playlist operations with URI translation."""
         if not operations:
@@ -107,7 +111,7 @@ class SpotifyPlaylistSyncOperations:
         playlist_id: str,
         operations: list[PlaylistOperation],
         snapshot_id: str | None,
-        executor: Callable[..., Any],
+        executor: _OperationExecutor,
     ) -> str | None:
         """Execute a group of operations with consistent error handling."""
         if not operations:
@@ -128,7 +132,7 @@ class SpotifyPlaylistSyncOperations:
             return new_snapshot
 
     async def _resolve_canonical_uris_to_spotify(
-        self, operations: list[PlaylistOperation], track_repo: Any
+        self, operations: list[PlaylistOperation], track_repo: TrackRepositoryProtocol
     ) -> list[PlaylistOperation]:
         """Convert canonical URIs to Spotify URIs via database lookup."""
         # Collect canonical track IDs

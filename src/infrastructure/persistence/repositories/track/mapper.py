@@ -1,5 +1,8 @@
 """Track mappers for converting between domain and database models."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: JSON columns, dynamic relationship traversal
+
 from collections.abc import Awaitable, Callable
 from typing import Any, cast, override
 

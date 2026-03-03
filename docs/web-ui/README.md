@@ -8,8 +8,8 @@ Documentation for the Narada web interface, organized by concern.
 |----------|---------|-----------|
 | [01-user-flows.md](01-user-flows.md) | **Primary spec.** Deep user journeys with triggers, steps, backend calls, and edge cases. Start here. | Evolving -- updated as features are designed |
 | [02-information-architecture.md](02-information-architecture.md) | Page hierarchy, URLs, navigation, empty states, responsive behavior. Derived from user flows. | Stable once flows settle |
-| [03-api-contracts.md](03-api-contracts.md) | REST endpoints, schemas, SSE format, error conventions. Maps each endpoint to its backing use case. | Evolving -- schemas filled during implementation |
-| [04-frontend-architecture.md](04-frontend-architecture.md) | React stack decisions, project structure, component strategy, state management, testing. | Stable -- tech choices locked for v0.3.0 |
+| [03-api-contracts.md](03-api-contracts.md) | REST endpoints, schemas, SSE format, error conventions. Maps each endpoint to its backing use case. | v0.3.0 endpoints concrete; future endpoints are stubs |
+| [04-frontend-architecture.md](04-frontend-architecture.md) | React stack decisions, project structure, component strategy, state management, testing. | Reflects v0.3.0 implementation |
 
 ## Backlog Alignment
 

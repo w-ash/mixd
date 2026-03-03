@@ -3,6 +3,9 @@
 Pure playlist representations and related value objects with zero external dependencies.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from datetime import UTC, datetime
 from typing import Any, Self
 
@@ -72,6 +75,10 @@ class Playlist:
     connector_playlist_identifiers: dict[str, str] = field(factory=dict)
     # Additional metadata for playlist management (snapshot IDs, sync state, etc.)
     metadata: dict[str, Any] = field(factory=dict)
+    # DB timestamp for when playlist was last modified
+    updated_at: datetime | None = field(default=None)
+    # Denormalized count for list views (avoids loading all entries just to count)
+    track_count: int = field(default=0)
 
     @property
     def tracks(self) -> list[Track]:

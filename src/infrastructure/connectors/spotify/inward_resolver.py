@@ -58,18 +58,15 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 continue
 
             try:
-                spotify_track_data = spotify_metadata[spotify_id]
-                track_data = create_track_from_spotify_data(
-                    spotify_id, spotify_track_data
-                )
+                spotify_track = spotify_metadata[spotify_id]
+                track_data = create_track_from_spotify_data(spotify_id, spotify_track)
                 canonical_track = await uow.get_track_repository().save_track(
                     track_data
                 )
 
                 # Handle relinking: API response ID vs requested ID
-                response_id = spotify_track_data.get("id")
-                primary_id = response_id or spotify_id
-                linked_from = spotify_track_data.get("linked_from")
+                primary_id = spotify_track.id or spotify_id
+                linked_from = spotify_track.linked_from
 
                 # Primary mapping (market-appropriate ID from API response)
                 _ = await uow.get_connector_repository().map_track_to_connector(
@@ -78,23 +75,22 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     primary_id,
                     "direct_import",
                     confidence=100,
-                    metadata=spotify_track_data,
+                    metadata=spotify_track.model_dump(),
                     auto_set_primary=True,
                 )
 
                 # Secondary mapping for relinked IDs
-                if linked_from and "id" in linked_from and spotify_id != primary_id:
-                    original_track_id = linked_from["id"]
+                if linked_from and linked_from.id and spotify_id != primary_id:
                     logger.debug(
-                        f"Handling Spotify relinking: {original_track_id} -> {primary_id}"
+                        f"Handling Spotify relinking: {linked_from.id} -> {primary_id}"
                     )
                     _ = await uow.get_connector_repository().map_track_to_connector(
                         canonical_track,
                         "spotify",
-                        original_track_id,
+                        linked_from.id,
                         "direct_import",
                         confidence=100,
-                        metadata=linked_from,
+                        metadata={"id": linked_from.id},
                         auto_set_primary=False,
                     )
 

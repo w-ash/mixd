@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "narada"
-version = "0.2.7"
+version = "0.3.0"
 description = "Music metadata integration and playlist management platform"
 authors = ["Ash Wright <a@ashwright.net>"]
 homepage = "https://github.com/w-ash/narada"
@@ -25,6 +25,8 @@ prefect = "^3.6.19"
 aiosqlite = "^0.22.1"
 rapidfuzz = "^3.14.3"
 pydantic-settings = "^2.13.1"
+fastapi = ">=0.115"
+uvicorn = {extras = ["standard"], version = ">=0.34"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
@@ -41,7 +43,7 @@ psutil = "^7.2.2"
 
 [tool.poetry.scripts]
 narada = "src.interface.cli.app:main"
-test-db = "narada.data.test_database:main"
+narada-api = "src.interface.api.app:run_server"
 
 [build-system]
 requires = ["poetry-core"]
@@ -115,6 +117,9 @@ unfixable = []
 # Per-file rule exceptions
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]   # Don't complain about unused imports in __init__ files
+"src/interface/api/**/*.py" = [
+    "RUF029",   # FastAPI requires async handlers even without await (framework awaits them)
+]
 "tests/**/*.py" = [
     "S101",     # Allow assert in tests
     "ARG001",   # Allow unused function arguments (fixtures, mocks)
@@ -220,7 +225,7 @@ omit = ["tests/*"]
 [tool.basedpyright]
 include = ["src"]
 exclude = ["tests", "**/__pycache__"]
-typeCheckingMode = "recommended"
+typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = false
 reportUnusedImport = true
@@ -242,13 +247,13 @@ reportUnknownLambdaType = "warning"
 # Disable: noise from legitimate patterns
 # Any is the correct type for JSON payloads, loguru kwargs, protocol flexibility.
 # reportUnknown* already catches genuinely unresolvable types.
-reportAny = "none"
-reportExplicitAny = "none"
+reportAny = "warning"
+reportExplicitAny = "warning"
 # Side-effect calls (raise_for_status, .pop, .discard) intentionally discard returns.
 reportUnusedCallResult = "none"
 # Intentional patterns that "recommended" mode would flag as errors:
 # - bare list/dict generics are valid in Python 3.14 (equivalent to list[Any])
-reportMissingTypeArgument = "none"
+reportMissingTypeArgument = "warning"
 # - attrs @define classes initialize fields via __attrs_post_init__ (not __init__)
 reportUninitializedInstanceVariable = "none"
 # Python 3.14

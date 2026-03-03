@@ -9,7 +9,19 @@
             "command": "jq -r '.tool_input.file_path // empty' | xargs -I{} poetry run ruff check {} --fix --quiet 2>/dev/null; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -E '\\.(tsx?|jsx?)$' | xargs -I{} pnpm --prefix web exec biome check --write {} 2>/dev/null; exit 0"
+          }
+        ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true
   }
 }

@@ -5,6 +5,9 @@ music services. Supports both append mode (add tracks to end) and differential
 mode (calculate minimal changes to transform current playlist into target state).
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,10 +17,7 @@ from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.application.use_cases._shared import OperationCounts, count_operation_types
-from src.application.use_cases._shared.command_validators import (
-    non_empty_string,
-    tracklist_or_connector_playlist,
-)
+from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -53,7 +53,7 @@ class UpdateCanonicalPlaylistCommand:
     """
 
     playlist_id: str = field(validator=non_empty_string)
-    new_tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+    new_tracklist: TrackList = field(factory=TrackList)
     connector_playlist: ConnectorPlaylist | None = None
     dry_run: bool = False
     append_mode: bool = False  # True=append, False=overwrite with preservation
@@ -179,9 +179,20 @@ class UpdateCanonicalPlaylistUseCase:
                     )
 
                 # Step 2: Handle metadata updates (name/description)
-                if command.playlist_name or command.playlist_description:
+                if command.playlist_name is not None or command.playlist_description is not None:
                     current_playlist = await self._update_playlist_metadata(
                         current_playlist, command, uow
+                    )
+
+                # Short-circuit: metadata-only update (no tracks, no connector playlist)
+                has_tracks = bool(command.new_tracklist.tracks)
+                has_connector = command.connector_playlist is not None
+                if not has_tracks and not has_connector:
+                    if not command.dry_run:
+                        await uow.commit()
+                    return UpdateCanonicalPlaylistResult(
+                        playlist=current_playlist,
+                        execution_time_ms=timer.stop(),
                     )
 
                 # Step 3: Handle track updates based on mode
@@ -363,9 +374,9 @@ class UpdateCanonicalPlaylistUseCase:
             Playlist with updated metadata, or unchanged playlist if no updates
         """
         updates: dict[str, str] = {}
-        if command.playlist_name:
+        if command.playlist_name is not None:
             updates["name"] = command.playlist_name
-        if command.playlist_description:
+        if command.playlist_description is not None:
             updates["description"] = command.playlist_description
 
         if updates:

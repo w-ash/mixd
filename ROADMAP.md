@@ -1,8 +1,8 @@
 
 # Project Narada Roadmap
 
-**Current Development Version**: 0.2.7
-**Current Initiative**: Web UI Foundation (v0.3.0)
+**Current Development Version**: 0.3.0
+**Current Initiative**: Web UI Foundation + Playlists + Settings
 
 Strategic overview of Project Narada's development direction. Explains the why at a product level for future features, plus key architectural decisions.
 
@@ -83,8 +83,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 
 | Version | Goal | Status |
 |---------|------|--------|
-| **v0.2.7** | Advanced workflow features + DRY consolidation | 🔄 In Progress |
-| **v0.3.0** | Web UI foundation + playlists | 🔜 Not Started |
+| **v0.2.7** | Advanced workflow features + DRY consolidation | ✅ Completed |
+| **v0.3.0** | Web UI foundation + playlists + settings | 🔄 In Progress |
 | **v0.3.1** | Imports + real-time progress | 🔜 Not Started |
 | **v0.3.2** | Track library + search | 🔜 Not Started |
 | **v0.3.3** | Dashboard + stats | 🔜 Not Started |
@@ -96,11 +96,11 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started |
 | **v1.0.0** | Production-ready multi-user platform | 🔜 Not Started |
 
-### v0.2.7: Advanced Workflow Features
-Extend workflow capabilities with sophisticated transformation and analysis features. Remaining: sort by date first/last played, production workflow templates.
+### v0.2.7: Advanced Workflow Features ✅
+Workflow transformer nodes (combiners, selectors, sorters including by_first_played/by_last_played), Python 3.14 modernization, DRY consolidation, and web interface readiness via `execute_use_case()` runner. 18 production workflow templates.
 
-### v0.3.0: Web UI Foundation + Playlists
-Stand up FastAPI + React with the dark editorial design system. Deliver playlist CRUD — the first vertical slice. All 5 playlist use cases already exist, so this proves full-stack architecture end-to-end with zero new backend logic. Stack: Vite 6+, React 19+, TypeScript, Tailwind CSS v4, shadcn/ui, Tanstack Query. Dark editorial aesthetic — see `docs/web-ui/04-frontend-architecture.md`.
+### v0.3.0: Web UI Foundation + Playlists + Settings
+Stand up FastAPI + React with the dark editorial design system. Deliver playlist CRUD and connector settings — the first vertical slice. All 5 playlist use cases already exist, so this proves full-stack architecture end-to-end with zero new backend logic. Settings provides the canonical entry point for connecting services (reads CLI-established credentials; web OAuth deferred to v0.5.0). Stack: Vite 6+, React 19+, TypeScript, Tailwind CSS v4, shadcn/ui, Tanstack Query. Dark editorial aesthetic — see `docs/web-ui/04-frontend-architecture.md`.
 
 ### v0.3.1: Imports & Real-Time Progress
 Make the web UI operational: trigger Spotify likes import, Last.fm history import, and Spotify GDPR import. Watch progress in real-time via SSE. Implements `SSEProgressProvider` (the `ProgressSubscriber` protocol is already display-agnostic from v0.2.7). Uses existing `SyncLikesUseCase` and `ImportPlayHistoryUseCase`.

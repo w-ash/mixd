@@ -8,16 +8,17 @@ user-invocable: false
 
 Narada uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
 
-## Available Subagents (5 Total, 3 Active at a Time)
+## Available Subagents (6 Total, 3 Active at a Time)
 
 **Backend Agents**:
 1. **sqlalchemy-async-optimizer** - SQLAlchemy 2.0 async patterns, SQLite concurrency, N+1 query prevention
 2. **architecture-guardian** - Clean Architecture + DDD enforcement (backend + frontend)
 3. **test-pyramid-architect** - pytest strategy, async test debugging, 60/35/5 pyramid balance
+4. **log-diagnostician** - Diagnose runtime failures by reading structured JSON log files
 
 **Frontend Agents** (v0.3.0+):
-4. **react-architecture-specialist** - React + TypeScript patterns, Tanstack Query, performance optimization
-5. **vitest-strategy-architect** - Vitest component testing, React Testing Library, Playwright E2E
+5. **react-architecture-specialist** - React + TypeScript patterns, Tanstack Query, performance optimization
+6. **vitest-strategy-architect** - Vitest component testing, React Testing Library, Playwright E2E
 
 ## Rotation Strategy (Maximize 3 Active)
 

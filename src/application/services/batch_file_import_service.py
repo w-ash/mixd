@@ -5,6 +5,9 @@ archiving and error aggregation. Follows hexagonal architecture by keeping file
 operations in the application layer and delegating actual import to use cases.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from pathlib import Path
 from typing import Any, Literal, Protocol
 

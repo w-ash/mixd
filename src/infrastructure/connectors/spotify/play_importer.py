@@ -5,6 +5,9 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: **kwargs variadic dispatch, SpotifyPlayRecord raw data
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any, override
@@ -15,6 +18,7 @@ from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.repositories import PlayImporterProtocol
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.personal_data import (
+    SpotifyPlayRecord,
     parse_spotify_personal_data,
 )
 from src.infrastructure.services.base_play_importer import (
@@ -25,7 +29,7 @@ from src.infrastructure.services.base_play_importer import (
 logger = get_logger(__name__)
 
 
-class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
+class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProtocol):
     """Spotify-specific play importer with sophisticated file processing and batch logic.
 
     MIGRATED from services directory to maintain clean architecture boundaries.
@@ -102,9 +106,9 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
     async def _fetch_data(
         self,
         progress_emitter: ProgressEmitter | None = None,
-        uow: Any | None = None,
+        uow: UnitOfWorkProtocol | None = None,
         **kwargs: Any,
-    ) -> list[Any]:
+    ) -> list[SpotifyPlayRecord]:
         """Fetch and parse Spotify JSON export file.
 
         MIGRATED sophisticated file parsing logic from original importer.
@@ -159,11 +163,11 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
     @override
     async def _process_data(
         self,
-        raw_data: list[Any],
+        raw_data: list[SpotifyPlayRecord],
         batch_id: str,
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
-        uow: Any | None = None,
+        uow: UnitOfWorkProtocol | None = None,
         **kwargs: Any,
     ) -> list[ConnectorTrackPlay]:
         """Process raw Spotify data into ConnectorTrackPlay objects.
@@ -190,7 +194,7 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _save_data(
-        self, data: list[Any], uow: UnitOfWorkProtocol | None = None
+        self, data: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol | None = None
     ) -> tuple[int, int]:
         """Save connector plays using base class method for DRY compliance."""
         if not uow:
@@ -201,7 +205,10 @@ class SpotifyPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs: Any
+        self,
+        raw_data: list[SpotifyPlayRecord],
+        uow: UnitOfWorkProtocol | None = None,
+        **kwargs: Any,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

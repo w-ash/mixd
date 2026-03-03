@@ -8,11 +8,17 @@ This replaces the business logic previously scattered across:
 - Infrastructure components that were incorrectly making business decisions
 """
 
+from typing import cast
+
 from attrs import define
 from loguru import logger as _loguru_logger
 
 from src.domain.entities import Track
-from src.domain.matching.algorithms import calculate_confidence
+from src.domain.matching.algorithms import (
+    InternalTrackData,
+    ServiceTrackData,
+    calculate_confidence,
+)
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import MatchResult, MatchResultsById, RawProviderMatch
 
@@ -73,7 +79,7 @@ class TrackMatchEvaluationService:
             MatchResult with confidence score and business decision
         """
         # Convert track to format expected by confidence algorithm
-        internal_track_data = {
+        internal_track_data: InternalTrackData = {
             "title": track.title,
             "artists": [artist.name for artist in track.artists]
             if track.artists
@@ -85,7 +91,7 @@ class TrackMatchEvaluationService:
         # Calculate confidence using pure domain algorithm
         confidence, evidence = calculate_confidence(
             internal_track_data,
-            raw_match["service_data"],
+            cast(ServiceTrackData, raw_match["service_data"]),
             raw_match["match_method"],
             self.config,
         )

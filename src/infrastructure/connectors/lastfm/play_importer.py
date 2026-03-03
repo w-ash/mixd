@@ -5,6 +5,9 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: **kwargs variadic dispatch, PlayRecord raw data
+
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, override
 
@@ -28,7 +31,7 @@ from src.infrastructure.services.base_play_importer import (
 logger = get_logger(__name__)
 
 
-class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
+class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
     """Last.fm-specific play importer with sophisticated chunking and checkpoint logic.
 
     MIGRATED from services directory to maintain clean architecture boundaries.
@@ -494,7 +497,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
     @override
     async def _process_data(
         self,
-        raw_data: list[Any],
+        raw_data: list[PlayRecord],
         batch_id: str,
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
@@ -507,7 +510,6 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
         """
         # Mark unused parameters for base class compatibility
         _ = progress_emitter, uow, kwargs, import_timestamp
-        # raw_data should be list[PlayRecord] in this case
         play_records = raw_data
         connector_plays: list[ConnectorTrackPlay] = []
 
@@ -532,7 +534,7 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _save_data(
-        self, data: list[Any], uow: UnitOfWorkProtocol | None = None
+        self, data: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol | None = None
     ) -> tuple[int, int]:
         """Save connector plays using base class method for DRY compliance."""
         if data and not uow:
@@ -576,7 +578,10 @@ class LastfmPlayImporter(BasePlayImporter, PlayImporterProtocol):
 
     @override
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: UnitOfWorkProtocol | None = None, **kwargs: Any
+        self,
+        raw_data: list[PlayRecord],
+        uow: UnitOfWorkProtocol | None = None,
+        **kwargs: Any,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

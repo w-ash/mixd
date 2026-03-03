@@ -5,12 +5,13 @@ with consistent validation. Typed resolver variants narrow ``Any`` to
 capability protocols at call sites.
 """
 
-from typing import Any
+from typing import cast
 
 from src.application.connector_protocols import (
     LikedTrackConnector,
     LoveTrackConnector,
     PlaylistConnector,
+    TrackConversionConnector,
 )
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -20,7 +21,7 @@ def resolve_connector(
     uow: UnitOfWorkProtocol,
     *,
     validate: bool = True,
-) -> Any:
+) -> object:
     """Resolve a connector by service name from the UoW provider.
 
     Args:
@@ -43,12 +44,12 @@ def resolve_connector(
 
 def resolve_liked_track_connector(uow: UnitOfWorkProtocol) -> LikedTrackConnector:
     """Resolve Spotify connector typed for liked-track reads."""
-    return resolve_connector("spotify", uow)
+    return cast(LikedTrackConnector, resolve_connector("spotify", uow))
 
 
 def resolve_love_track_connector(uow: UnitOfWorkProtocol) -> LoveTrackConnector:
     """Resolve Last.fm connector typed for love-track writes."""
-    return resolve_connector("lastfm", uow)
+    return cast(LoveTrackConnector, resolve_connector("lastfm", uow))
 
 
 def resolve_playlist_connector(
@@ -61,4 +62,20 @@ def resolve_playlist_connector(
     connector = resolve_connector(service, uow)
     if not hasattr(connector, "get_playlist_details"):
         raise TypeError(f"Connector '{service}' does not support playlist operations")
-    return connector
+    return cast(PlaylistConnector, connector)
+
+
+def resolve_track_conversion_connector(
+    service: str, uow: UnitOfWorkProtocol
+) -> TrackConversionConnector:
+    """Resolve a connector typed for track data conversion.
+
+    Used when converting raw track data dicts (e.g., from playlist extras)
+    into ConnectorTrack domain entities.
+
+    Raises TypeError if the connector doesn't support track conversion.
+    """
+    connector = resolve_connector(service, uow)
+    if not hasattr(connector, "convert_track_to_connector"):
+        raise TypeError(f"Connector '{service}' does not support track conversion")
+    return cast(TrackConversionConnector, connector)

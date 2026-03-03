@@ -48,17 +48,13 @@ class TestNodeContextIntegration:
         assert use_cases is not None
         assert hasattr(use_cases, "get_create_canonical_playlist_use_case")
 
-    async def test_get_session_functionality(self):
-        """Test that get_session() works for workflow session creation."""
-        from src.infrastructure.persistence.database.db_connection import get_session
-
-        # get_session() is now called directly in _with_uow (no wrapper)
-        async with get_session() as session:
-            # Verify session is usable
-            assert session is not None
-            # Basic database operation should work (with proper text() wrapper)
-            result = await session.execute(text("SELECT 1"))
-            assert result is not None
+    async def test_get_session_functionality(self, db_session):
+        """Test that a database session can execute basic queries."""
+        # Verify session is usable
+        assert db_session is not None
+        # Basic database operation should work (with proper text() wrapper)
+        result = await db_session.execute(text("SELECT 1"))
+        assert result is not None
 
     async def test_use_case_provider_functionality(self):
         """Test that use case provider can create use cases."""

@@ -5,6 +5,9 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, Self, override

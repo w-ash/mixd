@@ -12,7 +12,7 @@ from http import HTTPStatus
 
 import pytest
 
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
 

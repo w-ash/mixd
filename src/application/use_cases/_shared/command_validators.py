@@ -19,6 +19,9 @@ Example usage:
     ```
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: attrs Attribute[Any] validator protocol signatures
+
 from typing import Any
 
 from attrs import Attribute

@@ -6,6 +6,9 @@ single public interface while the internal implementation is split across
 LastFMAPIClient, LastFMOperations, and conversion utilities.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 from datetime import datetime
 from typing import Any, ClassVar, override
 
@@ -75,15 +78,31 @@ class LastFMConnector(BaseAPIConnector):
         """Get track info using intelligent matching (MBID first, then artist/title)."""
         return await self._operations.get_track_info_intelligent(track)
 
+    async def get_track_info_batch(
+        self, tracks: list[Track]
+    ) -> dict[int, LastFMTrackInfo]:
+        """Typed batch track info retrieval returning LastFMTrackInfo models."""
+        return await self._operations.batch_get_track_info(tracks)
+
     async def get_external_track_data(
         self, tracks: list[Track]
     ) -> dict[int, dict[str, Any]]:
         """Unified interface for retrieving complete Last.fm track data (TrackMetadataConnector protocol).
 
-        Uses Last.fm's batch_get_track_info to fetch complete track information objects.
-        This standardizes the interface across all connectors.
+        Uses Last.fm's batch_get_track_info to fetch complete track information objects,
+        then converts to dict for protocol compliance.
         """
-        return await self._operations.batch_get_track_info(tracks)
+        import attrs
+
+        typed_results = await self._operations.batch_get_track_info(tracks)
+        return {
+            track_id: {
+                f.name: v
+                for f in attrs.fields(type(info))
+                if (v := getattr(info, f.name)) is not None
+            }
+            for track_id, info in typed_results.items()
+        }
 
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track on Last.fm for the authenticated user."""

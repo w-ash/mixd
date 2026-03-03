@@ -4,6 +4,9 @@ Eliminates duplicate metadata building code using modern Python 3.13+ builder pa
 with method chaining and type safety.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime
 from typing import Any, Self
 
@@ -59,7 +62,7 @@ class PlaylistMetadataBuilder:
         self._metadata["validation_passed"] = passed
         return self
 
-    def with_custom(self, key: str, value: Any) -> Self:
+    def with_custom(self, key: str, value: object) -> Self:
         """Add custom metadata field."""
         self._metadata[key] = value
         return self

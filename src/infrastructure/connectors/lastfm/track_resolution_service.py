@@ -89,9 +89,7 @@ class LastfmTrackResolutionService:
         # Step 3: Map back to input order
         resolved_tracks: list[Track | None] = []
         for record in play_records:
-            identifier = make_lastfm_identifier(
-                record.artist_name, record.track_name
-            )
+            identifier = make_lastfm_identifier(record.artist_name, record.track_name)
             canonical_track = canonical_tracks_map.get(identifier)
 
             if canonical_track:

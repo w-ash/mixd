@@ -19,6 +19,9 @@ Example:
     ```
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: _api_call variadic dispatch, generic API responses
+
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Self
@@ -31,7 +34,7 @@ from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import ConnectorTrack
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
     classify_unknown_error,
 )

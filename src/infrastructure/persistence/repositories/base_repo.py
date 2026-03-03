@@ -1,12 +1,15 @@
 """Repository layer for database operations with SQLAlchemy 2.0 best practices."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: SQLAlchemy column types, getattr dynamics, generic query builder
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 import functools
 import inspect as pyinspect
 import operator
-from typing import Any, Never, Protocol, TypeIs, cast, override
+from typing import Any, Literal, Never, Protocol, TypeIs, cast, overload, override
 
 from attrs import define
 from sqlalchemy import Select, delete, func, insert, inspect, select, update
@@ -28,17 +31,14 @@ logger = get_logger(__name__)
 # -------------------------------------------------------------------------
 
 
-def _normalize_to_list(result: Any) -> list[Any]:
+def _normalize_to_list(result: object) -> list[object]:
     """Normalize a result to a list (helper for safe_fetch_relationship)."""
     if result is None:
         return []
-    as_list: list[Any] = (
-        cast(list[Any], result) if isinstance(result, list) else [result]
-    )
-    return as_list
+    return cast(list[object], result) if isinstance(result, list) else [result]
 
 
-async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
+async def safe_fetch_relationship(db_model: object, rel_name: str) -> list[object]:
     """Helper to safely load relationships using AsyncAttrs.awaitable_attrs.
 
     This function uses a single, consistent approach for safely accessing
@@ -52,7 +52,7 @@ async def safe_fetch_relationship(db_model: Any, rel_name: str) -> list[Any]:
     try:
         # Standard SQLAlchemy 2.0 pattern: use awaitable_attrs
         if hasattr(db_model, "awaitable_attrs"):
-            result = await getattr(db_model.awaitable_attrs, rel_name)
+            result = await getattr(db_model.awaitable_attrs, rel_name)  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue, reportUnknownArgumentType]
             return _normalize_to_list(result)
         # Simple fallback for non-AsyncAttrs models
         elif hasattr(db_model, rel_name):
@@ -82,7 +82,7 @@ class ModelMapper[TDBModel: DatabaseModel, TDomainModel](Protocol):
         ...
 
     @staticmethod
-    def get_default_relationships() -> list[str | Any]:
+    def get_default_relationships() -> list[str]:
         """Get default relationships to load for this model."""
         return []
 
@@ -160,7 +160,7 @@ class BaseModelMapper[TDBModel: DatabaseModel, TDomainModel]:
         raise NotImplementedError("Subclasses must implement to_db")
 
     @staticmethod
-    def get_default_relationships() -> list[str | Any]:
+    def get_default_relationships() -> list[str]:
         """Define relationships to load for this model."""
         return ["mappings", "mappings.connector_track"]
 
@@ -311,7 +311,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         return rel_names
 
     def _build_relationship_options(
-        self, rel_items: list[str | Any], skip_nested: bool = True
+        self,
+        rel_items: list[str | Any],
+        skip_nested: bool = True,
     ) -> list[Any]:
         """Build selectinload options from relationship specifications.
 
@@ -407,7 +409,8 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         return self.with_relationship(stmt, *rels)
 
     def count(
-        self, conditions: dict[str, Any] | list[ColumnElement[Any]] | None = None
+        self,
+        conditions: dict[str, Any] | list[ColumnElement[Any]] | None = None,
     ) -> Select[tuple[int]]:
         """Create a count statement for records matching conditions."""
         stmt = select(func.count(self.model_class.id))
@@ -910,6 +913,22 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         except Exception as e:
             logger.error(f"Upsert error: {e}")
             raise
+
+    @overload
+    async def bulk_upsert(
+        self,
+        entities: list[dict[str, Any]],
+        lookup_keys: list[str],
+        return_models: Literal[True] = ...,
+    ) -> list[TDomainModel]: ...
+
+    @overload
+    async def bulk_upsert(
+        self,
+        entities: list[dict[str, Any]],
+        lookup_keys: list[str],
+        return_models: Literal[False],
+    ) -> int: ...
 
     @db_operation("bulk_upsert")
     async def bulk_upsert(

@@ -4,6 +4,9 @@ Fetches tracks that users have marked as liked on music services (Spotify, Last.
 Supports filtering by service, sorting options, and limiting results count.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import datetime
 from typing import Any
 

@@ -19,6 +19,7 @@ paths:
 - `src/application/metadata_transforms/X.py` → `tests/unit/application/metadata_transforms/test_X.py`
 - `src/infrastructure/connectors/Y/X.py` → `tests/unit/infrastructure/connectors/Y/test_X.py`
 - `src/infrastructure/persistence/repositories/X.py` → `tests/integration/repositories/test_X.py`
+- `src/interface/api/X.py` → `tests/integration/api/test_X.py`
 
 ## Unit vs Integration
 - **Unit** (default): Pure logic, mocked dependencies, <100ms
@@ -27,6 +28,7 @@ paths:
 - Use cases → always unit (mock repos via `make_mock_uow()`)
 - Connectors → always unit (mock HTTP clients via `AsyncMock`)
 - Repositories → always integration (test real SQL behavior)
+- API routes → always integration (test real request/response cycle via httpx AsyncClient)
 
 ## Factories and Mocks (use existing, don't reinvent)
 - `from tests.fixtures import make_track, make_tracks, make_playlist, make_mock_uow`
@@ -49,6 +51,19 @@ paths:
 3. **Edge cases** — empty collections, single item, boundary values, duplicates
 4. **Error propagation** — exceptions from dependencies handled correctly
 5. **Transaction behavior** — commit on success, rollback on failure (use cases)
+
+## Frontend Tests (web/)
+- Co-located: `Component.tsx` → `Component.test.tsx` (same directory)
+- Hooks: `useX.ts` → `useX.test.ts` (same directory)
+- E2E: `web/e2e/*.spec.ts` (Playwright, Chromium desktop)
+- Run: `pnpm --prefix web test` (Vitest) / `pnpm --prefix web test:e2e` (Playwright)
+- `@/` path alias maps to `web/src/` — use in imports: `import { renderWithProviders } from "@/test/test-utils"`
+- Test utilities live in `web/src/test/`: `setup.ts` (MSW server bootstrap), `test-utils.tsx` (renderWithProviders)
+- `renderWithProviders()` wraps with test QueryClient (`retry: false`, `gcTime: 0`) + `MemoryRouter` — use for any component that uses hooks, routing, or queries
+- Direct `render()` from `@testing-library/react` is fine for pure presentational components with no hooks/router
+- MSW auto-generated handlers from Orval in `web/src/api/generated/**/*.msw.ts` — pre-loaded in `setup.ts`
+- Per-test API overrides: `server.use(http.get("*/api/v1/playlists", customHandler))` — reset automatically
+- All frontend tests use `*.test.tsx` / `*.test.ts` (no `.integration.test.tsx` convention)
 
 ## What NOT to Test
 - Python/attrs language features ("frozen raises on mutation")

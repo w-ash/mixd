@@ -1,5 +1,8 @@
 """Track metrics repository for tracking play counts and other metrics."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: metric value types from aggregation queries
+
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any, override
@@ -86,7 +89,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         metric_type: str = "play_count",
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
-    ) -> dict[int, Any]:
+    ) -> dict[int, float]:
         """Get cached metrics with TTL awareness."""
         if not track_ids:
             return {}
@@ -106,11 +109,10 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         )
 
         # Process results - only keep most recent value per track
-        metrics_dict: dict[int, Any] = {}
+        metrics_dict: dict[int, float] = {}
         for metric in result:
             track_id = metric["track_id"]
             if track_id not in metrics_dict:
-                # Keep the original type - important for non-integer metrics like spotify_popularity
                 metrics_dict[track_id] = metric["value"]
 
         logger.debug(

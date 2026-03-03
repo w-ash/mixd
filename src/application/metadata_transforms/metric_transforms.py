@@ -10,6 +10,9 @@ Unlike pure domain transforms, these functions:
 - Depend on external metric enrichment having occurred first
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime
 from typing import Any, cast
 

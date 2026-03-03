@@ -3,6 +3,9 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from enum import Enum
 from typing import Any, TypedDict
 

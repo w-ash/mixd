@@ -67,7 +67,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         mock_uow.commit.assert_called_once()
 
     async def test_playlist_not_found_raises(self, mock_uow):
-        """Test that deleting non-existent playlist raises ValueError."""
+        """Test that deleting non-existent playlist raises NotFoundError."""
+        from src.domain.exceptions import NotFoundError
+
         # _get_playlist first tries int() which succeeds for "999",
         # then calls get_playlist_by_id which should raise
         playlist_repo = mock_uow.get_playlist_repository()
@@ -80,7 +82,7 @@ class TestDeleteCanonicalPlaylistUseCase:
         command = DeleteCanonicalPlaylistCommand(playlist_id="999")
         use_case = DeleteCanonicalPlaylistUseCase()
 
-        with pytest.raises(ValueError):
+        with pytest.raises(NotFoundError):
             await use_case.execute(command, mock_uow)
 
         mock_uow.rollback.assert_called_once()

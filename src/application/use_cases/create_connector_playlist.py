@@ -5,8 +5,10 @@ service (Spotify, Apple Music), then optimistically syncs the result to the inte
 database. Manages transaction boundaries and provides detailed operation results.
 """
 
+# pyright: reportAny=false
+
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from attrs import define, field
 
@@ -29,6 +31,16 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
+class _ExternalPlaylistResult(TypedDict):
+    """Internal result shape from external playlist creation API call."""
+
+    success: bool
+    playlist_id: str | None
+    # External API metadata is genuinely dynamic (varies by connector)
+    metadata: dict[str, Any]  # pyright: ignore[reportExplicitAny]
+    errors: list[str]
+
+
 @define(frozen=True, slots=True)
 class CreateConnectorPlaylistCommand:
     """Input data for creating a playlist on an external music service.
@@ -42,7 +54,7 @@ class CreateConnectorPlaylistCommand:
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     playlist_description: str = "Created by Narada"
     create_internal_playlist: bool = True  # Whether to also create internal playlist
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: dict[str, object] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -59,11 +71,12 @@ class CreateConnectorPlaylistResult:
     external_playlist_id: str
     tracks_created: int = 0
     execution_time_ms: int = 0
-    external_metadata: dict[str, Any] = field(factory=dict)  # e.g., Spotify snapshot_id
+    # External API metadata is genuinely dynamic (varies by connector)
+    external_metadata: dict[str, Any] = field(factory=dict)  # pyright: ignore[reportExplicitAny]
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Returns a summary of the playlist creation operation for logging."""
         return {
             "playlist_id": self.playlist.id,
@@ -118,11 +131,16 @@ class CreateConnectorPlaylistUseCase:
             external_result = await self._create_external_playlist(command, uow)
 
             # Step 2: Optimistic internal sync if requested and external succeeded
+            external_playlist_id = external_result["playlist_id"]
             internal_playlist = None
-            if external_result["success"] and command.create_internal_playlist:
+            if (
+                external_result["success"]
+                and external_playlist_id is not None
+                and command.create_internal_playlist
+            ):
                 internal_playlist = await self._create_internal_playlist_optimistic(
                     command=command,
-                    external_playlist_id=external_result["playlist_id"],
+                    external_playlist_id=external_playlist_id,
                     external_metadata=external_result["metadata"],
                     uow=uow,
                 )
@@ -130,7 +148,7 @@ class CreateConnectorPlaylistUseCase:
             # Use internal playlist if created, otherwise create minimal playlist for result
             if internal_playlist:
                 result_playlist = internal_playlist
-            else:
+            elif external_playlist_id is not None:
                 # Create minimal playlist entity for result (not persisted)
                 result_playlist = Playlist.from_tracklist(
                     name=command.playlist_name,
@@ -138,14 +156,22 @@ class CreateConnectorPlaylistUseCase:
                     added_at=datetime.now(UTC),
                     description=command.playlist_description,
                     connector_playlist_identifiers={
-                        command.connector: external_result["playlist_id"]
+                        command.connector: external_playlist_id
                     },
+                )
+            else:
+                # External creation failed — create result without connector identifiers
+                result_playlist = Playlist.from_tracklist(
+                    name=command.playlist_name,
+                    tracklist=command.tracklist,
+                    added_at=datetime.now(UTC),
+                    description=command.playlist_description,
                 )
 
             result = CreateConnectorPlaylistResult(
                 playlist=result_playlist,
                 connector=command.connector,
-                external_playlist_id=external_result["playlist_id"],
+                external_playlist_id=external_playlist_id or "",
                 tracks_created=len(command.tracklist.tracks),
                 execution_time_ms=timer.stop(),
                 external_metadata=external_result["metadata"],
@@ -176,7 +202,7 @@ class CreateConnectorPlaylistUseCase:
 
     async def _create_external_playlist(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
-    ) -> dict[str, Any]:
+    ) -> _ExternalPlaylistResult:
         """Creates the playlist on the external music service via its API.
 
         Uses the appropriate connector (Spotify, Apple Music) to create the playlist
@@ -208,7 +234,7 @@ class CreateConnectorPlaylistUseCase:
             )
 
             # Build metadata response (format may vary by connector)
-            external_metadata = {
+            external_metadata: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
                 "created_at": datetime.now(UTC).isoformat(),
                 "owner": "narada",
                 "public": False,  # Default for privacy
@@ -263,7 +289,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         command: CreateConnectorPlaylistCommand,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],
+        external_metadata: dict[str, Any],  # pyright: ignore[reportExplicitAny]
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
         """Creates internal playlist based on successful external playlist creation.
@@ -348,7 +374,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         saved_playlist: Playlist,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],
+        external_metadata: dict[str, Any],  # pyright: ignore[reportExplicitAny]
         command: CreateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:

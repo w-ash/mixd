@@ -4,6 +4,9 @@ Provides simple template string processing for playlist names and descriptions
 with minimal overhead and clean separation of concerns.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -55,8 +58,9 @@ def render_playlist_config_templates(
 
     # Render templates in name and description fields
     for field in ["name", "description"]:
-        if field in result and result[field] and isinstance(result[field], str):
-            template = result[field]
+        raw = result.get(field)
+        if raw and isinstance(raw, str):
+            template: str = raw
             # Skip processing if no template parameters present
             if "{" not in template:
                 continue

@@ -5,6 +5,9 @@ error handling, and transaction management. Supports LastFM recent/incremental/f
 history imports and Spotify JSON file processing.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal

@@ -109,7 +109,10 @@ class TestEnricherNodeFactory:
         self, mock_node_context_class, sample_tracklist
     ):
         """Test basic enricher node creation and execution."""
-        from src.application.workflows.node_factories import create_enricher_node
+        from src.application.workflows.node_factories import (
+            build_external_enrichment_config,
+            create_enricher_node,
+        )
 
         # Mock NodeContext
         mock_ctx = MagicMock()
@@ -132,7 +135,9 @@ class TestEnricherNodeFactory:
         mock_ctx.extract_workflow_context.return_value = mock_workflow_context
 
         config = {"connector": "lastfm"}
-        node_func = create_enricher_node(config)
+        node_func = create_enricher_node(
+            build_external_enrichment_config(config), enricher_label="lastfm"
+        )
 
         context = {"test": "context"}
         node_config = {}
@@ -143,14 +148,16 @@ class TestEnricherNodeFactory:
 
     def test_create_enricher_node_missing_connector(self):
         """Test enricher node creation with missing connector."""
-        from src.application.workflows.node_factories import create_enricher_node
+        from src.application.workflows.node_factories import (
+            build_external_enrichment_config,
+        )
 
-        config = {}  # Missing connector
+        config: dict[str, str] = {}  # Missing connector
 
         with pytest.raises(
             ValueError, match="Enricher configuration must specify a 'connector' type"
         ):
-            create_enricher_node(config)
+            build_external_enrichment_config(config)
 
     @patch("src.application.workflows.node_factories.NodeContext")
     async def test_create_play_history_enricher_node(

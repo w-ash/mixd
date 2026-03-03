@@ -2,7 +2,7 @@
 
 from typing import ClassVar, override
 
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError

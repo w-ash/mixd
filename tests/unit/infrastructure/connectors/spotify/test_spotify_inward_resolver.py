@@ -9,25 +9,29 @@ from unittest.mock import AsyncMock, MagicMock
 from src.infrastructure.connectors.spotify.inward_resolver import (
     SpotifyInwardResolver,
 )
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyAlbum,
+    SpotifyArtist,
+    SpotifyLinkedFrom,
+    SpotifyTrack,
+)
 from tests.fixtures import make_track
 
 
-def _make_spotify_data(
+def _make_spotify_track(
     spotify_id: str,
     name: str = "Test",
-    linked_from: dict | None = None,
-) -> dict:
-    """Create minimal Spotify API track data."""
-    data: dict = {
-        "id": spotify_id,
-        "name": name,
-        "artists": [{"name": "Artist"}],
-        "album": {"name": "Album"},
-        "duration_ms": 240000,
-    }
-    if linked_from:
-        data["linked_from"] = linked_from
-    return data
+    linked_from_id: str | None = None,
+) -> SpotifyTrack:
+    """Create a minimal SpotifyTrack Pydantic model for testing."""
+    return SpotifyTrack(
+        id=spotify_id,
+        name=name,
+        artists=[SpotifyArtist(name="Artist")],
+        album=SpotifyAlbum(name="Album"),
+        duration_ms=240000,
+        linked_from=SpotifyLinkedFrom(id=linked_from_id) if linked_from_id else None,
+    )
 
 
 class TestBatchFetch:
@@ -36,8 +40,8 @@ class TestBatchFetch:
     async def test_calls_get_tracks_by_ids_once(self):
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "id1": _make_spotify_data("id1", "Song A"),
-            "id2": _make_spotify_data("id2", "Song B"),
+            "id1": _make_spotify_track("id1", "Song A"),
+            "id2": _make_spotify_track("id2", "Song B"),
         }
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -88,9 +92,9 @@ class TestRelinking:
     async def test_relinking_creates_dual_mappings(self):
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "old_id_12345678901234": _make_spotify_data(
+            "old_id_12345678901234": _make_spotify_track(
                 "new_id_12345678901234",
-                linked_from={"id": "old_id_12345678901234"},
+                linked_from_id="old_id_12345678901234",
             ),
         }
 
@@ -130,7 +134,7 @@ class TestMissingMetadata:
     async def test_missing_api_response_counted_as_failed(self):
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "id1": _make_spotify_data("id1"),
+            "id1": _make_spotify_track("id1"),
             # id2 intentionally missing from API response
         }
 

@@ -10,6 +10,9 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: decorator signatures wrapping heterogeneous repository methods
+
 import asyncio
 from collections.abc import Callable, Coroutine
 import functools

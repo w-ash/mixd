@@ -13,10 +13,14 @@ Note: This module is private and should only be imported by other modules
 in the application/metadata_transforms package.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeIs
+from typing import TypeIs
 
 from src.config import get_logger
+from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
 
 logger = get_logger(__name__)
@@ -24,7 +28,7 @@ logger = get_logger(__name__)
 # === Type Guards ===
 
 
-def is_datetime_string(value: Any) -> TypeIs[str]:
+def is_datetime_string(value: object) -> TypeIs[str]:
     """Python 3.13 TypeIs guard for datetime string validation."""
     return isinstance(value, str) and bool(value.strip())
 
@@ -97,7 +101,7 @@ def calculate_time_window(
 
 def get_play_metrics(
     tracklist: TrackList,
-) -> tuple[dict[int, int], dict[int, datetime | str]]:
+) -> tuple[dict[int, MetricValue], dict[int, MetricValue]]:
     """Extract play count and last played date metrics from tracklist metadata.
 
     Reads from the canonical nested structure: metadata["metrics"][metric_name].
@@ -118,7 +122,7 @@ def get_play_metrics(
 # === Datetime Parsing ===
 
 
-def parse_datetime_safe(value: Any) -> datetime | None:
+def parse_datetime_safe(value: object) -> datetime | None:
     """Parse datetime with timezone handling and error tolerance.
 
     Handles multiple input formats:

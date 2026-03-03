@@ -15,6 +15,8 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false
+
 from typing import Any
 
 from attrs import define, field
@@ -35,12 +37,12 @@ logger = get_logger(__name__).bind(service="lastfm_operations")
 class TrackProcessingResult:
     """Result from processing a track with Last.fm metadata.
 
-    Contains the track ID and extracted metadata dictionary from Last.fm API calls.
+    Contains the track ID and typed LastFMTrackInfo from Last.fm API calls.
     Used to maintain type safety in batch processing operations.
     """
 
     track_id: int
-    metadata: dict[str, Any]
+    info: LastFMTrackInfo
 
 
 @define(slots=True)
@@ -187,7 +189,7 @@ class LastFMOperations:
             "lastfm", "lastfm_mbid"
         ) or track.get_connector_attribute("musicbrainz", "musicbrainz_mbid")
 
-        if mbid:
+        if mbid and isinstance(mbid, str):
             logger.debug(
                 "Attempting Last.FM lookup via MBID",
                 mbid=mbid,
@@ -259,7 +261,7 @@ class LastFMOperations:
 
     async def batch_get_track_info(
         self, tracks: list[Track], **_options: Any
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[int, LastFMTrackInfo]:
         """Fetch track information for multiple tracks using queue-based rate limiting."""
         from src.config import settings
         from src.infrastructure.connectors._shared.rate_limited_batch_processor import (
@@ -275,33 +277,13 @@ class LastFMOperations:
         )
 
         async def process_track(track: Track) -> TrackProcessingResult:
-            """Process a single track and return typed result with metadata.
-
-            Note: Retries are handled by the API client's _api_call() method
-            via tenacity retry policy, so retries are handled automatically.
-
-            Returns:
-                TrackProcessingResult with track_id and metadata fields
-            """
             if track.id is None:
                 raise ValueError(
                     f"Track must have an ID for batch processing: {track.title}"
                 )
 
-            # Use FAST intelligent track info retrieval (single API call instead of 14)
             lastfm_info = await self.get_track_info_intelligent(track)
-
-            # Convert to metadata dictionary using attrs introspection
-            metadata: dict[str, Any] = {}
-            if lastfm_info:
-                import attrs
-
-                for attrs_field in attrs.fields(type(lastfm_info)):
-                    value = getattr(lastfm_info, attrs_field.name)
-                    if value is not None:
-                        metadata[attrs_field.name] = value
-
-            return TrackProcessingResult(track.id, metadata)
+            return TrackProcessingResult(track.id, lastfm_info)
 
         # Create rate-limited batch processor with LastFM-specific settings
         processor = RateLimitedBatchProcessor(
@@ -311,10 +293,10 @@ class LastFMOperations:
         )
 
         # Process batch with queue-based rate limiting
-        results: dict[int, dict[str, Any]] = {}
+        results: dict[int, LastFMTrackInfo] = {}
         async for _item_id, result in processor.process_batch(tracks, process_track):
-            if isinstance(result, TrackProcessingResult) and result.metadata:
-                results[result.track_id] = result.metadata
+            if isinstance(result, TrackProcessingResult) and result.info.lastfm_title:
+                results[result.track_id] = result.info
 
         logger.info(
             "LastFM batch processing completed",

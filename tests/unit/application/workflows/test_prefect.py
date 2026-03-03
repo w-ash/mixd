@@ -60,13 +60,87 @@ class TestValidateWorkflowDef:
         """Well-formed workflow definition passes validation."""
         from src.application.workflows.prefect import validate_workflow_def
 
-        # Use real registered node types
+        # Use real registered node types with required config keys
         validate_workflow_def({
             "tasks": [
-                {"id": "src_1", "type": "source.playlist"},
+                {
+                    "id": "src_1",
+                    "type": "source.playlist",
+                    "config": {"playlist_id": "test-123"},
+                },
                 {
                     "id": "dest_1",
                     "type": "destination.create_playlist",
+                    "config": {"name": "Test Playlist"},
+                    "upstream": ["src_1"],
+                },
+            ]
+        })
+
+    def test_missing_required_config_raises(self):
+        """Node with missing required config key raises ValueError."""
+        from src.application.workflows.prefect import validate_workflow_def
+
+        with pytest.raises(ValueError, match=r"missing required config.*playlist_id"):
+            validate_workflow_def({
+                "tasks": [
+                    {"id": "src_1", "type": "source.playlist", "config": {}},
+                ]
+            })
+
+    def test_wrong_type_config_value_raises(self):
+        """Config value with wrong type (int instead of str) raises ValueError."""
+        from src.application.workflows.prefect import validate_workflow_def
+
+        with pytest.raises(ValueError, match=r"must be str.*got int"):
+            validate_workflow_def({
+                "tasks": [
+                    {"id": "src_1", "type": "source.playlist", "config": {"playlist_id": 123}},
+                ]
+            })
+
+    def test_empty_string_config_value_raises(self):
+        """Empty string for required string config key raises ValueError."""
+        from src.application.workflows.prefect import validate_workflow_def
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            validate_workflow_def({
+                "tasks": [
+                    {"id": "src_1", "type": "source.playlist", "config": {"playlist_id": "  "}},
+                ]
+            })
+
+    def test_numeric_percentage_accepted(self):
+        """Percentage config accepts both int and float values."""
+        from src.application.workflows.prefect import _validate_node_config
+
+        # int should pass
+        _validate_node_config("selector.percentage", {"percentage": 50}, task_id="sel_1")
+        # float should pass
+        _validate_node_config("selector.percentage", {"percentage": 33.3}, task_id="sel_1")
+
+    def test_string_as_number_config_raises(self):
+        """String value for numeric config key raises ValueError."""
+        from src.application.workflows.prefect import _validate_node_config
+
+        with pytest.raises(ValueError, match=r"must be int \| float.*got str"):
+            _validate_node_config(
+                "selector.percentage", {"percentage": "50"}, task_id="sel_1"
+            )
+
+    def test_optional_config_keys_not_required(self):
+        """Nodes without required config (e.g., filters with defaults) pass."""
+        from src.application.workflows.prefect import validate_workflow_def
+
+        validate_workflow_def({
+            "tasks": [
+                {
+                    "id": "src_1",
+                    "type": "source.liked_tracks",
+                },
+                {
+                    "id": "filter_1",
+                    "type": "filter.deduplicate",
                     "upstream": ["src_1"],
                 },
             ]

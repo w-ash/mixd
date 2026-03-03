@@ -4,6 +4,9 @@ Provides the sync wrapper that Typer command handlers use to call async
 use cases. FastAPI's web interface won't need this — it's natively async.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
+
 import asyncio
 from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor

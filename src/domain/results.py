@@ -5,6 +5,9 @@ These live in the domain layer because they depend only on domain types and
 are used by both application and infrastructure layers.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from datetime import datetime
 from typing import Any
 

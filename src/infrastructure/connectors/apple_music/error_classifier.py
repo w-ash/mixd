@@ -1,10 +1,13 @@
 """Apple Music API error classification for retry behavior."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 import json
 from typing import Any, override
 
 from src.config.constants import HTTPStatus
-from src.infrastructure.connectors._shared.error_classification import (
+from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
 

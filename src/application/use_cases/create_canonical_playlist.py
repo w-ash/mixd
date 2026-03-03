@@ -5,6 +5,9 @@ creates playlist entity, extracts metrics from connector metadata, and commits
 the transaction. Returns operational metrics for monitoring.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from datetime import datetime
 from typing import Any
 
@@ -13,10 +16,7 @@ from attrs import define, evolve, field
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
-from src.application.use_cases._shared.command_validators import (
-    non_empty_string,
-    tracklist_or_connector_playlist,
-)
+from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.track_persistence import persist_unsaved_tracks
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -44,7 +44,7 @@ class CreateCanonicalPlaylistCommand:
     """
 
     name: str = field(validator=non_empty_string)
-    tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
+    tracklist: TrackList = field(factory=TrackList)
     connector_playlist: ConnectorPlaylist | None = None
     connector_name: str | None = None
     connector_id: str | None = None

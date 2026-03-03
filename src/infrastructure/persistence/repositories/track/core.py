@@ -1,12 +1,23 @@
 """Core track repository implementation for basic track operations."""
 
+# pyright: reportAny=false
+
+from datetime import UTC, datetime
 from typing import ClassVar
 
+from sqlalchemy import delete, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import Track
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.db_models import (
+    DBPlaylistTrack,
+    DBTrack,
+    DBTrackLike,
+    DBTrackMapping,
+    DBTrackMetric,
+    DBTrackPlay,
+)
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
@@ -121,3 +132,325 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if result is None:
             raise ValueError(f"Failed to map track from database (id={db_track.id})")
         return result
+
+    # -------------------------------------------------------------------------
+    # TRACK MERGE OPERATIONS
+    # -------------------------------------------------------------------------
+
+    @db_operation("move_references_to_track")
+    async def move_references_to_track(self, from_id: int, to_id: int) -> None:
+        """Move all foreign key references from one track to another.
+
+        Moves playlist tracks, plays, and likes (with conflict resolution for likes).
+        """
+        now = datetime.now(UTC)
+
+        # Update playlist tracks
+        await self.session.execute(
+            update(DBPlaylistTrack)
+            .where(DBPlaylistTrack.track_id == from_id)
+            .values(track_id=to_id, updated_at=now)
+        )
+
+        # Update track plays
+        await self.session.execute(
+            update(DBTrackPlay)
+            .where(DBTrackPlay.track_id == from_id)
+            .values(track_id=to_id, updated_at=now)
+        )
+
+        # Merge track likes with conflict resolution
+        await self._merge_track_likes(from_id, to_id, now)
+
+        logger.debug(f"Moved all references: {from_id} → {to_id}")
+
+    @db_operation("merge_mappings_to_track")
+    async def merge_mappings_to_track(self, from_id: int, to_id: int) -> None:
+        """Merge connector mappings from one track to another with conflict resolution."""
+        now = datetime.now(UTC)
+
+        # Find mappings that would conflict by connector name
+        conflict_query = text("""
+            SELECT
+                loser.id as loser_mapping_id,
+                winner.id as winner_mapping_id,
+                loser.connector_name,
+                loser.connector_track_id as loser_connector_track_id,
+                winner.connector_track_id as winner_connector_track_id,
+                loser.confidence as loser_confidence,
+                loser.match_method as loser_match_method,
+                loser.created_at as loser_created_at,
+                loser.is_primary as loser_is_primary,
+                winner.confidence as winner_confidence,
+                winner.match_method as winner_match_method,
+                winner.created_at as winner_created_at,
+                winner.is_primary as winner_is_primary
+            FROM track_mappings loser
+            JOIN track_mappings winner ON loser.connector_name = winner.connector_name
+            WHERE
+                loser.track_id = :from_id AND
+                winner.track_id = :to_id
+        """)
+
+        result = await self.session.execute(
+            conflict_query, {"from_id": from_id, "to_id": to_id}
+        )
+        conflicts = result.fetchall()
+
+        same_external_id_conflicts = 0
+        different_external_id_conflicts = 0
+
+        for conflict in conflicts:
+            loser_mapping_id = conflict.loser_mapping_id
+            winner_mapping_id = conflict.winner_mapping_id
+            loser_connector_track_id = conflict.loser_connector_track_id
+            winner_connector_track_id = conflict.winner_connector_track_id
+
+            if loser_connector_track_id == winner_connector_track_id:
+                # Same external ID — keep only the better mapping
+                same_external_id_conflicts += 1
+                should_update_winner = False
+
+                if conflict.loser_confidence > conflict.winner_confidence or (
+                    conflict.loser_confidence == conflict.winner_confidence
+                    and conflict.loser_created_at > conflict.winner_created_at
+                ):
+                    should_update_winner = True
+
+                if should_update_winner:
+                    await self.session.execute(
+                        update(DBTrackMapping)
+                        .where(DBTrackMapping.id == winner_mapping_id)
+                        .values(
+                            confidence=conflict.loser_confidence,
+                            match_method=conflict.loser_match_method,
+                            updated_at=now,
+                        )
+                    )
+
+                # Always delete the loser's mapping (same external ID = true duplicate)
+                await self.session.execute(
+                    delete(DBTrackMapping).where(DBTrackMapping.id == loser_mapping_id)
+                )
+            else:
+                # Different external IDs — keep both, ensure winner's is primary
+                different_external_id_conflicts += 1
+
+                await self.session.execute(
+                    update(DBTrackMapping)
+                    .where(DBTrackMapping.id == winner_mapping_id)
+                    .values(is_primary=True, updated_at=now)
+                )
+                await self.session.execute(
+                    update(DBTrackMapping)
+                    .where(DBTrackMapping.id == loser_mapping_id)
+                    .values(track_id=to_id, is_primary=False, updated_at=now)
+                )
+
+        # Move non-conflicting mappings from loser to winner
+        if conflicts:
+            conflict_mapping_ids = [c.loser_mapping_id for c in conflicts]
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == from_id,
+                    ~DBTrackMapping.id.in_(conflict_mapping_ids),
+                )
+                .values(track_id=to_id, updated_at=now)
+            )
+        else:
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(DBTrackMapping.track_id == from_id)
+                .values(track_id=to_id, updated_at=now)
+            )
+
+        logger.debug(
+            f"Merged track mappings: {from_id} → {to_id} "
+            + f"({same_external_id_conflicts} same external ID, "
+            + f"{different_external_id_conflicts} different external ID conflicts)"
+        )
+
+    @db_operation("merge_metrics_to_track")
+    async def merge_metrics_to_track(self, from_id: int, to_id: int) -> None:
+        """Merge track metrics from one track to another with conflict resolution."""
+        now = datetime.now(UTC)
+
+        # Find metrics that would conflict (same connector_name + metric_type)
+        conflict_query = text("""
+            SELECT
+                loser.id as loser_metric_id,
+                winner.id as winner_metric_id,
+                loser.connector_name,
+                loser.metric_type,
+                loser.value as loser_value,
+                loser.collected_at as loser_collected_at,
+                winner.value as winner_value,
+                winner.collected_at as winner_collected_at
+            FROM track_metrics loser
+            JOIN track_metrics winner ON (
+                loser.connector_name = winner.connector_name AND
+                loser.metric_type = winner.metric_type
+            )
+            WHERE
+                loser.track_id = :from_id AND
+                winner.track_id = :to_id
+        """)
+
+        result = await self.session.execute(
+            conflict_query, {"from_id": from_id, "to_id": to_id}
+        )
+        conflicts = result.fetchall()
+
+        # Handle conflicts: keep the most recent metric value
+        for conflict in conflicts:
+            loser_metric_id = conflict.loser_metric_id
+            winner_metric_id = conflict.winner_metric_id
+            loser_collected_at = conflict.loser_collected_at
+            winner_collected_at = conflict.winner_collected_at
+
+            if loser_collected_at > winner_collected_at:
+                collected_at_value = loser_collected_at
+                if isinstance(loser_collected_at, str):
+                    collected_at_value = datetime.fromisoformat(loser_collected_at)
+
+                await self.session.execute(
+                    update(DBTrackMetric)
+                    .where(DBTrackMetric.id == winner_metric_id)
+                    .values(
+                        value=conflict.loser_value,
+                        collected_at=collected_at_value,
+                        updated_at=now,
+                    )
+                )
+
+            # Hard delete the loser's conflicting metric
+            await self.session.execute(
+                delete(DBTrackMetric).where(DBTrackMetric.id == loser_metric_id)
+            )
+
+        # Move non-conflicting metrics from loser to winner
+        if conflicts:
+            conflict_metric_ids = [c.loser_metric_id for c in conflicts]
+            await self.session.execute(
+                update(DBTrackMetric)
+                .where(
+                    DBTrackMetric.track_id == from_id,
+                    ~DBTrackMetric.id.in_(conflict_metric_ids),
+                )
+                .values(track_id=to_id, updated_at=now)
+            )
+        else:
+            await self.session.execute(
+                update(DBTrackMetric)
+                .where(DBTrackMetric.track_id == from_id)
+                .values(track_id=to_id, updated_at=now)
+            )
+
+        logger.debug(
+            f"Merged track metrics: {from_id} → {to_id} ({len(conflicts)} conflicts resolved)"
+        )
+
+    @db_operation("hard_delete_track")
+    async def hard_delete_track(self, track_id: int) -> None:
+        """Permanently delete a track record from the database."""
+        await self.session.execute(delete(DBTrack).where(DBTrack.id == track_id))
+        logger.debug(f"Hard deleted track: {track_id}")
+
+    # -------------------------------------------------------------------------
+    # PRIVATE HELPERS
+    # -------------------------------------------------------------------------
+
+    async def _merge_track_likes(self, from_id: int, to_id: int, now: datetime) -> None:
+        """Merge track likes with conflict resolution for duplicate (track_id, service)."""
+        # Find likes that would conflict (same service for both tracks)
+        conflict_query = text("""
+            SELECT
+                loser.id as loser_like_id,
+                winner.id as winner_like_id,
+                loser.service,
+                loser.is_liked as loser_is_liked,
+                loser.liked_at as loser_liked_at,
+                winner.is_liked as winner_is_liked,
+                winner.liked_at as winner_liked_at,
+                loser.last_synced as loser_last_synced,
+                winner.last_synced as winner_last_synced
+            FROM track_likes loser
+            JOIN track_likes winner ON loser.service = winner.service
+            WHERE
+                loser.track_id = :from_id AND
+                winner.track_id = :to_id
+        """)
+
+        result = await self.session.execute(
+            conflict_query, {"from_id": from_id, "to_id": to_id}
+        )
+        conflicts = result.fetchall()
+
+        for conflict in conflicts:
+            loser_like_id = conflict.loser_like_id
+            winner_like_id = conflict.winner_like_id
+            loser_last_synced = conflict.loser_last_synced
+            winner_last_synced = conflict.winner_last_synced
+
+            should_update_winner = False
+            if loser_last_synced and winner_last_synced:
+                if loser_last_synced > winner_last_synced:
+                    should_update_winner = True
+            elif loser_last_synced and not winner_last_synced:
+                should_update_winner = True
+
+            if should_update_winner:
+                update_values: dict[str, object] = {
+                    "is_liked": conflict.loser_is_liked,
+                    "updated_at": now,
+                }
+
+                if conflict.loser_liked_at is not None:
+                    if isinstance(conflict.loser_liked_at, str):
+                        update_values["liked_at"] = datetime.fromisoformat(
+                            conflict.loser_liked_at
+                        )
+                    else:
+                        update_values["liked_at"] = conflict.loser_liked_at
+
+                if loser_last_synced is not None:
+                    if isinstance(loser_last_synced, str):
+                        update_values["last_synced"] = datetime.fromisoformat(
+                            loser_last_synced
+                        )
+                    else:
+                        update_values["last_synced"] = loser_last_synced
+
+                await self.session.execute(
+                    update(DBTrackLike)
+                    .where(DBTrackLike.id == winner_like_id)
+                    .values(**update_values)
+                )
+
+            # Hard delete the loser's conflicting like
+            await self.session.execute(
+                delete(DBTrackLike).where(DBTrackLike.id == loser_like_id)
+            )
+
+        # Move non-conflicting likes from loser to winner
+        if conflicts:
+            conflict_like_ids = [c.loser_like_id for c in conflicts]
+            await self.session.execute(
+                update(DBTrackLike)
+                .where(
+                    DBTrackLike.track_id == from_id,
+                    ~DBTrackLike.id.in_(conflict_like_ids),
+                )
+                .values(track_id=to_id, updated_at=now)
+            )
+        else:
+            await self.session.execute(
+                update(DBTrackLike)
+                .where(DBTrackLike.track_id == from_id)
+                .values(track_id=to_id, updated_at=now)
+            )
+
+        logger.debug(
+            f"Merged track likes: {from_id} → {to_id} ({len(conflicts)} conflicts resolved)"
+        )

@@ -8,6 +8,9 @@ This service contains generic business logic for the two-phase workflow while ac
 pluggable importer instances from the infrastructure layer.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from typing import Any
 
 from src.config import get_logger

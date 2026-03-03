@@ -353,7 +353,7 @@ def mock_external_connector():
     from unittest.mock import AsyncMock
 
     mock = AsyncMock()
-    mock.get_tracks_by_ids.return_value = []
+    mock.get_tracks_by_ids.return_value = {}
     mock.get_track_metadata.return_value = {}
     mock.search_tracks.return_value = []
     return mock

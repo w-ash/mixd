@@ -1,5 +1,8 @@
 """Base class for importing music listening data from external sources."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: **kwargs variadic dispatch, import params
+
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, TypedDict
@@ -52,7 +55,7 @@ class SpotifyImportParams(CommonImportParams, total=False):
     batch_size: int | None
 
 
-class BasePlayImporter(ABC):
+class BasePlayImporter[TRawData](ABC):
     """Base class for importing music listening data from external sources.
 
     Provides common workflow for importing track plays from sources like Spotify, Last.fm,
@@ -265,7 +268,7 @@ class BasePlayImporter(ABC):
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs: Any,
-    ) -> list[Any]:
+    ) -> list[TRawData]:
         """Fetch raw listening data from external source.
 
         Implemented by each subclass to retrieve data from their specific source
@@ -283,13 +286,13 @@ class BasePlayImporter(ABC):
     @abstractmethod
     async def _process_data(
         self,
-        raw_data: list[Any],
+        raw_data: list[TRawData],
         batch_id: str,
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         **kwargs: Any,
-    ) -> list[Any]:
+    ) -> list[ConnectorTrackPlay]:
         """Convert raw source data into standardized domain objects.
 
         Implemented by each subclass to parse their specific data format and create
@@ -309,7 +312,10 @@ class BasePlayImporter(ABC):
 
     @abstractmethod
     async def _handle_checkpoints(
-        self, raw_data: list[Any], uow: Any | None = None, **kwargs: Any
+        self,
+        raw_data: list[TRawData],
+        uow: UnitOfWorkProtocol | None = None,
+        **kwargs: Any,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
@@ -362,12 +368,12 @@ class BasePlayImporter(ABC):
         return len(connector_plays), 0  # No duplicates for connector plays
 
     async def _save_data(
-        self, data: list[Any], uow: UnitOfWorkProtocol | None = None
+        self, data: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol | None = None
     ) -> tuple[int, int]:
         """Save processed data to database with automatic deduplication.
 
         Args:
-            data: Processed objects to persist (TrackPlay or ConnectorTrackPlay).
+            data: Processed ConnectorTrackPlay objects to persist.
             uow: Unit of work for database operations (required).
 
         Returns:
@@ -386,7 +392,7 @@ class BasePlayImporter(ABC):
             (
                 inserted_count,
                 duplicate_count,
-            ) = await plays_repository.bulk_insert_plays(data)
+            ) = await plays_repository.bulk_insert_plays(data)  # type: ignore[reportArgumentType]  # Base impl accepts ConnectorTrackPlay; subclasses override
 
             # Log database operation results with visibility
             if inserted_count > 0:
@@ -407,8 +413,8 @@ class BasePlayImporter(ABC):
 
     def _create_success_result(
         self,
-        raw_data: list[Any],
-        processed_data: list[Any],
+        raw_data: list[TRawData],
+        processed_data: list[ConnectorTrackPlay],
         imported_count: int,
         duplicate_count: int,
         batch_id: str,
@@ -448,8 +454,8 @@ class BasePlayImporter(ABC):
     def _enrich_import_data(
         self,
         base_data: ImportResultData,
-        raw_data: list[Any],
-        processed_data: list[Any],
+        raw_data: list[TRawData],
+        processed_data: list[ConnectorTrackPlay],
     ) -> ImportResultData:
         """Enrich import data with service-specific statistics.
 

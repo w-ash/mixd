@@ -4,6 +4,9 @@ Contains classes for recording play events, sync progress, and operation results
 from music services like Spotify and Last.fm.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Self
 
@@ -12,8 +15,9 @@ from attrs import Attribute, define, field
 if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
+from .shared import MetricValue
 from .summary_metrics import SummaryMetricCollection
-from .track import Artist, Track, TrackList
+from .track import Track, TrackList
 
 
 @define(frozen=True, slots=True)
@@ -381,51 +385,6 @@ class TrackPlay:
             **kwargs,
         )
 
-    def to_track_metadata(self) -> dict[str, Any]:
-        """Extracts track identifying metadata for duplicate detection.
-
-        Returns:
-            Dictionary with title, artist, album and service URLs for matching
-        """
-        if not self.context:
-            return {}
-
-        return {
-            "title": self.context.get(TrackContextFields.TRACK_NAME, ""),
-            "artist": self.context.get(TrackContextFields.ARTIST_NAME, ""),
-            "album": self.context.get(TrackContextFields.ALBUM_NAME),
-            "duration_ms": self.ms_played,
-            # Additional metadata for service-specific matching
-            TrackContextFields.SPOTIFY_TRACK_URI: self.context.get(
-                TrackContextFields.SPOTIFY_TRACK_URI
-            ),
-            TrackContextFields.LASTFM_TRACK_URL: self.context.get(
-                TrackContextFields.LASTFM_TRACK_URL
-            ),
-        }
-
-    def to_track(self) -> Track:
-        """Creates Track object from play data for similarity scoring.
-
-        Returns:
-            Track instance with artist, title, and duration for comparison
-        """
-        if not self.context:
-            # Fallback for plays without context
-            return Track(title="Unknown", artists=[Artist(name="Unknown")])
-
-        artist_name = self.context.get(TrackContextFields.ARTIST_NAME, "Unknown")
-        track_title = self.context.get(TrackContextFields.TRACK_NAME, "Unknown")
-        album_name = self.context.get(TrackContextFields.ALBUM_NAME)
-
-        return Track(
-            title=track_title,
-            artists=[Artist(name=artist_name)],
-            album=album_name,
-            duration_ms=self.ms_played,
-            id=self.track_id,
-        )
-
 
 @define(frozen=False)
 class OperationResult:
@@ -448,7 +407,7 @@ class OperationResult:
     tracks: list[Track] = field(factory=list)
     execution_time: float = field(default=0.0)
     metadata: dict[str, Any] = field(factory=dict)
-    metrics: dict[str, dict[int, Any]] = field(
+    metrics: dict[str, dict[int, MetricValue]] = field(
         factory=dict,
     )  # Per-track operational metrics: metric_name -> {track_id -> value}
     tracklist: TrackList | None = field(
@@ -459,8 +418,8 @@ class OperationResult:
         self,
         track_id: int | None,
         metric_name: str,
-        default: Any = None,
-    ) -> Any:
+        default: MetricValue = None,
+    ) -> MetricValue:
         """Get specific per-track metric value.
 
         Args:

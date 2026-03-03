@@ -13,6 +13,9 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: Spotify API response data
+
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -40,7 +43,7 @@ def extract_spotify_track_uris(tracks: list[Track]) -> list[str]:
     ]
 
 
-def validate_non_empty(items: Sequence[object], empty_result: Any = None) -> Any:
+def validate_non_empty[T](items: Sequence[object], empty_result: T) -> T | None:
     """Return empty_result if items is empty, None otherwise."""
     return empty_result if not items else None
 

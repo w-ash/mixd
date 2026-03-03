@@ -5,13 +5,19 @@ event-driven system. Provides the same functionality as DatabaseBatchProcessor
 but with better progress tracking and user feedback.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false
+
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from attrs import define, field
 
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
+
 from src.config.constants import BusinessLimits
 from src.domain.entities.progress import (
     NullProgressEmitter,
@@ -51,7 +57,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
     retry_count: int = field(default=3)
     retry_base_delay: float = field(default=1.0)
     progress_emitter: ProgressEmitter = field(factory=NullProgressEmitter)
-    logger_instance: Any = field(factory=lambda: get_logger(__name__))
+    logger_instance: Logger = field(factory=lambda: get_logger(__name__))
 
     def __attrs_post_init__(self):
         """Validate configuration."""

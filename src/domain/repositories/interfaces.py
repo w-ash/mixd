@@ -5,9 +5,12 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Literal, Protocol, Self
+from typing import Any, Literal, Protocol, Self, TypedDict
 
 from src.domain.entities import (
     ConnectorPlaylist,
@@ -20,7 +23,7 @@ from src.domain.entities import (
     TrackLike,
     TrackPlay,
 )
-from src.domain.matching.types import RawProviderMatch
+from src.domain.matching.types import MatchResultsById, RawProviderMatch
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -44,6 +47,54 @@ class TrackRepositoryProtocol(Protocol):
 
         Returns:
             Dictionary mapping track IDs to Track objects
+        """
+        ...
+
+    def move_references_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+        """Move all foreign key references (playlist tracks, plays, likes) from one track to another.
+
+        Handles conflict resolution for likes where both tracks have entries
+        for the same service (keeps the most recently synced state).
+
+        Args:
+            from_id: Source track ID whose references will be moved.
+            to_id: Destination track ID that will receive the references.
+        """
+        ...
+
+    def merge_mappings_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+        """Merge connector mappings from one track to another with conflict resolution.
+
+        Handles two cases:
+        - Same connector + same external ID: keep the higher-confidence mapping
+        - Same connector + different external IDs: keep both, destination's stays primary
+
+        Args:
+            from_id: Source track ID whose mappings will be merged.
+            to_id: Destination track ID that will receive the mappings.
+        """
+        ...
+
+    def merge_metrics_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+        """Merge track metrics from one track to another with conflict resolution.
+
+        For duplicate (connector_name, metric_type) pairs, keeps the most
+        recently collected value.
+
+        Args:
+            from_id: Source track ID whose metrics will be merged.
+            to_id: Destination track ID that will receive the metrics.
+        """
+        ...
+
+    def hard_delete_track(self, track_id: int) -> Awaitable[None]:
+        """Permanently delete a track record from the database.
+
+        This bypasses soft-delete and removes the row entirely. Should only be
+        used after all references have been moved away (e.g., during merge).
+
+        Args:
+            track_id: ID of the track to permanently delete.
         """
         ...
 
@@ -190,16 +241,6 @@ class CheckpointRepositoryProtocol(Protocol):
 
 class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
-
-    @property
-    def session(self) -> Any:
-        """Database session for transaction coordination.
-
-        Used by services that need to create nested transactions for batch operations.
-        This follows the pattern where use cases manage transaction scope through
-        shared sessions, and services coordinate complex operations using savepoints.
-        """
-        ...
 
     def find_track_by_connector(
         self, connector: str, connector_id: str
@@ -424,7 +465,7 @@ class MetricsRepositoryProtocol(Protocol):
         metric_type: str = "play_count",
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
-    ) -> Awaitable[dict[int, Any]]:
+    ) -> Awaitable[dict[int, float]]:
         """Get cached metrics with TTL awareness.
 
         Args:
@@ -515,7 +556,7 @@ class TrackIdentityServiceProtocol(Protocol):
         self,
         tracks: list[Track],
         connector: str,
-        connector_instance: Any,
+        connector_instance: object,
         **additional_options: Any,
     ) -> Awaitable[dict[int, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
@@ -533,7 +574,7 @@ class TrackIdentityServiceProtocol(Protocol):
 
     def get_existing_identity_mappings(
         self, track_ids: list[int], connector: str
-    ) -> Awaitable[dict[int, Any]]:
+    ) -> Awaitable[MatchResultsById]:
         """Retrieve existing identity mappings from database.
 
         Args:
@@ -546,7 +587,7 @@ class TrackIdentityServiceProtocol(Protocol):
         ...
 
     def persist_identity_mappings(
-        self, matches: dict[int, Any], connector: str
+        self, matches: MatchResultsById, connector: str
     ) -> Awaitable[None]:
         """Save identity mappings to database.
 
@@ -565,14 +606,15 @@ class ServiceConnectorProvider(Protocol):
     operations like getting liked tracks or loving tracks.
     """
 
-    def get_connector(self, service_name: str) -> Any:
+    def get_connector(self, service_name: str) -> object:
         """Get connector instance for specified music service.
 
         Args:
             service_name: Name of the service (e.g., "spotify", "lastfm")
 
         Returns:
-            Connector instance for the specified service
+            Connector instance for the specified service.
+            Callers narrow via capability protocols (PlaylistConnector, etc.).
         """
         ...
 
@@ -657,15 +699,6 @@ class UnitOfWorkProtocol(Protocol):
         """Get track merge service using this unit of work's transaction."""
         ...
 
-    def get_session(self) -> Any:
-        """Get the underlying database session for bulk operations.
-
-        This method provides controlled access to the underlying session for
-        complex transactional operations like bulk updates. Use with caution
-        and prefer repository methods when possible.
-        """
-        ...
-
 
 class TrackMergeServiceProtocol(Protocol):
     """Service interface for track merging operations."""
@@ -701,6 +734,26 @@ class PlayImporterProtocol(Protocol):
         ...
 
 
+class ResolutionMetrics(TypedDict, total=False):
+    """Metrics produced by play resolution.
+
+    All keys are optional (total=False) because different resolvers
+    (Spotify, Last.fm) emit different subsets of metrics.
+    """
+
+    raw_plays: int
+    accepted_plays: int
+    duration_excluded: int
+    incognito_excluded: int
+    error_count: int
+    resolution_failures: list[dict[str, str]]
+    new_tracks_count: int
+    updated_tracks_count: int
+    unique_tracks_processed: int
+    tracks_resolved: int
+    spotify_enhanced_count: int
+
+
 class PlayResolverProtocol(Protocol):
     """Protocol for play resolution services in infrastructure layer.
 
@@ -713,7 +766,7 @@ class PlayResolverProtocol(Protocol):
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], dict[str, Any]]:
+    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
         """Resolve connector plays to canonical track plays.
 
         Args:
@@ -722,6 +775,6 @@ class PlayResolverProtocol(Protocol):
             progress_callback: Optional progress reporting.
 
         Returns:
-            Tuple of (resolved track plays, metrics dict).
+            Tuple of (resolved track plays, resolution metrics).
         """
         ...

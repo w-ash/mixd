@@ -5,6 +5,9 @@ session and unit-of-work wiring. Both CLI (via run_async) and FastAPI
 (via Depends) should use this runner — zero business logic duplication.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: use case results, OperationResult metadata, metric values
+
 from collections.abc import Callable, Coroutine
 from typing import Any
 

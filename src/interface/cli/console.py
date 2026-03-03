@@ -7,12 +7,15 @@ and maintains consistent formatting across the entire CLI application.
 
 from collections.abc import AsyncGenerator
 import contextlib
-from typing import Any
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from .progress_provider import RichProgressProvider
 
 logger = get_logger(__name__)
 
@@ -45,11 +48,13 @@ class ProgressDisplayContext:
     that display progress bars while ensuring logs appear above progress displays.
     """
 
-    provider: Any
+    provider: RichProgressProvider
     console: Console
     progress_manager: AsyncProgressManager
 
-    def __init__(self, provider: Any, manager: AsyncProgressManager) -> None:
+    def __init__(
+        self, provider: RichProgressProvider, manager: AsyncProgressManager
+    ) -> None:
         self.provider = provider
         self.console = provider.get_console()
         self.progress_manager = manager
@@ -93,7 +98,9 @@ def get_error_console() -> Console:
 
 
 @contextlib.asynccontextmanager
-async def progress_coordination_context(show_live: bool = True) -> AsyncGenerator[Any]:
+async def progress_coordination_context(
+    show_live: bool = True,
+) -> AsyncGenerator[SimpleConsoleContext | ProgressDisplayContext]:
     """Context manager for coordinated progress tracking and console output.
 
     Provides a context manager that coordinates Rich Progress with unified console

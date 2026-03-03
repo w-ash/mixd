@@ -12,6 +12,9 @@ Transformations follow functional programming principles:
 - Purity: No side effects or external dependencies
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: service_metadata, raw_data dicts, factory patterns
+
 from collections.abc import Callable
 from functools import wraps
 from typing import Any

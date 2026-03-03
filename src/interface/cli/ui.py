@@ -1,5 +1,8 @@
 """CLI output formatting utilities using Rich tables and markup."""
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
+
 import json
 from typing import Any, Literal, cast
 
@@ -135,26 +138,24 @@ def _display_table_result(
 
             # Add metric values for this track
             for metric_name in metric_columns:
-                value = result.get_metric(track.id, metric_name, "—")
+                raw_value = result.get_metric(track.id, metric_name)
                 # Check if this metric was freshly fetched or from cache
                 is_fresh = track.id in fresh_metric_ids.get(metric_name, [])
 
-                match (metric_name, value):
-                    case ("sync_status", str() as status):
-                        emoji = {
-                            "imported": "✅",
-                            "exported": "📤",
-                            "skipped": "⚠️",
-                            "error": "❌",
-                        }.get(status, "❓")
-                        row.append(f"{emoji} {status}")
-                    case (_, float() as num):
+                if raw_value is None:
+                    row.append("—")
+                    continue
+
+                match raw_value:
+                    case int() as num:
+                        formatted = str(num)
+                        row.append(formatted if is_fresh else f"[dim]{formatted}[/dim]")
+                    case float() as num:
                         formatted = f"{int(num)}"
                         row.append(formatted if is_fresh else f"[dim]{formatted}[/dim]")
                     case _:
-                        formatted = str(value)
-                        # Only dim numeric-like values, not placeholders
-                        if value != "—" and not is_fresh:
+                        formatted = str(raw_value)
+                        if not is_fresh:
                             row.append(f"[dim]{formatted}[/dim]")
                         else:
                             row.append(formatted)

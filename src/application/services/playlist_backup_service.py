@@ -16,9 +16,6 @@ from src.application.use_cases.update_canonical_playlist import (
 )
 from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
-from src.infrastructure.connectors import (
-    discover_connectors,  # Phase 5: move to injected ConnectorRegistry
-)
 
 logger = get_logger(__name__)
 
@@ -47,18 +44,13 @@ async def run_playlist_backup(
         playlist_id=playlist_id,
     )
 
-    # Discover available connectors (Phase 5: replace with injected ConnectorRegistry)
-    connectors = discover_connectors()
-
-    if connector_name not in connectors:
-        available = ", ".join(connectors.keys())
-        raise ValueError(
-            f"Unknown connector '{connector_name}'. Available: {available}"
-        )
-
     async def _backup(
         uow: UnitOfWorkProtocol,
     ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
+        # Validate connector exists via UoW's service connector provider
+        connector_provider = uow.get_service_connector_provider()
+        connector_provider.get_connector(connector_name)
+
         # Step 1: Sync connector playlist (fetch + store in database)
         connector_playlist = await sync_connector_playlist(
             connector_name, playlist_id, uow

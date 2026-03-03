@@ -4,6 +4,8 @@ This provider handles communication with the LastFM API and transforms
 LastFM track data into raw provider matches without business logic.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false
+
 from typing import Any, override
 
 from src.config import get_logger
@@ -22,6 +24,8 @@ from src.infrastructure.connectors._shared.failure_handling import (
 from src.infrastructure.connectors._shared.matching_provider import (
     BaseMatchingProvider,
 )
+from src.infrastructure.connectors.lastfm.connector import LastFMConnector
+from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
 logger = get_logger(__name__)
 
@@ -33,9 +37,9 @@ class LastFMProvider(BaseMatchingProvider):
     fetch_raw_matches_for_tracks() instead of using the template method pattern.
     """
 
-    connector_instance: Any
+    connector_instance: LastFMConnector
 
-    def __init__(self, connector_instance: Any) -> None:
+    def __init__(self, connector_instance: LastFMConnector) -> None:
         """Initialize with LastFM connector.
 
         Args:
@@ -106,7 +110,7 @@ class LastFMProvider(BaseMatchingProvider):
                 # Get batch track info from LastFM
                 logger.info(f"Fetching LastFM metadata for {len(tracks)} tracks")
 
-                track_infos = await self.connector_instance.get_external_track_data(
+                track_infos = await self.connector_instance.get_track_info_batch(
                     tracks=tracks
                 )
                 logger.info(
@@ -118,7 +122,7 @@ class LastFMProvider(BaseMatchingProvider):
                 for track_id, track_info in track_infos.items():
                     processed_track_ids.add(track_id)
 
-                    if track_info and track_info.get("lastfm_url"):
+                    if track_info and track_info.lastfm_url:
                         raw_match = self._create_raw_match(track_info)
                         if raw_match:
                             matches[track_id] = raw_match
@@ -172,14 +176,14 @@ class LastFMProvider(BaseMatchingProvider):
 
             return ProviderMatchResult(matches=matches, failures=failures)
 
-    def _create_raw_match(self, track_info: Any) -> RawProviderMatch | None:
+    def _create_raw_match(self, track_info: LastFMTrackInfo) -> RawProviderMatch | None:
         """Create raw match data from LastFM track data.
 
         This method extracts and formats data from LastFM API without applying
         any business logic, confidence scoring, or match decisions.
 
         Args:
-            track_info: LastFM track info response.
+            track_info: Typed LastFMTrackInfo from Last.fm operations.
 
         Returns:
             Raw provider match data, or None if creation fails.
@@ -187,26 +191,29 @@ class LastFMProvider(BaseMatchingProvider):
         try:
             # Extract service data without any business logic
             service_data = {
-                "title": track_info.get("lastfm_title"),
-                "artist": track_info.get("lastfm_artist_name"),
-                "artists": [track_info.get("lastfm_artist_name")]
-                if track_info.get("lastfm_artist_name")
+                "title": track_info.lastfm_title,
+                "artist": track_info.lastfm_artist_name,
+                "artists": [track_info.lastfm_artist_name]
+                if track_info.lastfm_artist_name
                 else [],
-                "duration_ms": track_info.get("lastfm_duration"),
+                "duration_ms": track_info.lastfm_duration,
                 # LastFM specific data
-                "lastfm_user_playcount": track_info.get("lastfm_user_playcount"),
-                "lastfm_global_playcount": track_info.get("lastfm_global_playcount"),
-                "lastfm_listeners": track_info.get("lastfm_listeners"),
-                "lastfm_user_loved": track_info.get("lastfm_user_loved"),
+                "lastfm_user_playcount": track_info.lastfm_user_playcount,
+                "lastfm_global_playcount": track_info.lastfm_global_playcount,
+                "lastfm_listeners": track_info.lastfm_listeners,
+                "lastfm_user_loved": track_info.lastfm_user_loved,
             }
 
             # Determine match method based on available data
             # Note: This is data classification, not business logic
-            match_method = "mbid" if track_info.get("lastfm_mbid") else "artist_title"
+            match_method = "mbid" if track_info.lastfm_mbid else "artist_title"
 
             # Return raw data - no confidence calculation or business logic
+            if not track_info.lastfm_url:
+                return None
+
             return RawProviderMatch(
-                connector_id=track_info.get("lastfm_url"),
+                connector_id=track_info.lastfm_url,
                 match_method=match_method,
                 service_data=service_data,
             )

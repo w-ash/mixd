@@ -10,6 +10,9 @@ Key components:
 - Centralized retry policy using tenacity
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 import asyncio
 from datetime import datetime
 import hashlib

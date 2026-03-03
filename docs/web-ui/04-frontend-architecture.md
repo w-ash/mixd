@@ -1,7 +1,8 @@
 # Frontend Architecture
 
-> Skeletal architecture decisions for the React web UI.
-> Stack choices and key decisions are stable; component catalog deferred to implementation.
+> Architecture decisions and project structure for the React web UI.
+> Stack choices, component catalog, and project layout reflect v0.3.0 implementation.
+> Future components and hooks are noted where planned.
 
 ---
 
@@ -9,18 +10,19 @@
 
 | Concern | Choice | Rationale |
 |---------|--------|-----------|
-| Build | **Vite 6+** | esbuild transpilation, fast HMR, optimized production builds |
+| Build | **Vite 7+** | esbuild transpilation, fast HMR, optimized production builds |
 | Framework | **React 19+** | Ecosystem, component model, Tanstack Query integration |
-| Language | **TypeScript 5.7+** (strict mode) | Type safety across API boundary |
+| Language | **TypeScript 5.9+** (strict mode + `erasableSyntaxOnly`) | Type safety across API boundary |
 | Styling | **Tailwind CSS v4** | Rust engine (10x perf), CSS-first `@theme` tokens, dark mode via CSS vars |
 | Routing | **React Router** | Standard, file-system-like route structure |
 | Server state | **Tanstack Query** | Stale-while-revalidate, background refetch, optimistic updates |
 | Components | **shadcn/ui** (owned source) | Accessible Radix primitives + Tailwind styling. Source code copied into project, not a runtime dependency |
 | Animation | **Motion** (React) | CSS-first for simple transitions; Motion for orchestrated sequences |
 | Workflow viz | **React Flow** | DAG rendering with pan/zoom, node customization |
+| Error boundaries | **react-error-boundary** | `resetKeys` for auto-reset on navigation; lighter than hand-written class component |
 | Testing | **Vitest** (unit/integration) + **Playwright** (E2E) | Native ESM, Jest-compatible API |
 | Package mgr | **pnpm** | Faster installs, efficient disk usage |
-| Linting | **ESLint** (flat config) + **Prettier** | Standard code quality tooling |
+| Linting + Format | **Biome 2.x** | Rust-based, single tool for lint + format (Ruff equivalent for JS/TS) |
 
 **No Redux / Zustand**: Tanstack Query handles all server state. Local UI state (modals, forms) lives in React component state. No global state management library needed at this scale.
 
@@ -96,10 +98,19 @@ Dark surfaces first — warm-tinted, not cold gray. Think vinyl sleeve, not spre
 | `--color-border` | `oklch(0.25 0.01 60)` | Subtle warm dividers |
 | `--color-text` | `oklch(0.93 0.005 80)` | Primary text (warm white) |
 | `--color-text-muted` | `oklch(0.60 0.01 60)` | Secondary text, labels |
+| `--color-text-faint` | `oklch(0.55 0.01 60)` | Tertiary text, descriptions (WCAG 4.1:1 on bg) |
 | `--color-primary` | `oklch(0.75 0.15 85)` | **Warm gold** — pops against dark, evokes vinyl warmth |
 | `--color-secondary` | `oklch(0.70 0.12 25)` | **Soft coral** — active states, emphasis |
 | `--color-destructive` | `oklch(0.60 0.20 25)` | Destructive actions |
 | `--color-success` | `oklch(0.72 0.17 155)` | Completion, connected status |
+
+Status badge colors (semantic, not connector-specific):
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--color-status-connected` | `oklch(0.72 0.17 155)` | Authenticated connector |
+| `--color-status-expired` | `oklch(0.70 0.15 70)` | Token needs refresh |
+| `--color-status-available` | `oklch(0.65 0.12 230)` | Public API (MusicBrainz) |
 
 Connector identity colors (used sparingly for service identification only):
 
@@ -143,77 +154,118 @@ One well-orchestrated page load creates more delight than scattered micro-intera
 web/
 ├── public/                          Static assets
 ├── src/
-│   ├── api/                         API client layer (generated via OpenAPI codegen)
-│   │   ├── generated/               Auto-generated from /openapi.json (do not edit)
-│   │   │   ├── client.ts            Base fetch client with typed endpoints
-│   │   │   ├── hooks.ts             TanStack Query useQuery/useMutation hooks
-│   │   │   ├── model.ts             Request/response TypeScript types
-│   │   │   └── msw.ts               MSW mock handlers (for testing)
-│   │   ├── operations.ts            Custom SSE hooks (not auto-generated)
-│   │   └── overrides.ts             Query option overrides (staleTime, retry, etc.)
+│   ├── api/
+│   │   ├── client.ts                Custom fetch mutator (hand-written, see Codegen section)
+│   │   ├── client.test.ts           Client unit tests
+│   │   ├── query-client.ts          createQueryClient() factory (retry policy, stale time)
+│   │   └── generated/               Orval output — tag-split (do not edit)
+│   │       ├── playlists/
+│   │       │   ├── playlists.ts     Tanstack Query hooks for playlist endpoints
+│   │       │   └── playlists.msw.ts MSW mock handlers + faker response factories
+│   │       ├── connectors/
+│   │       │   ├── connectors.ts
+│   │       │   └── connectors.msw.ts
+│   │       ├── health/
+│   │       │   ├── health.ts
+│   │       │   └── health.msw.ts
+│   │       └── model/               Per-type TypeScript interfaces (one file each)
+│   │           ├── index.ts         Barrel re-export
+│   │           ├── playlistSummarySchema.ts
+│   │           ├── trackSummarySchema.ts
+│   │           └── ...              (generated per OpenAPI schema)
 │   ├── components/
-│   │   ├── ui/                      shadcn/ui primitives (owned source)
-│   │   │   ├── Button.tsx
-│   │   │   ├── Card.tsx
-│   │   │   ├── Table.tsx
-│   │   │   ├── Input.tsx
-│   │   │   ├── Dialog.tsx
-│   │   │   ├── Command.tsx
-│   │   │   ├── Toast.tsx
-│   │   │   ├── Badge.tsx
-│   │   │   ├── Skeleton.tsx
-│   │   │   └── Progress.tsx
+│   │   ├── ui/                      shadcn/ui primitives (owned, vendored source)
+│   │   │   ├── badge.tsx
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── sonner.tsx           Toast notifications (dark-only Sonner wrapper)
+│   │   │   └── table.tsx
 │   │   ├── layout/                  App shell components
-│   │   │   ├── Sidebar.tsx
-│   │   │   ├── Header.tsx
-│   │   │   └── PageLayout.tsx
-│   │   └── shared/                  Shared composite components
-│   │       ├── TrackRow.tsx
-│   │       ├── AlbumArt.tsx
-│   │       ├── ConnectorIcon.tsx
-│   │       ├── EmptyState.tsx
-│   │       ├── OperationProgress.tsx
-│   │       └── SearchModal.tsx
+│   │   │   ├── PageErrorFallback.tsx  Error boundary fallback (matches EmptyState styling)
+│   │   │   ├── PageErrorFallback.test.tsx
+│   │   │   ├── PageHeader.tsx       Title + description + action slot
+│   │   │   ├── PageLayout.tsx       Sidebar + ErrorBoundary-wrapped Outlet
+│   │   │   └── Sidebar.tsx          Nav links with active state
+│   │   └── shared/                  Reusable composite components
+│   │       ├── ConnectorCard.tsx    Settings page connector status card
+│   │       ├── ConnectorCard.test.tsx
+│   │       ├── ConnectorIcon.tsx    Colored dot + label per service
+│   │       ├── ConnectorIcon.test.tsx
+│   │       ├── CreatePlaylistModal.tsx  Dialog with form + mutation
+│   │       ├── CreatePlaylistModal.test.tsx
+│   │       ├── EmptyState.tsx       Icon + heading + description + action slot
+│   │       ├── EmptyState.test.tsx
+│   │       ├── TablePagination.tsx  Page controls for paginated list views
+│   │       └── TablePagination.test.tsx
+│   ├── hooks/
+│   │   ├── usePagination.ts         URL-state pagination (page param ↔ offset/limit)
+│   │   └── usePagination.test.tsx
+│   ├── lib/
+│   │   └── utils.ts                 shadcn cn() utility
 │   ├── pages/                       Route-level page components
-│   │   ├── Dashboard.tsx
-│   │   ├── Library.tsx
-│   │   ├── TrackDetail.tsx
-│   │   ├── Playlists.tsx
-│   │   ├── PlaylistDetail.tsx
-│   │   ├── PlaylistLinks.tsx
-│   │   ├── Workflows.tsx
-│   │   ├── WorkflowDetail.tsx
-│   │   ├── WorkflowEditor.tsx
-│   │   ├── Imports.tsx
-│   │   └── Settings.tsx
-│   ├── hooks/                       Shared custom hooks
-│   │   ├── useSSE.ts                SSE connection with reconnection
-│   │   ├── useOperation.ts          Operation progress tracking
-│   │   └── useDebounce.ts           Search input debouncing
-│   ├── types/                       Shared TypeScript types
-│   │   └── domain.ts                Frontend-only types (UI state, component props)
-│   ├── App.tsx                      Router + layout setup
-│   ├── main.tsx                     Entry point
+│   │   ├── Dashboard.tsx            Landing page (stats placeholder)
+│   │   ├── Dashboard.test.tsx
+│   │   ├── Playlists.tsx            List view with table + pagination
+│   │   ├── Playlists.test.tsx
+│   │   ├── PlaylistDetail.tsx       Track table + edit/delete dialogs
+│   │   ├── PlaylistDetail.test.tsx
+│   │   ├── Settings.tsx             Connector cards grid
+│   │   └── Settings.test.tsx
+│   ├── test/                        Test infrastructure
+│   │   ├── setup.ts                 MSW server bootstrap + jest-dom matchers
+│   │   └── test-utils.tsx           renderWithProviders + re-exports
+│   ├── App.tsx                      Router + Toaster (React.lazy page splitting, route definitions)
+│   ├── main.tsx                     Entry point (renders App with providers)
 │   └── theme.css                    Tailwind v4 @theme tokens
 ├── index.html
-├── components.json                 shadcn/ui CLI config
+├── biome.json                       Biome 2.x lint + format config
+├── components.json                  shadcn/ui CLI config
+├── openapi.json                     OpenAPI spec (input for Orval codegen)
+├── orval.config.ts                  Orval codegen configuration
 ├── vite.config.ts
+├── vitest.config.ts                 Vitest test runner config
 ├── tsconfig.json
 └── package.json
 ```
+
+> **Test coverage**: 12 test files, ~70 tests. Every page and shared component has a co-located `.test.tsx` file. Run with `pnpm --prefix web test`.
+>
+> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Imports.tsx` (v0.3.1), `Workflows.tsx` / `WorkflowDetail.tsx` / `WorkflowEditor.tsx` (v0.4.0), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
+>
+> **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `OperationProgress.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
+>
+> **Future hooks**: `useSSE.ts`, `useOperation.ts`, `useDebounce.ts`. These will be built for v0.3.1 (imports + progress).
 
 ---
 
 ## Key Decisions
 
-### API Client Generation (OpenAPI Codegen)
+### API Client Generation (Orval)
 
-- Generate TypeScript types **and** TanStack Query hooks from FastAPI's `/openapi.json` at build time
-- Use **Orval** or **openapi-ts** with the TanStack Query plugin — these are dev-time build tools, not heavyweight runtime generators
-- Generated output lives in `api/generated/` (types, hooks, and MSW mock handlers) — never hand-edit
-- Custom hooks (SSE, query option overrides) live alongside in `api/` as hand-written files
-- Error handling: interceptor on the generated client converts API error envelope to typed `ApiError` objects
+- **Orval v8** generates TypeScript types, Tanstack Query hooks, and MSW mock handlers from `web/openapi.json`
+- Uses `tags-split` mode: output splits by FastAPI route tag into `generated/playlists/`, `generated/connectors/`, etc.
+- Generated output lives in `api/generated/` — never hand-edit. Regenerate with `pnpm generate`
+- Custom `api/client.ts` provides the `customFetch` mutator (error handling, API error envelope parsing)
 - **Build-time contract safety**: TypeScript compilation fails if backend schema changes break frontend types — catches API drift before runtime
+
+**Critical: `customFetch` envelope contract**
+
+Orval v8 generates discriminated union response types:
+
+```typescript
+type Response = { data: T; status: 200; headers: Headers }
+             | { data: HTTPValidationError; status: 422; headers: Headers };
+```
+
+Components narrow on `.status` to access `.data`:
+```typescript
+const playlists = data?.status === 200 ? data.data : undefined;
+```
+
+The `customFetch` mutator **must** return `{ data: body, status, headers }` — not raw body. Returning just the parsed JSON silently breaks every discriminated union access.
 
 ### SSE Integration
 
@@ -235,6 +287,14 @@ web/
 - **`pages/`**: Route-level, compose ui + shared. Own data fetching via Tanstack Query hooks.
 - Keep components small. Extract when reused, not preemptively.
 
+### Error Boundaries
+
+`PageLayout` wraps `<Outlet />` with `react-error-boundary`'s `<ErrorBoundary>`:
+- **Sidebar stays outside** the boundary — a page crash never takes down navigation
+- **`resetKeys={[pathname]}`** auto-resets the boundary when the user navigates via sidebar (no manual state clearing)
+- **`PageErrorFallback`** renders with `role="alert"` and a "Try again" button that calls `resetErrorBoundary`
+- Visual style matches `EmptyState` (same container classes) — no new design primitives
+
 ### Design Tokens (Tailwind v4 `@theme`)
 
 ```css
@@ -252,12 +312,18 @@ web/
   --color-border: oklch(0.25 0.01 60);             /* subtle warm dividers */
   --color-text: oklch(0.93 0.005 80);              /* warm white */
   --color-text-muted: oklch(0.60 0.01 60);         /* secondary text */
+  --color-text-faint: oklch(0.55 0.01 60);         /* tertiary text, descriptions */
 
   /* Accents — sharp against dark */
   --color-primary: oklch(0.75 0.15 85);            /* warm gold */
   --color-secondary: oklch(0.70 0.12 25);          /* soft coral */
   --color-success: oklch(0.72 0.17 155);           /* green */
   --color-destructive: oklch(0.60 0.20 25);        /* warm red */
+
+  /* Status badges */
+  --color-status-connected: oklch(0.72 0.17 155);
+  --color-status-expired: oklch(0.70 0.15 70);
+  --color-status-available: oklch(0.65 0.12 230);
 
   /* Connector identity */
   --color-spotify: oklch(0.72 0.22 155);
@@ -307,7 +373,11 @@ No global state store. If cross-page state emerges, evaluate React Context befor
 ### Build & Deployment
 
 - Vite builds to `web/dist/`
-- FastAPI serves static files via `StaticFiles` mount
+- **Development**: Vite dev server proxies `/api` → `localhost:8000` (FastAPI)
+- **Production**: FastAPI serves the SPA as a single deployable artifact:
+  - `/assets/*` mounted via `StaticFiles` for hashed JS/CSS bundles
+  - `/{path}` catch-all returns `index.html` for client-side routing
+  - Paths starting with `api/` are excluded from the catch-all (return proper 404, not `index.html`)
+  - Implementation: `src/interface/api/app.py` → `_mount_static()`
 - Dockerfile (v0.5.0): add `pnpm install && vite build` stage, copy `dist/` to runtime image
-- API proxy in Vite dev config for local development (`/api` → `localhost:8000`)
-- No separate frontend hosting -- single deployable artifact
+- No separate frontend hosting — single deployable artifact

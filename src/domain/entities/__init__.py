@@ -8,7 +8,6 @@ from .operations import (
     PlayRecord,
     SyncCheckpoint,
     SyncCheckpointStatus,
-    TrackContextFields,
     TrackPlay,
     create_lastfm_play_record,
 )
@@ -22,7 +21,7 @@ from .playlist import (
 )
 
 # Shared utilities
-from .shared import ensure_utc, utc_now_factory
+from .shared import MetricValue, ensure_utc, utc_now_factory
 
 # Summary metrics
 from .summary_metrics import SummaryMetric, SummaryMetricCollection
@@ -38,6 +37,9 @@ from .track import (
     TrackMetric,
 )
 
+# Track mapping entity
+from .track_mapping import TrackMapping
+
 __all__ = [
     "Artist",
     "ConnectorPlaylist",
@@ -46,6 +48,7 @@ __all__ = [
     "ConnectorTrackMapping",
     "ConnectorTrackPlay",
     "MetadataKey",
+    "MetricValue",
     "OperationResult",
     "PlayRecord",
     "Playlist",
@@ -55,10 +58,10 @@ __all__ = [
     "SyncCheckpoint",
     "SyncCheckpointStatus",
     "Track",
-    "TrackContextFields",
     "TrackLike",
     "TrackList",
     "TrackListMetadata",
+    "TrackMapping",
     "TrackMetric",
     "TrackPlay",
     "create_lastfm_play_record",

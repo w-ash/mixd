@@ -4,7 +4,7 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
-# pyright: reportImportCycles=false
+# pyright: reportImportCycles=false, reportExplicitAny=false, reportAny=false
 # Intentional lazy import cycle: mapper.py lazily imports this module to delegate
 # primary mapping promotion to set_primary_mapping() (avoids duplicating SQL logic).
 
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits
-from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -96,50 +96,50 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
 
 
 @define(frozen=True, slots=True)
-class TrackMappingMapper(BaseModelMapper[DBTrackMapping, dict[str, Any]]):
+class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
     """Converts track-to-service mapping data between database and domain formats."""
 
     @override
     @staticmethod
-    async def to_domain(db_model: DBTrackMapping) -> dict[str, Any]:
-        """Convert database mapping to dictionary format.
+    async def to_domain(db_model: DBTrackMapping) -> TrackMapping:
+        """Convert database mapping to TrackMapping domain entity.
 
         Args:
             db_model: Database mapping instance.
 
         Returns:
-            Dictionary with mapping data including confidence scores.
+            TrackMapping domain entity with confidence scores.
         """
-        return {
-            "id": db_model.id,
-            "track_id": db_model.track_id,
-            "connector_track_id": db_model.connector_track_id,
-            "match_method": db_model.match_method,
-            "confidence": db_model.confidence,
-            "confidence_evidence": db_model.confidence_evidence,
-            "is_primary": db_model.is_primary,
-        }
+        return TrackMapping(
+            id=db_model.id,
+            track_id=db_model.track_id,
+            connector_track_id=db_model.connector_track_id,
+            connector_name=db_model.connector_name,
+            match_method=db_model.match_method,
+            confidence=db_model.confidence,
+            confidence_evidence=db_model.confidence_evidence,
+            is_primary=db_model.is_primary,
+        )
 
     @override
     @staticmethod
-    def to_db(domain_model: dict[str, Any]) -> DBTrackMapping:
-        """Convert dictionary to database mapping.
+    def to_db(domain_model: TrackMapping) -> DBTrackMapping:
+        """Convert TrackMapping domain entity to database mapping.
 
         Args:
-            domain_model: Dictionary with mapping data.
+            domain_model: TrackMapping domain entity.
 
         Returns:
             Database mapping instance ready for persistence.
         """
         return DBTrackMapping(
-            track_id=domain_model.get("track_id"),
-            connector_track_id=domain_model.get("connector_track_id"),
-            match_method=domain_model.get("match_method"),
-            confidence=domain_model.get("confidence"),
-            confidence_evidence=domain_model.get("confidence_evidence"),
-            is_primary=domain_model.get(
-                "is_primary", False
-            ),  # Default to non-primary, let explicit logic handle primary setting
+            track_id=domain_model.track_id,
+            connector_track_id=domain_model.connector_track_id,
+            connector_name=domain_model.connector_name,
+            match_method=domain_model.match_method,
+            confidence=domain_model.confidence,
+            confidence_evidence=domain_model.confidence_evidence,
+            is_primary=domain_model.is_primary,
         )
 
     @override
@@ -161,7 +161,7 @@ class ConnectorTrackRepository(BaseRepository[DBConnectorTrack, ConnectorTrack])
         )
 
 
-class TrackMappingRepository(BaseRepository[DBTrackMapping, dict[str, Any]]):
+class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
     """Manages track-to-service mapping storage and retrieval."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -271,7 +271,7 @@ class TrackConnectorRepository:
             ])
 
             # Create mapping from connector_track_id to track_id
-            track_ids = [m["track_id"] for m in mappings]
+            track_ids = [m.track_id for m in mappings]
 
             # Get unique track IDs and fetch tracks
             if track_ids:
@@ -279,8 +279,8 @@ class TrackConnectorRepository:
 
                 # Build the result mapping with O(1) lookups
                 for mapping in mappings:
-                    ct_id = mapping["connector_track_id"]
-                    track_id = mapping["track_id"]
+                    ct_id = mapping.connector_track_id
+                    track_id = mapping.track_id
 
                     # Use dictionary lookups for efficient access
                     if ct_id in ct_id_to_external_id and track_id in tracks_dict:
@@ -366,14 +366,11 @@ class TrackConnectorRepository:
 
             updated_tracks.append(updated_track)
 
-        # Bulk upsert connector tracks (return_models=True always returns list)
-        connector_tracks = cast(
-            list[ConnectorTrack],
-            await self.connector_repo.bulk_upsert(
-                connector_tracks_data,
-                lookup_keys=["connector_name", "connector_track_identifier"],
-                return_models=True,
-            ),
+        # Bulk upsert connector tracks
+        connector_tracks = await self.connector_repo.bulk_upsert(
+            connector_tracks_data,
+            lookup_keys=["connector_name", "connector_track_identifier"],
+            return_models=True,
         )
 
         # Create connector ID to DB ID mapping
@@ -506,12 +503,9 @@ class TrackConnectorRepository:
             for track in tracks
         ]
 
-        connector_tracks = cast(
-            list[ConnectorTrack],
-            await self.connector_repo.bulk_upsert(
-                connector_track_data,
-                lookup_keys=["connector_name", "connector_track_identifier"],
-            ),
+        connector_tracks = await self.connector_repo.bulk_upsert(
+            connector_track_data,
+            lookup_keys=["connector_name", "connector_track_identifier"],
         )
 
         # 2. Create a lookup dict for connector tracks
@@ -526,14 +520,14 @@ class TrackConnectorRepository:
         existing_mappings_list = await self.mapping_repo.find_by([
             self.mapping_repo.model_class.connector_track_id.in_(all_ct_db_ids),
         ])
-        existing_mapping_by_ct_id: dict[int, dict[str, Any]] = {
-            m["connector_track_id"]: m for m in existing_mappings_list
+        existing_mapping_by_ct_id: dict[int, TrackMapping] = {
+            m.connector_track_id: m for m in existing_mappings_list
         }
 
         # 4. Create or find domain tracks
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, Any]] = []
-        metrics_data: list[tuple[int | None, Any]] = []
+        metrics_data: list[tuple[int | None, dict[str, Any]]] = []
 
         # Group tracks by connector_track_identifier to handle duplicates
         tracks_by_identifier: dict[str, list[ConnectorTrack]] = {}
@@ -559,9 +553,9 @@ class TrackConnectorRepository:
 
             if mapping:
                 # Track exists, retrieve it
-                domain_track = await self.track_repo.get_by_id(mapping["track_id"])
+                domain_track = await self.track_repo.get_by_id(mapping.track_id)
                 logger.debug(
-                    f"Found existing track {mapping['track_id']} for "
+                    f"Found existing track {mapping.track_id} for "
                     + f"{connector}:{connector_track_identifier}"
                 )
 
@@ -569,9 +563,12 @@ class TrackConnectorRepository:
                 domain_tracks.extend(domain_track for _ in track_group)
 
                 # Update mapping confidence if needed
-                if mapping["confidence"] < BusinessLimits.FULL_CONFIDENCE_SCORE:
+                if (
+                    mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
+                    and mapping.id is not None
+                ):
                     _ = await self.mapping_repo.update(
-                        mapping["id"],
+                        mapping.id,
                         {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE},
                     )
             else:
@@ -700,13 +697,10 @@ class TrackConnectorRepository:
             for _, alt_id, ct in relink_pairs
         ]
 
-        secondary_cts = cast(
-            list[ConnectorTrack],
-            await self.connector_repo.bulk_upsert(
-                secondary_ct_data,
-                lookup_keys=["connector_name", "connector_track_identifier"],
-                return_models=True,
-            ),
+        secondary_cts = await self.connector_repo.bulk_upsert(
+            secondary_ct_data,
+            lookup_keys=["connector_name", "connector_track_identifier"],
+            return_models=True,
         )
 
         # Build alt_id → secondary connector track DB ID

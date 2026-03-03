@@ -4,12 +4,25 @@ These functions contain no external dependencies and implement the core business
 for determining how well tracks match across different music services.
 """
 
-from typing import Any
+from typing import NotRequired, TypedDict
 
 from rapidfuzz import fuzz
 
 from .config import MatchingConfig
 from .types import ConfidenceEvidence
+
+
+class InternalTrackData(TypedDict):
+    title: str
+    artists: list[str]
+    duration_ms: NotRequired[int | None]
+    isrc: NotRequired[str | None]
+
+
+class ServiceTrackData(TypedDict):
+    title: str
+    artist: str
+    duration_ms: NotRequired[int | None]
 
 
 def calculate_title_similarity(
@@ -56,8 +69,8 @@ def calculate_title_similarity(
 
 
 def calculate_confidence(
-    internal_track_data: dict[str, Any],
-    service_track_data: dict[str, Any],
+    internal_track_data: InternalTrackData,
+    service_track_data: ServiceTrackData,
     match_method: str,
     config: MatchingConfig,
 ) -> tuple[int, ConfidenceEvidence]:
@@ -119,13 +132,7 @@ def calculate_confidence(
     artist_similarity = 0.0
     artist_score = 0.0
     if internal_artists and service_artist:
-        # Get first artist name for comparison
-        internal_artist = (
-            internal_artists[0]
-            if isinstance(internal_artists[0], str)
-            else internal_artists[0].get("name", "")
-        )
-        internal_artist = internal_artist.lower()
+        internal_artist = internal_artists[0].lower()
         service_artist = service_artist.lower()
 
         artist_similarity = (

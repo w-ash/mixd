@@ -4,6 +4,9 @@ This module defines standardized configuration for music service connectors,
 ensuring consistent behavior across different implementations.
 """
 
+# pyright: reportExplicitAny=false
+# Legitimate Any: API response data, framework types
+
 from collections.abc import Callable
 from typing import Any, TypedDict
 
@@ -21,7 +24,7 @@ class ConnectorConfig(TypedDict):
     """
 
     # Required fields
-    factory: Callable[[dict[str, Any]], Any]
+    factory: Callable[[dict[str, Any]], object]
 
     # Optional fields (marked using NotRequired)
     dependencies: list[str]

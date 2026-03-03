@@ -14,6 +14,9 @@ through the registration functions. This eliminates static dependencies between
 shared utilities and specific service implementations.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: API response data, framework types
+
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -60,7 +63,7 @@ class MetricResolverProtocol(Protocol):
         self,
         track_ids: list[int],
         metric_name: str,
-        uow: Any,
+        uow: Any,  # UnitOfWorkProtocol — kept as Any to avoid cross-layer import
         resolve_fn: MetricResolveFn,
     ) -> dict[int, Any]:
         """Resolve metrics for tracks.

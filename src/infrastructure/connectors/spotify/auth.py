@@ -14,6 +14,8 @@ Thread safety: asyncio.Lock prevents concurrent token refresh storms when
 multiple tasks call get_valid_token() simultaneously.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false
+
 import asyncio
 import base64
 import collections.abc
@@ -22,7 +24,7 @@ import json
 from pathlib import Path
 import secrets
 import time
-from typing import Any, override
+from typing import Any, TypedDict, cast, override
 import urllib.parse
 import webbrowser
 
@@ -44,6 +46,22 @@ SPOTIFY_SCOPES = [
     "playlist-read-collaborative",
     "user-library-read",
 ]
+
+
+class SpotifyTokenCache(TypedDict):
+    """Spotipy-compatible token cache format.
+
+    All fields are required because we normalize the raw Spotify API response
+    before storing: _refresh_token() always preserves refresh_token and
+    computes expires_at.
+    """
+
+    access_token: str
+    token_type: str
+    expires_in: int
+    scope: str
+    expires_at: int
+    refresh_token: str
 
 
 # -------------------------------------------------------------------------
@@ -76,23 +94,23 @@ class SpotifyTokenManager:
 
     cache_path: Path = field(factory=lambda: Path(".spotify_cache"))
     _refresh_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
-    _token_info: dict[str, Any] | None = field(default=None, init=False, repr=False)
+    _token_info: SpotifyTokenCache | None = field(default=None, init=False, repr=False)
 
     # -------------------------------------------------------------------------
     # CACHE HELPERS
     # -------------------------------------------------------------------------
 
-    def _load_cache(self) -> dict[str, Any] | None:
+    def _load_cache(self) -> SpotifyTokenCache | None:
         """Read token from cache file. Returns None if missing or malformed."""
         if not self.cache_path.exists():
             return None
         try:
-            return json.loads(self.cache_path.read_text())
+            return cast(SpotifyTokenCache, json.loads(self.cache_path.read_text()))
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to read Spotify token cache: {e}")
             return None
 
-    def _save_cache(self, token_info: dict[str, Any]) -> None:
+    def _save_cache(self, token_info: SpotifyTokenCache) -> None:
         """Write token to cache file in spotipy-compatible format."""
         try:
             self.cache_path.write_text(json.dumps(token_info))
@@ -100,7 +118,7 @@ class SpotifyTokenManager:
             logger.warning(f"Failed to write Spotify token cache: {e}")
 
     @staticmethod
-    def _is_expired(token_info: dict[str, Any]) -> bool:
+    def _is_expired(token_info: SpotifyTokenCache) -> bool:
         """Return True if token will expire within 300 seconds (5 minutes).
 
         The 300-second buffer gives ample headroom against Spotify's server
@@ -119,7 +137,7 @@ class SpotifyTokenManager:
         client_secret = settings.credentials.spotify_client_secret.get_secret_value()
         return base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
-    async def _refresh_token(self, refresh_token: str) -> dict[str, Any]:
+    async def _refresh_token(self, refresh_token: str) -> SpotifyTokenCache:
         """Exchange refresh token for new access token via /api/token."""
         async with make_spotify_auth_client() as client:
             response = await client.post(
@@ -131,15 +149,18 @@ class SpotifyTokenManager:
                 },
             )
             _ = response.raise_for_status()
-            new_token = response.json()
+            raw = cast(dict[str, object], response.json())
 
         # Spotify sometimes omits refresh_token in refresh responses — preserve the old one
-        if "refresh_token" not in new_token:
-            new_token["refresh_token"] = refresh_token
+        if "refresh_token" not in raw:
+            raw["refresh_token"] = refresh_token
 
-        new_token["expires_at"] = int(time.time()) + new_token.get("expires_in", 3600)
+        expires_in = raw.get("expires_in", 3600)
+        raw["expires_at"] = int(time.time()) + (
+            expires_in if isinstance(expires_in, int) else 3600
+        )
         logger.debug("Spotify access token refreshed successfully")
-        return new_token
+        return cast(SpotifyTokenCache, raw)
 
     def _run_browser_auth(self) -> str:
         """Run Authorization Code flow: open browser, capture redirect code.
@@ -199,7 +220,7 @@ class SpotifyTokenManager:
         logger.debug("Spotify authorization code captured")
         return captured["code"]
 
-    async def _exchange_code(self, code: str) -> dict[str, Any]:
+    async def _exchange_code(self, code: str) -> SpotifyTokenCache:
         """Exchange authorization code for access + refresh tokens."""
         redirect_uri = settings.credentials.spotify_redirect_uri
         async with make_spotify_auth_client() as client:
@@ -213,11 +234,14 @@ class SpotifyTokenManager:
                 },
             )
             _ = response.raise_for_status()
-            token_info = response.json()
+            raw = cast(dict[str, object], response.json())
 
-        token_info["expires_at"] = int(time.time()) + token_info.get("expires_in", 3600)
+        expires_in = raw.get("expires_in", 3600)
+        raw["expires_at"] = int(time.time()) + (
+            expires_in if isinstance(expires_in, int) else 3600
+        )
         logger.info("Spotify authorization complete — token obtained")
-        return token_info
+        return cast(SpotifyTokenCache, raw)
 
     # -------------------------------------------------------------------------
     # PUBLIC API
@@ -258,6 +282,33 @@ class SpotifyTokenManager:
                 self._save_cache(self._token_info)
 
             return self._token_info["access_token"]
+
+    async def try_silent_refresh(self) -> SpotifyTokenCache | None:
+        """Attempt silent token refresh without browser fallback.
+
+        Unlike get_valid_token() which falls through to browser OAuth when no
+        token exists, this method returns None on any failure — safe for
+        server-side use where opening a browser would block the event loop.
+
+        Returns refreshed token info on success, None on failure.
+        """
+        async with self._refresh_lock:
+            if self._token_info is None:
+                self._token_info = self._load_cache()
+            if self._token_info is None:
+                return None
+            if not self._is_expired(self._token_info):
+                return self._token_info
+            try:
+                self._token_info = await self._refresh_token(
+                    self._token_info["refresh_token"]
+                )
+            except Exception:
+                logger.opt(exception=True).warning("Silent token refresh failed")
+                return None
+            else:
+                self._save_cache(self._token_info)
+                return self._token_info
 
     async def force_refresh(self) -> str:
         """Force-refresh the access token regardless of its current expiry state.

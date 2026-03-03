@@ -4,6 +4,8 @@ Handles CRUD operations for playlists from multiple music services (Spotify, Las
 MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
+# pyright: reportAny=false
+
 from collections import defaultdict
 from datetime import UTC, datetime
 
@@ -14,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from src.config import get_logger
 from src.domain.entities import ConnectorTrack, Playlist, PlaylistEntry, Track
 from src.infrastructure.persistence.database.db_models import (
+    DBConnectorPlaylist,
     DBPlaylist,
     DBPlaylistMapping,
     DBPlaylistTrack,
@@ -75,9 +78,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Returns:
             SQLAlchemy select statement.
         """
-        from src.infrastructure.persistence.database.db_models import (
-            DBConnectorPlaylist,
-        )
 
         return (
             self
@@ -408,9 +408,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Returns:
             Map of connector names to their database IDs.
         """
-        from src.infrastructure.persistence.database.db_models import (
-            DBConnectorPlaylist,
-        )
 
         now = datetime.now(UTC)
         connector_playlist_db_ids: dict[str, int] = {}
@@ -634,7 +631,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         db_model = await self.execute_select_one(stmt)
 
         if not db_model:
-            raise ValueError(f"Playlist with ID {playlist_id} not found")
+            from src.domain.exceptions import NotFoundError
+
+            raise NotFoundError(f"Playlist with ID {playlist_id} not found")
 
         # Convert to domain model
         return await self.mapper.to_domain(db_model)
@@ -657,7 +656,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             Playlist entity or None if not found and raise_if_not_found=False.
 
         Raises:
-            ValueError: If playlist not found and raise_if_not_found=True.
+            NotFoundError: If playlist not found and raise_if_not_found=True.
         """
         # Use the enhanced select method
         stmt = self.select_by_connector(connector, connector_id)
@@ -670,7 +669,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         if not db_model:
             if raise_if_not_found:
-                raise ValueError(f"Playlist for {connector}:{connector_id} not found")
+                from src.domain.exceptions import NotFoundError
+
+                raise NotFoundError(f"Playlist for {connector}:{connector_id} not found")
             return None
 
         # Convert to domain model
@@ -822,34 +823,51 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     async def list_all_playlists(self) -> list[Playlist]:
         """Get all playlists with basic metadata for efficient listing.
 
-        Optimized query that loads only essential playlist data without
-        heavy relationship loading. Perfect for CLI listing and management.
+        Lightweight query that skips track loading entirely. Eagerly loads
+        only mappings → connector_playlist (3 total queries) and builds
+        Playlist objects directly from DB scalar columns.
 
         Returns:
             List of all stored playlists with basic metadata
         """
         logger.debug("Listing all playlists")
 
-        # Build query with minimal relationship loading for efficiency
+        # Eagerly load mappings chain for connector identifiers — no track loading
         stmt = (
             self
             .select()
             .options(
-                # Load only playlist mappings for connector info, skip heavy track loading
                 selectinload(DBPlaylist.mappings)
+                .selectinload(DBPlaylistMapping.connector_playlist),
             )
-            .order_by(DBPlaylist.updated_at.desc())  # Most recently updated first
+            .order_by(DBPlaylist.updated_at.desc())
         )
 
         result = await self.session.execute(stmt)
         db_playlists = result.scalars().all()
 
-        # Convert to domain entities with minimal track loading
+        # Build lightweight Playlist objects directly — no mapper.to_domain()
         playlists: list[Playlist] = []
         for db_playlist in db_playlists:
-            # Map to domain entity without loading full track relationships
-            playlist = await self.mapper.to_domain(db_playlist)
-            playlists.append(playlist)
+            # Extract connector identifiers from eagerly-loaded chain
+            connector_ids: dict[str, str] = {}
+            for mapping in db_playlist.mappings:
+                cp = mapping.connector_playlist
+                if cp is not None:
+                    connector_ids[mapping.connector_name] = (
+                        cp.connector_playlist_identifier
+                    )
+
+            playlists.append(
+                Playlist(
+                    id=db_playlist.id,
+                    name=db_playlist.name,
+                    description=db_playlist.description,
+                    connector_playlist_identifiers=connector_ids,
+                    updated_at=db_playlist.updated_at,
+                    track_count=db_playlist.track_count,
+                )
+            )
 
         logger.info("Retrieved playlists for listing", count=len(playlists))
         return playlists

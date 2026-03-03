@@ -10,6 +10,9 @@ Key components:
 - Market-aware API calls with configurable timeouts
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: response.json() wire format, API response dicts
+
 from typing import Any, ClassVar, override
 
 from attrs import define, field
