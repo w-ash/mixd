@@ -23,6 +23,7 @@ from src.domain.entities import (
     SyncCheckpointStatus,
     Track,
 )
+from src.domain.entities.progress import ProgressEmitter
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -151,16 +152,52 @@ class ImportSpotifyLikesUseCase:
     """Imports liked tracks from Spotify into the local database."""
 
     async def execute(
-        self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportSpotifyLikesCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
     ) -> OperationResult:
         """Import Spotify liked tracks with database transaction management."""
+        from src.domain.entities.progress import NullProgressEmitter
+
+        emitter = progress_emitter or NullProgressEmitter()
         async with uow:
-            return await self._import(command, uow)
+            return await self._import(command, uow, emitter)
 
     async def _import(
-        self, command: ImportSpotifyLikesCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ImportSpotifyLikesCommand,
+        uow: UnitOfWorkProtocol,
+        emitter: ProgressEmitter,
     ) -> OperationResult:
         """Fetch and store Spotify liked tracks in batches."""
+        from src.domain.entities.progress import (
+            OperationStatus,
+            create_progress_operation,
+        )
+
+        operation = create_progress_operation("Importing Spotify Likes")
+        operation_id = await emitter.start_operation(operation)
+
+        try:
+            result = await self._import_inner(command, uow, emitter, operation_id)
+        except Exception:
+            await emitter.complete_operation(operation_id, OperationStatus.FAILED)
+            raise
+        else:
+            await emitter.complete_operation(operation_id, OperationStatus.COMPLETED)
+
+        return result
+
+    async def _import_inner(
+        self,
+        command: ImportSpotifyLikesCommand,
+        uow: UnitOfWorkProtocol,
+        emitter: ProgressEmitter,
+        operation_id: str,
+    ) -> OperationResult:
+        from src.domain.entities.progress import create_progress_event
+
         batch_size = command.limit or settings.api.spotify_batch_size
         checkpoint = await get_or_create_checkpoint(
             command.user_id, "spotify", "likes", uow
@@ -177,6 +214,13 @@ class ImportSpotifyLikesUseCase:
             if command.max_imports and imported >= command.max_imports:
                 logger.info(f"Reached max imports: {command.max_imports}")
                 break
+
+            await emitter.emit_progress(create_progress_event(
+                operation_id,
+                current=imported + already_synced,
+                total=None,
+                message=f"Fetching batch {batches + 1}...",
+            ))
 
             tracks, cursor = await spotify_connector.get_liked_tracks(
                 limit=batch_size, cursor=cursor
@@ -296,9 +340,22 @@ class ImportSpotifyLikesUseCase:
 
             batches += 1
 
+            await emitter.emit_progress(create_progress_event(
+                operation_id,
+                current=imported + already_synced,
+                total=None,
+                message=f"Processed batch {batches}: {imported} imported, {already_synced} already synced",
+            ))
+
             # Early termination if this batch is mostly duplicates
             if new_in_batch == 0 and batch_already_synced > len(tracks) * 0.8:
                 logger.info("Reached previously synced tracks, stopping")
+                await emitter.emit_progress(create_progress_event(
+                    operation_id,
+                    current=imported + already_synced,
+                    total=None,
+                    message="Detected high duplicate rate, finishing...",
+                ))
                 break
 
             # Update checkpoint periodically
@@ -359,16 +416,52 @@ class ExportLastFmLikesUseCase:
     """Exports locally liked tracks to Last.fm as "loved" tracks."""
 
     async def execute(
-        self, command: ExportLastFmLikesCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ExportLastFmLikesCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter | None = None,
     ) -> OperationResult:
         """Export liked tracks to Last.fm with database transaction management."""
+        from src.domain.entities.progress import NullProgressEmitter
+
+        emitter = progress_emitter or NullProgressEmitter()
         async with uow:
-            return await self._export(command, uow)
+            return await self._export(command, uow, emitter)
 
     async def _export(
-        self, command: ExportLastFmLikesCommand, uow: UnitOfWorkProtocol
+        self,
+        command: ExportLastFmLikesCommand,
+        uow: UnitOfWorkProtocol,
+        emitter: ProgressEmitter,
     ) -> OperationResult:
         """Find unsynced likes and export them to Last.fm."""
+        from src.domain.entities.progress import (
+            OperationStatus,
+            create_progress_operation,
+        )
+
+        operation = create_progress_operation("Exporting Likes to Last.fm")
+        operation_id = await emitter.start_operation(operation)
+
+        try:
+            result = await self._export_inner(command, uow, emitter, operation_id)
+        except Exception:
+            await emitter.complete_operation(operation_id, OperationStatus.FAILED)
+            raise
+        else:
+            await emitter.complete_operation(operation_id, OperationStatus.COMPLETED)
+
+        return result
+
+    async def _export_inner(
+        self,
+        command: ExportLastFmLikesCommand,
+        uow: UnitOfWorkProtocol,
+        emitter: ProgressEmitter,
+        operation_id: str,
+    ) -> OperationResult:
+        from src.domain.entities.progress import create_progress_event
+
         batch_size = command.batch_size or settings.api.lastfm_batch_size
         checkpoint = await get_or_create_checkpoint(
             command.user_id, "lastfm", "likes", uow
@@ -392,15 +485,16 @@ class ExportLastFmLikesUseCase:
             await like_repo.get_all_liked_tracks(service="narada", is_liked=True)
         )
         already_loved = total_narada - len(unsynced)
+        total_to_export = len(unsynced)
 
         if total_narada > 0:
             logger.info(
                 f"Export: {total_narada} total, {already_loved} already loved "
-                + f"({already_loved / total_narada * 100:.1f}%), {len(unsynced)} candidates"
+                + f"({already_loved / total_narada * 100:.1f}%), {total_to_export} candidates"
             )
         else:
             logger.info(
-                f"Export: no liked tracks in narada, {len(unsynced)} candidates"
+                f"Export: no liked tracks in narada, {total_to_export} candidates"
             )
 
         exported = 0
@@ -415,6 +509,13 @@ class ExportLastFmLikesUseCase:
 
             batch = unsynced[i : i + batch_size]
             batch_time = datetime.now(UTC)
+
+            await emitter.emit_progress(create_progress_event(
+                operation_id,
+                current=exported,
+                total=total_to_export or None,
+                message=f"Loving track {exported + 1} of {total_to_export}...",
+            ))
 
             # Batch-fetch all tracks for this batch (single query instead of N)
             track_repo = uow.get_track_repository()
@@ -583,6 +684,7 @@ async def run_spotify_likes_import(
     user_id: str,
     limit: int | None = None,
     max_imports: int | None = None,
+    progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
     """Import Spotify liked tracks into local database."""
     from src.application.runner import execute_use_case
@@ -591,7 +693,9 @@ async def run_spotify_likes_import(
         user_id=user_id, limit=limit, max_imports=max_imports
     )
     return await execute_use_case(
-        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow)
+        lambda uow: ImportSpotifyLikesUseCase().execute(
+            command, uow, progress_emitter
+        )
     )
 
 
@@ -600,6 +704,7 @@ async def run_lastfm_likes_export(
     batch_size: int | None = None,
     max_exports: int | None = None,
     override_date: datetime | None = None,
+    progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
     """Export locally liked tracks to Last.fm as loved tracks."""
     from src.application.runner import execute_use_case
@@ -611,7 +716,9 @@ async def run_lastfm_likes_export(
         override_date=override_date,
     )
     return await execute_use_case(
-        lambda uow: ExportLastFmLikesUseCase().execute(command, uow)
+        lambda uow: ExportLastFmLikesUseCase().execute(
+            command, uow, progress_emitter
+        )
     )
 
 

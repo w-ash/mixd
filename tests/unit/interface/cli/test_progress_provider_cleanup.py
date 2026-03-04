@@ -42,7 +42,7 @@ class TestRichProgressProviderCleanup:
         await provider.stop_display()
 
         # Give event loop a chance to process any remaining callbacks
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
         # Check that no tasks are left pending
         # This will fail if cleanup tasks aren't properly cancelled
@@ -78,7 +78,7 @@ class TestRichProgressProviderCleanup:
         await provider.stop_display()
 
         # Give event loop a chance to process
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
         # Verify no cleanup tasks are left pending
         pending_cleanup_tasks = [

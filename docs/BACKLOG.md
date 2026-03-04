@@ -156,52 +156,52 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 #### SSE Progress Epic
 
-- [ ] **SSE Progress Provider**
+- [x] **SSE Progress Provider**
+    - Status: ✅ Completed (2026-03-03)
     - Effort: M
     - What: `SSEProgressProvider` implementing `ProgressSubscriber` protocol — serializes `ProgressEvent` to SSE `data:` frames
     - Why: Real-time progress is the defining UX for import operations; this validates the progress architecture
     - Dependencies: FastAPI app (v0.3.0)
-    - Status: 🔜 Not Started
     - Notes:
         - Implements same `ProgressSubscriber` protocol as `RichProgressProvider` (CLI)
         - Registered with `AsyncProgressManager.subscribe()` — same pub/sub mechanism
-        - Endpoints: `GET /operations/{id}/progress` (SSE stream), `GET /operations/{id}` (snapshot fallback), `GET /operations` (recent)
-        - Standardize progress reporting across all long-running operations (ETA calculations where possible)
-        - **Backend**: Use `sse-starlette` library for SSE response streaming
-        - **Production headers**: Set `X-Accel-Buffering: no` (prevents Nginx/reverse proxy from buffering SSE chunks) and `Cache-Control: no-cache`
-        - **Disconnect detection**: Check `request.is_disconnected()` in the SSE generator loop to clean up resources when clients drop
-        - **Memory**: Each SSE connection maintains a buffer — monitor connection count in production
+        - Endpoints: `GET /operations/{id}/progress` (SSE stream), `GET /operations` (list active)
+        - Used FastAPI's built-in `EventSourceResponse` (Starlette) — no `sse-starlette` dependency needed
+        - Production headers: `X-Accel-Buffering: no`, `Cache-Control: no-cache`
+        - Concurrent operation limit (HTTP 429 with `Retry-After`) prevents resource exhaustion
 
 #### Import Endpoints Epic
 
-- [ ] **Import API Routes**
+- [x] **Import API Routes**
+    - Status: ✅ Completed (2026-03-03)
     - Effort: S
     - What: Import trigger endpoints backed by existing use cases
     - Why: Users need to trigger imports from the web UI
     - Dependencies: SSE Progress Provider
-    - Status: 🔜 Not Started
     - Notes:
         - `POST /imports/spotify/likes` → `SyncLikesUseCase`
         - `POST /imports/lastfm/history` → `ImportPlayHistoryUseCase` (Last.fm mode)
         - `POST /imports/spotify/history` → `ImportPlayHistoryUseCase` (Spotify GDPR mode)
+        - `POST /imports/lastfm/likes` → Last.fm likes export
         - `GET /imports/checkpoints` → sync checkpoint query
-        - Non-blocking execution via `BackgroundTask` — SSE streams progress back
+        - Non-blocking execution via `asyncio.create_task` — SSE streams progress back
 
 #### Imports Frontend Epic
 
-- [ ] **Imports Page + Progress UI**
+- [x] **Imports Page + Progress UI**
+    - Status: ✅ Completed (2026-03-03)
     - Effort: M
-    - What: Imports page with operation triggers, SSE progress display, and activity feed
+    - What: Imports page with operation triggers, SSE progress display, and checkpoint status
     - Why: The web UI isn't useful until users can trigger operations
     - Dependencies: Import API Routes
-    - Status: 🔜 Not Started
     - Notes:
-        - `useSSE` hook wrapping `@microsoft/fetch-event-source` (not native `EventSource` — supports POST, custom headers) with `Last-Event-ID` reconnection and typed `ProgressEvent` parsing
-        - `useOperation` hook composing SSE + Tanstack Query
-        - `OperationProgress` shared component (progress bar, status messages, completion summary)
-        - Imports page (`/imports`): available operations, checkpoint status per connector, activity feed
-        - Sidebar badge indicator when operations are running
-        - Persistent toast for background operation completion
+        - `useOperationProgress` hook using `eventsource-parser` v3 + native `fetch()` (not `@microsoft/fetch-event-source` or native `EventSource`)
+        - `connectToSSE` adapter in `sse-client.ts` for testability — async iterable over parsed SSE events
+        - Abort-aware `Promise.race` loop prevents dangling async iterators in React cleanup
+        - `OperationProgress` shared component (progress bar, status messages, ETA, items/sec)
+        - Imports page (`/imports`): four import operations with per-mutation toast error handling
+        - Checkpoint data fetched once at page level, passed as props (single TanStack Query subscription)
+        - Orval-generated query keys for automatic cache invalidation on operation complete
 
 ---
 

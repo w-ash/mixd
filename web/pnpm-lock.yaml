@@ -17,6 +17,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      eventsource-parser:
+        specifier: ^3.0.6
+        version: 3.0.6
       lucide-react:
         specifier: ^0.576.0
         version: 0.576.0(react@19.2.4)

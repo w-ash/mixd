@@ -317,31 +317,17 @@ async def init_db() -> None:
     Creates all tables if they don't exist.
     This is a safe operation that won't affect existing data.
     """
-    from sqlalchemy import inspect as sa_inspect
-
     from src.infrastructure.persistence.database.db_models import DatabaseModel
 
     db_engine = get_engine()
 
     try:
-        # First check if tables exist (for informational purposes)
-        async with db_engine.connect() as conn:
-            inspector = await conn.run_sync(sa_inspect)
-            existing_tables = await conn.run_sync(lambda _: inspector.get_table_names())
-
-            if existing_tables:
-                logger.debug(f"Found existing tables: {existing_tables}")
-
-        # Create tables - SQLAlchemy will skip tables that already exist
         async with db_engine.begin() as conn:
             await conn.run_sync(DatabaseModel.metadata.create_all)
-            logger.info("Database schema verified - all tables exist")
-
+            logger.info("Database schema initialized")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
-    else:
-        logger.info("Database schema initialization complete")
 
 
 __all__ = [

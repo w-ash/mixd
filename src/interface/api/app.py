@@ -8,6 +8,8 @@ When web/dist/ exists (frontend build output), the app also serves the
 React SPA with a catch-all fallback to index.html for client-side routing.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,6 +24,23 @@ from src.interface.api.routes.health import router as health_router
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Wire SSE progress subscriber to the global progress manager."""
+    from src.application.services.progress_manager import get_progress_manager
+    from src.interface.api.services.progress import (
+        SSEProgressSubscriber,
+        get_operation_registry,
+    )
+
+    registry = get_operation_registry()
+    subscriber = SSEProgressSubscriber(registry)
+    manager = get_progress_manager()
+    sub_id = await manager.subscribe(subscriber)
+    yield
+    await manager.unsubscribe(sub_id)
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -29,14 +48,16 @@ def create_app() -> FastAPI:
     - CORS configured for the Vite dev server
     - All API routers mounted under /api/v1
     - Global exception-to-error-envelope handlers
+    - SSE progress subscriber wired via lifespan
     - Static file serving + SPA catch-all when web/dist/ exists
     """
     app = FastAPI(
         title="Narada",
         description="Personal music metadata hub",
-        version="0.3.0",
+        version="0.3.1",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
 
     # CORS — configurable via CORS_ORIGINS env var or settings.server.cors_origins
@@ -55,11 +76,15 @@ def create_app() -> FastAPI:
 
     # Mount routers
     from src.interface.api.routes.connectors import router as connectors_router
+    from src.interface.api.routes.imports import router as imports_router
+    from src.interface.api.routes.operations import router as operations_router
     from src.interface.api.routes.playlists import router as playlists_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")
     app.include_router(connectors_router, prefix="/api/v1")
+    app.include_router(imports_router, prefix="/api/v1")
+    app.include_router(operations_router, prefix="/api/v1")
 
     # Serve built frontend if web/dist/ exists
     _mount_static(app)

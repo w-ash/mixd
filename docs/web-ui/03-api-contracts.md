@@ -50,12 +50,18 @@ Exception-to-HTTP mapping is handled by `src/interface/api/middleware.py`:
 | `RequestValidationError` | `422` | (FastAPI default) | Pydantic schema violations (automatic) |
 | Unhandled `Exception` | `500` | `INTERNAL_ERROR` | Generic message, details logged server-side |
 
+Implemented status codes:
+
+| HTTP Status | Meaning | Since |
+|-------------|---------|-------|
+| `413` | Payload too large (file upload exceeds 100 MB limit) | v0.3.1 |
+| `429` | Too many concurrent operations (max 3 simultaneous imports) | v0.3.1 |
+
 Future status codes (not yet implemented):
 
 | HTTP Status | Meaning | Milestone |
 |-------------|---------|-----------|
-| `409` | Conflict (operation already running, duplicate resource) | v0.3.1 |
-| `429` | Rate limited (forwarded from connector APIs) | v0.3.1 |
+| `409` | Conflict (operation already running, duplicate resource) | v0.3.2+ |
 | `503` | Service unavailable (connector not connected) | v0.4.0 |
 
 ### Pagination
@@ -547,36 +553,40 @@ GET    /workflows/{id}/runs/{run_id}
 
 ```
 POST   /imports/lastfm/history
-       body: { from_date?: str, to_date?: str }
+       body: { mode: "recent" | "incremental" | "full", limit?: int, from_date?: str, to_date?: str }
        → { operation_id: str }
 ```
-- **Use case**: `ImportPlayHistoryUseCase`
-- **Status**: Exists
+- **Use case**: `ImportPlayHistoryUseCase` (via `run_import()`)
+- **Status**: ✅ Implemented (v0.3.1)
+- **Background**: Launches as background task, returns operation_id immediately for SSE progress subscription
 
 ```
 POST   /imports/spotify/history
-       body: multipart/form-data (one or more JSON files)
+       body: multipart/form-data (single JSON file, max 100 MB)
        → { operation_id: str }
 ```
-- **Use case**: `ImportPlayHistoryUseCase` (file variant)
-- **Status**: Exists
+- **Use case**: `ImportPlayHistoryUseCase` (file variant via `run_import()`)
+- **Status**: ✅ Implemented (v0.3.1)
+- **Note**: Returns `413` if file exceeds 100 MB. File is saved to temp location and cleaned up after processing.
 
 ```
 POST   /imports/spotify/likes
+       body: { limit?: int, max_imports?: int }
        → { operation_id: str }
 ```
-- **Use case**: `SyncLikesUseCase` (Spotify import direction)
-- **Status**: Exists
+- **Use case**: `SyncLikesUseCase` (Spotify import direction via `run_spotify_likes_import()`)
+- **Status**: ✅ Implemented (v0.3.1)
 
 ```
-POST   /imports/lastfm/export-likes
+POST   /imports/lastfm/likes
+       body: { batch_size?: int, max_exports?: int }
        → { operation_id: str }
 ```
-- **Use case**: `SyncLikesUseCase` (Last.fm export direction)
-- **Status**: Exists
+- **Use case**: `SyncLikesUseCase` (Last.fm export direction via `run_lastfm_likes_export()`)
+- **Status**: ✅ Implemented (v0.3.1)
 
 ```
-GET    /imports/lastfm/export-likes/preview
+GET    /imports/lastfm/likes/preview
        → { count: int, tracks: TrackSummary[] }
 ```
 - **Use case**: Preview export count
@@ -584,22 +594,33 @@ GET    /imports/lastfm/export-likes/preview
 
 ```
 GET    /imports/checkpoints
-       → { data: SyncCheckpoint[] }
+       → CheckpointStatus[] (flat array, no envelope)
 ```
-- **Use case**: Checkpoint query
-- **Status**: Needs implementation
+- **Use case**: Checkpoint query (via `get_sync_checkpoint_status()`)
+- **Status**: ✅ Implemented (v0.3.1)
 
-### Import Object Schemas (stub)
+### Import Object Schemas
+
+Defined in `src/interface/api/schemas/imports.py`.
 
 ```json
-// SyncCheckpoint
+// OperationStartedResponse
 {
-  "service": "lastfm | spotify",
-  "entity_type": "play_history | likes",
-  "last_timestamp": "ISO8601",
-  "cursor": "string | null"
+  "operation_id": "uuid-string"
+}
+
+// CheckpointStatus
+{
+  "service": "spotify | lastfm",
+  "entity_type": "likes | plays",
+  "last_sync_timestamp": "ISO8601 | null",
+  "has_previous_sync": true
 }
 ```
+
+### Concurrency Limit
+
+A maximum of 3 concurrent import operations are allowed (configurable via `SSEConstants.MAX_CONCURRENT_OPERATIONS`). The limit is checked against *logically active* operations — operations that have finished their use-case work but are still in the 30-second SSE grace period do not count against the limit. Exceeding the limit returns `429` with `Retry-After: 30`.
 
 ---
 
@@ -646,9 +667,17 @@ GET    /operations/{operation_id}/progress
        Accept: text/event-stream
        → SSE stream of ProgressEvent
 ```
-- **Use case**: `SSEProgressProvider` (new, implements existing `ProgressSubscriber` protocol)
-- **Status**: Needs implementation
+- **Use case**: `OperationBoundEmitter` + `OperationRegistry` (implements `ProgressEmitter` protocol)
+- **Status**: ✅ Implemented (v0.3.1)
 - **SSE reconnection**: Supports `Last-Event-ID` header for reconnection
+- **Grace period**: SSE queue stays alive 30 seconds after operation completes to allow clients to receive final events
+
+```
+GET    /operations
+       → { data: OperationSummary[] } (active operations only)
+```
+- **Use case**: List currently active operations
+- **Status**: ✅ Implemented (v0.3.1)
 
 ```
 GET    /operations/{operation_id}
@@ -664,29 +693,26 @@ POST   /operations/{operation_id}/cancel
 - **Use case**: Cancel running operation
 - **Status**: Needs implementation
 
-```
-GET    /operations
-       ?limit=20
-       → { data: OperationSummary[], total, limit, offset }
-```
-- **Use case**: Recent operations activity feed
-- **Status**: Needs implementation
-
 ### SSE Event Format
 
 ```
-id: 42
-event: progress
-data: {"operation_id":"uuid","status":"RUNNING","current":150,"total":5000,"message":"Importing plays...","metadata":{}}
+event: started
+data: {"total": 5000, "description": "Importing listening history..."}
 
-id: 43
+event: progress
+data: {"current": 150, "total": 5000, "message": "Importing plays...", "completion_percentage": 3.0, "items_per_second": 12.5, "eta_seconds": 388}
+
 event: complete
-data: {"operation_id":"uuid","status":"COMPLETED","current":5000,"total":5000,"message":"Import complete","result":{...}}
+data: {"final_status": "completed"}
+
+event: error
+data: {"message": "Import failed: rate limited"}
 ```
 
-- `id` field enables `Last-Event-ID` reconnection
-- `event` types: `progress`, `complete`, `error`, `cancelled`
-- `data` matches the domain `ProgressEvent` shape
+- `event` types: `started`, `progress`, `complete`, `error`
+- `started` provides total count and description for initial display
+- `progress` events include optional computed metrics (percentage, throughput, ETA)
+- Both `complete` and `error` events trigger query invalidation on the frontend
 
 ---
 
@@ -781,27 +807,30 @@ Fields:
 
 ## Use Case Mapping Summary
 
-### Implemented API Routes (v0.3.0)
+### Implemented API Routes
 
-| Use Case | API Endpoints | Route File |
-|----------|--------------|------------|
-| `ListPlaylistsUseCase` | `GET /playlists` | `routes/playlists.py` |
-| `CreateCanonicalPlaylistUseCase` | `POST /playlists` | `routes/playlists.py` |
-| `ReadCanonicalPlaylistUseCase` | `GET /playlists/{id}`, `GET /playlists/{id}/tracks` | `routes/playlists.py` |
-| `UpdateCanonicalPlaylistUseCase` | `PATCH /playlists/{id}` | `routes/playlists.py` |
-| `DeleteCanonicalPlaylistUseCase` | `DELETE /playlists/{id}` | `routes/playlists.py` |
-| *(no use case)* | `GET /connectors` | `routes/connectors.py` |
-| *(no use case)* | `GET /health` | `routes/health.py` |
+| Use Case | API Endpoints | Route File | Since |
+|----------|--------------|------------|-------|
+| `ListPlaylistsUseCase` | `GET /playlists` | `routes/playlists.py` | v0.3.0 |
+| `CreateCanonicalPlaylistUseCase` | `POST /playlists` | `routes/playlists.py` | v0.3.0 |
+| `ReadCanonicalPlaylistUseCase` | `GET /playlists/{id}`, `GET /playlists/{id}/tracks` | `routes/playlists.py` | v0.3.0 |
+| `UpdateCanonicalPlaylistUseCase` | `PATCH /playlists/{id}` | `routes/playlists.py` | v0.3.0 |
+| `DeleteCanonicalPlaylistUseCase` | `DELETE /playlists/{id}` | `routes/playlists.py` | v0.3.0 |
+| *(no use case)* | `GET /connectors` | `routes/connectors.py` | v0.3.0 |
+| *(no use case)* | `GET /health` | `routes/health.py` | v0.3.0 |
+| `ImportPlayHistoryUseCase` | `POST /imports/lastfm/history`, `POST /imports/spotify/history` | `routes/imports.py` | v0.3.1 |
+| `SyncLikesUseCase` | `POST /imports/spotify/likes`, `POST /imports/lastfm/likes` | `routes/imports.py` | v0.3.1 |
+| Checkpoint query | `GET /imports/checkpoints` | `routes/imports.py` | v0.3.1 |
+| SSE progress streaming | `GET /operations/{id}/progress` | `routes/operations.py` | v0.3.1 |
+| Active operations list | `GET /operations` | `routes/operations.py` | v0.3.1 |
 
 ### Use Cases With Existing Logic (Need API Routes)
 
 | Use Case | API Endpoints | Milestone |
 |----------|--------------|-----------|
-| `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.1+ |
+| `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.2+ |
 | `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.0 |
 | `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.0 |
-| `SyncLikesUseCase` | `POST /imports/spotify/likes`, `POST /imports/lastfm/export-likes` | v0.3.1 |
-| `ImportPlayHistoryUseCase` | `POST /imports/lastfm/history`, `POST /imports/spotify/history` | v0.3.1 |
 | `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` | v0.3.2 |
 | `EnrichTracksUseCase` | Internal (used by workflows) | — |
 
@@ -809,15 +838,13 @@ Fields:
 
 | Use Case | Milestone | API Endpoints |
 |----------|-----------|--------------|
-| SSE progress streaming | v0.3.1 | `GET /operations/{id}/progress` |
-| Operation cancellation | v0.3.1 | `POST /operations/{id}/cancel` |
+| Operation cancellation | v0.3.2+ | `POST /operations/{id}/cancel` |
 | `ListTracksUseCase` | v0.3.2 | `GET /tracks` |
 | `GetTrackDetailsUseCase` | v0.3.2 | `GET /tracks/{id}` |
 | `SearchTracksUseCase` | v0.3.2 | `GET /tracks?q=...` |
 | `GetTrackConnectorMappingsUseCase` | v0.3.2 | `GET /tracks/{id}/mappings` |
 | `GetTrackStatsUseCase` | v0.3.3 | `GET /stats/dashboard` |
 | `GetConnectorMappingStatsUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
-| `GetSyncStatusUseCase` | v0.3.3 | `GET /imports/checkpoints` |
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | Workflow CRUD | v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
 | Workflow execution | v0.4.0 | `POST /workflows/{id}/run` |

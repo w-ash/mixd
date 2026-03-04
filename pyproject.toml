@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "narada"
-version = "0.3.0"
+version = "0.3.1"
 description = "Music metadata integration and playlist management platform"
 authors = ["Ash Wright <a@ashwright.net>"]
 homepage = "https://github.com/w-ash/narada"
@@ -25,8 +25,9 @@ prefect = "^3.6.19"
 aiosqlite = "^0.22.1"
 rapidfuzz = "^3.14.3"
 pydantic-settings = "^2.13.1"
-fastapi = ">=0.115"
+fastapi = ">=0.135"
 uvicorn = {extras = ["standard"], version = ">=0.34"}
+python-multipart = "^0.0.22"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"

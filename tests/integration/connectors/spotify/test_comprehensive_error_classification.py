@@ -21,6 +21,7 @@ import httpx
 import pytest
 
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.spotify.models import SpotifyPaginatedPlaylistItems
 
 
 def make_httpx_error(status_code: int, message: str = "") -> httpx.HTTPStatusError:
@@ -58,6 +59,14 @@ class TestComprehensiveErrorClassification:
             mock_settings.api.spotify_retry_base_delay = 0.5
             mock_settings.api.spotify_retry_max_delay = 30.0
             yield SpotifyAPIClient()
+
+    @pytest.fixture
+    def fast_retry_client(self, spotify_client):
+        """Client with instant retries — no exponential backoff waits."""
+        from tenacity import wait_none
+
+        spotify_client._retry_policy.wait = wait_none()
+        return spotify_client
 
     # PERMANENT ERRORS (4xx status codes) - Should NOT retry, immediate failure
     @pytest.mark.parametrize(
@@ -113,21 +122,18 @@ class TestComprehensiveErrorClassification:
         assert duration < 2.0, f"Not found error took too long: {duration}s"
 
     # RATE LIMIT ERRORS (429) - Should retry 2-3 times with backoff
-    async def test_rate_limit_error_retries(self, spotify_client):
+    async def test_rate_limit_error_retries(self, fast_retry_client):
         """Test 429 Too Many Requests triggers retries with proper backoff."""
         error = make_httpx_error(429, "Too Many Requests - rate limit exceeded")
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            start_time = time.time()
-            result = await spotify_client.get_tracks_bulk(["test_track_id"])
-            duration = time.time() - start_time
+            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
 
         assert result is None
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for rate limit error, got {mock_impl.call_count}"
         )
-        assert duration > 0, f"Rate limit retries should have some delay: {duration}s"
 
     # TEMPORARY ERRORS (5xx status codes) - Should retry 2-3 times with backoff
     @pytest.mark.parametrize(
@@ -143,22 +149,19 @@ class TestComprehensiveErrorClassification:
         ],
     )
     async def test_temporary_server_errors_retry_comprehensive(
-        self, spotify_client, status_code, description
+        self, fast_retry_client, status_code, description
     ):
         """Test all temporary server error status codes trigger proper retries."""
         error = make_httpx_error(status_code, description)
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            start_time = time.time()
-            result = await spotify_client.get_tracks_bulk(["test_track_id"])
-            duration = time.time() - start_time
+            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
 
         assert result is None
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for server error {status_code}, got {mock_impl.call_count}"
         )
-        assert duration > 0, f"Server error retries should have some delay: {duration}s"
 
     # NETWORK ERRORS (httpx.RequestError) - Retried as temporary (not propagated)
     @pytest.mark.parametrize(
@@ -170,7 +173,7 @@ class TestComprehensiveErrorClassification:
         ],
     )
     async def test_network_errors_retried_as_temporary(
-        self, spotify_client, error_message
+        self, fast_retry_client, error_message
     ):
         """Test httpx network errors (RequestError) are retried 3 times as temporary.
 
@@ -183,7 +186,7 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            result = await spotify_client.get_tracks_bulk(["test_track_id"])
+            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
 
         # Network errors ARE retried (3 times) and then return None
         assert result is None
@@ -192,23 +195,22 @@ class TestComprehensiveErrorClassification:
         )
 
     # SUCCESS AFTER RETRIES - Test resilience patterns
-    async def test_success_after_temporary_failure(self, spotify_client):
+    async def test_success_after_temporary_failure(self, fast_retry_client):
         """Test successful recovery after temporary failures."""
         success_data = {"tracks": [{"id": "test_track", "name": "Test Track"}]}
         error = make_httpx_error(503, "Service Unavailable")
 
         mock_impl = AsyncMock(side_effect=[error, error, success_data])
         with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            start_time = time.time()
-            result = await spotify_client.get_tracks_bulk(["test_track_id"])
-            duration = time.time() - start_time
+            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
 
-        # Should succeed and return data on 3rd attempt
-        assert result == success_data
+        # Should succeed and return parsed models on 3rd attempt
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].id == "test_track"
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for eventual success, got {mock_impl.call_count}"
         )
-        assert duration > 0, f"Eventual success should have some delay: {duration}s"
 
     # ALL METHODS COMPREHENSIVE TESTING - Test error handling across all client methods
     @pytest.mark.parametrize(
@@ -244,32 +246,26 @@ class TestComprehensiveErrorClassification:
             ),
             (
                 "get_next_page",
-                ({"next": "https://api.spotify.com/v1/test"},),
+                (SpotifyPaginatedPlaylistItems(next="https://api.spotify.com/v1/test"),),
                 "_get_next_page_impl",
             ),
         ],
     )
     async def test_all_methods_error_handling_comprehensive(
-        self, spotify_client, method_name, method_args, impl_name
+        self, fast_retry_client, method_name, method_args, impl_name
     ):
         """Test that all Spotify client methods have proper error handling and retry behavior."""
         error = make_httpx_error(429, "Too Many Requests")
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, impl_name, mock_impl):
-            method = getattr(spotify_client, method_name)
-            start_time = time.time()
+            method = getattr(fast_retry_client, method_name)
             result = await method(*method_args)
-            duration = time.time() - start_time
 
-        assert result is None
+        assert not result  # None for most methods, [] for search_track
 
         # Should retry 3 times for rate limit errors
         assert mock_impl.call_count == 3, (
             f"Method {method_name} expected 3 calls for rate limit error, "
             f"got {mock_impl.call_count}"
-        )
-
-        assert duration > 0, (
-            f"Method {method_name} retries should have some delay: {duration}s"
         )

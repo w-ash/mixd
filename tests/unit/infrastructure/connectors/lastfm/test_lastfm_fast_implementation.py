@@ -4,6 +4,8 @@ import asyncio
 import time
 from unittest.mock import patch
 
+import pytest
+
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
@@ -158,6 +160,7 @@ class TestLastFMFastImplementation:
         assert result.lastfm_user_loved
         assert duration < 0.01  # Pydantic + attrs should be < 10ms
 
+    @pytest.mark.diagnostic
     async def test_end_to_end_performance_comparison(self):
         """Compare old vs new approach end-to-end performance."""
 

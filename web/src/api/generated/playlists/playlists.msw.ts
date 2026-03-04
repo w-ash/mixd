@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 import {
   faker

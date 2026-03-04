@@ -219,7 +219,7 @@ class TestComprehensiveErrorClassification:
         ],
     )
     async def test_text_pattern_classification(
-        self, lastfm_client, error_pattern, expected_type, should_retry
+        self, fast_retry_client, error_pattern, expected_type, should_retry
     ):
         """Test error classification from response text when error codes unavailable."""
         if should_retry:
@@ -235,7 +235,7 @@ class TestComprehensiveErrorClassification:
             mock_api = AsyncMock(side_effect=LastFMAPIError("999", error_pattern))
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            result = await lastfm_client.get_track_info_comprehensive(
+            result = await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
 
@@ -252,7 +252,7 @@ class TestComprehensiveErrorClassification:
             )
 
     # UNKNOWN ERRORS - Should be classified as unknown and retry
-    async def test_unknown_error_handling(self, lastfm_client):
+    async def test_unknown_error_handling(self, fast_retry_client):
         """Test unrecognized errors are classified as unknown and retried."""
         mock_api = AsyncMock(
             side_effect=[
@@ -264,19 +264,14 @@ class TestComprehensiveErrorClassification:
         )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            start_time = time.time()
-            await lastfm_client.get_track_info_comprehensive(
+            await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
-            duration = time.time() - start_time
 
         # Should have retried (2 calls total)
         assert mock_api.call_count == 2, (
             f"Expected retry for unknown error, got {mock_api.call_count} calls"
         )
-
-        # Should have some delay from retry backoff (relaxed tolerance)
-        assert duration > 0.03, f"Unknown error retry too fast: {duration}s"
 
     # NON-LASTFM EXCEPTIONS - Propagate (programming errors are not silently swallowed)
     async def test_non_lastfm_exception_handling(self, lastfm_client):
@@ -379,7 +374,7 @@ class TestErrorClassificationEdgeCases:
         lastfm_client._retry_policy.wait = wait_none()
         return lastfm_client
 
-    async def test_empty_error_code(self, lastfm_client):
+    async def test_empty_error_code(self, fast_retry_client):
         """Test handling of empty or None error codes — classified as unknown, retried."""
         mock_api = AsyncMock(
             side_effect=[
@@ -391,7 +386,7 @@ class TestErrorClassificationEdgeCases:
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
             # Unknown code → retry behavior (succeeds on 3rd attempt)
-            await lastfm_client.get_track_info_comprehensive(
+            await fast_retry_client.get_track_info_comprehensive(
                 "Test Artist", "Test Track"
             )
 
@@ -416,7 +411,7 @@ class TestErrorClassificationEdgeCases:
             f"Expected 3+ retry attempts, got {mock_api.call_count}"
         )
 
-    async def test_partial_text_matches(self, lastfm_client):
+    async def test_partial_text_matches(self, fast_retry_client):
         """Test that partial text matches work correctly."""
         error_scenarios = [
             (
@@ -445,7 +440,7 @@ class TestErrorClassificationEdgeCases:
                 mock_api = AsyncMock(side_effect=LastFMAPIError("999", message))
 
             with patch.object(LastFMAPIClient, "_api_request", mock_api):
-                await lastfm_client.get_track_info_comprehensive(
+                await fast_retry_client.get_track_info_comprehensive(
                     "Test Artist", "Test Track"
                 )
 

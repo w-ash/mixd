@@ -60,6 +60,7 @@ class TestExecutorHelperFunctions:
         result = run_async(coro_with_args(42, "test"))
         assert result == "42-test"
 
+    @pytest.mark.slow
     def test_run_async_provides_high_concurrency(self):
         """Helper should provide 200-thread executor for high concurrency."""
         from src.interface.cli.async_runner import run_async

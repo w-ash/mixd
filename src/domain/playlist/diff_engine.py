@@ -127,22 +127,34 @@ def match_tracks_with_db_lookup(
 
         return title_match and artist_match and album_match
 
-    # Greedy one-to-one matching using canonical identity
-    for current_track in current_tracks:
-        match_found = False
+    # Phase 1: Hash-based canonical ID matching — O(n)
+    target_id_index: dict[int, list[int]] = {}
+    for idx, t in enumerate(target_tracks):
+        if t.id is not None:
+            target_id_index.setdefault(t.id, []).append(idx)
 
-        # Find first unmatched target track that matches this current track
+    id_unmatched_current: list[Track] = []
+    for current_track in current_tracks:
+        if current_track.id is not None and current_track.id in target_id_index:
+            available = target_id_index[current_track.id]
+            if available:
+                target_idx = available.pop(0)
+                matched.append(current_track)
+                consumed_target_indices.add(target_idx)
+                continue
+        id_unmatched_current.append(current_track)
+
+    # Phase 2: Content-based matching for remaining tracks — O(m²) where m ≪ n
+    for current_track in id_unmatched_current:
+        match_found = False
         for target_idx, target_track in enumerate(target_tracks):
             if target_idx in consumed_target_indices:
-                continue  # Target already matched
-
+                continue
             if tracks_are_equivalent(current_track, target_track):
-                # Match found - consume this target track
                 matched.append(current_track)
                 consumed_target_indices.add(target_idx)
                 match_found = True
                 break
-
         if not match_found:
             unmatched_current.append(current_track)
 
@@ -167,14 +179,15 @@ def match_tracks_with_db_lookup(
 
 
 def calculate_remove_operations(
-    unmatched_current_tracks: list[Track], current_playlist: Playlist
+    unmatched_current_tracks: list[Track], current_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate REMOVE operations for tracks in current but not target playlist."""
     operations: list[PlaylistOperation] = []
+    position_index = {id(track): idx for idx, track in enumerate(current_tracks)}
 
     for track in unmatched_current_tracks:
-        try:
-            position = current_playlist.tracks.index(track)
+        position = position_index.get(id(track))
+        if position is not None:
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.REMOVE,
@@ -184,12 +197,10 @@ def calculate_remove_operations(
                     spotify_uri=_get_track_uri(track),
                 )
             )
-        except ValueError:
-            # Track not found in current playlist, skip
+        else:
             logger.warning(
                 f"Track {track.title} not found in current playlist for removal"
             )
-            continue
 
     return operations
 
@@ -200,10 +211,11 @@ def calculate_add_operations(
     """Generate ADD operations for tracks in target but not current playlist."""
     operations: list[PlaylistOperation] = []
 
+    position_index = {id(track): idx for idx, track in enumerate(target_tracks)}
+
     for track in unmatched_target_tracks:
-        try:
-            # Find the correct target position for this track
-            target_position = target_tracks.index(track)
+        target_position = position_index.get(id(track))
+        if target_position is not None:
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.ADD,
@@ -212,12 +224,10 @@ def calculate_add_operations(
                     spotify_uri=_get_track_uri(track),
                 )
             )
-        except ValueError:
-            # Track not found in target playlist, skip
+        else:
             logger.warning(
                 f"Track {track.title} not found in target playlist for addition"
             )
-            continue
 
     return operations
 
@@ -244,6 +254,8 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
     parent = [-1] * n
     # lis_indices[i] stores the actual index in dp array for position i
     lis_indices = [-1] * n
+    # position_of[k] = index of element currently occupying dp[k] — O(1) parent lookup
+    position_of: list[int] = []
 
     for i in range(n):
         # Binary search for the position to insert/replace
@@ -255,19 +267,15 @@ def calculate_longest_increasing_subsequence(sequence: list[int]) -> list[int]:
             else:
                 right = mid
 
-        # If we're extending the sequence
         if left == len(dp):
             dp.append(sequence[i])
+            position_of.append(i)
         else:
             dp[left] = sequence[i]
+            position_of[left] = i
 
         lis_indices[i] = left
-        if left > 0 and dp:
-            # Find the parent by looking for the element that was at position left-1
-            for j in range(i - 1, -1, -1):
-                if lis_indices[j] == left - 1:
-                    parent[i] = j
-                    break
+        parent[i] = position_of[left - 1] if left > 0 else -1
 
     # Reconstruct the LIS indices
     lis_length = len(dp)
@@ -354,21 +362,21 @@ def calculate_lis_reorder_operations(
         ref[2] for ref in target_track_refs
     }  # current positions already used
 
+    # Build index: track.id -> [current positions] for unmatched tracks — O(n)
+    current_id_index: dict[int, list[int]] = {}
+    for pos, t in enumerate(current_tracks):
+        if t.id is not None and pos not in matched_current_positions:
+            current_id_index.setdefault(t.id, []).append(pos)
+
     for target_pos, target_track in enumerate(target_tracks):
         if target_track.id is None or target_pos in matched_positions:
             continue
-
-        # Find this track in remaining current positions
-        for current_pos, current_track in enumerate(current_tracks):
-            if (
-                current_track.id == target_track.id
-                and current_pos not in matched_current_positions
-            ):
-                # Found the track - it needs to move from current_pos to target_pos
-                target_positions_in_current.append(current_pos)
-                target_track_refs.append((target_pos, target_track, current_pos))
-                matched_current_positions.add(current_pos)
-                break
+        available = current_id_index.get(target_track.id, [])
+        if available:
+            current_pos = available.pop(0)
+            target_positions_in_current.append(current_pos)
+            target_track_refs.append((target_pos, target_track, current_pos))
+            matched_current_positions.add(current_pos)
 
     if not target_positions_in_current:
         return []  # No tracks to move
@@ -428,7 +436,7 @@ def calculate_lis_reorder_operations(
 
 
 def calculate_move_operations(
-    matched_tracks: list[Track], current_playlist: Playlist, target_tracks: list[Track]
+    matched_tracks: list[Track], current_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
     """Generate MOVE operations for tracks that exist in both but need reordering.
 
@@ -440,8 +448,6 @@ def calculate_move_operations(
 
     if not matched_tracks:
         return operations
-
-    current_tracks = current_playlist.tracks
 
     # Use LIS-based minimal move calculation
     operations = calculate_lis_reorder_operations(current_tracks, target_tracks)
@@ -480,11 +486,18 @@ def calculate_playlist_diff(
     Returns:
         PlaylistDiff containing operations and metadata.
     """
-    # Extract tracks from target (handles both Playlist and TrackList)
+    # Materialize track lists once (avoids repeated property access)
+    current_tracks = current_playlist.tracks
     target_tracks = target_playlist.tracks
 
+    # Fast path: identical ID sequences means no changes
+    current_ids = [t.id for t in current_tracks]
+    target_ids = [t.id for t in target_tracks]
+    if current_ids == target_ids and all(tid is not None for tid in current_ids):
+        return PlaylistDiff()
+
     logger.debug(
-        f"Calculating diff: {len(current_playlist.tracks)} → {len(target_tracks)} tracks"
+        f"Calculating diff: {len(current_tracks)} → {len(target_tracks)} tracks"
     )
 
     # Step 1: Use sophisticated database-first track matching
@@ -492,13 +505,13 @@ def calculate_playlist_diff(
         matched_tracks,
         unmatched_current,
         unmatched_target,
-    ) = match_tracks_with_db_lookup(current_playlist.tracks, target_tracks)
+    ) = match_tracks_with_db_lookup(current_tracks, target_tracks)
 
     # Step 2: Calculate operations using functional composition
-    remove_operations = calculate_remove_operations(unmatched_current, current_playlist)
+    remove_operations = calculate_remove_operations(unmatched_current, current_tracks)
     add_operations = calculate_add_operations(unmatched_target, target_tracks)
     move_operations = calculate_move_operations(
-        matched_tracks, current_playlist, target_tracks
+        matched_tracks, current_tracks, target_tracks
     )
 
     # Combine all operations

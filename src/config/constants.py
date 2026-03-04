@@ -49,6 +49,18 @@ class BusinessLimits:
     DEBUG_LOG_TRUNCATION_LIMIT: Final[int] = 10
 
 
+class SSEConstants:
+    """Server-Sent Events operational constants."""
+
+    # Seconds to wait before cleaning up SSE queues after an operation completes.
+    # Gives clients time to read final events before the queue is unregistered.
+    GRACE_PERIOD_SECONDS: Final[int] = 30
+
+    # Maximum number of import operations running concurrently.
+    # Each operation holds a background task, SSE queue, and DB session.
+    MAX_CONCURRENT_OPERATIONS: Final[int] = 3
+
+
 class LastFMConstants:
     """Last.fm API format specifications and processing constants."""
 

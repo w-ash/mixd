@@ -3,16 +3,24 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 
 export * from './artistSchema';
+export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost';
+export * from './checkpointStatusSchema';
 export * from './connectorStatusSchema';
 export * from './createPlaylistRequest';
+export * from './exportLastfmLikesRequest';
 export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams';
 export * from './healthCheckApiV1HealthGet200';
 export * from './hTTPValidationError';
+export * from './importLastfmHistoryRequest';
+export * from './importLastfmHistoryRequestMode';
+export * from './importSpotifyLikesRequest';
+export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
+export * from './operationStartedResponse';
 export * from './paginatedResponsePlaylistEntrySchema';
 export * from './paginatedResponsePlaylistSummarySchema';
 export * from './playlistDetailSchema';
@@ -21,3 +29,4 @@ export * from './playlistSummarySchema';
 export * from './trackSummarySchema';
 export * from './updatePlaylistRequest';
 export * from './validationError';
+export * from './validationErrorCtx';

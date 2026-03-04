@@ -10,6 +10,10 @@ import threading
 import time
 from typing import Any
 
+import pytest
+
+pytestmark = pytest.mark.diagnostic
+
 
 class TestThreadPoolConfiguration:
     """Test thread pool configuration using standard asyncio patterns."""

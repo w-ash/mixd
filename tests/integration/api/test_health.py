@@ -16,7 +16,7 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "ok"
-        assert body["version"] == "0.3.0"
+        assert body["version"] == "0.3.1"
 
     async def test_health_content_type_is_json(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/health")

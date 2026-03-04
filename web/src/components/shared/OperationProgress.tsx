@@ -1,0 +1,104 @@
+import type { OperationProgress as OperationProgressData } from "@/hooks/useOperationProgress";
+import { cn } from "@/lib/utils";
+
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.ceil(seconds % 60);
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
+function formatRate(rate: number): string {
+  return rate >= 1 ? `${rate.toFixed(1)}/s` : `${(rate * 60).toFixed(1)}/min`;
+}
+
+const statusConfig = {
+  pending: { icon: "...", label: "Waiting", barClass: "bg-text-faint" },
+  running: { icon: "▶", label: "Running", barClass: "bg-primary" },
+  completed: { icon: "✓", label: "Complete", barClass: "bg-status-connected" },
+  failed: { icon: "!", label: "Failed", barClass: "bg-destructive" },
+  cancelled: { icon: "×", label: "Cancelled", barClass: "bg-text-faint" },
+} as const;
+
+interface OperationProgressProps {
+  progress: OperationProgressData;
+  className?: string;
+}
+
+export function OperationProgress({
+  progress,
+  className,
+}: OperationProgressProps) {
+  const config = statusConfig[progress.status];
+  const isTerminal =
+    progress.status === "completed" ||
+    progress.status === "failed" ||
+    progress.status === "cancelled";
+  const percentage = progress.completionPercentage ?? 0;
+
+  return (
+    <output
+      className={cn("block space-y-2", className)}
+      aria-live="polite"
+      aria-label={`Operation ${config.label}: ${progress.message}`}
+    >
+      {/* Status + message row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+              progress.status === "completed" &&
+                "bg-status-connected/20 text-status-connected",
+              progress.status === "failed" &&
+                "bg-destructive/20 text-destructive",
+              progress.status === "running" && "bg-primary/20 text-primary",
+              progress.status === "pending" &&
+                "bg-text-faint/20 text-text-faint",
+              progress.status === "cancelled" &&
+                "bg-text-faint/20 text-text-faint",
+            )}
+            aria-hidden="true"
+          >
+            {config.icon}
+          </span>
+          <span className="truncate text-sm text-text">{progress.message}</span>
+        </div>
+
+        {/* Metrics */}
+        <div className="flex shrink-0 items-center gap-3 text-xs text-text-muted font-mono">
+          {progress.total !== null && (
+            <span>
+              {progress.current}/{progress.total}
+            </span>
+          )}
+          {progress.itemsPerSecond !== null && (
+            <span>{formatRate(progress.itemsPerSecond)}</span>
+          )}
+          {progress.etaSeconds !== null && !isTerminal && (
+            <span>~{formatEta(progress.etaSeconds)}</span>
+          )}
+          {progress.completionPercentage !== null && (
+            <span>{Math.round(progress.completionPercentage)}%</span>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-300 ease-out",
+            config.barClass,
+            progress.status === "pending" && "animate-pulse w-full opacity-30",
+          )}
+          style={
+            progress.status !== "pending"
+              ? { width: `${Math.max(percentage, isTerminal ? 100 : 2)}%` }
+              : undefined
+          }
+        />
+      </div>
+    </output>
+  );
+}

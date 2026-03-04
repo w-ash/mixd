@@ -18,6 +18,11 @@ from src.infrastructure.persistence.database.db_connection import (
     reset_engine_cache,
 )
 from src.interface.api.app import create_app
+import src.interface.api.routes.imports as _imports_mod
+
+
+def _noop_launch(_op_id: str, _coro_factory: object) -> None:
+    """No-op stub — never invokes the factory, so no coroutines are created."""
 
 
 @pytest.fixture
@@ -36,12 +41,18 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
 
     await init_db()
 
+    # Stub out background task launcher — import tests only verify endpoint
+    # request/response behavior, not the actual import execution.
+    original_launch = _imports_mod._launch_background
+    _imports_mod._launch_background = _noop_launch
+
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
     # Cleanup
+    _imports_mod._launch_background = original_launch
     reset_engine_cache()
     if original_db_url:
         os.environ["DATABASE_URL"] = original_db_url

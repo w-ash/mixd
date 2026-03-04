@@ -209,6 +209,7 @@ class TestRetryPolicyFactory:
         Regression test for the issue where callbacks weren't firing because
         we were using 'after' instead of 'retry_error_callback'.
         """
+        from tenacity import wait_none
 
         from src.infrastructure.connectors.lastfm.error_classifier import (
             LastFMErrorClassifier,
@@ -231,6 +232,9 @@ class TestRetryPolicyFactory:
                 service_error_types=(LastFMAPIError,),
             )
         )
+
+        # Eliminate real backoff — we're testing callbacks, not timing
+        policy.wait = wait_none()
 
         # Patch the callbacks to track invocations
         original_before_sleep = policy.before_sleep

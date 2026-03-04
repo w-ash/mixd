@@ -2,296 +2,122 @@
 
 **Own your music data. Create playlists using YOUR criteria, not proprietary algorithms.**
 
-Streaming services lock your data behind opaque algorithms. Narada gives you control: import listening history, define workflow pipelines with your own logic (e.g., "liked but unplayed 6mo"), sync across services.
+Streaming services lock your data behind opaque algorithms. Narada gives you control: import listening history from Spotify and Last.fm, define workflow pipelines with your own logic (e.g., "liked tracks unplayed for 6 months"), and sync across services.
 
-## Features
+## What It Does
 
-- **Music Service Integration**: Connect with Spotify, Last.fm, and MusicBrainz
-- **Workflow System**: Define complex playlist transformation pipelines using JSON
-- **Smart Filtering**: Filter tracks by release date, artist, popularity, and more
-- **Data Persistence**: Store and manage playlists in local database and Spotify
+- **Cross-Service Playlists**: Build playlists using data from Spotify, Last.fm, and MusicBrainz together
+- **Workflow Pipelines**: Declarative JSON workflows — source tracks, filter, sort, enrich, and push to Spotify
+- **Listening History**: Import Spotify GDPR exports and ongoing Last.fm scrobbles into a unified database
+- **Web UI + CLI**: Browse playlists and manage connectors in the browser, or use the CLI for power operations
 
+### Example Workflows
+
+- **"Current Obsessions"** — liked tracks with 8+ plays in the last 30 days, top 20
+- **"Hidden Gems"** — liked tracks with 3+ plays but untouched for 6 months
+- **"Discovery Mix"** — interleave recent plays with old favorites, random 40
 
 ## Getting Started
+
+### Prerequisites
+
+- Python 3.14+, [Poetry](https://python-poetry.org/)
+- Node.js 20+, [pnpm](https://pnpm.io/) (for the web UI)
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/w-ash/narada.git
 cd narada
 
-# Install dependencies with Poetry
+# Backend
 poetry install
 
-# Activate virtual environment
-source $(poetry env info --path)/bin/activate
+# Frontend
+pnpm --prefix web install
 ```
 
-### Setup
+### Configuration
 
-Run the setup command to configure your music service connections:
+Create a `.env` file with your API credentials:
 
+```bash
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+LASTFM_KEY=your_lastfm_api_key
+LASTFM_USERNAME=your_lastfm_username
+```
+
+Connect Spotify (opens browser for OAuth):
 ```bash
 narada setup
 ```
 
-This will guide you through connecting your Spotify and Last.fm accounts.
-
-### Getting Your Data
-
-**Historical Data (Spotify):**
-
-1. Request your extended streaming history from Spotify: [Understanding Your Data](https://support.spotify.com/us/article/understanding-your-data/)
-   - Go to Spotify Privacy Settings → "Extended streaming history"
-   - Request can take up to 30 days
-   - Provides complete listening history in JSON format
-
-2. Import once you receive the data:
-   ```bash
-   narada history import-spotify /path/to/Streaming_History_Audio_*.json
-   ```
-
-**Ongoing Tracking (Last.fm):**
-
-1. Create a Last.fm account: [Last.fm Sign Up](https://www.last.fm/join)
-2. Connect Spotify to Last.fm: [Spotify Settings → Apps → Last.fm](https://www.last.fm/settings/applications)
-3. Let it run for a few weeks to build up play history
-4. Import incrementally:
-   ```bash
-   narada history import-lastfm  # Gets everything since last import
-   ```
-
-**Why this workflow?**
-- Spotify: Complete historical data (one-time import)
-- Last.fm: Ongoing tracking (run imports regularly)
-- Result: Full listening history powering your custom workflows
-
-### Basic Commands
+### Running
 
 ```bash
-# Single help system showing all commands
-narada --help
+# Web UI — backend + frontend
+narada-api                        # FastAPI on :8000
+pnpm --prefix web dev             # Vite dev server on :5173, proxies /api → :8000
 
-# Check service connection status and setup
-narada status
-narada setup
-
-# Import music play history
-narada history import-lastfm
-narada history import-spotify /path/to/spotify_export.json
-
-# Manage liked tracks across services
-narada likes import-spotify --limit 1000
-narada likes export-lastfm --batch-size 100
-
-# Playlist workflows
-narada workflow run discovery_mix
-narada workflow list
-```
-
-
-## Workflow System
-
-Narada uses a customizable workflow system to create and transform playlists. Workflows are defined in JSON files and processed through a directed acyclic graph (DAG) of nodes.
-
-### Running Workflows
-
-Narada's workflow system features organized command groups and rich visual feedback:
-
-```bash
-# Workflow execution
-narada workflow               # Interactive workflow browser
-narada workflow list          # List all available workflows
-narada workflow run discovery_mix
-
-# Music history import
-narada history                # Interactive history menu
-narada history import-lastfm
-narada history import-spotify /path/to/export.json
-
-# Liked tracks sync across services
-narada likes                  # Interactive likes menu
-narada likes import-spotify --limit 500
-narada likes export-lastfm --batch-size 100
-
-# Playlist data management
-narada playlist list          # List stored playlists in database
-narada playlist backup spotify <playlist_id>
-narada playlist delete <playlist_id>
-```
-
-#### Features
-
-- **Organized Commands**: 6 command groups for logical functionality (playlist, history, likes, track, setup, status)
-- **Interactive Menus**: Run commands without arguments for guided workflows
-- **Rich Progress Display**: Real-time progress tracking with visual feedback
-- **Professional Output**: Beautiful tables and panels with color coding
-- **Error Handling**: Clear error messages with helpful context
-
-### Workflow Definition
-
-Create custom workflows by defining JSON files in the definitions directory:
-
-```json
-{
-  "id": "my_workflow",
-  "name": "My Custom Workflow",
-  "description": "Creates a personalized playlist based on my preferences",
-  "version": "1.0",
-  "tasks": [
-    {
-      "id": "source_playlist",
-      "type": "source.spotify_playlist",
-      "config": {
-        "playlist_id": "spotify_playlist_id_here"
-      }
-    },
-    {
-      "id": "filter_recent",
-      "type": "filter.by_release_date",
-      "config": {
-        "max_age_days": 90
-      },
-      "upstream": ["source_playlist"]
-    },
-    {
-      "id": "destination",
-      "type": "destination.create_spotify_playlist",
-      "config": {
-        "name": "My Recent Discoveries",
-        "description": "Recently released tracks I might like"
-      },
-      "upstream": ["filter_recent"]
-    }
-  ]
-}
-```
-
-### Available Node Types
-
-- **Sources**: Fetch tracks from Spotify playlists
-- **Filters**: Filter tracks by various criteria (date, duplicates, etc.)
-- **Enrichers**: Add metadata from Last.fm and other services
-- **Sorters**: Sort tracks by popularity, play count, etc.
-- **Combiners**: Merge, concatenate, or interleave playlists
-- **Selectors**: Limit tracks based on various criteria
-- **Destinations**: Create or update playlists in Spotify or internal database
-
-See the Workflow Guide for a complete reference of available nodes and configuration options.
-
-## Example Workflows
-
-### Discovery Mix
-
-The `discovery_mix` workflow creates a playlist of new releases from multiple curated sources:
-
-1. Fetches tracks from multiple Spotify playlists (Pollen, Serotonin, Metropolis, Stereogum)
-2. Filters each source to tracks released within the last 90 days
-3. Limits each source to a specified number of tracks
-4. Combines all sources and sorts by popularity
-5. Appends Release Radar tracks at the beginning
-6. Removes duplicates and tracks already in other playlists
-7. Creates a new Spotify playlist with the results
-
-Run this workflow with:
-
-```bash
-narada workflow run discovery_mix
+# CLI
+narada --help                     # All commands
+narada workflow                   # Interactive workflow browser
+narada history import-lastfm      # Import listening history
+narada likes import-spotify       # Backup liked tracks
 ```
 
 ## Architecture
 
-Narada uses **Domain-Driven Design (DDD) + Hexagonal Architecture** for reliability and performance:
-
-- **Fast**: Optimized batch processing and async operations
-- **Reliable**: Comprehensive error handling and data validation
-- **Extensible**: Plugin-based workflow system and self-contained service connectors
-- **Type-Safe**: Full typing support with Python 3.14+ features
-- **Maintainable**: Clean architecture with strict dependency boundaries
-
-## Development
-
-### Project Structure
+**Domain-Driven Design + Clean Architecture.** Two presentation layers (CLI + Web) over a shared application core.
 
 ```
 narada/
-├── src/                 # Core application code
-│   ├── domain/         # Business logic and entities
-│   │   ├── entities/   # Track, Playlist, Play objects
-│   │   ├── matching/   # Track matching algorithms
-│   │   └── workflows/  # Domain logic for operations
-│   ├── application/    # Use cases and orchestration
-│   │   ├── use_cases/  # Single business operations  
-│   │   ├── services/   # Multi-repository coordination
-│   │   └── workflows/  # Prefect 3.0 orchestration
-│   ├── infrastructure/ # External services and persistence
-│   │   ├── connectors/ # Self-contained service modules (spotify/, lastfm/)
-│   │   └── persistence/ # Database and repositories
-│   └── interface/      # CLI and future web interfaces
-├── docs/               # Documentation and guides
-├── tests/              # Test suite
-└── scripts/            # Utility scripts
+├── src/
+│   ├── domain/              Pure business logic (matching, transforms, entities)
+│   ├── application/         Use cases, workflows (Prefect 3.0), services
+│   ├── infrastructure/      Spotify/Last.fm/MusicBrainz connectors, SQLAlchemy repos
+│   └── interface/
+│       ├── cli/             Typer + Rich
+│       └── api/             FastAPI (REST + SSE)
+├── web/                     React 19 + Vite 7 + Tailwind v4 + Tanstack Query
+├── tests/                   1235 pytest tests + 70 Vitest tests
+└── docs/                    Architecture, API reference, workflow guide
 ```
 
-### Development Commands
+**Stack**: Python 3.14, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 7, Tailwind CSS v4, shadcn/ui, Tanstack Query, Orval, Biome
+
+## Development
 
 ```bash
-# Run tests
-poetry run pytest
+# Tests
+poetry run pytest                    # Backend fast tests (~32s, 1235 tests)
+poetry run pytest -m ""              # All tests including slow
+pnpm --prefix web test               # Frontend component tests (70 tests)
 
-# Run tests with coverage  
-poetry run pytest --cov=narada --cov-report=html
+# Code quality
+poetry run ruff check . --fix        # Lint
+poetry run ruff format .             # Format
+poetry run basedpyright src/         # Type check (0 errors)
+pnpm --prefix web check              # Biome lint + TypeScript
 
-# Lint and format code
-poetry run ruff check --fix .
-poetry run ruff format .
-
-# Type checking  
-poetry run basedpyright src/
-
-# Run integration tests only
-poetry run pytest -m integration
-
-# Test the CLI interface
-narada --help                           # See the unified help interface
-narada history import-spotify --help   # Test history import commands
-narada playlist run --help             # Test playlist workflow commands
-narada likes --help                    # Test likes sync commands
+# Database
+poetry run alembic upgrade head      # Migrate
 ```
-
-### Code Style
-
-- Python 3.14+ with modern typing features
-- Line length: 88 characters (enforced by Ruff)
-- Immutable domain models using attrs
-- Repository pattern for all data access
-- Batch-first design for all operations
-- UTC timezone for all datetime objects
-
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Follow the coding standards in CLAUDE.md
-4. Add comprehensive tests
-5. Run linting and type checking
-6. Submit a pull request
 
 ## Documentation
 
-Comprehensive documentation is available in the `/docs` directory:
-
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture and design decisions
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Developer onboarding and contribution guide
-- **[DATABASE.md](docs/DATABASE.md)** - Database schema and design
-- **[API.md](docs/API.md)** - Complete CLI command reference
-- **[workflow_guide.md](docs/workflow_guide.md)** - Workflow system documentation
-- **[likes_sync_guide.md](docs/likes_sync_guide.md)** - Likes synchronization between Spotify and Last.fm
-- **[ROADMAP.md](ROADMAP.md)** - Strategic roadmap and version plan
-- **[BACKLOG.md](docs/BACKLOG.md)** - Detailed epics and task breakdowns
-- **[CLAUDE.md](CLAUDE.md)** - Development commands and style guide
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer responsibilities and dependency rules |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer onboarding and full command reference |
+| [DATABASE.md](docs/DATABASE.md) | Schema, relationships, and migration patterns |
+| [Workflow Guide](docs/GUIDE_WORKFLOWS.md) | Node catalog and workflow authoring |
+| [Web UI Specs](docs/web-ui/README.md) | User flows, API contracts, frontend architecture |
+| [ROADMAP.md](ROADMAP.md) | Version plan and technology decisions |
+| [BACKLOG.md](docs/BACKLOG.md) | Detailed epics and task breakdowns |
+| [CLAUDE.md](CLAUDE.md) | AI-assisted development patterns and conventions |
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License — see the LICENSE file for details.

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 import {
   useQuery
@@ -26,6 +26,8 @@ import type {
 
 import { customFetch } from '../../client';
 
+
+type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
@@ -75,16 +77,16 @@ export const getGetConnectorsApiV1ConnectorsGetQueryKey = () => {
     }
 
     
-export const getGetConnectorsApiV1ConnectorsGetQueryOptions = <TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, }
+export const getGetConnectorsApiV1ConnectorsGetQueryOptions = <TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
-const {query: queryOptions} = options ?? {};
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetConnectorsApiV1ConnectorsGetQueryKey();
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>> = ({ signal }) => getConnectorsApiV1ConnectorsGet({ signal });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>> = ({ signal }) => getConnectorsApiV1ConnectorsGet({ signal, ...requestOptions });
 
       
 
@@ -104,7 +106,7 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
           TError,
           Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>(
@@ -114,11 +116,11 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
           TError,
           Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, }
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -126,7 +128,7 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
  */
 
 export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, }
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 

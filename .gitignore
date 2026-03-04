@@ -69,10 +69,16 @@ Thumbs.db
 /data/db/*.db
 
 ###################
-# Configuration   #
+# Secrets & Auth  #
 ###################
 .env
+.env.*
+!.env.example
 .spotify_cache
+*.token
+*.key
+*.pem
+*.p12
 
 # Alembic migrations
 alembic/versions/

@@ -13,6 +13,9 @@ const Playlists = lazy(() =>
 const PlaylistDetail = lazy(() =>
   import("./pages/PlaylistDetail").then((m) => ({ default: m.PlaylistDetail })),
 );
+const Imports = lazy(() =>
+  import("./pages/Imports").then((m) => ({ default: m.Imports })),
+);
 const Settings = lazy(() =>
   import("./pages/Settings").then((m) => ({ default: m.Settings })),
 );
@@ -27,6 +30,14 @@ export function App() {
             element={
               <Suspense>
                 <Dashboard />
+              </Suspense>
+            }
+          />
+          <Route
+            path="imports"
+            element={
+              <Suspense>
+                <Imports />
               </Suspense>
             }
           />

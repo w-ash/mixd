@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from tenacity import wait_none
 
 from src.infrastructure.connectors._shared.http_client import (
     _elapsed_ms,
@@ -390,6 +391,7 @@ class TestClientSmokeViaRealHttpx:
             ),
         ):
             client = SpotifyAPIClient()
+            client._retry_policy.wait = wait_none()
             # Must not raise — _api_call suppresses HTTPStatusError
             result = await client.get_tracks_bulk(["abc123"])
             await client.aclose()

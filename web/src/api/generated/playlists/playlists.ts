@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 import {
   useMutation,
@@ -37,6 +37,8 @@ import type {
 
 import { customFetch } from '../../client';
 
+
+type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
@@ -100,16 +102,16 @@ export const getListPlaylistsApiV1PlaylistsGetQueryKey = (params?: ListPlaylists
     }
 
     
-export const getListPlaylistsApiV1PlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, }
+export const getListPlaylistsApiV1PlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
-const {query: queryOptions} = options ?? {};
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListPlaylistsApiV1PlaylistsGetQueryKey(params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>> = ({ signal }) => listPlaylistsApiV1PlaylistsGet(params, { signal });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>> = ({ signal }) => listPlaylistsApiV1PlaylistsGet(params, { signal, ...requestOptions });
 
       
 
@@ -129,7 +131,7 @@ export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typ
           TError,
           Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(
@@ -139,11 +141,11 @@ export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typ
           TError,
           Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(
- params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, }
+ params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -151,7 +153,7 @@ export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typ
  */
 
 export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(
- params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, }
+ params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
@@ -212,15 +214,15 @@ export const createPlaylistApiV1PlaylistsPost = async (createPlaylistRequest: Cr
 
 
 export const getCreatePlaylistApiV1PlaylistsPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, TError,{data: CreatePlaylistRequest}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, TError,{data: CreatePlaylistRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, TError,{data: CreatePlaylistRequest}, TContext> => {
 
 const mutationKey = ['createPlaylistApiV1PlaylistsPost'];
-const {mutation: mutationOptions} = options ?
+const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
       : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
+      : {mutation: { mutationKey, }, request: undefined};
 
       
 
@@ -228,7 +230,7 @@ const {mutation: mutationOptions} = options ?
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, {data: CreatePlaylistRequest}> = (props) => {
           const {data} = props ?? {};
 
-          return  createPlaylistApiV1PlaylistsPost(data,)
+          return  createPlaylistApiV1PlaylistsPost(data,requestOptions)
         }
 
 
@@ -246,7 +248,7 @@ const {mutation: mutationOptions} = options ?
  * @summary Create Playlist
  */
 export const useCreatePlaylistApiV1PlaylistsPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, TError,{data: CreatePlaylistRequest}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, TError,{data: CreatePlaylistRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>,
         TError,
@@ -308,16 +310,16 @@ export const getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey = (playlistId: nu
     }
 
     
-export const getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, }
+export const getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
-const {query: queryOptions} = options ?? {};
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>> = ({ signal }) => getPlaylistApiV1PlaylistsPlaylistIdGet(playlistId, { signal });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>> = ({ signal }) => getPlaylistApiV1PlaylistsPlaylistIdGet(playlistId, { signal, ...requestOptions });
 
       
 
@@ -337,7 +339,7 @@ export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<Return
           TError,
           Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(
@@ -347,11 +349,11 @@ export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<Return
           TError,
           Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(
- playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, }
+ playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -359,7 +361,7 @@ export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<Return
  */
 
 export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(
- playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, }
+ playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
@@ -421,15 +423,15 @@ export const updatePlaylistApiV1PlaylistsPlaylistIdPatch = async (playlistId: nu
 
 
 export const getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, TError,{playlistId: number;data: UpdatePlaylistRequest}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, TError,{playlistId: number;data: UpdatePlaylistRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, TError,{playlistId: number;data: UpdatePlaylistRequest}, TContext> => {
 
 const mutationKey = ['updatePlaylistApiV1PlaylistsPlaylistIdPatch'];
-const {mutation: mutationOptions} = options ?
+const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
       : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
+      : {mutation: { mutationKey, }, request: undefined};
 
       
 
@@ -437,7 +439,7 @@ const {mutation: mutationOptions} = options ?
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, {playlistId: number;data: UpdatePlaylistRequest}> = (props) => {
           const {playlistId,data} = props ?? {};
 
-          return  updatePlaylistApiV1PlaylistsPlaylistIdPatch(playlistId,data,)
+          return  updatePlaylistApiV1PlaylistsPlaylistIdPatch(playlistId,data,requestOptions)
         }
 
 
@@ -455,7 +457,7 @@ const {mutation: mutationOptions} = options ?
  * @summary Update Playlist
  */
 export const useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, TError,{playlistId: number;data: UpdatePlaylistRequest}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, TError,{playlistId: number;data: UpdatePlaylistRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>,
         TError,
@@ -510,15 +512,15 @@ export const deletePlaylistApiV1PlaylistsPlaylistIdDelete = async (playlistId: n
 
 
 export const getDeletePlaylistApiV1PlaylistsPlaylistIdDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, TError,{playlistId: number}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, TError,{playlistId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, TError,{playlistId: number}, TContext> => {
 
 const mutationKey = ['deletePlaylistApiV1PlaylistsPlaylistIdDelete'];
-const {mutation: mutationOptions} = options ?
+const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
       : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
+      : {mutation: { mutationKey, }, request: undefined};
 
       
 
@@ -526,7 +528,7 @@ const {mutation: mutationOptions} = options ?
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, {playlistId: number}> = (props) => {
           const {playlistId} = props ?? {};
 
-          return  deletePlaylistApiV1PlaylistsPlaylistIdDelete(playlistId,)
+          return  deletePlaylistApiV1PlaylistsPlaylistIdDelete(playlistId,requestOptions)
         }
 
 
@@ -544,7 +546,7 @@ const {mutation: mutationOptions} = options ?
  * @summary Delete Playlist
  */
 export const useDeletePlaylistApiV1PlaylistsPlaylistIdDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, TError,{playlistId: number}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, TError,{playlistId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>,
         TError,
@@ -617,16 +619,16 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey = (pl
 
     
 export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(playlistId: number,
-    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, }
+    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
-const {query: queryOptions} = options ?? {};
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(playlistId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>> = ({ signal }) => getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet(playlistId,params, { signal });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>> = ({ signal }) => getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet(playlistId,params, { signal, ...requestOptions });
 
       
 
@@ -647,7 +649,7 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
           TError,
           Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(
@@ -658,12 +660,12 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
           TError,
           Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>
         > , 'initialData'
-      >, }
+      >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(
  playlistId: number,
-    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, }
+    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -672,7 +674,7 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
 
 export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(
  playlistId: number,
-    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, }
+    params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 

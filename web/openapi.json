@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "paths": {
     "/api/v1/health": {
@@ -348,6 +348,270 @@
           }
         }
       }
+    },
+    "/api/v1/imports/lastfm/history": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Import Lastfm History",
+        "description": "Trigger a Last.fm listening history import.",
+        "operationId": "import_lastfm_history_api_v1_imports_lastfm_history_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportLastfmHistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/spotify/likes": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Import Spotify Likes",
+        "description": "Trigger a Spotify liked tracks import.",
+        "operationId": "import_spotify_likes_api_v1_imports_spotify_likes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSpotifyLikesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/lastfm/likes": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Export Lastfm Likes",
+        "description": "Trigger a Last.fm likes export (love tracks on Last.fm).",
+        "operationId": "export_lastfm_likes_api_v1_imports_lastfm_likes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportLastfmLikesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/spotify/history": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Import Spotify History",
+        "description": "Import Spotify listening history from a GDPR data export JSON file.",
+        "operationId": "import_spotify_history_api_v1_imports_spotify_history_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_spotify_history_api_v1_imports_spotify_history_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/checkpoints": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Get Checkpoints",
+        "description": "Get sync checkpoint status for all known service/entity combinations.",
+        "operationId": "get_checkpoints_api_v1_imports_checkpoints_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CheckpointStatusSchema"
+                  },
+                  "type": "array",
+                  "title": "Response Get Checkpoints Api V1 Imports Checkpoints Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{operation_id}/progress": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Stream Operation Progress",
+        "description": "Stream real-time progress for an operation via Server-Sent Events.",
+        "operationId": "stream_operation_progress_api_v1_operations__operation_id__progress_get",
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "List Active Operations",
+        "description": "List all active operation IDs.",
+        "operationId": "list_active_operations_api_v1_operations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "title": "Response List Active Operations Api V1 Operations Get"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -365,6 +629,56 @@
         ],
         "title": "ArtistSchema",
         "description": "Artist representation in API responses."
+      },
+      "Body_import_spotify_history_api_v1_imports_spotify_history_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_spotify_history_api_v1_imports_spotify_history_post"
+      },
+      "CheckpointStatusSchema": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "entity_type": {
+            "type": "string",
+            "title": "Entity Type"
+          },
+          "last_sync_timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Timestamp"
+          },
+          "has_previous_sync": {
+            "type": "boolean",
+            "title": "Has Previous Sync",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "entity_type"
+        ],
+        "title": "CheckpointStatusSchema",
+        "description": "Sync checkpoint status for a single service + entity type."
       },
       "ConnectorStatusSchema": {
         "properties": {
@@ -432,6 +746,35 @@
         "title": "CreatePlaylistRequest",
         "description": "Request body for POST /playlists."
       },
+      "ExportLastfmLikesRequest": {
+        "properties": {
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Size"
+          },
+          "max_exports": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Exports"
+          }
+        },
+        "type": "object",
+        "title": "ExportLastfmLikesRequest",
+        "description": "Request body for triggering a Last.fm likes export."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -444,6 +787,101 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ImportLastfmHistoryRequest": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "recent",
+              "incremental",
+              "full"
+            ],
+            "title": "Mode",
+            "default": "incremental"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "from_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Date"
+          },
+          "to_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Date"
+          }
+        },
+        "type": "object",
+        "title": "ImportLastfmHistoryRequest",
+        "description": "Request body for triggering a Last.fm history import."
+      },
+      "ImportSpotifyLikesRequest": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "max_imports": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Imports"
+          }
+        },
+        "type": "object",
+        "title": "ImportSpotifyLikesRequest",
+        "description": "Request body for triggering a Spotify likes import."
+      },
+      "OperationStartedResponse": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation_id"
+        ],
+        "title": "OperationStartedResponse",
+        "description": "Returned immediately when a long-running operation is launched."
       },
       "PaginatedResponse_PlaylistEntrySchema_": {
         "properties": {
@@ -762,6 +1200,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

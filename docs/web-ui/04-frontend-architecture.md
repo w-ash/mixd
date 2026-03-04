@@ -1,7 +1,7 @@
 # Frontend Architecture
 
 > Architecture decisions and project structure for the React web UI.
-> Stack choices, component catalog, and project layout reflect v0.3.0 implementation.
+> Stack choices, component catalog, and project layout reflect v0.3.1 implementation.
 > Future components and hooks are noted where planned.
 
 ---
@@ -53,12 +53,13 @@ Both interfaces call `execute_use_case()` from `src/application/runner.py` — t
 - `infrastructure/*` — repositories, connectors, persistence
 - `domain/entities/progress.py` → `ProgressEmitter` / `ProgressSubscriber` protocols
 
-### SSE Progress Provider (New for v0.3.1)
+### SSE Progress Provider (v0.3.1)
 
-- Implements `ProgressSubscriber` protocol (same interface as `RichProgressProvider`)
-- Serializes `ProgressEvent` objects to SSE `data:` frames
-- Registered with `AsyncProgressManager.subscribe()` — same pub/sub mechanism the CLI uses
-- Frontend connects via `useSSE` hook, receives the same progress events the CLI renders as Rich progress bars
+- `OperationBoundEmitter` implements `ProgressEmitter` protocol (same interface the CLI's `RichProgressProvider` uses)
+- `OperationRegistry` manages per-operation SSE queues with `asyncio.Queue` for event fan-out
+- Background task lifecycle: `_launch_background()` accepts a coroutine *factory* (not a pre-created coroutine) to prevent leaked unawaited coroutine warnings in tests
+- `_active_operations` set tracks logically running imports separately from `_background_tasks` — the 429 concurrency limit checks active operations, not draining tasks
+- Frontend connects via `useOperationProgress` hook, receives typed events (`started`, `progress`, `complete`, `error`)
 
 ---
 
@@ -158,10 +159,17 @@ web/
 │   │   ├── client.ts                Custom fetch mutator (hand-written, see Codegen section)
 │   │   ├── client.test.ts           Client unit tests
 │   │   ├── query-client.ts          createQueryClient() factory (retry policy, stale time)
+│   │   ├── sse-client.ts            SSE transport adapter (fetch + eventsource-parser)
 │   │   └── generated/               Orval output — tag-split (do not edit)
 │   │       ├── playlists/
 │   │       │   ├── playlists.ts     Tanstack Query hooks for playlist endpoints
 │   │       │   └── playlists.msw.ts MSW mock handlers + faker response factories
+│   │       ├── imports/
+│   │       │   ├── imports.ts       Tanstack Query hooks for import endpoints
+│   │       │   └── imports.msw.ts
+│   │       ├── operations/
+│   │       │   ├── operations.ts    Tanstack Query hooks for operations endpoints
+│   │       │   └── operations.msw.ts
 │   │       ├── connectors/
 │   │       │   ├── connectors.ts
 │   │       │   └── connectors.msw.ts
@@ -171,6 +179,8 @@ web/
 │   │       └── model/               Per-type TypeScript interfaces (one file each)
 │   │           ├── index.ts         Barrel re-export
 │   │           ├── playlistSummarySchema.ts
+│   │           ├── operationStartedResponse.ts
+│   │           ├── checkpointStatusSchema.ts
 │   │           ├── trackSummarySchema.ts
 │   │           └── ...              (generated per OpenAPI schema)
 │   ├── components/
@@ -198,16 +208,24 @@ web/
 │   │       ├── CreatePlaylistModal.test.tsx
 │   │       ├── EmptyState.tsx       Icon + heading + description + action slot
 │   │       ├── EmptyState.test.tsx
+│   │       ├── FileUpload.tsx       Drag-and-drop file input (Spotify GDPR upload)
+│   │       ├── FileUpload.test.tsx
+│   │       ├── OperationProgress.tsx  Progress bar + metrics for running operations
+│   │       ├── OperationProgress.test.tsx
 │   │       ├── TablePagination.tsx  Page controls for paginated list views
 │   │       └── TablePagination.test.tsx
 │   ├── hooks/
 │   │   ├── usePagination.ts         URL-state pagination (page param ↔ offset/limit)
-│   │   └── usePagination.test.tsx
+│   │   ├── usePagination.test.tsx
+│   │   ├── useOperationProgress.ts  SSE subscription for real-time operation progress
+│   │   └── useOperationProgress.test.ts
 │   ├── lib/
 │   │   └── utils.ts                 shadcn cn() utility
 │   ├── pages/                       Route-level page components
 │   │   ├── Dashboard.tsx            Landing page (stats placeholder)
 │   │   ├── Dashboard.test.tsx
+│   │   ├── Imports.tsx              Import operations with real-time progress
+│   │   ├── Imports.test.tsx
 │   │   ├── Playlists.tsx            List view with table + pagination
 │   │   ├── Playlists.test.tsx
 │   │   ├── PlaylistDetail.tsx       Track table + edit/delete dialogs
@@ -231,13 +249,13 @@ web/
 └── package.json
 ```
 
-> **Test coverage**: 12 test files, ~70 tests. Every page and shared component has a co-located `.test.tsx` file. Run with `pnpm --prefix web test`.
+> **Test coverage**: 16 test files, ~105 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
-> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Imports.tsx` (v0.3.1), `Workflows.tsx` / `WorkflowDetail.tsx` / `WorkflowEditor.tsx` (v0.4.0), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
+> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Workflows.tsx` / `WorkflowDetail.tsx` / `WorkflowEditor.tsx` (v0.4.0), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
 >
-> **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `OperationProgress.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
+> **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
 >
-> **Future hooks**: `useSSE.ts`, `useOperation.ts`, `useDebounce.ts`. These will be built for v0.3.1 (imports + progress).
+> **Future hooks**: `useDebounce.ts` (for search, v0.3.2).
 
 ---
 
@@ -269,13 +287,18 @@ The `customFetch` mutator **must** return `{ data: body, status, headers }` — 
 
 ### SSE Integration
 
-- Custom `useSSE` hook wraps `@microsoft/fetch-event-source` (not native `EventSource`) with:
-  - Automatic reconnection with `Last-Event-ID` header
-  - POST support and custom headers (native `EventSource` only supports GET, no auth headers)
-  - Fallback to polling `GET /operations/{id}` if SSE unavailable
-  - Event parsing into typed `ProgressEvent` objects
-  - Connection state management (connecting, connected, reconnecting, closed)
-- `useOperation` hook composes `useSSE` + Tanstack Query for operation tracking
+**Transport layer** (`api/sse-client.ts`):
+- Uses native `fetch()` + `eventsource-parser` (not `EventSource` or `@microsoft/fetch-event-source`)
+- Full control over `AbortSignal` — `reader.cancel()` registered on signal abort so async iterables terminate naturally
+- Returns `AsyncIterable<SSEEvent>` — consumers use `for await...of` with no custom abort plumbing
+- Separated from React hooks so tests can mock the module without fighting jsdom's incomplete Web Streams API
+
+**React hook** (`hooks/useOperationProgress.ts`):
+- `useOperationProgress(operationId, { invalidateKeys })` — connects to SSE, parses typed events, manages lifecycle
+- Handles event types: `started`, `progress`, `complete`, `error`
+- Invalidates specified Tanstack Query keys on `complete` or `error` events
+- Suppresses `AbortError` from `fetch()` during cleanup — expected lifecycle, not a real error
+- `DEFAULT_PROGRESS` constant eliminates repeated zero-state object literals across handlers
 
 ### Component Strategy
 
@@ -345,7 +368,7 @@ Dark mode is the default — CSS variables are the single source of truth. Light
 | Server state (tracks, playlists, etc.) | Tanstack Query (cache, refetch, optimistic updates) |
 | URL state (filters, pagination, search) | React Router search params |
 | Local UI state (modal open, form values) | React `useState` / `useReducer` |
-| Operation progress | `useSSE` hook + Tanstack Query |
+| Operation progress | `useOperationProgress` hook + SSE via `connectToSSE` transport |
 
 No global state store. If cross-page state emerges, evaluate React Context before reaching for a library.
 

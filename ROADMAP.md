@@ -1,8 +1,8 @@
 
 # Project Narada Roadmap
 
-**Current Development Version**: 0.3.0
-**Current Initiative**: Web UI Foundation + Playlists + Settings
+**Current Development Version**: 0.3.1
+**Current Initiative**: Imports & Real-Time Progress
 
 Strategic overview of Project Narada's development direction. Explains the why at a product level for future features, plus key architectural decisions.
 
@@ -84,8 +84,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | Version | Goal | Status |
 |---------|------|--------|
 | **v0.2.7** | Advanced workflow features + DRY consolidation | ✅ Completed |
-| **v0.3.0** | Web UI foundation + playlists + settings | 🔄 In Progress |
-| **v0.3.1** | Imports + real-time progress | 🔜 Not Started |
+| **v0.3.0** | Web UI foundation + playlists + settings | ✅ Completed |
+| **v0.3.1** | Imports + real-time progress | 🔄 In Progress |
 | **v0.3.2** | Track library + search | 🔜 Not Started |
 | **v0.3.3** | Dashboard + stats | 🔜 Not Started |
 | **v0.4.0** | Workflows + connector links | 🔜 Not Started |
