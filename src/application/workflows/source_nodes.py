@@ -16,9 +16,9 @@ from typing import Any
 from src.application.services.connector_playlist_sync_service import (
     sync_connector_playlist,
 )
-from src.application.services.playlist_upsert import (
-    build_create_playlist_command,
-    build_update_playlist_command,
+from src.application.services.playlist_upsert import upsert_canonical_playlist
+from src.application.use_cases.create_canonical_playlist import (
+    CreateCanonicalPlaylistResult,
 )
 from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
 from src.application.use_cases.get_played_tracks import GetPlayedTracksCommand
@@ -26,7 +26,10 @@ from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
 )
 from src.config import get_logger
+from src.config.constants import BusinessLimits
+from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import Track, TrackList
+from src.domain.repositories import UnitOfWorkProtocol
 
 from .node_context import NodeContext
 from .protocols import NodeResult
@@ -75,13 +78,7 @@ async def playlist_source(
             If no connector specified, reads from local database.
 
     Returns:
-        Dict containing:
-            - tracklist: TrackList with track source metadata
-            - playlist_id: Internal playlist ID
-            - playlist_name: Playlist display name
-            - source: Service name ('spotify', 'lastfm') or 'canonical'
-            - track_count: Number of tracks retrieved
-            - action: 'created', 'updated', or omitted for reads
+        Dict containing 'tracklist': TrackList with track source metadata.
 
     Raises:
         ValueError: If playlist_id is missing from config.
@@ -122,18 +119,28 @@ async def playlist_source(
         return {"tracklist": tracklist_with_source}
 
     else:
-        # Connector-based playlist with upsert logic
+        # Connector-based playlist: sync + upsert in a single atomic transaction
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
-        # Step 1: Sync connector playlist (fetch + store in database)
-        from src.domain.entities.playlist import ConnectorPlaylist
-        from src.domain.repositories import UnitOfWorkProtocol
+        async def _sync_and_upsert(uow: UnitOfWorkProtocol):
+            connector_playlist: ConnectorPlaylist = (
+                await sync_connector_playlist(connector, playlist_id, uow)
+            )
+            if not connector_playlist.items:
+                return None
 
-        async def _sync(uow: UnitOfWorkProtocol) -> ConnectorPlaylist:
-            return await sync_connector_playlist(connector, playlist_id, uow)
+            result = await upsert_canonical_playlist(
+                connector_playlist, connector, playlist_id, uow
+            )
+            action = (
+                "created"
+                if isinstance(result, CreateCanonicalPlaylistResult)
+                else "updated"
+            )
+            return result, action
 
         try:
-            connector_playlist = await workflow_context.execute_service(_sync)
+            outcome = await workflow_context.execute_service(_sync_and_upsert)
         except Exception as e:
             logger.opt(exception=True).error(
                 f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
@@ -143,59 +150,12 @@ async def playlist_source(
             )
             raise
 
-        if not connector_playlist or not connector_playlist.items:
+        if outcome is None:
             logger.warning(f"Playlist empty or not found: {playlist_id}")
             return {"tracklist": TrackList()}
 
-        # Step 2: Check if local playlist already exists for this service playlist
-        read_command = ReadCanonicalPlaylistCommand(
-            playlist_id=playlist_id, connector=connector
-        )
-        result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_read_canonical_playlist_use_case,
-            read_command,
-        )
-        existing_playlist = result.playlist
-
-        if existing_playlist:
-            logger.info(
-                f"Found existing canonical playlist {existing_playlist.id} for {connector}:{playlist_id}"
-            )
-        else:
-            logger.debug(f"No existing playlist found for {connector}:{playlist_id}")
-
-        # Step 3: Pass ConnectorPlaylist as a typed command field
-        # The use case layer handles track processing from the ConnectorPlaylist
-
-        logger.info(
-            f"Processing ConnectorPlaylist with {len(connector_playlist.items)} items from {connector}"
-        )
-
-        # Step 4: Process playlist (update existing or create new)
-
-        if existing_playlist:
-            logger.info(f"Updating existing canonical playlist {existing_playlist.id}")
-            update_cmd = build_update_playlist_command(
-                existing_playlist, connector_playlist, connector
-            )
-            update_result = await workflow_context.execute_use_case(
-                workflow_context.use_cases.get_update_canonical_playlist_use_case,
-                update_cmd,
-            )
-            playlist = update_result.playlist
-            action = "updated"
-        else:
-            logger.info(f"Creating new canonical playlist from {connector}")
-            create_cmd = build_create_playlist_command(
-                connector_playlist, connector, playlist_id
-            )
-            create_result = await workflow_context.execute_use_case(
-                workflow_context.use_cases.get_create_canonical_playlist_use_case,
-                create_cmd,
-            )
-            playlist = create_result.playlist
-            action = "created"
-
+        result, action = outcome
+        playlist = result.playlist
         tracklist_with_source = _build_source_tracklist(
             playlist.tracks, playlist.name, connector, playlist_id
         )
@@ -225,7 +185,7 @@ async def source_liked_tracks(
     Args:
         context: Workflow execution context.
         config: Optional parameters:
-            - limit (int): Max tracks to return (default 10000, max 10000).
+            - limit (int): Max tracks to return (default/max: MAX_USER_LIMIT).
             - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
             - sort_by (str): Sort method ("liked_at_desc", "liked_at_asc",
                 "title_asc", "random").
@@ -234,7 +194,10 @@ async def source_liked_tracks(
         Dict with 'tracklist' containing favorited tracks and metadata.
     """
     # Extract config with type-narrowing (validated at workflow parse time)
-    limit: int = min(int(config.get("limit", 10000)), 10000)
+    limit: int = min(
+        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
+        BusinessLimits.MAX_USER_LIMIT,
+    )
     connector_filter: str | None = config.get("connector_filter")
     sort_by: str = str(config.get("sort_by", "liked_at_desc"))
 
@@ -276,7 +239,7 @@ async def source_played_tracks(
     Args:
         context: Workflow execution context.
         config: Optional parameters:
-            - limit (int): Max tracks to return (default 10000, max 10000).
+            - limit (int): Max tracks to return (default/max: MAX_USER_LIMIT).
             - days_back (int): Time window in days (e.g., 90 for last 3 months).
             - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
             - sort_by (str): Sort method ("played_at_desc", "total_plays_desc", etc.).
@@ -285,7 +248,10 @@ async def source_played_tracks(
         Dict with 'tracklist' containing played tracks and metadata.
     """
     # Extract config with type-narrowing (validated at workflow parse time)
-    limit: int = min(int(config.get("limit", 10000)), 10000)
+    limit: int = min(
+        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
+        BusinessLimits.MAX_USER_LIMIT,
+    )
     days_back: int | None = config.get("days_back")
     connector_filter: str | None = config.get("connector_filter")
     sort_by: str = str(config.get("sort_by", "played_at_desc"))

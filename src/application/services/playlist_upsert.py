@@ -68,8 +68,7 @@ async def upsert_canonical_playlist(
     """Full create-or-update flow for callers with direct UoW access.
 
     Reads existing playlist, builds appropriate command, executes use case.
-    Used by playlist_backup_service — source_nodes uses the command builders
-    directly since it dispatches through workflow_context.execute_use_case().
+    Used by playlist_backup_service and source_nodes for atomic sync+upsert flows.
     """
     # Check if playlist already exists locally
     existing_playlist = None

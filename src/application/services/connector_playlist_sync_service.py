@@ -24,6 +24,12 @@ async def sync_connector_playlist(
     2. Store/update the connector playlist in database
     3. Return the synced playlist for further processing
 
+    Note:
+        This function writes to the database but does NOT commit the transaction.
+        The caller owns the transaction boundary and must ensure commit/rollback.
+        This allows callers to compose multiple operations in a single atomic unit
+        (e.g., sync connector playlist + upsert canonical playlist).
+
     Args:
         connector_name: Name of the connector (e.g., 'spotify', 'lastfm')
         playlist_id: External playlist ID from the connector service
@@ -62,20 +68,9 @@ async def sync_connector_playlist(
     )
 
     # Step 2: Store/update the connector playlist in database
-    # This ensures positions are properly calculated and stored
+    # upsert_model returns the persisted entity with .id and .items populated
     connector_playlist_repo = uow.get_connector_playlist_repository()
-    _ = await connector_playlist_repo.upsert_model(connector_playlist)
-
-    # Step 3: Retrieve the stored connector playlist from database
-    # This ensures we use the database-persisted version as the single source of truth
-    stored_playlist = await connector_playlist_repo.get_by_connector_id(
-        connector_name, playlist_id
-    )
-
-    if not stored_playlist:
-        raise ValueError(
-            f"Failed to retrieve stored connector playlist: {connector_name}:{playlist_id}"
-        )
+    stored_playlist = await connector_playlist_repo.upsert_model(connector_playlist)
 
     logger.info(
         "Synced connector playlist to database",
