@@ -532,3 +532,51 @@ class TestProgressCoordinator:
         # Operation should no longer be found
         retrieved = await coordinator.get_operation(sample_operation.operation_id)
         assert retrieved is None
+
+
+class TestTrackedOperation:
+    """Test tracked_operation async context manager."""
+
+    async def test_happy_path_completes_operation(self):
+        """tracked_operation yields an operation_id and marks COMPLETED on success."""
+        from unittest.mock import AsyncMock
+
+        from src.domain.entities.progress import tracked_operation
+
+        emitter = AsyncMock()
+        emitter.start_operation.return_value = "op-123"
+
+        async with tracked_operation(emitter, "Test import") as op_id:
+            assert op_id == "op-123"
+
+        emitter.start_operation.assert_called_once()
+        emitter.complete_operation.assert_called_once_with(
+            "op-123", OperationStatus.COMPLETED
+        )
+
+    async def test_error_path_marks_failed_and_reraises(self):
+        """tracked_operation marks FAILED and re-raises on exception."""
+        from unittest.mock import AsyncMock
+
+        from src.domain.entities.progress import tracked_operation
+
+        emitter = AsyncMock()
+        emitter.start_operation.return_value = "op-456"
+
+        with pytest.raises(ValueError, match="something broke"):  # noqa: PT012
+            async with tracked_operation(emitter, "Failing import") as op_id:
+                assert op_id == "op-456"
+                raise ValueError("something broke")
+
+        emitter.complete_operation.assert_called_once_with(
+            "op-456", OperationStatus.FAILED
+        )
+
+    async def test_null_emitter_integration(self):
+        """tracked_operation works with NullProgressEmitter (no side effects)."""
+        from src.domain.entities.progress import NullProgressEmitter, tracked_operation
+
+        emitter = NullProgressEmitter()
+
+        async with tracked_operation(emitter, "Silent operation") as op_id:
+            assert op_id.startswith("null-")

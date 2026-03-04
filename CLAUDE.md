@@ -62,7 +62,7 @@ pnpm --prefix web dev                # Dev server (Vite, port 5173)
 pnpm --prefix web test               # Vitest component tests
 pnpm --prefix web check              # Biome lint + format check
 pnpm --prefix web build              # Production build
-pnpm --prefix web generate           # Orval codegen from openapi.json
+pnpm --prefix web sync-api           # Export OpenAPI schema + Orval codegen
 
 # User-facing CLI
 narada workflow                      # Interactive workflow browser
@@ -73,146 +73,19 @@ narada likes import-spotify          # Backup liked tracks
 
 → See docs/DEVELOPMENT.md for full reference
 
-## Required Coding Patterns
+## Coding Patterns
 
-### Python 3.14+ Syntax (REQUIRED)
-
-- **Generics**: `class Repository[TModel, TDomain]:` NOT `class Repository(Generic[TModel, TDomain])`
-- **Unions**: `str | None` NOT `Optional[str]` or `Union[str, None]`
-- **Type annotations**: `-> Track` NOT `-> "Track"` (PEP 649)
-- **Cast**: `cast(Track, obj)` NOT `cast("Track", obj)`
-- **Async**: `asyncio.run(coro)` or `asyncio.Runner()` NOT `get_event_loop()`
-- **Timestamps**: `datetime.now(UTC)` NOT `datetime.now()` or `datetime.utcnow()`
-- **UUID**: `uuid7()` for database IDs, `uuid4()` for random IDs only
-- **Type guards**: `def is_valid(x: Any) -> TypeIs[str]:` over `hasattr()` + `# type: ignore`
-- **No TYPE_CHECKING** unless circular imports
-- **Concurrency**: `async with asyncio.TaskGroup() as tg:` NOT `asyncio.gather()` — structured cancellation on failure
-- **Logging**: `get_logger(__name__).bind(service="...")` NOT `logging.getLogger()` — loguru with context binding
-- **Loguru exception capture**: `logger.opt(exception=True).error(msg)` NOT `logger.error(msg, exc_info=True)` — loguru ignores `exc_info`; it lands in `.extra` as dead data instead of populating `.record.exception`
-- **httpx event hooks on AsyncClient**: hooks MUST be `async def` — `AsyncClient` always awaits them; a sync `def` hook returns `None` and `await None` raises `TypeError`
-
-### Domain Models (attrs - REQUIRED)
-
-**Use `@define(frozen=True, slots=True)` for all domain entities:**
-- `frozen=True` → immutable (pure transformations, safe concurrency)
-- `slots=True` → memory efficient (operating on thousands of tracks)
-- Apply to: Track, Playlist, Artist, Progress, all domain value objects
-- Command/Result objects: `@define(frozen=True)` for use case inputs/outputs
-
-### Repository + Unit of Work (DDD - REQUIRED)
-
-**Repository**: Domain defines `Protocol` interfaces (`src/domain/repositories/`), Infrastructure implements (`src/infrastructure/persistence/repositories/`). Application injects via constructor.
-
-**Unit of Work**: Manages atomic transactions across multiple repositories:
-```python
-async with uow:
-    tracks = await uow.get_track_repository().save_batch(enriched_tracks)
-    await uow.get_playlist_repository().update(playlist.with_tracks(tracks))
-    await uow.commit()  # All succeed or all rollback
-```
-
-### SQLAlchemy 2.0 (CRITICAL)
-
-- `selectinload()` for ALL relationships — lazy loading 1000 tracks = 1001 queries, selectinload = 2
-- `expire_on_commit=False` in session config
-- Async sessions: `async with AsyncSession() as session:`
-- Batch operations: `save_batch()`, `get_by_ids()`, `delete_batch()`
-
-### Prefect 3.0 Workflows (REQUIRED)
-
-- **Shared session per workflow** (NOT session-per-task) — prevents SQLite "database locked"
-- **Transactional semantics**: workflow commits OR rolls back atomically
-- **Dependency injection**: use `SharedSessionProvider`
-- **Declarative pipelines**: Source → Enricher → Filter → Sorter → Selector → Destination
-
-→ See docs/workflow_guide.md for node catalog
-
-### Use Case Execution (REQUIRED)
-
-All use cases run through `application/runner.py`:
-```python
-# execute_use_case() handles session creation, UoW wiring, cleanup
-result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(cmd))
-
-# CLI wraps with run_async() (sync Typer bridge); FastAPI calls directly
-```
-
-- Single responsibility per use case: `SyncLikesUseCase`, `CreatePlaylistUseCase`, `ImportPlayHistoryUseCase`
-- Constructor injection for dependencies
-- Use case owns commit/rollback — delegates logic to domain
-
-### Batch-First Design (REQUIRED)
-
-- Design APIs for `list[Track]`, single items use single-element lists
-- Repository methods: `save_batch()`, `get_by_ids()`, `delete_batch()`
-- API calls: batch requests (Spotify: 50 tracks/request)
-- Use `application/utilities/` batch processors
+Layer-specific coding patterns (attrs, SQLAlchemy, repository, use cases) live in `.claude/rules/` and load automatically when editing the relevant layer. Python 3.14+ conventions are in `.claude/rules/python-conventions.md`.
 
 ## Testing
 
 **Tests are mandatory for every implementation.** A feature is not done until tests exist and pass.
 
-- `poetry run pytest` for fast tests, `poetry run pytest -m ""` for all
-- **ALWAYS** use `db_session` fixture, NEVER `get_session()`
-- No `--timeout` flag configured
-
-### Self-Check (after every implementation)
-1. Did I write tests? If not, write them before considering the task complete
-2. Right level? Domain=unit, UseCase=unit+mocks, Repository=integration
-3. Beyond happy path? Error cases, edge cases, validation
-4. Using existing factories? `make_track`, `make_mock_uow` from `tests.fixtures`
-5. Right directory? Mirror the source path under `tests/unit/` or `tests/integration/`
-6. Tests pass? `poetry run pytest tests/path/to/test_file.py -x`
-7. Complex feature? For multi-layer implementations, consult `test-pyramid-architect` subagent for strategy review
-
-### Full-Stack Testing
-
-**Runner commands:**
-```bash
-poetry run pytest                              # Backend fast tests (~32s)
-poetry run pytest tests/integration/api/ -m "" # API route tests
-pnpm --prefix web test                         # Frontend component tests (Vitest)
-pnpm --prefix web test:e2e                     # E2E tests (Playwright)
-```
-
-**Test placement rules:**
-
-| Source | Test Location | Runner | Type |
-|--------|---------------|--------|------|
-| `src/domain/` | `tests/unit/domain/` | pytest | unit |
-| `src/application/use_cases/` | `tests/unit/application/use_cases/` | pytest | unit |
-| `src/infrastructure/persistence/` | `tests/integration/repositories/` | pytest | integration |
-| `src/interface/api/` | `tests/integration/api/` | pytest | integration |
-| `web/src/components/` | `web/src/components/*.test.tsx` (co-located) | Vitest | unit |
-| `web/src/hooks/` | `web/src/hooks/*.test.ts` (co-located) | Vitest | integration |
-| Critical user flows | `web/e2e/*.spec.ts` | Playwright | e2e |
-
-**API route tests** (pytest, `tests/integration/api/`):
-- Use `httpx.ASGITransport` + `httpx.AsyncClient` (FastAPI's recommended async test pattern)
-- Share the `db_session` fixture for real database behavior
-- Test request validation, response shapes, error codes — not business logic (already covered by use case unit tests)
-- Auto-marked `@pytest.mark.integration` via directory path
-
-**Frontend tests** (Vitest, co-located with source):
-- Co-located: `Button.tsx` → `Button.test.tsx` (same directory)
-- MSW mocks auto-generated from OpenAPI spec via Orval codegen
-- `renderWithProviders()` wraps components with QueryClientProvider + Router
-- No global state mocking needed (Tanstack Query handles server state)
-
-**E2E tests** (Playwright, `web/e2e/`):
-- Chromium desktop only (no mobile, no cross-browser at hobbyist scale)
-- Tests run against dev server with real FastAPI backend + SQLite
-- Cover critical flows: playlist CRUD, import with progress, workflow execution
-- Disable MSW in Playwright — test real network requests
-
-**Coverage targets:**
-
-| Layer | Target |
-|-------|--------|
-| Backend (domain + application) | 85% |
-| Backend (overall) | 80% |
-| Frontend components | 60% |
-| E2E critical flows | 100% of identified flows |
+Self-check after implementing:
+1. Write tests (happy path + at least one error/edge case)
+2. Right test level — domain=unit, use case=unit+mocks, repository=integration
+3. Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`)
+4. Run: `poetry run pytest tests/path/to/test_file.py -x`
 
 ## Documentation Map
 

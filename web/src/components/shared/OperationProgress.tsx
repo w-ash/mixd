@@ -13,11 +13,41 @@ function formatRate(rate: number): string {
 }
 
 const statusConfig = {
-  pending: { icon: "...", label: "Waiting", barClass: "bg-text-faint" },
-  running: { icon: "▶", label: "Running", barClass: "bg-primary" },
-  completed: { icon: "✓", label: "Complete", barClass: "bg-status-connected" },
-  failed: { icon: "!", label: "Failed", barClass: "bg-destructive" },
-  cancelled: { icon: "×", label: "Cancelled", barClass: "bg-text-faint" },
+  pending: {
+    icon: "...",
+    label: "Waiting",
+    barClass: "bg-text-faint",
+    iconBg: "bg-text-faint/20",
+    iconText: "text-text-faint",
+  },
+  running: {
+    icon: "▶",
+    label: "Running",
+    barClass: "bg-primary",
+    iconBg: "bg-primary/20",
+    iconText: "text-primary",
+  },
+  completed: {
+    icon: "✓",
+    label: "Complete",
+    barClass: "bg-status-connected",
+    iconBg: "bg-status-connected/20",
+    iconText: "text-status-connected",
+  },
+  failed: {
+    icon: "!",
+    label: "Failed",
+    barClass: "bg-destructive",
+    iconBg: "bg-destructive/20",
+    iconText: "text-destructive",
+  },
+  cancelled: {
+    icon: "×",
+    label: "Cancelled",
+    barClass: "bg-text-faint",
+    iconBg: "bg-text-faint/20",
+    iconText: "text-text-faint",
+  },
 } as const;
 
 interface OperationProgressProps {
@@ -48,15 +78,8 @@ export function OperationProgress({
           <span
             className={cn(
               "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-              progress.status === "completed" &&
-                "bg-status-connected/20 text-status-connected",
-              progress.status === "failed" &&
-                "bg-destructive/20 text-destructive",
-              progress.status === "running" && "bg-primary/20 text-primary",
-              progress.status === "pending" &&
-                "bg-text-faint/20 text-text-faint",
-              progress.status === "cancelled" &&
-                "bg-text-faint/20 text-text-faint",
+              config.iconBg,
+              config.iconText,
             )}
             aria-hidden="true"
           >

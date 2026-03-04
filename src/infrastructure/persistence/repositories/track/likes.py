@@ -65,6 +65,20 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             result.setdefault(like.track_id, {})[like.service] = like.is_liked
         return result
 
+    @db_operation("count_liked_tracks")
+    async def count_liked_tracks(
+        self,
+        service: str,
+        is_liked: bool = True,
+    ) -> int:
+        """Count tracks with the given like status for a service (SQL COUNT)."""
+        stmt = self.count([
+            self.model_class.service == service,
+            self.model_class.is_liked == is_liked,
+        ])
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
     @db_operation("get_all_liked_tracks")
     async def get_all_liked_tracks(
         self,

@@ -671,7 +671,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             if raise_if_not_found:
                 from src.domain.exceptions import NotFoundError
 
-                raise NotFoundError(f"Playlist for {connector}:{connector_id} not found")
+                raise NotFoundError(
+                    f"Playlist for {connector}:{connector_id} not found"
+                )
             return None
 
         # Convert to domain model
@@ -837,8 +839,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             self
             .select()
             .options(
-                selectinload(DBPlaylist.mappings)
-                .selectinload(DBPlaylistMapping.connector_playlist),
+                selectinload(DBPlaylist.mappings).selectinload(
+                    DBPlaylistMapping.connector_playlist
+                ),
             )
             .order_by(DBPlaylist.updated_at.desc())
         )

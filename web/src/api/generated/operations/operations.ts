@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.1
+ * OpenAPI spec version: 0.3.2
  */
 import {
   useQuery
@@ -34,6 +34,11 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
  * Stream real-time progress for an operation via Server-Sent Events.
+
+Uses FastAPI's built-in EventSourceResponse encoding which provides:
+- Automatic 15s keep-alive pings (prevents proxy timeouts)
+- Cache-Control: no-cache and X-Accel-Buffering: no headers
+- Proper SSE wire-format encoding including multi-line data handling
  * @summary Stream Operation Progress
  */
 export type streamOperationProgressApiV1OperationsOperationIdProgressGetResponse200 = {

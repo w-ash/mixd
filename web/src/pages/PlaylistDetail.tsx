@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
   getListPlaylistsApiV1PlaylistsGetQueryKey,
@@ -34,6 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatDate } from "@/lib/format";
 
 function formatDuration(ms: number | null | undefined): string {
   if (!ms) return "\u2014";
@@ -50,16 +50,6 @@ function formatTotalDuration(ms: number): string {
   if (hours === 0) return `${minutes} min`;
   if (minutes === 0) return `${hours} hr`;
   return `${hours} hr ${minutes} min`;
-}
-
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "\u2014";
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 function DetailSkeleton() {

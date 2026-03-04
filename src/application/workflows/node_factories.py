@@ -221,7 +221,9 @@ def build_external_enrichment_config(
         return EnrichmentConfig(
             enrichment_type="external_metadata",
             connector=connector,
-            connector_instance=cast(TrackMetadataConnector, ctx.get_connector(connector)),
+            connector_instance=cast(
+                TrackMetadataConnector, ctx.get_connector(connector)
+            ),
             track_metric_names=metric_names,
         )
 

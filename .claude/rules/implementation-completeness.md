@@ -4,18 +4,6 @@ paths:
 ---
 # Implementation Completeness
 - **Every source change requires corresponding tests** — a feature is not done until tests exist and pass
-- After implementing, verify a test file exists at the mirror path:
-  - `src/domain/**` → `tests/unit/domain/`
-  - `src/application/use_cases/**` → `tests/unit/application/use_cases/`
-  - `src/application/workflows/**` → `tests/unit/application/workflows/`
-  - `src/application/services/**` → `tests/unit/application/services/`
-  - `src/application/metadata_transforms/**` → `tests/unit/application/metadata_transforms/`
-  - `src/infrastructure/connectors/<name>/**` → `tests/unit/infrastructure/connectors/<name>/`
-  - `src/infrastructure/persistence/repositories/**` → `tests/integration/repositories/`
-  - `src/interface/api/**` → `tests/integration/api/`
-  - `web/src/components/**` → co-located `*.test.tsx` (same directory)
-  - `web/src/pages/**` → co-located `*.test.tsx` (same directory)
-  - `web/src/api/client.ts` → `web/src/api/client.test.ts`
 - **Test level by layer**:
   - Domain → unit tests (pure logic, no mocks needed)
   - Application use cases → unit tests with `make_mock_uow()` from `tests.fixtures`

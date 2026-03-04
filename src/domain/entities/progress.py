@@ -8,6 +8,7 @@ Designed to be display-agnostic and usable across CLI, web, and future interface
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: service_metadata, raw_data dicts, factory patterns
 
+from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, Self, override
@@ -329,6 +330,25 @@ def create_progress_event(
         status=status,
         metadata=metadata,
     )
+
+
+@asynccontextmanager
+async def tracked_operation(emitter: ProgressEmitter, description: str):
+    """Context manager that wraps the start/complete lifecycle of a progress operation.
+
+    Calls start_operation on entry, complete_operation(COMPLETED) on success,
+    and complete_operation(FAILED) + re-raise on exception. Yields the operation_id
+    for progress event emission within the block.
+    """
+    operation = ProgressOperation(description=description)
+    operation_id = await emitter.start_operation(operation)
+    try:
+        yield operation_id
+    except Exception:
+        await emitter.complete_operation(operation_id, OperationStatus.FAILED)
+        raise
+    else:
+        await emitter.complete_operation(operation_id, OperationStatus.COMPLETED)
 
 
 def create_progress_operation(

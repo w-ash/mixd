@@ -179,7 +179,10 @@ class UpdateCanonicalPlaylistUseCase:
                     )
 
                 # Step 2: Handle metadata updates (name/description)
-                if command.playlist_name is not None or command.playlist_description is not None:
+                if (
+                    command.playlist_name is not None
+                    or command.playlist_description is not None
+                ):
                     current_playlist = await self._update_playlist_metadata(
                         current_playlist, command, uow
                     )

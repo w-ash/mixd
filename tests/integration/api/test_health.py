@@ -6,6 +6,8 @@ and that the error middleware handles unexpected errors correctly.
 
 import httpx
 
+from src import __version__
+
 
 class TestHealthEndpoint:
     """GET /api/v1/health returns service status."""
@@ -16,7 +18,7 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "ok"
-        assert body["version"] == "0.3.1"
+        assert body["version"] == __version__
 
     async def test_health_content_type_is_json(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/health")

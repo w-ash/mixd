@@ -84,7 +84,7 @@ class TestExportLastFmLikesUseCase:
         """Test that having no unsynced likes produces zero-export result."""
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = []
-        like_repo.get_all_liked_tracks.return_value = [_make_like(1)]
+        like_repo.count_liked_tracks.return_value = 1
 
         command = ExportLastFmLikesCommand(user_id="test_user")
         use_case = ExportLastFmLikesUseCase()
@@ -105,7 +105,7 @@ class TestExportLastFmLikesUseCase:
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
-        like_repo.get_all_liked_tracks.return_value = likes
+        like_repo.count_liked_tracks.return_value = 2
 
         track_repo = mock_uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = {1: track1, 2: track2}
@@ -130,7 +130,7 @@ class TestExportLastFmLikesUseCase:
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
-        like_repo.get_all_liked_tracks.return_value = likes
+        like_repo.count_liked_tracks.return_value = 1
 
         track_repo = mock_uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = {1: track1}
@@ -154,7 +154,7 @@ class TestExportLastFmLikesUseCase:
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
-        like_repo.get_all_liked_tracks.return_value = likes
+        like_repo.count_liked_tracks.return_value = 5
 
         # Return one track per call so the inner loop can check max_exports
         track_repo = mock_uow.get_track_repository()
@@ -185,7 +185,7 @@ class TestExportLastFmLikesUseCase:
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = likes
-        like_repo.get_all_liked_tracks.return_value = likes
+        like_repo.count_liked_tracks.return_value = 1
 
         track_repo = mock_uow.get_track_repository()
         track_repo.find_tracks_by_ids.return_value = {1: track1}
@@ -207,12 +207,11 @@ class TestExportLastFmLikesUseCase:
 
     async def test_already_loved_count_in_metrics(self, mock_uow):
         """Test that already-loved tracks are reported in metrics."""
-        all_likes = [_make_like(i) for i in range(1, 11)]  # 10 total
         unsynced = [_make_like(i) for i in range(8, 11)]  # 3 unsynced
 
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = unsynced
-        like_repo.get_all_liked_tracks.return_value = all_likes
+        like_repo.count_liked_tracks.return_value = 10  # 10 total
 
         # Return tracks for the unsynced batch
         tracks = {i: make_track(i) for i in range(8, 11)}
@@ -236,7 +235,7 @@ class TestExportLastFmLikesUseCase:
         """Test that zero liked tracks doesn't cause ZeroDivisionError."""
         like_repo = mock_uow.get_like_repository()
         like_repo.get_unsynced_likes.return_value = []
-        like_repo.get_all_liked_tracks.return_value = []
+        like_repo.count_liked_tracks.return_value = 0
 
         command = ExportLastFmLikesCommand(user_id="test_user")
         use_case = ExportLastFmLikesUseCase()

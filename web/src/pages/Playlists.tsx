@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePagination } from "@/hooks/usePagination";
+import { formatDate } from "@/lib/format";
 
 function PlaylistTableSkeleton() {
   return (
@@ -31,16 +32,6 @@ function PlaylistTableSkeleton() {
       ))}
     </div>
   );
-}
-
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "\u2014";
-  const date = new Date(dateStr);
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 export function Playlists() {

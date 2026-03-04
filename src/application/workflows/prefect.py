@@ -218,9 +218,7 @@ def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) 
             )
         # Reject empty strings for required string keys
         if isinstance(value, str) and not value.strip():
-            raise ValueError(
-                f"Task '{task_id}' config key '{key}' must not be empty"
-            )
+            raise ValueError(f"Task '{task_id}' config key '{key}' must not be empty")
 
 
 def validate_workflow_def(workflow_def: dict[str, Any]) -> None:

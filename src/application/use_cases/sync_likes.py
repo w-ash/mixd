@@ -16,6 +16,7 @@ from src.application.use_cases._shared.connector_resolver import (
 )
 from src.application.utilities.batch_results import BatchItemResult, BatchItemStatus
 from src.config import get_logger, settings
+from src.config.constants import BusinessLimits
 from src.domain.entities import (
     ConnectorTrack,
     OperationResult,
@@ -142,6 +143,15 @@ class GetSyncCheckpointStatusCommand:
     entity_type: Literal["likes", "plays"]
 
 
+# All known service/entity combinations for checkpoint queries.
+CHECKPOINT_COMBINATIONS: tuple[tuple[str, Literal["likes", "plays"]], ...] = (
+    ("spotify", "likes"),
+    ("lastfm", "likes"),
+    ("lastfm", "plays"),
+    ("spotify", "plays"),
+)
+
+
 # -------------------------------------------------------------------------
 # USE CASES
 # -------------------------------------------------------------------------
@@ -171,23 +181,12 @@ class ImportSpotifyLikesUseCase:
         emitter: ProgressEmitter,
     ) -> OperationResult:
         """Fetch and store Spotify liked tracks in batches."""
-        from src.domain.entities.progress import (
-            OperationStatus,
-            create_progress_operation,
-        )
+        from src.domain.entities.progress import tracked_operation
 
-        operation = create_progress_operation("Importing Spotify Likes")
-        operation_id = await emitter.start_operation(operation)
-
-        try:
-            result = await self._import_inner(command, uow, emitter, operation_id)
-        except Exception:
-            await emitter.complete_operation(operation_id, OperationStatus.FAILED)
-            raise
-        else:
-            await emitter.complete_operation(operation_id, OperationStatus.COMPLETED)
-
-        return result
+        async with tracked_operation(
+            emitter, "Importing Spotify Likes"
+        ) as operation_id:
+            return await self._import_inner(command, uow, emitter, operation_id)
 
     async def _import_inner(
         self,
@@ -215,12 +214,14 @@ class ImportSpotifyLikesUseCase:
                 logger.info(f"Reached max imports: {command.max_imports}")
                 break
 
-            await emitter.emit_progress(create_progress_event(
-                operation_id,
-                current=imported + already_synced,
-                total=None,
-                message=f"Fetching batch {batches + 1}...",
-            ))
+            await emitter.emit_progress(
+                create_progress_event(
+                    operation_id,
+                    current=imported + already_synced,
+                    total=None,
+                    message=f"Fetching batch {batches + 1}...",
+                )
+            )
 
             tracks, cursor = await spotify_connector.get_liked_tracks(
                 limit=batch_size, cursor=cursor
@@ -340,22 +341,30 @@ class ImportSpotifyLikesUseCase:
 
             batches += 1
 
-            await emitter.emit_progress(create_progress_event(
-                operation_id,
-                current=imported + already_synced,
-                total=None,
-                message=f"Processed batch {batches}: {imported} imported, {already_synced} already synced",
-            ))
-
-            # Early termination if this batch is mostly duplicates
-            if new_in_batch == 0 and batch_already_synced > len(tracks) * 0.8:
-                logger.info("Reached previously synced tracks, stopping")
-                await emitter.emit_progress(create_progress_event(
+            await emitter.emit_progress(
+                create_progress_event(
                     operation_id,
                     current=imported + already_synced,
                     total=None,
-                    message="Detected high duplicate rate, finishing...",
-                ))
+                    message=f"Processed batch {batches}: {imported} imported, {already_synced} already synced",
+                )
+            )
+
+            # Early termination if this batch is mostly duplicates
+            if (
+                new_in_batch == 0
+                and batch_already_synced
+                > len(tracks) * BusinessLimits.DUPLICATE_RATE_EARLY_STOP
+            ):
+                logger.info("Reached previously synced tracks, stopping")
+                await emitter.emit_progress(
+                    create_progress_event(
+                        operation_id,
+                        current=imported + already_synced,
+                        total=None,
+                        message="Detected high duplicate rate, finishing...",
+                    )
+                )
                 break
 
             # Update checkpoint periodically
@@ -435,23 +444,12 @@ class ExportLastFmLikesUseCase:
         emitter: ProgressEmitter,
     ) -> OperationResult:
         """Find unsynced likes and export them to Last.fm."""
-        from src.domain.entities.progress import (
-            OperationStatus,
-            create_progress_operation,
-        )
+        from src.domain.entities.progress import tracked_operation
 
-        operation = create_progress_operation("Exporting Likes to Last.fm")
-        operation_id = await emitter.start_operation(operation)
-
-        try:
-            result = await self._export_inner(command, uow, emitter, operation_id)
-        except Exception:
-            await emitter.complete_operation(operation_id, OperationStatus.FAILED)
-            raise
-        else:
-            await emitter.complete_operation(operation_id, OperationStatus.COMPLETED)
-
-        return result
+        async with tracked_operation(
+            emitter, "Exporting Likes to Last.fm"
+        ) as operation_id:
+            return await self._export_inner(command, uow, emitter, operation_id)
 
     async def _export_inner(
         self,
@@ -481,8 +479,8 @@ class ExportLastFmLikesUseCase:
             since_timestamp=filter_time,
         )
 
-        total_narada = len(
-            await like_repo.get_all_liked_tracks(service="narada", is_liked=True)
+        total_narada = await like_repo.count_liked_tracks(
+            service="narada", is_liked=True
         )
         already_loved = total_narada - len(unsynced)
         total_to_export = len(unsynced)
@@ -510,12 +508,14 @@ class ExportLastFmLikesUseCase:
             batch = unsynced[i : i + batch_size]
             batch_time = datetime.now(UTC)
 
-            await emitter.emit_progress(create_progress_event(
-                operation_id,
-                current=exported,
-                total=total_to_export or None,
-                message=f"Loving track {exported + 1} of {total_to_export}...",
-            ))
+            await emitter.emit_progress(
+                create_progress_event(
+                    operation_id,
+                    current=exported,
+                    total=total_to_export or None,
+                    message=f"Loving track {exported + 1} of {total_to_export}...",
+                )
+            )
 
             # Batch-fetch all tracks for this batch (single query instead of N)
             track_repo = uow.get_track_repository()
@@ -659,20 +659,42 @@ class GetSyncCheckpointStatusUseCase:
     ) -> SyncCheckpointStatus:
         """Get checkpoint status for a service and entity type."""
         async with uow:
-            repo = uow.get_checkpoint_repository()
-            checkpoint = await repo.get_sync_checkpoint(
-                user_id="default",
-                service=command.service,
-                entity_type=command.entity_type,
-            )
+            return await self._get_status(command.service, command.entity_type, uow)
 
-            return SyncCheckpointStatus(
-                service=command.service,
-                entity_type=command.entity_type,
-                last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
-                has_previous_sync=checkpoint is not None
-                and checkpoint.last_timestamp is not None,
-            )
+    async def execute_all(
+        self,
+        combinations: tuple[tuple[str, Literal["likes", "plays"]], ...],
+        uow: UnitOfWorkProtocol,
+    ) -> list[SyncCheckpointStatus]:
+        """Get checkpoint statuses for all service/entity combinations in a single session."""
+        async with uow:
+            return [
+                await self._get_status(service, entity_type, uow)
+                for service, entity_type in combinations
+            ]
+
+    @staticmethod
+    async def _get_status(
+        service: str,
+        entity_type: Literal["likes", "plays"],
+        uow: UnitOfWorkProtocol,
+    ) -> SyncCheckpointStatus:
+        from src.config.constants import BusinessLimits
+
+        repo = uow.get_checkpoint_repository()
+        checkpoint = await repo.get_sync_checkpoint(
+            user_id=BusinessLimits.DEFAULT_USER_ID,
+            service=service,
+            entity_type=entity_type,
+        )
+
+        return SyncCheckpointStatus(
+            service=service,
+            entity_type=entity_type,
+            last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
+            has_previous_sync=checkpoint is not None
+            and checkpoint.last_timestamp is not None,
+        )
 
 
 # -------------------------------------------------------------------------
@@ -693,9 +715,7 @@ async def run_spotify_likes_import(
         user_id=user_id, limit=limit, max_imports=max_imports
     )
     return await execute_use_case(
-        lambda uow: ImportSpotifyLikesUseCase().execute(
-            command, uow, progress_emitter
-        )
+        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow, progress_emitter)
     )
 
 
@@ -716,9 +736,7 @@ async def run_lastfm_likes_export(
         override_date=override_date,
     )
     return await execute_use_case(
-        lambda uow: ExportLastFmLikesUseCase().execute(
-            command, uow, progress_emitter
-        )
+        lambda uow: ExportLastFmLikesUseCase().execute(command, uow, progress_emitter)
     )
 
 
@@ -732,4 +750,15 @@ async def get_sync_checkpoint_status(
     command = GetSyncCheckpointStatusCommand(service=service, entity_type=entity_type)
     return await execute_use_case(
         lambda uow: GetSyncCheckpointStatusUseCase().execute(command, uow)
+    )
+
+
+async def get_all_checkpoint_statuses() -> list[SyncCheckpointStatus]:
+    """Get checkpoint statuses for all known service/entity combinations in a single session."""
+    from src.application.runner import execute_use_case
+
+    return await execute_use_case(
+        lambda uow: GetSyncCheckpointStatusUseCase().execute_all(
+            CHECKPOINT_COMBINATIONS, uow
+        )
     )

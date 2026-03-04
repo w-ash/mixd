@@ -79,6 +79,7 @@ def make_mock_like_repo(**overrides) -> AsyncMock:
         "get_liked_status_batch", {}
     )
     repo.get_all_liked_tracks.return_value = overrides.pop("get_all_liked_tracks", [])
+    repo.count_liked_tracks.return_value = overrides.pop("count_liked_tracks", 0)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

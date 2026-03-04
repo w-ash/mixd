@@ -39,6 +39,16 @@ class BusinessLimits:
     # User-facing API limits
     MAX_USER_LIMIT: Final[int] = 10000
 
+    # Internal user ID for single-user operation (not exposed to end users)
+    DEFAULT_USER_ID: Final[str] = "default"
+
+    # Maximum upload size for Spotify GDPR JSON files
+    MAX_UPLOAD_BYTES: Final[int] = 100 * 1024 * 1024  # 100 MB
+
+    # Early termination threshold: if more than this fraction of a batch
+    # consists of already-synced duplicates, stop importing.
+    DUPLICATE_RATE_EARLY_STOP: Final[float] = 0.8
+
     # Confidence scoring
     FULL_CONFIDENCE_SCORE: Final[int] = 100
 

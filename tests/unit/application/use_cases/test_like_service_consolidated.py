@@ -100,11 +100,7 @@ class TestLikeUseCases:
         mock_lastfm_connector.love_track.return_value = True
 
         # Mock repository responses - avoid division by zero
-        mock_unit_of_work.get_like_repository().get_all_liked_tracks.return_value = [
-            1,
-            2,
-            3,
-        ]  # 3 tracks
+        mock_unit_of_work.get_like_repository().count_liked_tracks.return_value = 3
         mock_unit_of_work.get_like_repository().get_unsynced_likes.return_value = []
 
         # Mock checkpoint operations

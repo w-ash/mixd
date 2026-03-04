@@ -11,3 +11,6 @@ paths:
 - **Typed connector resolvers**: Use `resolve_playlist_connector()`, `resolve_liked_track_connector()`, `resolve_love_track_connector()` from `_shared/connector_resolver.py` — NOT raw `resolve_connector()` which returns `Any`. Capability protocols (`PlaylistConnector`, `LikedTrackConnector`, `LoveTrackConnector`, `TrackMetadataConnector`) live in `connector_protocols.py` (NOT `workflows/protocols.py` — that would create a circular import).
 - Command/Result objects: `@define(frozen=True)`
 - Constructor injection for all dependencies
+- **Prefect workflows**: use `SharedSessionProvider` for dependency injection; pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see docs/workflow_guide.md)
+- **Database-first workflows**: all workflow operations work on database tracks (`track.id is not None`), never on raw connector data. Source nodes MUST persist via `SavePlaylistUseCase` before returning.
+- **Intentional pattern repetition** (not duplication): each use case owns its own Command/Result types, transaction boundaries, and context-specific error handling — don't extract these.

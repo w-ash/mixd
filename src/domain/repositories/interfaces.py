@@ -212,6 +212,18 @@ class LikeRepositoryProtocol(Protocol):
         """
         ...
 
+    def count_liked_tracks(self, service: str, is_liked: bool = True) -> Awaitable[int]:
+        """Count tracks with the given like status for a service.
+
+        More efficient than get_all_liked_tracks when only the count is needed,
+        as it avoids hydrating domain objects.
+
+        Args:
+            service: Service to count likes for
+            is_liked: Filter by like status
+        """
+        ...
+
     def get_unsynced_likes(
         self,
         source_service: str,

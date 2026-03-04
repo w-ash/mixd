@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "generate": "orval",
+    "sync-api": "cd .. && poetry run export-openapi && cd web && orval",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src/",

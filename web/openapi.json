@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.3.1"
+    "version": "0.3.2"
   },
   "paths": {
     "/api/v1/health": {
@@ -549,7 +549,7 @@
           "operations"
         ],
         "summary": "Stream Operation Progress",
-        "description": "Stream real-time progress for an operation via Server-Sent Events.",
+        "description": "Stream real-time progress for an operation via Server-Sent Events.\n\nUses FastAPI's built-in EventSourceResponse encoding which provides:\n- Automatic 15s keep-alive pings (prevents proxy timeouts)\n- Cache-Control: no-cache and X-Accel-Buffering: no headers\n- Proper SSE wire-format encoding including multi-line data handling",
         "operationId": "stream_operation_progress_api_v1_operations__operation_id__progress_get",
         "parameters": [
           {

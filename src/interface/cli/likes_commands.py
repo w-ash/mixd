@@ -5,6 +5,7 @@ from typing import Annotated
 from rich.prompt import Prompt
 import typer
 
+from src.config.constants import BusinessLimits
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import parse_iso_date
 from src.interface.cli.console import get_console, get_error_console
@@ -79,7 +80,7 @@ def import_spotify_cmd(
     with console.status("[bold blue]Importing liked tracks from Spotify..."):
         result = run_async(
             run_spotify_likes_import(
-                user_id="default",  # Internal identifier, not exposed to user
+                user_id=BusinessLimits.DEFAULT_USER_ID,
                 limit=limit,
                 max_imports=max_imports,
             )
@@ -142,7 +143,7 @@ def export_lastfm_cmd(
     with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
         result = run_async(
             run_lastfm_likes_export(
-                user_id="default",  # Internal identifier, not exposed to user
+                user_id=BusinessLimits.DEFAULT_USER_ID,
                 batch_size=batch_size,
                 max_exports=max_exports,
                 override_date=override_date,

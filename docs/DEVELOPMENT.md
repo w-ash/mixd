@@ -35,6 +35,32 @@ poetry run basedpyright src/                    # Type check
 # Database
 poetry run alembic revision --autogenerate     # Generate migration
 poetry run alembic upgrade head                # Apply migrations
+
+# API & Code Generation
+poetry run export-openapi                      # Export OpenAPI schema → web/openapi.json
+pnpm --prefix web generate                     # Orval codegen (types + hooks + MSW)
+pnpm --prefix web sync-api                     # Both: export schema + Orval codegen
+```
+
+## Version Management
+
+Version is defined **once** in `pyproject.toml` and derived everywhere else:
+
+```
+pyproject.toml  ──→  importlib.metadata.version("narada")
+                         │
+                         ├── src/__version__
+                         ├── FastAPI app.version (app.py)
+                         ├── Health endpoint (health.py)
+                         └── OpenAPI schema → Orval types
+```
+
+**To bump the version:**
+```bash
+# 1. Edit pyproject.toml (the ONE source of truth)
+# 2. Regenerate OpenAPI schema + Orval types:
+pnpm --prefix web sync-api
+# 3. Update ROADMAP.md manually (semantic content)
 ```
 
 ## Architecture

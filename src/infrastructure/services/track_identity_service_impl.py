@@ -59,7 +59,9 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         self._provider_factories = {
             "spotify": lambda ci: SpotifyProvider(cast(SpotifyAPIClient, ci)),
             "lastfm": lambda ci: LastFMProvider(cast(LastFMConnector, ci)),
-            "musicbrainz": lambda ci: MusicBrainzProvider(cast(MusicBrainzConnector, ci)),
+            "musicbrainz": lambda ci: MusicBrainzProvider(
+                cast(MusicBrainzConnector, ci)
+            ),
         }
 
     @override

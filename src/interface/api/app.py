@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from src import __version__
 from src.interface.api.middleware import register_exception_handlers
 from src.interface.api.routes.health import router as health_router
 
@@ -54,7 +55,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Narada",
         description="Personal music metadata hub",
-        version="0.3.1",
+        version=__version__,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=lifespan,

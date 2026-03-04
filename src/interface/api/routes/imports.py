@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 
 from src.application.services.progress_manager import get_progress_manager
 from src.config import get_logger
-from src.config.constants import SSEConstants
+from src.config.constants import BusinessLimits, SSEConstants
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
@@ -29,6 +29,7 @@ from src.interface.api.schemas.imports import (
     OperationStartedResponse,
 )
 from src.interface.api.services.progress import (
+    SSE_SENTINEL,
     OperationBoundEmitter,
     get_operation_registry,
 )
@@ -36,9 +37,6 @@ from src.interface.api.services.progress import (
 logger = get_logger(__name__).bind(service="imports_api")
 
 router = APIRouter(prefix="/imports", tags=["imports"])
-
-# Maximum upload size for Spotify GDPR JSON files (100 MB)
-_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 # Strong references prevent background tasks from being garbage-collected
 _background_tasks: set[asyncio.Task[None]] = set()
@@ -88,6 +86,16 @@ async def _run_operation(
         logger.opt(exception=True).error(
             "Import operation failed", operation_id=operation_id
         )
+        # If the use case failed before emitting any terminal event, push a
+        # fallback error event + sentinel so the SSE generator closes cleanly
+        # instead of hanging indefinitely on queue.get().
+        queue = await registry.get_queue(operation_id)
+        if queue is not None and queue.empty():
+            await queue.put({
+                "event": "error",
+                "data": {"operation_id": operation_id, "final_status": "failed"},
+            })
+            await queue.put(SSE_SENTINEL)
     finally:
         # Mark operation as no longer active before the grace period so new
         # imports aren't blocked by the 429 limit during SSE drain.
@@ -107,7 +115,7 @@ async def _prepare_operation() -> tuple[str, OperationBoundEmitter]:
         raise HTTPException(
             status_code=429,
             detail="Too many concurrent operations. Please wait for a running import to finish.",
-            headers={"Retry-After": "30"},
+            headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
         )
     operation_id = str(uuid4())
     registry = get_operation_registry()
@@ -155,7 +163,7 @@ async def import_spotify_likes(
         from src.application.use_cases.sync_likes import run_spotify_likes_import
 
         await run_spotify_likes_import(
-            user_id="default",
+            user_id=BusinessLimits.DEFAULT_USER_ID,
             limit=body.limit,
             max_imports=body.max_imports,
             progress_emitter=emitter,
@@ -176,7 +184,7 @@ async def export_lastfm_likes(
         from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
         await run_lastfm_likes_export(
-            user_id="default",
+            user_id=BusinessLimits.DEFAULT_USER_ID,
             batch_size=body.batch_size,
             max_exports=body.max_exports,
             progress_emitter=emitter,
@@ -189,10 +197,10 @@ async def export_lastfm_likes(
 @router.post("/spotify/history")
 async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
     """Import Spotify listening history from a GDPR data export JSON file."""
-    if file.size and file.size > _MAX_UPLOAD_BYTES:
+    if file.size and file.size > BusinessLimits.MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"File too large ({file.size} bytes). Maximum is {_MAX_UPLOAD_BYTES} bytes.",
+            detail=f"File too large ({file.size} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
         )
 
     # Save uploaded file to temp location for background processing.
@@ -235,25 +243,15 @@ async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
 @router.get("/checkpoints")
 async def get_checkpoints() -> list[CheckpointStatusSchema]:
     """Get sync checkpoint status for all known service/entity combinations."""
-    from src.application.use_cases.sync_likes import get_sync_checkpoint_status
+    from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
 
-    results: list[CheckpointStatusSchema] = []
-    for service, entity_type in (
-        ("spotify", "likes"),
-        ("lastfm", "likes"),
-        ("lastfm", "plays"),
-        ("spotify", "plays"),
-    ):
-        status = await get_sync_checkpoint_status(
-            service, entity_type  # pyright: ignore[reportArgumentType]
+    statuses = await get_all_checkpoint_statuses()
+    return [
+        CheckpointStatusSchema(
+            service=s.service,
+            entity_type=s.entity_type,
+            last_sync_timestamp=s.last_sync_timestamp,
+            has_previous_sync=s.has_previous_sync,
         )
-        results.append(
-            CheckpointStatusSchema(
-                service=status.service,
-                entity_type=status.entity_type,
-                last_sync_timestamp=status.last_sync_timestamp,
-                has_previous_sync=status.has_previous_sync,
-            )
-        )
-
-    return results
+        for s in statuses
+    ]

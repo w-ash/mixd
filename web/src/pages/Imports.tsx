@@ -20,24 +20,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOperationProgress } from "@/hooks/useOperationProgress";
+import { formatDateTime } from "@/lib/format";
 
 /** Query keys to invalidate when an import operation completes. */
 const CHECKPOINT_KEYS = [
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey(),
 ] as const;
-
-/** Format a checkpoint timestamp for display. */
-function formatTimestamp(ts: string | null | undefined): string {
-  if (!ts) return "Never";
-  const date = new Date(ts);
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /** Build shared onSuccess/onError callbacks for import mutation triggers. */
 function makeOperationCallbacks(
@@ -110,7 +98,7 @@ function ImportCard({
 
       {/* Last sync info */}
       <div className="text-xs text-text-faint">
-        Last sync: {formatTimestamp(checkpoint?.last_sync_timestamp)}
+        Last sync: {formatDateTime(checkpoint?.last_sync_timestamp)}
       </div>
     </Card>
   );
@@ -312,7 +300,7 @@ function CheckpointStatus({
           </div>
           <span className="text-xs text-text-muted font-mono">
             {cp.has_previous_sync
-              ? formatTimestamp(cp.last_sync_timestamp)
+              ? formatDateTime(cp.last_sync_timestamp)
               : "Never synced"}
           </span>
         </div>

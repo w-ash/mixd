@@ -12,7 +12,7 @@ Three components bridge the domain progress system to Server-Sent Events:
 # Legitimate Any: SSE event data dicts, progress metadata
 
 import asyncio
-from typing import Any
+from typing import Any, override
 
 from attrs import define, evolve, field
 
@@ -36,7 +36,7 @@ SSE_SENTINEL = object()
 # ---------------------------------------------------------------------------
 
 
-class OperationBoundEmitter:
+class OperationBoundEmitter(ProgressEmitter):
     """Wraps a ProgressEmitter, overriding operation_id on start_operation.
 
     The API layer pre-generates an operation_id so it can return the ID to
@@ -49,13 +49,16 @@ class OperationBoundEmitter:
         self._delegate = delegate
         self._operation_id = operation_id
 
+    @override
     async def start_operation(self, operation: ProgressOperation) -> str:
         bound = evolve(operation, operation_id=self._operation_id)
         return await self._delegate.start_operation(bound)
 
+    @override
     async def emit_progress(self, event: ProgressEvent) -> None:
         await self._delegate.emit_progress(event)
 
+    @override
     async def complete_operation(
         self, operation_id: str, final_status: OperationStatus
     ) -> None:
