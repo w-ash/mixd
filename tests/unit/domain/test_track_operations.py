@@ -274,6 +274,30 @@ class TestSyncCheckpoint:
         assert updated.cursor == "cursor123"
         assert checkpoint.last_timestamp is None  # Original unchanged
 
+    def test_with_update_preserves_cursor_when_omitted(self):
+        """Omitting cursor arg preserves the existing cursor value."""
+        checkpoint = SyncCheckpoint(
+            user_id="u", service="s", entity_type="likes", cursor="page2"
+        )
+        updated = checkpoint.with_update(datetime.now(UTC))
+        assert updated.cursor == "page2"
+
+    def test_with_update_clears_cursor_with_none(self):
+        """Passing cursor=None explicitly clears a stored cursor."""
+        checkpoint = SyncCheckpoint(
+            user_id="u", service="s", entity_type="likes", cursor="page2"
+        )
+        updated = checkpoint.with_update(datetime.now(UTC), cursor=None)
+        assert updated.cursor is None
+
+    def test_with_update_replaces_cursor(self):
+        """Passing a new cursor string replaces the old one."""
+        checkpoint = SyncCheckpoint(
+            user_id="u", service="s", entity_type="likes", cursor="page2"
+        )
+        updated = checkpoint.with_update(datetime.now(UTC), cursor="page3")
+        assert updated.cursor == "page3"
+
 
 class TestPlayRecord:
     """Test PlayRecord and factory functions."""

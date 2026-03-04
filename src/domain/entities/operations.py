@@ -20,6 +20,20 @@ from .summary_metrics import SummaryMetricCollection
 from .track import Track, TrackList
 
 
+class Unset:
+    """Sentinel type distinguishing 'not provided' from None.
+
+    Used in SyncCheckpoint.with_update() so that:
+    - Omitting cursor → preserves existing value
+    - Passing None → explicitly clears cursor
+    """
+
+    __slots__ = ()
+
+
+UNSET: Final = Unset()
+
+
 @define(frozen=True, slots=True)
 class SyncCheckpoint:
     """Tracks sync progress for resuming interrupted music service synchronization.
@@ -38,13 +52,13 @@ class SyncCheckpoint:
     def with_update(
         self,
         timestamp: datetime,
-        cursor: str | None = None,
+        cursor: str | Unset | None = UNSET,
     ) -> Self:
         """Returns new checkpoint with updated timestamp and optional cursor.
 
         Args:
             timestamp: Latest sync timestamp to record
-            cursor: Pagination cursor for next API call (optional)
+            cursor: Pagination cursor — omit to preserve, pass None to clear
 
         Returns:
             New checkpoint instance with updated values
@@ -54,7 +68,7 @@ class SyncCheckpoint:
             service=self.service,
             entity_type=self.entity_type,
             last_timestamp=timestamp,
-            cursor=cursor or self.cursor,
+            cursor=self.cursor if isinstance(cursor, Unset) else cursor,
             id=self.id,
         )
 

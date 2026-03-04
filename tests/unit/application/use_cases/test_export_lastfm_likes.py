@@ -15,7 +15,7 @@ from src.application.use_cases.sync_likes import (
 )
 from src.domain.entities import SyncCheckpoint, TrackLike
 from tests.fixtures import make_track
-from tests.fixtures.mocks import make_mock_uow
+from tests.fixtures.mocks import make_mock_uow, make_tracking_emitter
 
 
 def _make_like(track_id: int) -> TrackLike:
@@ -247,3 +247,18 @@ class TestExportLastFmLikesUseCase:
             m for m in result.summary_metrics.metrics if m.name == "exported"
         )
         assert exported.value == 0
+
+    async def test_commit_happens_before_complete_sse(self, mock_uow):
+        """Test that uow.commit() fires before complete_operation to avoid stale SSE reads."""
+        mock_emitter, call_order = make_tracking_emitter(mock_uow)
+
+        like_repo = mock_uow.get_like_repository()
+        like_repo.get_unsynced_likes.return_value = []
+        like_repo.count_liked_tracks.return_value = 0
+
+        command = ExportLastFmLikesCommand(user_id="test_user")
+        await ExportLastFmLikesUseCase().execute(command, mock_uow, mock_emitter)
+
+        assert "commit" in call_order, "uow.commit() was never called"
+        assert "complete" in call_order, "complete_operation was never called"
+        assert call_order.index("commit") < call_order.index("complete")

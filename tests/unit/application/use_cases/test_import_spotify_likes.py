@@ -14,7 +14,7 @@ from src.application.use_cases.sync_likes import (
 )
 from src.domain.entities import SyncCheckpoint
 from tests.fixtures import make_connector_track, make_track
-from tests.fixtures.mocks import make_mock_uow
+from tests.fixtures.mocks import make_mock_uow, make_tracking_emitter
 
 
 @pytest.fixture
@@ -363,3 +363,78 @@ class TestImportSpotifyLikesUseCase:
                 assert liked_at.year == 2024
                 assert liked_at.month == 3
                 assert liked_at.day == 15
+
+    async def test_early_termination_still_updates_checkpoint(self, mock_uow):
+        """Checkpoint must be written even when the loop exits via high-duplicate early stop.
+
+        Regression: "Last sync" timestamp was stuck at Aug 2025 because the
+        early-termination path (100% duplicate batch) skipped update_checkpoint.
+        """
+        connector_track = make_connector_track("sp_existing")
+        existing_track = make_track(1)
+
+        spotify = mock_uow.get_service_connector_provider().get_connector()
+        spotify.get_liked_tracks.side_effect = [
+            ([connector_track], "cursor_1"),  # cursor present = not the final page
+        ]
+
+        connector_repo = mock_uow.get_connector_repository()
+        connector_repo.find_tracks_by_connectors.return_value = {
+            ("spotify", "sp_existing"): existing_track,
+        }
+
+        like_repo = mock_uow.get_like_repository()
+        # All tracks fully synced in both services → triggers early-termination branch
+        like_repo.get_liked_status_batch.return_value = {
+            1: {"spotify": True, "narada": True},
+        }
+
+        checkpoint_repo = mock_uow.get_checkpoint_repository()
+
+        command = ImportSpotifyLikesCommand(user_id="test_user")
+        await ImportSpotifyLikesUseCase().execute(command, mock_uow)
+
+        checkpoint_repo.save_sync_checkpoint.assert_called()
+
+    async def test_commit_happens_before_complete_sse(self, mock_uow):
+        """Test that uow.commit() fires before complete_operation to avoid stale SSE reads."""
+        mock_emitter, call_order = make_tracking_emitter(mock_uow)
+
+        command = ImportSpotifyLikesCommand(user_id="test_user")
+        await ImportSpotifyLikesUseCase().execute(command, mock_uow, mock_emitter)
+
+        assert "commit" in call_order, "uow.commit() was never called"
+        assert "complete" in call_order, "complete_operation was never called"
+        assert call_order.index("commit") < call_order.index("complete")
+
+    async def test_checkpoint_does_not_store_cursor(self, mock_uow):
+        """Spotify import never stores a pagination cursor in checkpoints.
+
+        The import always restarts from offset 0, so persisting the cursor
+        is dead data. Every checkpoint write should have cursor=None.
+        """
+        connector_track = make_connector_track("sp_1", title="Song")
+        new_track = make_track(1, "Song")
+
+        spotify = mock_uow.get_service_connector_provider().get_connector()
+        spotify.get_liked_tracks.side_effect = [
+            ([connector_track], None),
+        ]
+
+        connector_repo = mock_uow.get_connector_repository()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        connector_repo.ingest_external_tracks_bulk.return_value = [new_track]
+
+        like_repo = mock_uow.get_like_repository()
+        like_repo.save_track_likes_batch.return_value = []
+
+        checkpoint_repo = mock_uow.get_checkpoint_repository()
+
+        command = ImportSpotifyLikesCommand(user_id="test_user")
+        await ImportSpotifyLikesUseCase().execute(command, mock_uow)
+
+        for call in checkpoint_repo.save_sync_checkpoint.call_args_list:
+            saved_checkpoint = call[0][0]
+            assert saved_checkpoint.cursor is None, (
+                f"Checkpoint stored cursor={saved_checkpoint.cursor!r}, expected None"
+            )

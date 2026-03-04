@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+from src.domain.entities.progress import ProgressEmitter
+
 # ---------------------------------------------------------------------------
 # Individual repository mocks
 # ---------------------------------------------------------------------------
@@ -101,6 +103,32 @@ def make_mock_metrics_repo(**overrides) -> AsyncMock:
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
+
+
+# ---------------------------------------------------------------------------
+# Progress tracking helpers
+# ---------------------------------------------------------------------------
+
+
+def make_tracking_emitter(uow: MagicMock) -> tuple[AsyncMock, list[str]]:
+    """Build a mock ``ProgressEmitter`` that records call order with ``uow.commit``.
+
+    Returns ``(emitter, call_order)`` where *call_order* tracks ``"commit"``
+    and ``"complete"`` events — useful for asserting that ``uow.commit()``
+    fires before ``complete_operation()``.
+    """
+    call_order: list[str] = []
+
+    uow.commit = AsyncMock(side_effect=lambda: call_order.append("commit"))
+
+    emitter = AsyncMock(spec=ProgressEmitter)
+    emitter.start_operation = AsyncMock(return_value="op-id")
+    emitter.complete_operation = AsyncMock(
+        side_effect=lambda *_: call_order.append("complete")
+    )
+    emitter.emit_progress = AsyncMock()
+
+    return emitter, call_order
 
 
 # ---------------------------------------------------------------------------

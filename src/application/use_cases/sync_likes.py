@@ -24,6 +24,7 @@ from src.domain.entities import (
     SyncCheckpointStatus,
     Track,
 )
+from src.domain.entities.operations import UNSET, Unset
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -55,7 +56,7 @@ async def update_checkpoint(
     checkpoint: SyncCheckpoint,
     uow: UnitOfWorkProtocol,
     timestamp: datetime | None = None,
-    cursor: str | None = None,
+    cursor: str | Unset | None = UNSET,
 ) -> SyncCheckpoint:
     """Update checkpoint with new timestamp/cursor."""
     updated = checkpoint.with_update(
@@ -95,20 +96,6 @@ async def save_likes(
             last_synced=now,
             liked_at=liked_at,
         )
-
-
-async def is_liked_in_all(
-    track_id: int,
-    services: list[str],
-    uow: UnitOfWorkProtocol,
-) -> bool:
-    """Check if track is liked in all specified services."""
-    like_repo = uow.get_like_repository()
-    for service in services:
-        likes = await like_repo.get_track_likes(track_id=track_id, services=[service])
-        if not any(like.is_liked for like in likes):
-            return False
-    return True
 
 
 # -------------------------------------------------------------------------
@@ -368,15 +355,18 @@ class ImportSpotifyLikesUseCase:
                 break
 
             # Update checkpoint periodically
-            if batches % 10 == 0 or not cursor:
-                _ = await update_checkpoint(checkpoint, uow, batch_time, cursor)
+            if batches % 10 == 0:
+                checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
 
             if not cursor:
                 logger.info("Completed import of all Spotify likes")
                 break
 
+        # Always stamp the checkpoint on exit — regardless of which exit path was taken.
+        checkpoint = await update_checkpoint(checkpoint, uow, datetime.now(UTC))
         logger.info(f"Import complete: {imported} imported, {already_synced} synced")
 
+        await uow.commit()  # commit checkpoint before "complete" SSE fires
         result = OperationResult(operation_name="Spotify Likes Import")
         total = imported + already_synced
 
@@ -551,12 +541,13 @@ class ExportLastFmLikesUseCase:
                     case _:
                         errors += 1
 
-            _ = await update_checkpoint(checkpoint, uow, batch_time)
+            checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
 
         logger.info(
             f"Export complete: {exported} exported, {filtered} skipped, {errors} errors"
         )
 
+        await uow.commit()  # commit checkpoint before "complete" SSE fires
         result = OperationResult(operation_name="Last.fm Likes Export")
         total_candidates = len(unsynced)
         attempted = exported + filtered + errors
