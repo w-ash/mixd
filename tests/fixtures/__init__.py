@@ -38,9 +38,9 @@ __all__ = [
     "make_mock_plays_repo",
     "make_mock_track_repo",
     "make_mock_uow",
-    "make_tracking_emitter",
     "make_playlist",
     "make_playlist_with_entries",
     "make_track",
+    "make_tracking_emitter",
     "make_tracks",
 ]

@@ -77,7 +77,7 @@ export function OperationProgress({
         <div className="flex items-center gap-2 min-w-0">
           <span
             className={cn(
-              "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+              "flex size-5 shrink-0 items-center justify-center rounded-full text-xs leading-none font-bold [text-box:trim-both_cap_alphabetic]",
               config.iconBg,
               config.iconText,
             )}
@@ -89,7 +89,7 @@ export function OperationProgress({
         </div>
 
         {/* Metrics */}
-        <div className="flex shrink-0 items-center gap-3 text-xs text-text-muted font-mono">
+        <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums text-text-muted font-mono">
           {progress.total !== null && (
             <span>
               {progress.current}/{progress.total}

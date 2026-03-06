@@ -849,31 +849,33 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         result = await self.session.execute(stmt)
         db_playlists = result.scalars().all()
 
-        # Build lightweight Playlist objects directly — no mapper.to_domain()
-        playlists: list[Playlist] = []
-        for db_playlist in db_playlists:
-            # Extract connector identifiers from eagerly-loaded chain
-            connector_ids: dict[str, str] = {}
-            for mapping in db_playlist.mappings:
-                cp = mapping.connector_playlist
-                if cp is not None:
-                    connector_ids[mapping.connector_name] = (
-                        cp.connector_playlist_identifier
-                    )
-
-            playlists.append(
-                Playlist(
-                    id=db_playlist.id,
-                    name=db_playlist.name,
-                    description=db_playlist.description,
-                    connector_playlist_identifiers=connector_ids,
-                    updated_at=db_playlist.updated_at,
-                    track_count=db_playlist.track_count,
-                )
-            )
-
+        playlists = [self._build_lightweight_playlist(p) for p in db_playlists]
         logger.info("Retrieved playlists for listing", count=len(playlists))
         return playlists
+
+    @db_operation("get_playlists_for_track")
+    async def get_playlists_for_track(self, track_id: int) -> list[Playlist]:
+        """Get all playlists containing a specific track.
+
+        Returns lightweight Playlist objects (no track loading) for display
+        in track detail views.
+        """
+        stmt = (
+            self.select()
+            .join(DBPlaylistTrack, DBPlaylistTrack.playlist_id == DBPlaylist.id)
+            .where(DBPlaylistTrack.track_id == track_id)
+            .distinct()
+            .options(
+                selectinload(DBPlaylist.mappings).selectinload(
+                    DBPlaylistMapping.connector_playlist
+                ),
+            )
+        )
+
+        result = await self.session.execute(stmt)
+        db_playlists = result.scalars().all()
+
+        return [self._build_lightweight_playlist(p) for p in db_playlists]
 
     @db_operation("update_playlist")
     async def update_playlist(self, playlist_id: int, playlist: Playlist) -> Playlist:
@@ -887,5 +889,22 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             Updated playlist with all relationships loaded.
         """
         return await self.save_playlist(playlist.with_id(playlist_id))
+
+    @staticmethod
+    def _build_lightweight_playlist(db_playlist: DBPlaylist) -> Playlist:
+        """Build a Playlist entity from eagerly-loaded DB model without full mapper."""
+        connector_ids: dict[str, str] = {
+            mapping.connector_name: mapping.connector_playlist.connector_playlist_identifier
+            for mapping in db_playlist.mappings
+        }
+
+        return Playlist(
+            id=db_playlist.id,
+            name=db_playlist.name,
+            description=db_playlist.description,
+            connector_playlist_identifiers=connector_ids,
+            updated_at=db_playlist.updated_at,
+            track_count=db_playlist.track_count,
+        )
 
     # _soft_delete_playlist_relations method removed - CASCADE handles related record deletion

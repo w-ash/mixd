@@ -9,7 +9,7 @@ play count metadata for further analysis.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from attrs import define, field
 
@@ -22,7 +22,7 @@ from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import TrackList, TrackListMetadata
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -210,15 +210,16 @@ class GetPlayedTracksUseCase:
         )
 
         # Create tracklist with play metrics in canonical nested structure
+        # Cast needed: dict invariance means dict[int, int] ≠ dict[int, MetricValue]
         tracklist = TrackList(
             tracks=tracks,
-            metadata={
+            metadata=cast(TrackListMetadata, {
                 "operation": "get_played_tracks",
                 "metrics": {
                     "total_plays": play_metrics.get("total_plays", {}),
                     "last_played_dates": play_metrics.get("last_played_dates", {}),
                 },
-            },
+            }),
         )
 
         return tracklist

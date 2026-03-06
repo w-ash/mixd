@@ -22,6 +22,7 @@ from src.application.use_cases.update_canonical_playlist import (
 from src.config import get_logger
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.track import TrackList
+from src.domain.exceptions import NotFoundError
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -85,7 +86,7 @@ async def upsert_canonical_playlist(
                 local_id=existing_playlist.id,
                 name=existing_playlist.name,
             )
-    except ValueError:
+    except NotFoundError:
         logger.info("No existing local playlist found - will create new one")
 
     if existing_playlist:

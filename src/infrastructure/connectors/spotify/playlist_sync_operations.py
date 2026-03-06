@@ -293,7 +293,7 @@ class SpotifyPlaylistSyncOperations:
                 else:
                     failed_batches += 1
 
-                await asyncio.sleep(settings.api.spotify_request_delay)
+                await asyncio.sleep(settings.api.spotify.request_delay)
 
             except Exception as e:
                 failed_batches += 1
@@ -335,7 +335,7 @@ class SpotifyPlaylistSyncOperations:
                     position=op.position,
                 )
                 successful += 1
-                await asyncio.sleep(settings.api.spotify_request_delay)
+                await asyncio.sleep(settings.api.spotify.request_delay)
 
             except Exception as e:
                 failed += 1
@@ -420,7 +420,7 @@ class SpotifyPlaylistSyncOperations:
                 else:
                     failed += 1
 
-                await asyncio.sleep(settings.api.spotify_request_delay)
+                await asyncio.sleep(settings.api.spotify.request_delay)
 
             except Exception as e:
                 failed += 1

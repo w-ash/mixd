@@ -39,9 +39,9 @@ class TestLastFMErrorHandlingPerformance:
                 "test_secret"
             )
             mock_settings.credentials.lastfm_username = "test_user"
-            mock_settings.api.lastfm_rate_limit = 100.0
-            mock_settings.api.lastfm_concurrency = 50
-            mock_settings.api.lastfm_request_timeout = 10.0
+            mock_settings.api.lastfm.rate_limit = 100.0
+            mock_settings.api.lastfm.concurrency = 50
+            mock_settings.api.lastfm.request_timeout = 10.0
             yield LastFMAPIClient()
 
     async def test_successful_calls_performance_baseline(self, lastfm_client):

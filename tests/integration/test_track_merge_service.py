@@ -5,6 +5,7 @@ from datetime import UTC
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
@@ -93,6 +94,6 @@ class TestTrackMergeServiceIntegration:
         merge_service = TrackMergeService()
 
         # Test with non-existent track IDs
-        with pytest.raises(ValueError, match="Entity with ID 999 not found"):
+        with pytest.raises(NotFoundError, match="Entity with ID 999 not found"):
             async with uow:
                 await merge_service.merge_tracks(999, 1000, uow)

@@ -19,7 +19,7 @@ Usage:
 # Modern usage (recommended for new code)
 from src.config import settings
 
-batch_size = settings.api.lastfm_batch_size
+batch_size = settings.api.lastfm.batch_size
 
 # Logging
 from src.config import get_logger

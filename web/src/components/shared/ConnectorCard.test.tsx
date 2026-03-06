@@ -5,7 +5,7 @@ import { renderWithProviders, screen } from "@/test/test-utils";
 import { ConnectorCard } from "./ConnectorCard";
 
 describe("ConnectorCard", () => {
-  it("renders connected Spotify with account name and description", () => {
+  it("renders connected Spotify with account name and token status", () => {
     renderWithProviders(
       <ConnectorCard
         connector={{
@@ -18,14 +18,17 @@ describe("ConnectorCard", () => {
     );
 
     expect(screen.getByText("Spotify")).toBeInTheDocument();
-    expect(screen.getByText("testuser")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
       screen.getByText("Playlists, liked tracks, listening history"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Signed in as testuser/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/token refreshes automatically/),
+    ).toBeInTheDocument();
   });
 
-  it("renders disconnected Spotify with setup hint", () => {
+  it("renders disconnected Spotify with auth hint", () => {
     renderWithProviders(
       <ConnectorCard
         connector={{
@@ -39,11 +42,14 @@ describe("ConnectorCard", () => {
 
     expect(screen.getByText("Not configured")).toBeInTheDocument();
     expect(
-      screen.getByText("Run the CLI to connect your Spotify account."),
+      screen.getByText("Playlists, liked tracks, listening history"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Not connected \u00b7 run CLI to authenticate"),
     ).toBeInTheDocument();
   });
 
-  it("renders expired token badge", () => {
+  it("renders expired token badge and detail", () => {
     renderWithProviders(
       <ConnectorCard
         connector={{
@@ -56,6 +62,7 @@ describe("ConnectorCard", () => {
     );
 
     expect(screen.getByText("Expired")).toBeInTheDocument();
+    expect(screen.getByText(/token expired/)).toBeInTheDocument();
   });
 
   it("renders connected Last.fm with account name", () => {
@@ -71,14 +78,14 @@ describe("ConnectorCard", () => {
     );
 
     expect(screen.getByText("Last.fm")).toBeInTheDocument();
-    expect(screen.getByText("musicfan42")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
       screen.getByText("Scrobble counts, play history, loved tracks"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Signed in as musicfan42/)).toBeInTheDocument();
   });
 
-  it("renders MusicBrainz with Available badge", () => {
+  it("renders MusicBrainz with Available badge and public API detail", () => {
     renderWithProviders(
       <ConnectorCard
         connector={{
@@ -95,9 +102,12 @@ describe("ConnectorCard", () => {
     expect(
       screen.getByText("Track identification, metadata enrichment"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("Public API \u00b7 no authentication required"),
+    ).toBeInTheDocument();
   });
 
-  it("renders Apple Music with Coming soon badge", () => {
+  it("renders Apple Music with Coming soon badge and detail", () => {
     renderWithProviders(
       <ConnectorCard
         connector={{
@@ -111,8 +121,26 @@ describe("ConnectorCard", () => {
 
     expect(screen.getByText("Apple Music")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(screen.getByText("Library, playlists")).toBeInTheDocument();
     expect(
-      screen.getByText("Coming soon — connector under development."),
+      screen.getByText("Coming soon \u00b7 connector under development"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders disconnected auth detail for unconfigured connectors", () => {
+    renderWithProviders(
+      <ConnectorCard
+        connector={{
+          name: "lastfm",
+          connected: false,
+          account_name: null,
+          token_expires_at: null,
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Not connected \u00b7 run CLI to authenticate"),
     ).toBeInTheDocument();
   });
 });

@@ -53,7 +53,7 @@ class TestLastFMFastImplementation:
             mock_settings.credentials.lastfm_secret.get_secret_value.return_value = (
                 "test_secret"
             )
-            mock_settings.api.lastfm_request_timeout = 30
+            mock_settings.api.lastfm.request_timeout = 30
 
             with patch.object(LastFMAPIClient, "__attrs_post_init__"):
                 client = LastFMAPIClient()

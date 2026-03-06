@@ -78,12 +78,23 @@ const connectorConfig = {
 
 type ConnectorName = keyof typeof connectorConfig;
 
+const iconSizes = {
+  sm: "h-4 w-4",
+  lg: "h-8 w-8",
+} as const;
+
 interface ConnectorIconProps {
   name: string;
   className?: string;
+  /** Icon size — "sm" (16px, default) or "lg" (32px). */
+  iconSize?: keyof typeof iconSizes;
 }
 
-export function ConnectorIcon({ name, className = "" }: ConnectorIconProps) {
+export function ConnectorIcon({
+  name,
+  className = "",
+  iconSize = "sm",
+}: ConnectorIconProps) {
   const config = connectorConfig[name as ConnectorName];
   if (!config) return null;
 
@@ -91,10 +102,10 @@ export function ConnectorIcon({ name, className = "" }: ConnectorIconProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-2 font-medium ${config.colorClass} ${className}`}
+      className={`inline-flex items-center gap-2 font-display text-sm font-medium ${config.colorClass} ${className}`}
       title={config.label}
     >
-      <Logo className="h-4 w-4 shrink-0" />
+      <Logo className={`${iconSizes[iconSize]} shrink-0`} />
       {config.label}
     </span>
   );

@@ -6,6 +6,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
+from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import get_console
 
@@ -56,7 +57,7 @@ def merge_tracks(
             winner_track, loser_track = await execute_use_case(
                 lambda uow: get_tracks_uc(uow, winner_id, loser_id)
             )
-        except ValueError as e:
+        except NotFoundError as e:
             console.print(f"❌ [red]Error: {e}[/red]")
             raise typer.Exit(1) from e
 
@@ -144,7 +145,7 @@ def show_track(
 
         try:
             (track,) = await execute_use_case(lambda uow: get_tracks_uc(uow, track_id))
-        except ValueError as e:
+        except NotFoundError as e:
             console.print(f"❌ [red]Error: {e}[/red]")
             raise typer.Exit(1) from e
 

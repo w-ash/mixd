@@ -10,7 +10,7 @@ Processes multiple tracks efficiently in batches.
 # pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
-from typing import Any, Literal, Never
+from typing import Any, Literal, Never, cast
 
 from attrs import define, field
 
@@ -360,7 +360,8 @@ class EnrichTracksUseCase:
         logger.info(f"Enriched with {len(play_metrics)} play metric types")
         enriched_tracklist = tracklist.with_metadata("metrics", combined_metrics)
 
-        return enriched_tracklist, play_metrics
+        # Widen TypedDict → plain dict to match return type shared with external metadata path
+        return enriched_tracklist, cast(dict[str, dict[int, Any]], play_metrics)
 
     async def _ensure_track_identities(
         self,

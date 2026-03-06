@@ -1,11 +1,12 @@
 """Core track repository implementation for basic track operations."""
 
-# pyright: reportAny=false
+# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
+# Legitimate Unknown: SQLAlchemy ColumnElement types from ilike/in_/cast expressions
 
 from datetime import UTC, datetime
 from typing import ClassVar
 
-from sqlalchemy import delete, text, update
+from sqlalchemy import String, cast, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -132,6 +133,117 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if result is None:
             raise ValueError(f"Failed to map track from database (id={db_track.id})")
         return result
+
+    # -------------------------------------------------------------------------
+    # LIBRARY LISTING
+    # -------------------------------------------------------------------------
+
+    # Sort field → SQLAlchemy column expression mapping
+    _SORT_MAP: ClassVar[dict[str, tuple[str, str]]] = {
+        "title_asc": ("title", "asc"),
+        "title_desc": ("title", "desc"),
+        "artist_asc": ("artists_text", "asc"),
+        "artist_desc": ("artists_text", "desc"),
+        "added_desc": ("created_at", "desc"),
+        "added_asc": ("created_at", "asc"),
+        "duration_asc": ("duration_ms", "asc"),
+        "duration_desc": ("duration_ms", "desc"),
+    }
+
+    @db_operation("list_tracks")
+    async def list_tracks(
+        self,
+        *,
+        query: str | None = None,
+        liked: bool | None = None,
+        connector: str | None = None,
+        sort_by: str = "title_asc",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Track], int, set[int]]:
+        """List tracks with search, filters, sorting, and pagination.
+
+        Returns (tracks, total_count, liked_track_ids) where total_count reflects
+        the filtered result set before LIMIT/OFFSET are applied, and liked_track_ids
+        contains IDs of tracks liked on any service (authoritative from track_likes table).
+        """
+        # Build base filter conditions
+        conditions = []
+
+        if query:
+            pattern = f"%{query}%"
+            # TODO: search against denormalized artists_text column for index-friendly search
+            conditions.append(or_(
+                DBTrack.title.ilike(pattern),
+                DBTrack.album.ilike(pattern),
+                cast(DBTrack.artists, String).ilike(pattern),
+            ))
+
+        if liked is not None:
+            liked_subq = (
+                select(DBTrackLike.track_id)
+                .where(DBTrackLike.is_liked == True)  # noqa: E712
+                .distinct()
+            )
+            if liked:
+                conditions.append(DBTrack.id.in_(liked_subq))
+            else:
+                conditions.append(~DBTrack.id.in_(liked_subq))
+
+        if connector:
+            connector_subq = (
+                select(DBTrackMapping.track_id)
+                .where(DBTrackMapping.connector_name == connector)
+                .distinct()
+            )
+            conditions.append(DBTrack.id.in_(connector_subq))
+
+        # Count total matching tracks (before pagination)
+        count_stmt = select(func.count()).select_from(DBTrack)
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        count_result = await self.session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        if total == 0:
+            return [], 0, set()
+
+        # Build data query with sorting, pagination, and relationship loading
+        data_stmt = self.select()
+        if conditions:
+            data_stmt = data_stmt.where(*conditions)
+
+        # Apply sort
+        sort_field, sort_dir = self._SORT_MAP.get(sort_by, ("title", "asc"))
+        if sort_field == "artists_text":
+            col = cast(DBTrack.artists, String)
+        else:
+            col = getattr(DBTrack, sort_field)
+        data_stmt = data_stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+        data_stmt = data_stmt.offset(offset).limit(limit)
+
+        # Eager-load relationships for mapper
+        data_stmt = self.with_default_relationships(data_stmt)
+
+        result = await self.session.execute(data_stmt)
+        db_tracks = result.scalars().all()
+
+        tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
+
+        # Get authoritative liked status from track_likes table for returned tracks
+        track_ids = [t.id for t in tracks if t.id is not None]
+        liked_ids: set[int] = set()
+        if track_ids:
+            liked_stmt = (
+                select(DBTrackLike.track_id)
+                .where(DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked == True)  # noqa: E712
+                .distinct()
+            )
+            liked_result = await self.session.execute(liked_stmt)
+            liked_ids = set(liked_result.scalars().all())
+
+        return tracks, total, liked_ids
 
     # -------------------------------------------------------------------------
     # TRACK MERGE OPERATIONS

@@ -95,7 +95,7 @@ def make_spotify_client(auth: httpx.Auth) -> httpx.AsyncClient:
 
     Authentication is delegated to the provided httpx.Auth instance.
     Caller owns lifecycle — call aclose() or use as async context manager.
-    Timeouts sourced from settings.api.spotify_request_timeout.
+    Timeouts sourced from settings.api.spotify.request_timeout.
     """
     return httpx.AsyncClient(
         base_url=SPOTIFY_API_BASE,
@@ -103,7 +103,7 @@ def make_spotify_client(auth: httpx.Auth) -> httpx.AsyncClient:
         headers={"Content-Type": "application/json"},
         timeout=httpx.Timeout(
             connect=5.0,
-            read=float(settings.api.spotify_request_timeout or 15),
+            read=float(settings.api.spotify.request_timeout),
             write=10.0,
             pool=5.0,
         ),
@@ -125,13 +125,13 @@ def make_lastfm_client() -> httpx.AsyncClient:
 
     Base URL is the /2.0 endpoint. Read-only methods use GET with query params;
     authenticated write methods (track.love, etc.) use POST with form data.
-    Timeouts sourced from settings.api.lastfm_request_timeout.
+    Timeouts sourced from settings.api.lastfm.request_timeout.
     """
     return httpx.AsyncClient(
         base_url=LASTFM_API_BASE,
         timeout=httpx.Timeout(
             connect=5.0,
-            read=float(settings.api.lastfm_request_timeout or 30),
+            read=float(settings.api.lastfm.request_timeout),
             write=10.0,
             pool=5.0,
         ),

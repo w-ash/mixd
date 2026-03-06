@@ -14,13 +14,13 @@ import type {
   ImportLastfmHistoryRequestMode,
 } from "@/api/generated/model";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { OperationProgress } from "@/components/shared/OperationProgress";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useOperationProgress } from "@/hooks/useOperationProgress";
 import { formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /** Query keys to invalidate when an import operation completes. */
 const CHECKPOINT_KEYS = [
@@ -51,27 +51,31 @@ function makeOperationCallbacks(
   };
 }
 
-// ─── Import Card ────────────────────────────────────────────────
+// ─── Operation Card ──────────────────────────────────────────────
 
-interface ImportCardProps {
+interface OperationCardProps {
+  connector: string;
   title: string;
   description: string;
   checkpoint: CheckpointStatusSchema | undefined;
   operationId: string | null;
   isPending: boolean;
   onTrigger: () => void;
+  triggerDisabled?: boolean;
   children?: React.ReactNode;
 }
 
-function ImportCard({
+function OperationCard({
+  connector,
   title,
   description,
   checkpoint,
   operationId,
   isPending,
   onTrigger,
+  triggerDisabled,
   children,
-}: ImportCardProps) {
+}: OperationCardProps) {
   const { progress } = useOperationProgress(operationId, {
     invalidateKeys: CHECKPOINT_KEYS,
   });
@@ -79,28 +83,35 @@ function ImportCard({
     progress?.status === "running" || progress?.status === "pending";
 
   return (
-    <Card className="p-5 space-y-3">
+    <div className="flex flex-col rounded-xl border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-sm font-semibold">{title}</h3>
-          <p className="text-xs text-text-muted mt-0.5">{description}</p>
+          <p className="mt-0.5 text-sm text-text-muted">{description}</p>
         </div>
-        <Button size="sm" disabled={isPending || isActive} onClick={onTrigger}>
+        <Button
+          size="sm"
+          disabled={isPending || isActive || triggerDisabled}
+          onClick={onTrigger}
+        >
           {isPending ? "Starting..." : isActive ? "Running..." : "Run"}
         </Button>
       </div>
 
-      {/* Extra controls (mode selector, file upload, etc.) */}
-      {children}
+      {children && <div className="mt-3">{children}</div>}
 
-      {/* Progress display */}
-      {progress && <OperationProgress progress={progress} />}
+      {progress && <OperationProgress progress={progress} className="mt-3" />}
 
-      {/* Last sync info */}
-      <div className="text-xs text-text-faint">
-        Last sync: {formatDateTime(checkpoint?.last_sync_timestamp)}
+      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+        <ConnectorIcon name={connector} iconSize="sm" />
+        <span className="text-xs text-text-faint">
+          Last sync:{" "}
+          <span className="font-mono text-text-muted">
+            {formatDateTime(checkpoint?.last_sync_timestamp)}
+          </span>
+        </span>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -134,32 +145,40 @@ function LastfmHistoryImport({
   };
 
   return (
-    <ImportCard
-      title="Import Last.fm History"
+    <OperationCard
+      connector="lastfm"
+      title="Scrobble History"
       description="Pull listening history from your Last.fm account."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "plays")}
       operationId={operationId}
       isPending={mutation.isPending}
       onTrigger={trigger}
     >
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-text-muted" htmlFor="lastfm-mode">
-          Mode:
-        </label>
-        <select
-          id="lastfm-mode"
-          value={mode}
-          onChange={(e) =>
-            setMode(e.target.value as ImportLastfmHistoryRequestMode)
-          }
-          className="rounded border border-border bg-surface-elevated px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-primary"
-        >
-          <option value="recent">Recent</option>
-          <option value="incremental">Incremental</option>
-          <option value="full">Full</option>
-        </select>
+      <div
+        className="flex items-center gap-1.5"
+        role="radiogroup"
+        aria-label="Import mode"
+      >
+        {(["recent", "incremental", "full"] as const).map((option) => (
+          // biome-ignore lint/a11y/useSemanticElements: styled segmented control
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={mode === option}
+            onClick={() => setMode(option)}
+            className={cn(
+              "rounded-md px-3 py-1.5 font-display text-xs font-medium capitalize transition-colors",
+              mode === option
+                ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                : "bg-surface-elevated text-text-muted hover:text-text",
+            )}
+          >
+            {option}
+          </button>
+        ))}
       </div>
-    </ImportCard>
+    </OperationCard>
   );
 }
 
@@ -179,8 +198,9 @@ function SpotifyLikesImport({
   };
 
   return (
-    <ImportCard
-      title="Import Spotify Likes"
+    <OperationCard
+      connector="spotify"
+      title="Import Likes"
       description="Backup your Spotify liked tracks to the local database."
       checkpoint={findCheckpoint(checkpoints, "spotify", "likes")}
       operationId={operationId}
@@ -206,8 +226,9 @@ function LastfmLikesExport({
   };
 
   return (
-    <ImportCard
-      title="Export Likes to Last.fm"
+    <OperationCard
+      connector="lastfm"
+      title="Export Loves"
       description="Love your liked tracks on Last.fm."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "likes")}
       operationId={operationId}
@@ -235,84 +256,29 @@ function SpotifyHistoryImport({
   };
 
   return (
-    <ImportCard
-      title="Import Spotify History"
-      description="Upload your Spotify GDPR data export (JSON)."
+    <OperationCard
+      connector="spotify"
+      title="GDPR Export"
+      description="Upload your Spotify data export (JSON)."
       checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
       operationId={operationId}
       isPending={mutation.isPending}
       onTrigger={trigger}
+      triggerDisabled={!selectedFile}
     >
       <FileUpload
         accept=".json"
         onFileSelect={setSelectedFile}
         disabled={mutation.isPending}
       />
-    </ImportCard>
-  );
-}
-
-// ─── Checkpoint Overview ────────────────────────────────────────
-
-function CheckpointStatus({
-  checkpoints,
-  isLoading,
-}: {
-  checkpoints: CheckpointStatusSchema[];
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <div className="grid gap-2 sm:grid-cols-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
-            key={i}
-            className="h-14 rounded-lg"
-          />
-        ))}
-      </div>
-    );
-  }
-
-  if (checkpoints.length === 0) {
-    return (
-      <p className="text-sm text-text-muted">
-        No sync history yet — run an import above to get started.
-      </p>
-    );
-  }
-
-  return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {checkpoints.map((cp) => (
-        <div
-          key={`${cp.service}-${cp.entity_type}`}
-          className="flex items-center justify-between rounded-lg border border-border-muted bg-surface-sunken px-4 py-3"
-        >
-          <div>
-            <span className="text-xs font-medium text-text capitalize">
-              {cp.service}
-            </span>
-            <span className="text-xs text-text-faint ml-1.5">
-              {cp.entity_type}
-            </span>
-          </div>
-          <span className="text-xs text-text-muted font-mono">
-            {cp.has_previous_sync
-              ? formatDateTime(cp.last_sync_timestamp)
-              : "Never synced"}
-          </span>
-        </div>
-      ))}
-    </div>
+    </OperationCard>
   );
 }
 
 // ─── Page ───────────────────────────────────────────────────────
 
 export function Imports() {
-  const { data, isLoading } = useGetCheckpointsApiV1ImportsCheckpointsGet();
+  const { data } = useGetCheckpointsApiV1ImportsCheckpointsGet();
   const checkpoints = data?.status === 200 ? data.data : [];
 
   return (
@@ -323,25 +289,37 @@ export function Imports() {
       />
 
       <div className="space-y-8">
-        {/* Import operations */}
-        <section>
-          <h2 className="font-display text-lg font-semibold mb-3">
-            Operations
-          </h2>
-          <div className="grid gap-3 lg:grid-cols-2">
+        {/* ── Listening History ──────────────────────── */}
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+              Listening History
+            </h2>
+            <p className="mt-1 text-sm text-text-faint">
+              Your play counts across services — scrobbles, stream history, and
+              data exports.
+            </p>
+          </div>
+          <div className="space-y-3">
             <LastfmHistoryImport checkpoints={checkpoints} />
-            <SpotifyLikesImport checkpoints={checkpoints} />
-            <LastfmLikesExport checkpoints={checkpoints} />
             <SpotifyHistoryImport checkpoints={checkpoints} />
           </div>
         </section>
 
-        {/* Checkpoint overview */}
-        <section>
-          <h2 className="font-display text-lg font-semibold mb-3">
-            Sync Status
-          </h2>
-          <CheckpointStatus checkpoints={checkpoints} isLoading={isLoading} />
+        {/* ── Liked Tracks ──────────────────────────── */}
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+              Liked Tracks
+            </h2>
+            <p className="mt-1 text-sm text-text-faint">
+              Tracks you've hearted or loved — sync between Spotify and Last.fm.
+            </p>
+          </div>
+          <div className="space-y-3">
+            <SpotifyLikesImport checkpoints={checkpoints} />
+            <LastfmLikesExport checkpoints={checkpoints} />
+          </div>
         </section>
       </div>
     </div>

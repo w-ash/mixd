@@ -24,7 +24,7 @@ class TestLastFMClientFix:
             mock_settings.credentials.lastfm_password.get_secret_value.return_value = (
                 "test_password"
             )
-            mock_settings.api.lastfm_rate_limit = 5
+            mock_settings.api.lastfm.rate_limit = 5
 
             client = LastFMAPIClient()
 

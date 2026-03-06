@@ -32,9 +32,9 @@ class TestRetryPolicyFactory:
             RetryConfig(
                 service_name="spotify",
                 classifier=SpotifyErrorClassifier(),
-                max_attempts=settings.api.spotify_retry_count,
-                wait_multiplier=settings.api.spotify_retry_base_delay,
-                wait_max=settings.api.spotify_retry_max_delay,
+                max_attempts=settings.api.spotify.retry_count,
+                wait_multiplier=settings.api.spotify.retry_base_delay,
+                wait_max=settings.api.spotify.retry_max_delay,
             )
         )
 
@@ -71,10 +71,10 @@ class TestRetryPolicyFactory:
             RetryConfig(
                 service_name="lastfm",
                 classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm_retry_count_rate_limit,
-                wait_multiplier=settings.api.lastfm_retry_base_delay,
-                wait_max=settings.api.lastfm_retry_max_delay,
-                max_delay=settings.api.lastfm_retry_max_delay,
+                max_attempts=settings.api.lastfm.retry_count,
+                wait_multiplier=settings.api.lastfm.retry_base_delay,
+                wait_max=settings.api.lastfm.retry_max_delay,
+                max_delay=settings.api.lastfm.retry_max_delay,
                 service_error_types=(LastFMAPIError,),
             )
         )
@@ -119,9 +119,9 @@ class TestRetryPolicyFactory:
             RetryConfig(
                 service_name="musicbrainz",
                 classifier=MusicBrainzErrorClassifier(),
-                max_attempts=settings.api.musicbrainz_retry_count,
-                wait_multiplier=settings.api.musicbrainz_retry_base_delay,
-                wait_max=settings.api.musicbrainz_retry_max_delay,
+                max_attempts=settings.api.musicbrainz.retry_count,
+                wait_multiplier=settings.api.musicbrainz.retry_base_delay,
+                wait_max=settings.api.musicbrainz.retry_max_delay,
                 include_httpx_errors=True,
             )
         )
@@ -159,43 +159,43 @@ class TestRetryPolicyFactory:
             RetryConfig(
                 service_name="spotify",
                 classifier=SpotifyErrorClassifier(),
-                max_attempts=settings.api.spotify_retry_count,
-                wait_multiplier=settings.api.spotify_retry_base_delay,
-                wait_max=settings.api.spotify_retry_max_delay,
+                max_attempts=settings.api.spotify.retry_count,
+                wait_multiplier=settings.api.spotify.retry_base_delay,
+                wait_max=settings.api.spotify.retry_max_delay,
             )
         )
         lastfm_policy = RetryPolicyFactory.create_policy(
             RetryConfig(
                 service_name="lastfm",
                 classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm_retry_count_rate_limit,
-                wait_multiplier=settings.api.lastfm_retry_base_delay,
-                wait_max=settings.api.lastfm_retry_max_delay,
-                max_delay=settings.api.lastfm_retry_max_delay,
+                max_attempts=settings.api.lastfm.retry_count,
+                wait_multiplier=settings.api.lastfm.retry_base_delay,
+                wait_max=settings.api.lastfm.retry_max_delay,
+                max_delay=settings.api.lastfm.retry_max_delay,
             )
         )
         musicbrainz_policy = RetryPolicyFactory.create_policy(
             RetryConfig(
                 service_name="musicbrainz",
                 classifier=MusicBrainzErrorClassifier(),
-                max_attempts=settings.api.musicbrainz_retry_count,
-                wait_multiplier=settings.api.musicbrainz_retry_base_delay,
-                wait_max=settings.api.musicbrainz_retry_max_delay,
+                max_attempts=settings.api.musicbrainz.retry_count,
+                wait_multiplier=settings.api.musicbrainz.retry_base_delay,
+                wait_max=settings.api.musicbrainz.retry_max_delay,
                 include_httpx_errors=True,
             )
         )
 
-        # Spotify: settings.api.spotify_retry_count attempts
+        # Spotify: settings.api.spotify.retry_count attempts
         retry_state = Mock()
-        retry_state.attempt_number = settings.api.spotify_retry_count
+        retry_state.attempt_number = settings.api.spotify.retry_count
         assert spotify_policy.stop(retry_state) is True
 
         # Last.FM: settings-based
-        retry_state.attempt_number = settings.api.lastfm_retry_count_rate_limit
+        retry_state.attempt_number = settings.api.lastfm.retry_count
         assert lastfm_policy.stop(retry_state) is True
 
-        # MusicBrainz: settings.api.musicbrainz_retry_count attempts
-        retry_state.attempt_number = settings.api.musicbrainz_retry_count
+        # MusicBrainz: settings.api.musicbrainz.retry_count attempts
+        retry_state.attempt_number = settings.api.musicbrainz.retry_count
         assert musicbrainz_policy.stop(retry_state) is True
 
     @pytest.mark.slow
@@ -225,10 +225,10 @@ class TestRetryPolicyFactory:
             RetryConfig(
                 service_name="lastfm",
                 classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm_retry_count_rate_limit,
-                wait_multiplier=settings.api.lastfm_retry_base_delay,
-                wait_max=settings.api.lastfm_retry_max_delay,
-                max_delay=settings.api.lastfm_retry_max_delay,
+                max_attempts=settings.api.lastfm.retry_count,
+                wait_multiplier=settings.api.lastfm.retry_base_delay,
+                wait_max=settings.api.lastfm.retry_max_delay,
+                max_delay=settings.api.lastfm.retry_max_delay,
                 service_error_types=(LastFMAPIError,),
             )
         )

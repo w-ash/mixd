@@ -117,10 +117,10 @@ class LastFMAPIClient(BaseAPIClient):
             RetryConfig(
                 service_name="lastfm",
                 classifier=LastFMErrorClassifier(),
-                max_attempts=settings.api.lastfm_retry_count_rate_limit,
-                wait_multiplier=settings.api.lastfm_retry_base_delay,
-                wait_max=settings.api.lastfm_retry_max_delay,
-                max_delay=settings.api.lastfm_retry_max_delay,
+                max_attempts=settings.api.lastfm.retry_count,
+                wait_multiplier=settings.api.lastfm.retry_base_delay,
+                wait_max=settings.api.lastfm.retry_max_delay,
+                max_delay=settings.api.lastfm.retry_max_delay,
                 service_error_types=(LastFMAPIError,),
             )
         )

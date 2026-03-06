@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from src.domain.entities import Artist, Playlist, Track
+from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -97,9 +98,9 @@ class TestPlaylistRepositoryIntegration:
         delete_result = await playlist_repo.delete_playlist(saved_playlist.id)
         assert delete_result is True
 
-        # Verify it's hard deleted - no longer exists (should raise ValueError)
+        # Verify it's hard deleted - no longer exists (should raise NotFoundError)
         with pytest.raises(
-            ValueError, match=f"Entity with ID {saved_playlist.id} not found"
+            NotFoundError, match=f"Entity with ID {saved_playlist.id} not found"
         ):
             await playlist_repo.get_by_id(saved_playlist.id)
 
@@ -218,7 +219,7 @@ class TestPlaylistRepositoryIntegration:
         playlist_repo = uow.get_playlist_repository()
 
         # Test retrieval of non-existent playlist
-        with pytest.raises(ValueError, match="Entity with ID 99999 not found"):
+        with pytest.raises(NotFoundError, match="Entity with ID 99999 not found"):
             await playlist_repo.get_by_id(99999)
 
         # Test deletion of non-existent playlist

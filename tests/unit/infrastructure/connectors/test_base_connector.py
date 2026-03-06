@@ -77,7 +77,7 @@ class TestBaseAPIConnectorDelegation:
 
         # Mock the settings call
         with patch("src.infrastructure.connectors.base.settings") as mock_settings:
-            mock_settings.api.spotify_batch_size = 50
+            mock_settings.api.spotify.batch_size = 50
 
             result = connector.get_connector_config("BATCH_SIZE")
 

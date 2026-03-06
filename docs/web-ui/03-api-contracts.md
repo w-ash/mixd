@@ -147,31 +147,36 @@ The Track API object is an **assembled view** composed from:
 
 ```
 GET    /tracks
-       ?q=<search>                    free-text search on title + artist + album
+       ?q=<search>                    free-text search on title + artist + album (min 2 chars)
        ?connector=<name>              filter by connector mapping
-       ?liked=<true|false>            filter by like status
-       ?liked_on=<connector>          filter likes by specific service
-       ?unmapped_for=<connector>      tracks missing mapping to this connector
-       ?sort=<field>                  title, artist, album, release_date, duration
-       ?order=<asc|desc>              sort direction (default: asc)
+       ?liked=<true|false>            filter by canonical liked status (any service)
+       ?sort=<field_dir>              title_asc, title_desc, artist_asc, artist_desc, added_asc, added_desc, duration_asc, duration_desc
        ?limit=&offset=
-       → { data: Track[], total, limit, offset }
+       → { data: LibraryTrackSchema[], total, limit, offset }
 ```
-- **Use case**: `ListTracksUseCase` (v0.3.2), `SearchTracksUseCase` (v0.3.2)
-- **Status**: Needs implementation
+- **Use case**: `ListTracksUseCase` (merged search+list — `q` param triggers search)
+- **Status**: ✅ Implemented (v0.3.2)
+- **Note**: Search uses `ilike` on title, album, and `cast(artists, String)` for JSON column. Sort defaults to `title_asc`.
 
 ```
 GET    /tracks/{id}
-       → Track (assembled view with mappings, likes, metrics, play summary)
+       → TrackDetailSchema (assembled view with mappings, likes, play summary, playlists)
 ```
-- **Use case**: `GetTrackDetailsUseCase` (v0.3.2)
-- **Status**: Needs implementation
+- **Use case**: `GetTrackDetailsUseCase` (assembles from 4 repositories in single UoW scope)
+- **Status**: ✅ Implemented (v0.3.2)
+
+```
+GET    /tracks/{id}/playlists
+       → PlaylistBriefSchema[] (flat array)
+```
+- **Use case**: `GetTrackDetailsUseCase` (reuses same use case, returns playlists subset)
+- **Status**: ✅ Implemented (v0.3.2)
 
 ```
 GET    /tracks/{id}/mappings
        → { data: ConnectorTrackMapping[] }
 ```
-- **Use case**: `GetTrackConnectorMappingsUseCase` (v0.3.2)
+- **Use case**: `GetTrackConnectorMappingsUseCase`
 - **Status**: Needs implementation
 
 ```
@@ -206,13 +211,6 @@ DELETE /tracks/{id}/like
 - **Status**: Needs implementation
 
 ```
-GET    /tracks/{id}/playlists
-       → { data: PlaylistSummary[] }
-```
-- **Use case**: New query (which playlists contain this track)
-- **Status**: Needs implementation
-
-```
 POST   /tracks/rematch
        body: { track_ids: int[], connector: str }
        → { operation_id: str }
@@ -220,39 +218,47 @@ POST   /tracks/rematch
 - **Use case**: `MatchAndIdentifyTracksUseCase`
 - **Status**: Exists (needs API wrapper)
 
-### Track Object Schema (stub)
+### Track Object Schemas
+
+Defined in `src/interface/api/schemas/tracks.py`.
 
 ```json
+// LibraryTrackSchema (list view — lightweight)
 {
   "id": 42,
   "title": "string",
   "artists": [{ "name": "string" }],
   "album": "string | null",
-  "duration_ms": 0,
+  "duration_ms": 180000,
+  "isrc": "string | null",
+  "connector_names": ["spotify", "lastfm"],
+  "is_liked": true
+}
+
+// TrackDetailSchema (full detail view)
+{
+  "id": 42,
+  "title": "string",
+  "artists": [{ "name": "string" }],
+  "album": "string | null",
+  "duration_ms": 180000,
   "release_date": "YYYY-MM-DD | null",
   "isrc": "string | null",
   "connector_mappings": [
-    {
-      "id": 1,
-      "connector": "spotify",
-      "connector_track_id": "string",
-      "confidence": 95,
-      "match_method": "direct | isrc | mbid | artist_title | manual",
-      "is_primary": true
-    }
+    { "connector_name": "spotify", "connector_track_id": "string" }
   ],
   "like_status": {
-    "spotify": { "is_liked": true, "liked_at": "ISO8601" },
+    "spotify": { "is_liked": true, "liked_at": "ISO8601 | null" },
     "lastfm": { "is_liked": false, "liked_at": null }
   },
-  "metrics": [
-    { "connector": "lastfm", "metric_type": "play_count", "value": 42, "collected_at": "ISO8601" }
-  ],
   "play_summary": {
     "total_plays": 42,
-    "last_played": "ISO8601 | null",
-    "first_played": "ISO8601 | null"
-  }
+    "first_played": "ISO8601 | null",
+    "last_played": "ISO8601 | null"
+  },
+  "playlists": [
+    { "id": 1, "name": "string", "description": "string | null" }
+  ]
 }
 ```
 
@@ -823,6 +829,8 @@ Fields:
 | Checkpoint query | `GET /imports/checkpoints` | `routes/imports.py` | v0.3.1 |
 | SSE progress streaming | `GET /operations/{id}/progress` | `routes/operations.py` | v0.3.1 |
 | Active operations list | `GET /operations` | `routes/operations.py` | v0.3.1 |
+| `ListTracksUseCase` | `GET /tracks` | `routes/tracks.py` | v0.3.2 |
+| `GetTrackDetailsUseCase` | `GET /tracks/{id}`, `GET /tracks/{id}/playlists` | `routes/tracks.py` | v0.3.2 |
 
 ### Use Cases With Existing Logic (Need API Routes)
 
@@ -839,10 +847,7 @@ Fields:
 | Use Case | Milestone | API Endpoints |
 |----------|-----------|--------------|
 | Operation cancellation | v0.3.2+ | `POST /operations/{id}/cancel` |
-| `ListTracksUseCase` | v0.3.2 | `GET /tracks` |
-| `GetTrackDetailsUseCase` | v0.3.2 | `GET /tracks/{id}` |
-| `SearchTracksUseCase` | v0.3.2 | `GET /tracks?q=...` |
-| `GetTrackConnectorMappingsUseCase` | v0.3.2 | `GET /tracks/{id}/mappings` |
+| `GetTrackConnectorMappingsUseCase` | v0.3.2+ | `GET /tracks/{id}/mappings` |
 | `GetTrackStatsUseCase` | v0.3.3 | `GET /stats/dashboard` |
 | `GetConnectorMappingStatsUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |

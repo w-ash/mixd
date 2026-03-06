@@ -11,6 +11,8 @@ from typing import Any, Self
 
 from attrs import define, evolve, field, validators
 
+from src.config.constants import ConnectorConstants
+
 from .shared import utc_now_factory
 from .track import Track, TrackList
 
@@ -157,7 +159,7 @@ class Playlist:
                        Do not use "db" or "internal" here - use the id field for that.
             external_id: The ID of this playlist in the external service
         """
-        if connector in ("db", "internal"):
+        if connector in (ConnectorConstants.DB_PSEUDO_CONNECTOR, "internal"):
             raise ValueError(
                 f"Cannot use '{connector}' as connector name - use the id field instead",
             )

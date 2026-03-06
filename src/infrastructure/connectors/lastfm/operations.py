@@ -286,10 +286,12 @@ class LastFMOperations:
             return TrackProcessingResult(track.id, lastfm_info)
 
         # Create rate-limited batch processor with LastFM-specific settings
+        lastfm_rate = settings.api.lastfm.rate_limit
+        assert lastfm_rate is not None, "Last.fm rate_limit must be configured"
         processor = RateLimitedBatchProcessor(
-            rate_per_second=settings.api.lastfm_rate_limit,
+            rate_per_second=lastfm_rate,
             connector_name="lastfm",
-            max_concurrent_tasks=settings.api.lastfm_concurrency,
+            max_concurrent_tasks=settings.api.lastfm.concurrency,
         )
 
         # Process batch with queue-based rate limiting

@@ -434,11 +434,8 @@ class TrackConnectorRepository:
         if track.id is None:
             raise ValueError("Cannot map track with no ID")
 
-        # Ensure the track exists
-        try:
-            _ = await self.track_repo.get_by_id(track.id)
-        except ValueError as err:
-            raise ValueError(f"Track with ID {track.id} not found") from err
+        # Ensure the track exists (raises NotFoundError if missing)
+        await self.track_repo.get_by_id(track.id)
 
         results = await self.map_tracks_to_connectors([
             (

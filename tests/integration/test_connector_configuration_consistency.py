@@ -12,14 +12,14 @@ from src.infrastructure.connectors.spotify import SpotifyConnector
 class TestConnectorConfigurationConsistency:
     """Test that all connectors use consistent configuration patterns."""
 
-    def test_spotify_uses_modern_settings_structure(self):
-        """Verify Spotify connector uses settings.api.spotify_* patterns."""
+    def test_spotify_uses_nested_connector_config(self):
+        """Verify Spotify connector uses settings.api.spotify.* nested structure."""
         connector = SpotifyConnector()
 
-        # Test key configuration mappings exist in settings
-        assert hasattr(settings.api, "spotify_batch_size")
-        assert hasattr(settings.api, "spotify_retry_count")
-        assert hasattr(settings.api, "spotify_request_timeout")
+        # Test nested ConnectorAPIConfig fields exist
+        assert hasattr(settings.api.spotify, "batch_size")
+        assert hasattr(settings.api.spotify, "retry_count")
+        assert hasattr(settings.api.spotify, "request_timeout")
 
         # Test connector can access config without errors
         batch_size = connector.get_connector_config("BATCH_SIZE", 50)
@@ -34,17 +34,17 @@ class TestConnectorConfigurationConsistency:
         assert isinstance(retry_count, int)
         assert retry_count >= 0
 
-    def test_lastfm_uses_modern_settings_structure(self):
-        """Verify LastFM connector uses settings.api.lastfm_* patterns."""
+    def test_lastfm_uses_nested_connector_config(self):
+        """Verify LastFM connector uses settings.api.lastfm.* nested structure."""
         connector = LastFMConnector()
 
-        # Test key configuration mappings exist in settings
-        assert hasattr(settings.api, "lastfm_batch_size")
-        assert hasattr(settings.api, "lastfm_concurrency")
-        assert hasattr(settings.api, "lastfm_retry_count_rate_limit")
-        assert hasattr(settings.api, "lastfm_rate_limit")
-        assert hasattr(settings.api, "lastfm_retry_base_delay")
-        assert hasattr(settings.api, "lastfm_retry_max_delay")
+        # Test nested ConnectorAPIConfig fields exist
+        assert hasattr(settings.api.lastfm, "batch_size")
+        assert hasattr(settings.api.lastfm, "concurrency")
+        assert hasattr(settings.api.lastfm, "retry_count")
+        assert hasattr(settings.api.lastfm, "rate_limit")
+        assert hasattr(settings.api.lastfm, "retry_base_delay")
+        assert hasattr(settings.api.lastfm, "retry_max_delay")
 
         # Test connector can access config without errors
         batch_size = connector.get_connector_config("BATCH_SIZE", 30)

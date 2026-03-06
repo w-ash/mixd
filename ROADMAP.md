@@ -86,7 +86,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.2.7** | Advanced workflow features + DRY consolidation | ✅ Completed |
 | **v0.3.0** | Web UI foundation + playlists + settings | ✅ Completed |
 | **v0.3.1** | Imports + real-time progress | ✅ Completed |
-| **v0.3.2** | Track library + search | 🔄 In Progress |
+| **v0.3.2** | Track library + search | ✅ Completed |
 | **v0.3.3** | Dashboard + stats | 🔜 Not Started |
 | **v0.4.0** | Workflows + connector links | 🔜 Not Started |
 | **v0.4.1** | CI/CD + quality hardening | 🔜 Not Started |
@@ -105,8 +105,8 @@ Stand up FastAPI + React with the dark editorial design system. Deliver playlist
 ### v0.3.1: Imports & Real-Time Progress
 Make the web UI operational: trigger Spotify likes import, Last.fm history import, and Spotify GDPR import. Watch progress in real-time via SSE. Implements `SSEProgressProvider` (the `ProgressSubscriber` protocol is already display-agnostic from v0.2.7). Uses existing `SyncLikesUseCase` and `ImportPlayHistoryUseCase`.
 
-### v0.3.2: Track Library & Search
-Track browsing with pagination, text search, and detail views. New use cases (`ListTracks`, `SearchTracks`, `GetTrackDetails`) built alongside the React pages that consume them — validates API shape in real-time instead of speculatively.
+### v0.3.2: Track Library & Search ✅
+Library page with paginated table (50 tracks/page), text search (title/artist/album via ilike), filters (liked status, connector), and column sorting (title, duration, added date). Track Detail page shows full metadata, connector mappings, per-service like status, play summary, and playlist memberships. Merged `ListTracksUseCase` handles both browsing and search. `GetTrackDetailsUseCase` assembles data from 4 repositories in a single UoW scope. Server-side pagination for 10-50k track collections.
 
 ### v0.3.3: Dashboard & Stats
 Landing page with aggregate statistics, connector health, and data quality signals. Implements data visibility use cases (`GetTrackStats`, `GetConnectorMappingStats`, `GetMetadataFreshness`).

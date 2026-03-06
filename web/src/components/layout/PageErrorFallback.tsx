@@ -20,7 +20,7 @@ export function PageErrorFallback({
         <button
           type="button"
           onClick={resetErrorBoundary}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-surface transition-colors hover:bg-primary/80"
+          className="rounded-md bg-primary px-4 py-2 font-display text-sm leading-none font-medium text-surface [text-box:trim-both_cap_alphabetic] transition-colors hover:bg-primary/80"
         >
           Try again
         </button>

@@ -169,20 +169,19 @@ class BaseAPIConnector(ABC):
         return _DefaultClassifier()
 
     def get_connector_config(self, key: str, default: object = None) -> Any:
-        """Load configuration value from modern settings structure.
+        """Load configuration value from nested ConnectorAPIConfig.
 
         Args:
-            key: Configuration key without service prefix
+            key: Configuration key without service prefix (e.g. "BATCH_SIZE")
             default: Fallback value if setting not found
 
         Returns:
-            Configuration value from settings.api
+            Configuration value from settings.api.<connector>.<field>
 
         Example:
             If connector_name="spotify" and key="BATCH_SIZE":
-            Returns settings.api.spotify_batch_size
+            Returns settings.api.spotify.batch_size
         """
-        # Map common keys to modern settings structure
         key_mapping = {
             "BATCH_SIZE": "batch_size",
             "CONCURRENCY": "concurrency",
@@ -190,15 +189,13 @@ class BaseAPIConnector(ABC):
             "RETRY_BASE_DELAY": "retry_base_delay",
             "RETRY_MAX_DELAY": "retry_max_delay",
             "REQUEST_DELAY": "request_delay",
-            "RAPID_TASK_CREATION": "rapid_task_creation",
         }
 
-        # Convert key to modern format
         modern_key = key_mapping.get(key, key.lower())
-        setting_name = f"{self.connector_name.lower()}_{modern_key}"
-
-        # Get value from modern settings
-        return getattr(settings.api, setting_name, default)
+        connector_config = getattr(settings.api, self.connector_name.lower(), None)
+        if connector_config is None:
+            return default
+        return getattr(connector_config, modern_key, default)
 
     async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch playlist from service by delegating to service-specific method.

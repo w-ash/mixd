@@ -25,7 +25,7 @@ def create_executor_for_connectors() -> ThreadPoolExecutor:
         for optimal I/O-bound API operations.
     """
     return ThreadPoolExecutor(
-        max_workers=settings.api.lastfm_concurrency,
+        max_workers=settings.api.lastfm.concurrency,
         thread_name_prefix="narada_io",
     )
 
@@ -48,7 +48,7 @@ def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
         loop.set_default_executor(create_executor_for_connectors())
         logger.debug(
             "Running coroutine with connector executor",
-            executor_max_workers=settings.api.lastfm_concurrency,
+            executor_max_workers=settings.api.lastfm.concurrency,
         )
         return await coro
 

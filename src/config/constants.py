@@ -10,70 +10,71 @@ from typing import Final
 
 
 class HTTPStatus:
-    """Standard HTTP status codes used across connector error handling."""
+    """HTTP status range boundaries for connector error classification.
 
-    # Server error responses (5xx)
-    INTERNAL_SERVER_ERROR: Final[int] = 500
-    SERVER_ERROR_MAX: Final[int] = 600
+    Uses range constants (not individual codes) because ErrorClassifier
+    categorizes responses by range (4xx = client, 5xx = server) rather
+    than matching specific status codes. stdlib http.HTTPStatus provides
+    individual codes but not the range boundaries needed here.
+    """
 
-    # HTTP status ranges
-    HTTP_STATUS_MIN: Final[int] = 100
-    CLIENT_ERROR_MIN: Final[int] = 400
-    CLIENT_ERROR_MAX: Final[int] = 500
+    INTERNAL_SERVER_ERROR: Final = 500
+    SERVER_ERROR_MAX: Final = 600
+    HTTP_STATUS_MIN: Final = 100
+    CLIENT_ERROR_MIN: Final = 400
+    CLIENT_ERROR_MAX: Final = 500
 
 
 class SpotifyConstants:
     """Spotify API format specifications and validation constants."""
 
-    # Spotify URI format: "spotify:track:3tI6o5tSlbB2trBl5UKJ1z"
-    URI_PARTS_COUNT: Final[int] = 3
-    TRACK_ID_LENGTH: Final[int] = 22
-
-    # Spotify API limits
-    TRACKS_BULK_LIMIT: Final[int] = 50
+    URI_PARTS_COUNT: Final = 3  # "spotify:track:<id>"
+    TRACK_ID_LENGTH: Final = 22
+    TRACKS_BULK_LIMIT: Final = 50  # max items per /tracks bulk-fetch
 
 
 class BusinessLimits:
     """Business logic limits and thresholds that should not be user-configurable."""
 
-    # User-facing API limits
-    MAX_USER_LIMIT: Final[int] = 10000
+    # Identity
+    DEFAULT_USER_ID: Final = "default"
 
-    # Internal user ID for single-user operation (not exposed to end users)
-    DEFAULT_USER_ID: Final[str] = "default"
+    # API pagination
+    DEFAULT_PAGE_SIZE: Final = 50
+    MAX_PAGE_SIZE: Final = 200
+    MAX_USER_LIMIT: Final = 10000
+    MIN_SEARCH_LENGTH: Final = 2
 
-    # Maximum upload size for Spotify GDPR JSON files
-    MAX_UPLOAD_BYTES: Final[int] = 100 * 1024 * 1024  # 100 MB
+    # Import processing
+    MAX_UPLOAD_BYTES: Final = 100 * 1024 * 1024  # 100 MB
+    DUPLICATE_RATE_EARLY_STOP: Final = 0.8
 
-    # Early termination threshold: if more than this fraction of a batch
-    # consists of already-synced duplicates, stop importing.
-    DUPLICATE_RATE_EARLY_STOP: Final[float] = 0.8
+    # Matching
+    FULL_CONFIDENCE_SCORE: Final = 100
 
-    # Confidence scoring
-    FULL_CONFIDENCE_SCORE: Final[int] = 100
+    # Database
+    SQLITE_BATCH_WARNING_THRESHOLD: Final = 100
 
-    # Database processing thresholds
-    SQLITE_BATCH_WARNING_THRESHOLD: Final[int] = 100
-
-    # Debug logging truncation (max items shown in debug log messages)
-    DEBUG_LOG_TRUNCATION_LIMIT: Final[int] = 10
+    # Debug
+    DEBUG_LOG_TRUNCATION_LIMIT: Final = 10
 
 
 class SSEConstants:
     """Server-Sent Events operational constants."""
 
-    # Seconds to wait before cleaning up SSE queues after an operation completes.
-    # Gives clients time to read final events before the queue is unregistered.
-    GRACE_PERIOD_SECONDS: Final[int] = 30
+    GRACE_PERIOD_SECONDS: Final = 30  # cleanup delay after operation completes
+    MAX_CONCURRENT_OPERATIONS: Final = 3  # each holds a task, SSE queue, and DB session
 
-    # Maximum number of import operations running concurrently.
-    # Each operation holds a background task, SSE queue, and DB session.
-    MAX_CONCURRENT_OPERATIONS: Final[int] = 3
+
+class ConnectorConstants:
+    """Connector identification constants."""
+
+    # Pseudo-connector name for internal DB track IDs (filtered from API responses)
+    DB_PSEUDO_CONNECTOR: Final = "db"
 
 
 class LastFMConstants:
     """Last.fm API format specifications and processing constants."""
 
-    # Last.fm API limits and thresholds
-    RECENT_TRACKS_PAGE_SIZE: Final[int] = 200  # Hard API limit per page
-    FULL_HISTORY_LIMIT: Final[int] = 10000
+    RECENT_TRACKS_PAGE_SIZE: Final = 200  # hard API limit per page
+    FULL_HISTORY_LIMIT: Final = 10000  # above this, use full-history pagination

@@ -16,9 +16,9 @@ Key features:
 Example:
     ```python
     processor = RateLimitedBatchProcessor(
-        rate_per_second=settings.api.lastfm_rate_limit,
+        rate_per_second=settings.api.lastfm.rate_limit,
         connector_name="lastfm",
-        max_concurrent_tasks=settings.api.lastfm_concurrency,
+        max_concurrent_tasks=settings.api.lastfm.concurrency,
     )
 
     async for result in processor.process_batch(tracks, api_call_func):

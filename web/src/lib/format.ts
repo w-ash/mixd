@@ -33,3 +33,12 @@ export function formatDateTime(
     minute: "2-digit",
   });
 }
+
+/** Format milliseconds as "m:ss". Returns "\u2014" for nullish input. */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null) return "\u2014";
+  const totalSec = Math.round(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${String(sec).padStart(2, "0")}`;
+}

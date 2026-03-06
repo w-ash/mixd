@@ -62,9 +62,9 @@ class MusicBrainzAPIClient(BaseAPIClient):
             RetryConfig(
                 service_name="musicbrainz",
                 classifier=MusicBrainzErrorClassifier(),
-                max_attempts=settings.api.musicbrainz_retry_count,
-                wait_multiplier=settings.api.musicbrainz_retry_base_delay,
-                wait_max=settings.api.musicbrainz_retry_max_delay,
+                max_attempts=settings.api.musicbrainz.retry_count,
+                wait_multiplier=settings.api.musicbrainz.retry_base_delay,
+                wait_max=settings.api.musicbrainz.retry_max_delay,
                 include_httpx_errors=True,
             )
         )

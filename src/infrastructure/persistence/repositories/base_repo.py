@@ -19,6 +19,7 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.sql import ColumnElement
 
 from src.config import get_logger
+from src.domain.exceptions import NotFoundError
 
 # Import needed for relationship chains in eager loading
 from src.infrastructure.persistence.database.db_models import DatabaseModel
@@ -484,7 +485,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         results = await self.get_by_ids([id_], load_relationships)
 
         if not results:
-            raise ValueError(f"Entity with ID {id_} not found")
+            raise NotFoundError(f"Entity with ID {id_} not found")
 
         return results[0]
 
@@ -689,7 +690,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         updated_entity = result.scalar_one_or_none()
 
         if not updated_entity:
-            raise ValueError(f"Entity with ID {id_} not found or already deleted")
+            raise NotFoundError(f"Entity with ID {id_} not found or already deleted")
 
         # Load relationships efficiently via identity map
         await self._load_relationships_via_identity_map([updated_entity])
@@ -715,7 +716,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         deleted_ids = result.scalars().all()
 
         if not deleted_ids:
-            raise ValueError(f"Entity with ID {id_} not found")
+            raise NotFoundError(f"Entity with ID {id_} not found")
 
         return len(deleted_ids)
 

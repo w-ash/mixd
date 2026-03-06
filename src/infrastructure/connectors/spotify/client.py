@@ -82,9 +82,9 @@ class SpotifyAPIClient(BaseAPIClient):
             RetryConfig(
                 service_name="spotify",
                 classifier=SpotifyErrorClassifier(),
-                max_attempts=settings.api.spotify_retry_count,
-                wait_multiplier=settings.api.spotify_retry_base_delay,
-                wait_max=settings.api.spotify_retry_max_delay,
+                max_attempts=settings.api.spotify.retry_count,
+                wait_multiplier=settings.api.spotify.retry_base_delay,
+                wait_max=settings.api.spotify.retry_max_delay,
             )
         )
         self._client = make_spotify_client(SpotifyBearerAuth(self._token_manager))

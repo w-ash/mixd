@@ -323,6 +323,220 @@
         }
       }
     },
+    "/api/v1/tracks": {
+      "get": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "List Tracks",
+        "description": "List tracks with optional search, filters, sorting, and pagination.",
+        "operationId": "list_tracks_api_v1_tracks_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search title/artist/album",
+              "title": "Q"
+            },
+            "description": "Search title/artist/album"
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by liked status",
+              "title": "Liked"
+            },
+            "description": "Filter by liked status"
+          },
+          {
+            "name": "connector",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by connector",
+              "title": "Connector"
+            },
+            "description": "Filter by connector"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Sort field and direction",
+              "default": "title_asc",
+              "title": "Sort"
+            },
+            "description": "Sort field and direction"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_LibraryTrackSchema_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}": {
+      "get": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Get Track Detail",
+        "description": "Get full track details with metadata, likes, plays, and playlist memberships.",
+        "operationId": "get_track_detail_api_v1_tracks__track_id__get",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/playlists": {
+      "get": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Get Track Playlists",
+        "description": "Get playlists containing a specific track.",
+        "operationId": "get_track_playlists_api_v1_tracks__track_id__playlists_get",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlaylistBriefSchema"
+                  },
+                  "title": "Response Get Track Playlists Api V1 Tracks  Track Id  Playlists Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors": {
       "get": {
         "tags": [
@@ -680,6 +894,25 @@
         "title": "CheckpointStatusSchema",
         "description": "Sync checkpoint status for a single service + entity type."
       },
+      "ConnectorMappingSchema": {
+        "properties": {
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "connector_track_id": {
+            "type": "string",
+            "title": "Connector Track Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_name",
+          "connector_track_id"
+        ],
+        "title": "ConnectorMappingSchema",
+        "description": "Connector mapping for track detail views."
+      },
       "ConnectorStatusSchema": {
         "properties": {
           "name": {
@@ -869,6 +1102,105 @@
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
       },
+      "LibraryTrackSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistSchema"
+            },
+            "type": "array",
+            "title": "Artists"
+          },
+          "album": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
+          "connector_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Names"
+          },
+          "is_liked": {
+            "type": "boolean",
+            "title": "Is Liked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "artists",
+          "connector_names",
+          "is_liked"
+        ],
+        "title": "LibraryTrackSchema",
+        "description": "Track in library list views \u2014 lightweight with summary fields."
+      },
+      "LikeStatusSchema": {
+        "properties": {
+          "is_liked": {
+            "type": "boolean",
+            "title": "Is Liked"
+          },
+          "liked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_liked"
+        ],
+        "title": "LikeStatusSchema",
+        "description": "Per-service like status."
+      },
       "OperationStartedResponse": {
         "properties": {
           "operation_id": {
@@ -882,6 +1214,37 @@
         ],
         "title": "OperationStartedResponse",
         "description": "Returned immediately when a long-running operation is launched."
+      },
+      "PaginatedResponse_LibraryTrackSchema_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryTrackSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[LibraryTrackSchema]"
       },
       "PaginatedResponse_PlaylistEntrySchema_": {
         "properties": {
@@ -944,6 +1307,74 @@
           "offset"
         ],
         "title": "PaginatedResponse[PlaylistSummarySchema]"
+      },
+      "PlaySummarySchema": {
+        "properties": {
+          "total_plays": {
+            "type": "integer",
+            "title": "Total Plays"
+          },
+          "first_played": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Played"
+          },
+          "last_played": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Played"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_plays"
+        ],
+        "title": "PlaySummarySchema",
+        "description": "Aggregated play statistics."
+      },
+      "PlaylistBriefSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PlaylistBriefSchema",
+        "description": "Minimal playlist reference in track detail views."
       },
       "PlaylistDetailSchema": {
         "properties": {
@@ -1092,6 +1523,106 @@
         ],
         "title": "PlaylistSummarySchema",
         "description": "Compact playlist representation for list views."
+      },
+      "TrackDetailSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistSchema"
+            },
+            "type": "array",
+            "title": "Artists"
+          },
+          "album": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "isrc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isrc"
+          },
+          "connector_mappings": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorMappingSchema"
+            },
+            "type": "array",
+            "title": "Connector Mappings"
+          },
+          "like_status": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LikeStatusSchema"
+            },
+            "type": "object",
+            "title": "Like Status"
+          },
+          "play_summary": {
+            "$ref": "#/components/schemas/PlaySummarySchema"
+          },
+          "playlists": {
+            "items": {
+              "$ref": "#/components/schemas/PlaylistBriefSchema"
+            },
+            "type": "array",
+            "title": "Playlists"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "artists",
+          "connector_mappings",
+          "like_status",
+          "play_summary",
+          "playlists"
+        ],
+        "title": "TrackDetailSchema",
+        "description": "Full track detail with assembled metadata from multiple repositories."
       },
       "TrackSummarySchema": {
         "properties": {

@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from src.domain.entities import Artist, Track
+from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -93,7 +94,7 @@ class TestBulkUoWPatterns:
         async with uow:
             track_repo = uow.get_track_repository()
             for track_id in track_ids:
-                with pytest.raises(ValueError, match="not found"):
+                with pytest.raises(NotFoundError, match="not found"):
                     await track_repo.get_by_id(track_id)
 
     async def test_bulk_upsert_uncommitted_data_visibility(

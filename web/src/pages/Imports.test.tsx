@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CheckpointStatusSchema } from "@/api/generated/model";
 import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import { renderWithProviders, screen } from "@/test/test-utils";
 
 import { Imports } from "./Imports";
 
@@ -53,14 +53,33 @@ describe("Imports page", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all four import cards", () => {
+  it("renders section headings for data type groups", () => {
     setupCheckpointsMock();
     renderWithProviders(<Imports />);
 
-    expect(screen.getByText("Import Last.fm History")).toBeInTheDocument();
-    expect(screen.getByText("Import Spotify Likes")).toBeInTheDocument();
-    expect(screen.getByText("Export Likes to Last.fm")).toBeInTheDocument();
-    expect(screen.getByText("Import Spotify History")).toBeInTheDocument();
+    expect(screen.getByText("Listening History")).toBeInTheDocument();
+    expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
+  });
+
+  it("renders all four operation cards", () => {
+    setupCheckpointsMock();
+    renderWithProviders(<Imports />);
+
+    expect(screen.getByText("Scrobble History")).toBeInTheDocument();
+    expect(screen.getByText("Import Likes")).toBeInTheDocument();
+    expect(screen.getByText("Export Loves")).toBeInTheDocument();
+    expect(screen.getByText("GDPR Export")).toBeInTheDocument();
+  });
+
+  it("renders connector icons for service identification", () => {
+    setupCheckpointsMock();
+    renderWithProviders(<Imports />);
+
+    const spotifyIcons = screen.getAllByTitle("Spotify");
+    const lastfmIcons = screen.getAllByTitle("Last.fm");
+
+    expect(spotifyIcons).toHaveLength(2);
+    expect(lastfmIcons).toHaveLength(2);
   });
 
   it("renders run buttons for each operation", () => {
@@ -71,27 +90,17 @@ describe("Imports page", () => {
     expect(runButtons).toHaveLength(4);
   });
 
-  it("displays checkpoint data when loaded", async () => {
+  it("renders segmented mode selector for Last.fm history", () => {
     setupCheckpointsMock();
     renderWithProviders(<Imports />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Sync Status")).toBeInTheDocument();
-    });
+    const recentBtn = screen.getByRole("radio", { name: /recent/i });
+    const incrementalBtn = screen.getByRole("radio", { name: /incremental/i });
+    const fullBtn = screen.getByRole("radio", { name: /full/i });
 
-    await waitFor(() => {
-      // The synced checkpoint shows a date, the others show "Never synced"
-      const neverSyncedElements = screen.getAllByText("Never synced");
-      expect(neverSyncedElements.length).toBeGreaterThanOrEqual(3);
-    });
-  });
-
-  it("renders mode selector for Last.fm history", () => {
-    setupCheckpointsMock();
-    renderWithProviders(<Imports />);
-
-    expect(screen.getByLabelText("Mode:")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("recent");
+    expect(recentBtn).toHaveAttribute("aria-checked", "true");
+    expect(incrementalBtn).toHaveAttribute("aria-checked", "false");
+    expect(fullBtn).toHaveAttribute("aria-checked", "false");
   });
 
   it("renders file upload for Spotify history", () => {
@@ -101,16 +110,5 @@ describe("Imports page", () => {
     expect(
       screen.getByRole("button", { name: /choose file/i }),
     ).toBeInTheDocument();
-  });
-
-  it("shows empty state when no checkpoints exist", async () => {
-    server.use(
-      http.get("*/api/v1/imports/checkpoints", () => HttpResponse.json([])),
-    );
-    renderWithProviders(<Imports />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/no sync history yet/i)).toBeInTheDocument();
-    });
   });
 });

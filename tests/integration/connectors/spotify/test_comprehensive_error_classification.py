@@ -52,12 +52,12 @@ class TestComprehensiveErrorClassification:
             mock_settings.credentials.spotify_client_id = "test_client_id"
             mock_settings.credentials.spotify_client_secret.get_secret_value.return_value = "test_secret"
             mock_settings.api.spotify_market = "US"
-            mock_settings.api.spotify_rate_limit = 10.0
-            mock_settings.api.spotify_request_timeout = 15
+            mock_settings.api.spotify.rate_limit = 10.0
+            mock_settings.api.spotify.request_timeout = 15
             # Retry policy parameters — must be concrete values, not MagicMock
-            mock_settings.api.spotify_retry_count = 3
-            mock_settings.api.spotify_retry_base_delay = 0.5
-            mock_settings.api.spotify_retry_max_delay = 30.0
+            mock_settings.api.spotify.retry_count = 3
+            mock_settings.api.spotify.retry_base_delay = 0.5
+            mock_settings.api.spotify.retry_max_delay = 30.0
             yield SpotifyAPIClient()
 
     @pytest.fixture

@@ -40,13 +40,13 @@ class TestComprehensiveErrorClassification:
                 "test_secret"
             )
             mock_settings.credentials.lastfm_username = "test_user"
-            mock_settings.api.lastfm_rate_limit = 10.0
-            mock_settings.api.lastfm_concurrency = 50
-            mock_settings.api.lastfm_request_timeout = 10.0
+            mock_settings.api.lastfm.rate_limit = 10.0
+            mock_settings.api.lastfm.concurrency = 50
+            mock_settings.api.lastfm.request_timeout = 10.0
             # Retry policy parameters — must be concrete values, not MagicMock
-            mock_settings.api.lastfm_retry_count_rate_limit = 8
-            mock_settings.api.lastfm_retry_base_delay = 1.0
-            mock_settings.api.lastfm_retry_max_delay = 60.0
+            mock_settings.api.lastfm.retry_count = 8
+            mock_settings.api.lastfm.retry_base_delay = 1.0
+            mock_settings.api.lastfm.retry_max_delay = 60.0
             yield LastFMAPIClient()
 
     @pytest.fixture
@@ -357,13 +357,13 @@ class TestErrorClassificationEdgeCases:
                 "test_secret"
             )
             mock_settings.credentials.lastfm_username = "test_user"
-            mock_settings.api.lastfm_rate_limit = 10.0
-            mock_settings.api.lastfm_concurrency = 50
-            mock_settings.api.lastfm_request_timeout = 10.0
+            mock_settings.api.lastfm.rate_limit = 10.0
+            mock_settings.api.lastfm.concurrency = 50
+            mock_settings.api.lastfm.request_timeout = 10.0
             # Retry policy parameters — must be concrete values, not MagicMock
-            mock_settings.api.lastfm_retry_count_rate_limit = 8
-            mock_settings.api.lastfm_retry_base_delay = 1.0
-            mock_settings.api.lastfm_retry_max_delay = 60.0
+            mock_settings.api.lastfm.retry_count = 8
+            mock_settings.api.lastfm.retry_base_delay = 1.0
+            mock_settings.api.lastfm.retry_max_delay = 60.0
             yield LastFMAPIClient()
 
     @pytest.fixture

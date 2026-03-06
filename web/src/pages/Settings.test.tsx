@@ -14,7 +14,7 @@ describe("Settings", () => {
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
-  it("renders connector cards when API returns data", async () => {
+  it("renders connector cards grouped into sections", async () => {
     server.use(
       http.get("*/api/v1/connectors", () => {
         return HttpResponse.json(
@@ -55,6 +55,11 @@ describe("Settings", () => {
       expect(screen.getByText("Spotify")).toBeInTheDocument();
     });
 
+    // Section headings
+    expect(screen.getByText("Streaming")).toBeInTheDocument();
+    expect(screen.getByText("Data & Enrichment")).toBeInTheDocument();
+
+    // Connector names
     expect(screen.getByText("Last.fm")).toBeInTheDocument();
     expect(screen.getByText("MusicBrainz")).toBeInTheDocument();
     expect(screen.getByText("Apple Music")).toBeInTheDocument();

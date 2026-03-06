@@ -1,38 +1,47 @@
 import type { ConnectorStatusSchema } from "@/api/generated/model";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 
-/** Static descriptions — presentation concern, not API data. */
-const descriptions: Record<
-  string,
-  { connected: string; disconnected: string }
-> = {
-  spotify: {
-    connected: "Playlists, liked tracks, listening history",
-    disconnected: "Run the CLI to connect your Spotify account.",
-  },
-  lastfm: {
-    connected: "Scrobble counts, play history, loved tracks",
-    disconnected: "Run the CLI to connect your Last.fm account.",
-  },
-  musicbrainz: {
-    connected: "Track identification, metadata enrichment",
-    disconnected: "Track identification, metadata enrichment",
-  },
-  apple: {
-    connected: "Library, playlists",
-    disconnected: "Coming soon — connector under development.",
-  },
+/** Static descriptions — what each connector provides, regardless of connection state. */
+const connectorDescriptions: Record<string, string> = {
+  spotify: "Playlists, liked tracks, listening history",
+  lastfm: "Scrobble counts, play history, loved tracks",
+  musicbrainz: "Track identification, metadata enrichment",
+  apple: "Library, playlists",
 };
 
+/** Auth/status detail — always rendered as the last line of each card. */
+function getAuthDetail(connector: ConnectorStatusSchema): string {
+  if (connector.name === "apple") {
+    return "Coming soon \u00b7 connector under development";
+  }
+  if (connector.name === "musicbrainz") {
+    return "Public API \u00b7 no authentication required";
+  }
+  if (!connector.connected) {
+    return "Not connected \u00b7 run CLI to authenticate";
+  }
+
+  const identity = connector.account_name
+    ? `Signed in as ${connector.account_name}`
+    : "Signed in";
+
+  if (connector.token_expires_at) {
+    const isExpired = connector.token_expires_at * 1000 < Date.now();
+    if (isExpired) {
+      return `${identity} \u00b7 token expired`;
+    }
+    return `${identity} \u00b7 token refreshes automatically`;
+  }
+
+  return identity;
+}
+
 function getStatusBadge(connector: ConnectorStatusSchema) {
-  // Apple Music — always "Coming soon" regardless of connected state
   if (connector.name === "apple") {
     return <Badge variant="secondary">Coming soon</Badge>;
   }
 
-  // MusicBrainz — public API, no auth; show "Available" instead of "Connected"
   if (connector.name === "musicbrainz" && connector.connected) {
     return (
       <Badge className="bg-status-available/20 text-status-available border-status-available/30">
@@ -45,7 +54,6 @@ function getStatusBadge(connector: ConnectorStatusSchema) {
     return <Badge variant="secondary">Not configured</Badge>;
   }
 
-  // Check if token is expired
   if (connector.token_expires_at) {
     const isExpired = connector.token_expires_at * 1000 < Date.now();
     if (isExpired) {
@@ -69,24 +77,17 @@ export function ConnectorCard({
 }: {
   connector: ConnectorStatusSchema;
 }) {
-  const desc = descriptions[connector.name];
-  const descText = connector.connected ? desc?.connected : desc?.disconnected;
+  const description = connectorDescriptions[connector.name] ?? "";
+  const authDetail = getAuthDetail(connector);
 
   return (
-    <Card className="p-4 space-y-1.5">
-      <div className="flex items-center gap-3">
-        <ConnectorIcon name={connector.name} className="text-sm" />
-
-        {connector.connected && connector.account_name && (
-          <span className="text-sm text-text-muted">
-            {connector.account_name}
-          </span>
-        )}
-
-        <span className="ml-auto">{getStatusBadge(connector)}</span>
+    <div className="flex h-full flex-col rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <ConnectorIcon name={connector.name} iconSize="lg" />
+        {getStatusBadge(connector)}
       </div>
-
-      {descText && <p className="text-xs text-text-faint">{descText}</p>}
-    </Card>
+      <p className="mt-2 text-sm text-text-muted">{description}</p>
+      <p className="mt-auto pt-2 text-sm text-text-faint">{authDetail}</p>
+    </div>
   );
 }

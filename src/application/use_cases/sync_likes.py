@@ -184,7 +184,7 @@ class ImportSpotifyLikesUseCase:
     ) -> OperationResult:
         from src.domain.entities.progress import create_progress_event
 
-        batch_size = command.limit or settings.api.spotify_batch_size
+        batch_size = command.limit or settings.api.spotify.batch_size
         checkpoint = await get_or_create_checkpoint(
             command.user_id, "spotify", "likes", uow
         )
@@ -450,7 +450,7 @@ class ExportLastFmLikesUseCase:
     ) -> OperationResult:
         from src.domain.entities.progress import create_progress_event
 
-        batch_size = command.batch_size or settings.api.lastfm_batch_size
+        batch_size = command.batch_size or settings.api.lastfm.batch_size
         checkpoint = await get_or_create_checkpoint(
             command.user_id, "lastfm", "likes", uow
         )

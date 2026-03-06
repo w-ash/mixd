@@ -98,6 +98,32 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
+    def list_tracks(
+        self,
+        *,
+        query: str | None = None,
+        liked: bool | None = None,
+        connector: str | None = None,
+        sort_by: str = "title_asc",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Awaitable[tuple[list[Track], int, set[int]]]:
+        """List tracks with optional search, filters, sorting, and pagination.
+
+        Args:
+            query: Text search across title, artist, album.
+            liked: Filter by canonical liked status (liked on any service).
+            connector: Filter by connector mapping presence.
+            sort_by: Sort field and direction.
+            limit: Maximum tracks to return.
+            offset: Number of tracks to skip.
+
+        Returns:
+            Tuple of (tracks, total_count, liked_track_ids) where liked_track_ids
+            contains IDs of tracks liked on any service (authoritative from track_likes).
+        """
+        ...
+
 
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
@@ -141,6 +167,17 @@ class PlaylistRepositoryProtocol(Protocol):
 
         Returns:
             List of all stored playlists with basic metadata
+        """
+        ...
+
+    def get_playlists_for_track(self, track_id: int) -> Awaitable[list[Playlist]]:
+        """Get all playlists containing a specific track.
+
+        Args:
+            track_id: Internal track ID.
+
+        Returns:
+            List of playlists that contain the given track.
         """
         ...
 
@@ -492,6 +529,19 @@ class MetricsRepositoryProtocol(Protocol):
         ...
 
 
+class PlayAggregationResult(TypedDict, total=False):
+    """Typed result from play aggregation queries.
+
+    Each key maps track IDs to their aggregated value. All keys are optional
+    (total=False) because callers request specific metric subsets.
+    """
+
+    total_plays: dict[int, int]
+    first_played_dates: dict[int, datetime | None]
+    last_played_dates: dict[int, datetime | None]
+    period_plays: dict[int, int]
+
+
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
 
@@ -520,7 +570,7 @@ class PlaysRepositoryProtocol(Protocol):
         metrics: list[str],
         period_start: datetime | None = None,
         period_end: datetime | None = None,
-    ) -> Awaitable[dict[str, dict[int, Any]]]:
+    ) -> Awaitable[PlayAggregationResult]:
         """Get aggregated play data for specified tracks and metrics.
 
         Args:
@@ -530,7 +580,7 @@ class PlaysRepositoryProtocol(Protocol):
             period_end: End date for period-based metrics (optional)
 
         Returns:
-            Dictionary mapping metric names to {track_id: value} dictionaries
+            Typed dictionary mapping metric names to {track_id: value} dictionaries.
         """
         ...
 

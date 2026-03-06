@@ -1,155 +1,320 @@
 """Modern configuration management using Pydantic Settings.
 
 This module provides type-safe configuration management with automatic
-environment variable loading and validation using Pydantic Settings v2.11+.
+environment variable loading and validation using Pydantic Settings v2.13+.
 
 The configuration is organized into logical groups:
-- DatabaseConfig: Database connection and pooling settings
-- LoggingConfig: Logging levels, files, and debugging options
-- APIConfig: External API configuration (LastFM, Spotify, MusicBrainz)
-- BatchConfig: Batch processing and progress reporting settings
+- DatabaseConfig: Database connection string
+- LoggingConfig: Console/file levels, rotation, Prefect integration
+- CredentialsConfig: Spotify and Last.fm API keys and secrets
+- APIConfig: Rate limits, batch sizes, timeouts for external APIs
+- BatchConfig: Display truncation for log output
+- CLIConfig: CLI table formatting widths
+- ImportConfig: Import directories, play thresholds, batch processing
+- MatchingConfig: Track matching confidence scores and penalties
+- FreshnessConfig: Cache TTLs for connector metadata
+- ServerConfig: CORS and HTTP middleware
 """
 
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: Pydantic settings validators, loguru config
 
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Annotated, Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
 
+# =============================================================================
+# CONSTRAINED TYPE ALIASES
+# =============================================================================
+# Reusable Annotated types for startup validation. Pydantic merges constraints
+# from Annotated metadata with class-level Field(default=..., description=...).
+
+Percentage = Annotated[float, Field(ge=0.0, le=1.0)]
+PositiveFloat = Annotated[float, Field(gt=0.0)]
+NonNegativeFloat = Annotated[float, Field(ge=0.0)]
+PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeInt = Annotated[int, Field(ge=0)]
+ConfidenceScore = Annotated[int, Field(ge=0, le=100)]
+SimilarityScore = Annotated[float, Field(ge=0.0, le=1.0)]
+
+# Log level literals — Loguru accepts TRACE/SUCCESS, stdlib logging does not
+LoguruLevel = Literal[
+    "TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"
+]
+StdlibLogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
 
 class DatabaseConfig(BaseModel):
-    """Database connection configuration."""
+    """Database connection configuration.
 
-    url: str = "sqlite+aiosqlite:///data/db/narada.db"
+    Pool and engine settings (NullPool for SQLite, connection pooling for
+    PostgreSQL) are hardcoded in db_connection.py because they differ by
+    database backend and should not be user-tunable.
+    """
+
+    url: str = Field(
+        default="sqlite+aiosqlite:///data/db/narada.db",
+        description="SQLAlchemy async connection URL. Supports sqlite+aiosqlite:// and postgresql+asyncpg://.",
+    )
 
 
 class LoggingConfig(BaseModel):
     """Logging configuration for console and file output."""
 
-    # Console and file output
-    console_level: str = "INFO"
-    file_level: str = "DEBUG"
-    log_file: Path = Path("narada.log")
-    real_time_debug: bool = True
-
-    # Extended logging options
-    diagnose_in_production: bool = (
-        False  # Security: disable variable inspection in prod
+    console_level: LoguruLevel = Field(
+        default="INFO",
+        description="Minimum log level for console (stderr) output.",
     )
-    backtrace_in_production: bool = (
-        False  # Security: disable detailed tracebacks in prod
+    file_level: LoguruLevel = Field(
+        default="DEBUG",
+        description="Minimum log level for the rotating log file.",
     )
-    console_format: str | None = None  # Use current default if None
-    file_format: str | None = None  # Use current default if None
-    rotation: str = "10 MB"  # File rotation size
-    retention: str = "1 week"  # Log retention period
-    compression: str = "zip"  # Compression format for rotated logs
-    serialize: bool = True  # Enable JSON structured logging
-    catch_internal_errors: bool = True  # Catch errors within logger itself
+    log_file: Path = Field(
+        default=Path("narada.log"),
+        description="Path to the application log file.",
+    )
+    real_time_debug: bool = Field(
+        default=True,
+        description="Flush file logs immediately instead of buffering. Useful for debugging crashes where buffered output would be lost.",
+    )
 
-    # Prefect integration logging levels
-    prefect_bridge_level: str = "DEBUG"  # Level for Prefect→Loguru bridge handler
-    prefect_logger_level: str = "DEBUG"  # Level for individual Prefect loggers
+    # Security: these two should stay False in production
+    diagnose_in_production: bool = Field(
+        default=False,
+        description="Allow Loguru to inspect local variables in tracebacks. Disable in production to prevent sensitive data exposure.",
+    )
+    backtrace_in_production: bool = Field(
+        default=False,
+        description="Include full exception chain tracebacks. Disable in production to reduce log verbosity and information leakage.",
+    )
+
+    console_format: str | None = Field(
+        default=None,
+        description="Custom Loguru format string for console output. None uses the built-in default.",
+    )
+    file_format: str | None = Field(
+        default=None,
+        description="Custom Loguru format string for file output. None uses the built-in default.",
+    )
+    rotation: str = Field(
+        default="10 MB",
+        description="Log file rotation trigger (size or time interval).",
+    )
+    retention: str = Field(
+        default="1 week",
+        description="How long rotated log files are kept before deletion.",
+    )
+    compression: str = Field(
+        default="zip",
+        description="Compression format for rotated log files.",
+    )
+    serialize: bool = Field(
+        default=True,
+        description="Enable JSON structured logging for file output.",
+    )
+    catch_internal_errors: bool = Field(
+        default=True,
+        description="Catch and log errors within Loguru itself instead of propagating.",
+    )
+
+    # Prefect levels use getattr(logging, level) — stdlib only, no TRACE/SUCCESS
+    prefect_bridge_level: StdlibLogLevel = Field(
+        default="DEBUG",
+        description="Minimum level for the handler that forwards Prefect framework logs into Loguru.",
+    )
+    prefect_logger_level: StdlibLogLevel = Field(
+        default="DEBUG",
+        description="Minimum level applied to individual Prefect logger instances (prefect.flow, prefect.task, etc.).",
+    )
 
 
 class CredentialsConfig(BaseModel):
     """API credentials and authentication settings."""
 
-    # Spotify credentials
-    spotify_client_id: str = ""
+    spotify_client_id: str = Field(
+        default="",
+        description="Spotify OAuth client ID. Required for all Spotify operations.",
+    )
     spotify_client_secret: SecretStr = Field(
-        default=SecretStr(""), description="Spotify client secret (sensitive)"
+        default=SecretStr(""),
+        description="Spotify OAuth client secret. Required for all Spotify operations.",
     )
-    spotify_redirect_uri: str = "http://localhost:8888/callback"
+    spotify_redirect_uri: str = Field(
+        default="http://localhost:8888/callback",
+        description="OAuth callback URL registered in the Spotify developer dashboard.",
+    )
 
-    # LastFM credentials
-    lastfm_key: str = ""
-    lastfm_secret: SecretStr = Field(
-        default=SecretStr(""), description="LastFM API secret (sensitive)"
+    lastfm_key: str = Field(
+        default="",
+        description="Last.fm API key. Required for scrobble history and play counts.",
     )
-    lastfm_username: str = ""
+    lastfm_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description="Last.fm API shared secret. Required for authenticated operations (love/unlove).",
+    )
+    lastfm_username: str = Field(
+        default="",
+        description="Last.fm username. Required for importing listening history.",
+    )
     lastfm_password: SecretStr = Field(
-        default=SecretStr(""), description="LastFM password (sensitive)"
+        default=SecretStr(""),
+        description="Last.fm password. Required for authenticated write operations.",
+    )
+
+
+class ConnectorAPIConfig(BaseModel):
+    """Per-connector API tuning: batch sizes, retry policy, rate limiting."""
+
+    batch_size: PositiveInt = Field(
+        default=50,
+        description="Tracks per batch for API operations.",
+    )
+    concurrency: PositiveInt = Field(
+        default=5,
+        description="Maximum concurrent in-flight requests.",
+    )
+    rate_limit: PositiveFloat | None = Field(
+        default=None,
+        description="Request starts per second. None means no rate limiting.",
+    )
+    retry_count: NonNegativeInt = Field(
+        default=3,
+        description="Retry attempts for transient API errors.",
+    )
+    retry_base_delay: NonNegativeFloat = Field(
+        default=1.0,
+        description="Exponential backoff base delay in seconds.",
+    )
+    retry_max_delay: PositiveFloat = Field(
+        default=30.0,
+        description="Maximum backoff delay in seconds.",
+    )
+    request_delay: NonNegativeFloat = Field(
+        default=0.0,
+        description="Delay in seconds between sequential API calls.",
+    )
+    request_timeout: PositiveFloat = Field(
+        default=15.0,
+        description="HTTP request timeout in seconds.",
     )
 
 
 class APIConfig(BaseModel):
     """External API configuration and rate limiting."""
 
-    # LastFM API Configuration (rate limited to ~5 calls/second)
-    lastfm_batch_size: int = 50  # Tracks per batch
-    lastfm_concurrency: int = 200  # Max concurrent requests in-flight
-    lastfm_rate_limit: float = (
-        4.5  # Request starts per second (10% buffer from 5.0 limit)
+    lastfm: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            batch_size=50,
+            concurrency=200,
+            rate_limit=4.5,
+            retry_count=8,
+            request_timeout=30.0,
+            retry_max_delay=60.0,
+        ),
+        description="Last.fm API tuning. Higher concurrency + rate limit because Last.fm allows bursts within 5/s.",
+    )
+    spotify: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            batch_size=50,
+            concurrency=50,
+            request_delay=0.1,
+            retry_base_delay=0.5,
+        ),
+        description="Spotify API tuning.",
+    )
+    musicbrainz: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            concurrency=5,
+            request_delay=0.2,
+        ),
+        description="MusicBrainz API tuning. Conservative defaults — MusicBrainz rate-limits aggressively.",
     )
 
-    # Retry configuration by error type
-    lastfm_retry_count_rate_limit: int = 8  # Rate limit errors need more retries
-    lastfm_retry_base_delay: float = 1.0  # Exponential backoff base delay (seconds)
-    lastfm_retry_max_delay: float = 60.0  # Exponential backoff max delay (seconds)
-    lastfm_request_timeout: float = 30.0  # HTTP request timeout in seconds
-
-    # Spotify API Configuration
-    spotify_batch_size: int = 50
-    spotify_large_batch_size: int = 100  # For operations that support larger batches
-    spotify_retry_count: int = 3
-    spotify_retry_base_delay: float = 0.5
-    spotify_retry_max_delay: float = 30.0
-    spotify_request_delay: float = 0.1
-    spotify_request_timeout: int = 15  # HTTP request timeout in seconds
-    spotify_market: str = "US"  # Default market for API requests
-
-    # MusicBrainz API Configuration
-    musicbrainz_concurrency: int = 5
-    musicbrainz_retry_count: int = 3
-    musicbrainz_retry_base_delay: float = 1.0
-    musicbrainz_retry_max_delay: float = 30.0
-    musicbrainz_request_delay: float = 0.2
+    # Spotify-specific fields that don't fit the common shape
+    spotify_large_batch_size: PositiveInt = Field(
+        default=100,
+        description="Batch size for Spotify endpoints accepting up to 100 items (e.g., library check).",
+    )
+    spotify_market: str = Field(
+        default="US",
+        description="ISO 3166-1 alpha-2 country code for track availability and content filtering.",
+    )
 
 
 class BatchConfig(BaseModel):
-    """Batch processing and progress reporting configuration."""
+    """Display truncation settings for log messages and diagnostic output."""
 
-    truncation_limit: int = 5  # Number of items to show before truncating lists
+    truncation_limit: PositiveInt = Field(
+        default=5,
+        description="Maximum items shown in a list before truncating with '... and N more'.",
+    )
 
 
 class CLIConfig(BaseModel):
     """CLI display and formatting configuration."""
 
-    # Table display settings
-    playlist_name_min_width: int = 15
-    playlist_description_max_width: int = 40
-    playlist_description_truncation_length: int = 37  # max_width - 3 for "..."
+    playlist_name_min_width: PositiveInt = Field(
+        default=15,
+        description="Minimum column width for playlist names in CLI tables.",
+    )
+    playlist_description_max_width: PositiveInt = Field(
+        default=40,
+        description="Maximum column width for playlist descriptions in CLI tables.",
+    )
+    playlist_description_truncation_length: PositiveInt = Field(
+        default=37,
+        description="Characters to keep before appending '...' when truncating. Should equal playlist_description_max_width minus 3.",
+    )
 
 
 class ImportConfig(BaseModel):
     """Import processing and data quality configuration."""
 
-    # Import directory configuration
-    imports_dir: Path = Path("data/imports")  # Directory for pending import files
-    imported_dir: Path = Path("data/imports/imported")  # Archive for processed files
+    imports_dir: Path = Field(
+        default=Path("data/imports"),
+        description="Directory where pending import files (e.g., Spotify GDPR exports) are placed for processing.",
+    )
+    imported_dir: Path = Field(
+        default=Path("data/imports/imported"),
+        description="Archive directory. Successfully processed files are moved here.",
+    )
 
-    # Play filtering thresholds
-    play_threshold_ms: int = 240000  # 4 minutes fallback threshold
-    play_threshold_percentage: float = 0.5  # 50% of track duration
+    # Play filtering thresholds (aligned with Last.fm scrobbling standards)
+    play_threshold_ms: NonNegativeInt = Field(
+        default=240000,
+        description="Minimum playback duration (ms) to count as a 'play' when track duration is unknown. Fallback for play_threshold_percentage.",
+    )
+    play_threshold_percentage: Percentage = Field(
+        default=0.5,
+        description="Fraction of track duration (0.0-1.0) that must be played to count as a listen. Primary threshold; play_threshold_ms is the fallback.",
+    )
 
-    # Import batch processing (ImportBatchProcessor)
-    batch_size: int = 1000  # Items per batch for file processing
-    retry_count: int = 3  # Retry attempts for transient processing errors
-    retry_base_delay: float = 1.0  # Base retry delay in seconds
-    memory_limit_mb: int = 100  # Advisory memory limit per batch
-    progress_frequency: int = 100
+    # Batch processing
+    batch_size: PositiveInt = Field(
+        default=1000,
+        description="Items per batch for file import processing.",
+    )
+    retry_count: NonNegativeInt = Field(
+        default=3,
+        description="Retry attempts for transient processing errors during import.",
+    )
+    retry_base_delay: NonNegativeFloat = Field(
+        default=1.0,
+        description="Base retry delay in seconds for import processing errors.",
+    )
 
     # Warning thresholds
-    memory_warning_threshold: int = 10000  # Warn if batch size exceeds this
-    file_size_warning_mb: int = 100  # Warn if file size exceeds this (MB)
-    full_history_import_threshold: int = (
-        10000  # Threshold to detect full history imports
+    file_size_warning_mb: PositiveInt = Field(
+        default=100,
+        description="Emit a warning if an import file exceeds this size in MB.",
+    )
+    full_history_import_threshold: PositiveInt = Field(
+        default=10000,
+        description="Track count at which a Last.fm import switches to full-history mode with optimized batching.",
     )
 
 
@@ -157,32 +322,80 @@ class MatchingConfig(BaseModel):
     """Track matching and confidence scoring configuration."""
 
     # Base confidence scores by match method
-    base_confidence_isrc: int = 95
-    base_confidence_mbid: int = 95
-    base_confidence_artist_title: int = 90
+    base_confidence_isrc: ConfidenceScore = Field(
+        default=95,
+        description="Starting confidence for ISRC identifier matches.",
+    )
+    base_confidence_mbid: ConfidenceScore = Field(
+        default=95,
+        description="Starting confidence for MusicBrainz ID matches.",
+    )
+    base_confidence_artist_title: ConfidenceScore = Field(
+        default=90,
+        description="Starting confidence for fuzzy artist+title matches.",
+    )
 
     # Confidence thresholds for match acceptance
-    threshold_isrc: int = 60
-    threshold_mbid: int = 60
-    threshold_artist_title: int = 50  # Reduced from 70 to handle version differences
-    threshold_default: int = 50
+    threshold_isrc: ConfidenceScore = Field(
+        default=60,
+        description="Minimum confidence to accept an ISRC-based match after penalties.",
+    )
+    threshold_mbid: ConfidenceScore = Field(
+        default=60,
+        description="Minimum confidence to accept a MusicBrainz ID-based match after penalties.",
+    )
+    threshold_artist_title: ConfidenceScore = Field(
+        default=50,
+        description="Minimum confidence for artist+title fuzzy matches. Lower than ISRC/MBID to accommodate title variations across services.",
+    )
+    threshold_default: ConfidenceScore = Field(
+        default=50,
+        description="Fallback threshold when match method is unspecified.",
+    )
 
     # Duration penalty configuration
-    duration_missing_penalty: int = 5  # Reduced from 10
-    duration_max_penalty: int = 30  # Reduced from 60 to handle version differences
-    duration_tolerance_ms: int = 1000
-    duration_per_second_penalty: float = 0.5  # Reduced from 1.0
+    duration_missing_penalty: ConfidenceScore = Field(
+        default=5,
+        description="Confidence deduction when one track has no duration metadata.",
+    )
+    duration_max_penalty: ConfidenceScore = Field(
+        default=30,
+        description="Maximum confidence deduction from duration differences. Capped to prevent duration alone from rejecting strong matches.",
+    )
+    duration_tolerance_ms: NonNegativeInt = Field(
+        default=1000,
+        description="Duration difference in ms below which no penalty is applied.",
+    )
+    duration_per_second_penalty: NonNegativeFloat = Field(
+        default=0.5,
+        description="Confidence points deducted per second of duration difference beyond tolerance.",
+    )
 
     # Similarity thresholds
-    high_similarity_threshold: float = 0.9
+    high_similarity_threshold: SimilarityScore = Field(
+        default=0.9,
+        description="String similarity ratio (0.0-1.0) above which titles or artists are considered effectively identical.",
+    )
 
     # Penalty caps
-    title_max_penalty: int = 30
-    artist_max_penalty: int = 30
+    title_max_penalty: ConfidenceScore = Field(
+        default=30,
+        description="Maximum confidence deduction from title dissimilarity.",
+    )
+    artist_max_penalty: ConfidenceScore = Field(
+        default=30,
+        description="Maximum confidence deduction from artist name dissimilarity.",
+    )
 
     # Title similarity constants
-    variation_similarity_score: float = 0.6
-    identical_similarity_score: float = 1.0
+    variation_similarity_score: SimilarityScore = Field(
+        default=0.6,
+        description="Similarity score assigned when titles are recognized as variations (remix, live, etc.).",
+    )
+    identical_similarity_score: SimilarityScore = Field(
+        default=1.0,
+        description="Similarity score assigned when titles are exact matches.",
+    )
 
 
 class ServerConfig(BaseModel):
@@ -190,15 +403,24 @@ class ServerConfig(BaseModel):
 
     cors_origins: list[str] = Field(
         default=["http://localhost:5173"],
-        description="Allowed CORS origins (Vite dev server by default)",
+        description="Allowed CORS origins. Defaults to Vite dev server. Add production domains when deploying.",
     )
 
 
 class FreshnessConfig(BaseModel):
-    """Data freshness configuration in hours."""
+    """How long cached connector metadata stays valid before re-fetching.
 
-    lastfm_hours: float = 1.0  # 1 hour
-    spotify_hours: float = 24.0  # 24 hours
+    Used by enrichment to skip redundant API calls for recently-updated tracks.
+    """
+
+    lastfm_hours: NonNegativeFloat = Field(
+        default=1.0,
+        description="Hours before Last.fm play counts are re-fetched during enrichment.",
+    )
+    spotify_hours: NonNegativeFloat = Field(
+        default=24.0,
+        description="Hours before Spotify metadata is re-fetched. Higher than Last.fm because Spotify popularity updates less frequently.",
+    )
 
 
 class Settings(BaseSettings):
@@ -221,6 +443,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",  # Ignore extra environment variables
         validate_default=True,  # Validate default values
+        env_ignore_empty=True,  # Treat empty env vars (FOO=) as unset; use defaults
     )
 
     # Nested configuration groups
@@ -230,7 +453,9 @@ class Settings(BaseSettings):
     api: APIConfig = Field(default_factory=APIConfig)
     batch: BatchConfig = Field(default_factory=BatchConfig)
     cli: CLIConfig = Field(default_factory=CLIConfig)
-    import_settings: ImportConfig = Field(default_factory=ImportConfig)
+    import_settings: ImportConfig = Field(
+        default_factory=ImportConfig
+    )  # 'import' is a Python reserved word
     matching: MatchingConfig = Field(default_factory=MatchingConfig)
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -240,6 +465,28 @@ class Settings(BaseSettings):
         default=Path("data"), description="Application data directory"
     )
 
+    # Flat env var → nested group routing.  {env_key: (group, field_key)}
+    # Identity mappings (key == field) use None as shorthand for "keep name".
+    _FLAT_ENV_ROUTES: ClassVar[dict[str, tuple[str, str | None]]] = {
+        # Database
+        "database_url": ("database", "url"),
+        # Logging (renamed fields)
+        "console_log_level": ("logging", "console_level"),
+        "file_log_level": ("logging", "file_level"),
+        "log_file": ("logging", "log_file"),
+        "log_real_time_debug": ("logging", "real_time_debug"),
+        # Credentials (identity — flat name matches field name)
+        "spotify_client_id": ("credentials", None),
+        "spotify_client_secret": ("credentials", None),
+        "spotify_redirect_uri": ("credentials", None),
+        "lastfm_key": ("credentials", None),
+        "lastfm_secret": ("credentials", None),
+        "lastfm_username": ("credentials", None),
+        "lastfm_password": ("credentials", None),
+        # Server
+        "cors_origins": ("server", None),
+    }
+
     @model_validator(mode="before")
     @classmethod
     def transform_flat_env_vars(cls, data: Any) -> Any:
@@ -248,57 +495,18 @@ class Settings(BaseSettings):
         Handles legacy flat env vars (DATABASE_URL) and maps them to the
         nested structure expected by the models (database.url).
         """
-        # mode="before" receives Any — guard for non-dict input (e.g. model instance copy)
         if not isinstance(data, dict):
             return data
-        # isinstance confirms dict; pydantic BaseSettings always uses str keys
         data = cast(dict[str, Any], data)
         transformed: dict[str, Any] = {}
 
-        # Database mappings
-        db_mapping = {
-            "database_url": "url",
-        }
-        for env_key, field_key in db_mapping.items():
+        for env_key, (group, field_key) in cls._FLAT_ENV_ROUTES.items():
             if env_key in data:
-                transformed.setdefault("database", {})[field_key] = data.pop(env_key)
+                transformed.setdefault(group, {})[field_key or env_key] = data.pop(
+                    env_key
+                )
 
-        # Logging mappings
-        log_mapping = {
-            "console_log_level": "console_level",
-            "file_log_level": "file_level",
-            "log_file": "log_file",
-            "log_real_time_debug": "real_time_debug",
-        }
-        for env_key, field_key in log_mapping.items():
-            if env_key in data:
-                transformed.setdefault("logging", {})[field_key] = data.pop(env_key)
-
-        # Credentials mappings
-        cred_mapping = {
-            "spotify_client_id": "spotify_client_id",
-            "spotify_client_secret": "spotify_client_secret",
-            "spotify_redirect_uri": "spotify_redirect_uri",
-            "lastfm_key": "lastfm_key",
-            "lastfm_secret": "lastfm_secret",
-            "lastfm_username": "lastfm_username",
-            "lastfm_password": "lastfm_password",
-        }
-        for env_key, field_key in cred_mapping.items():
-            if env_key in data:
-                transformed.setdefault("credentials", {})[field_key] = data.pop(env_key)
-
-        # Server mappings
-        server_mapping = {
-            "cors_origins": "cors_origins",
-        }
-        for env_key, field_key in server_mapping.items():
-            if env_key in data:
-                transformed.setdefault("server", {})[field_key] = data.pop(env_key)
-
-        # Merge transformed nested structure back into data
         data.update(transformed)
-
         return data
 
 
@@ -312,7 +520,7 @@ settings.data_dir.mkdir(exist_ok=True)
 # MODERN SETTINGS API
 # =============================================================================
 # Use the settings object directly for all configuration access:
-#   settings.api.lastfm_batch_size
+#   settings.api.lastfm.batch_size
 #   settings.database.url
 #   settings.credentials.spotify_client_id
 # etc.
@@ -322,24 +530,7 @@ def create_matching_config() -> DomainMatchingConfig:
     """Create domain MatchingConfig from application settings.
 
     Bridges the Pydantic settings layer to the domain value object,
-    keeping domain code free of config imports.
+    keeping domain code free of config imports. Uses model_dump() so
+    adding a field to one side but not the other fails loudly (TypeError).
     """
-    m = settings.matching
-    return DomainMatchingConfig(
-        identical_similarity_score=m.identical_similarity_score,
-        variation_similarity_score=m.variation_similarity_score,
-        base_confidence_isrc=m.base_confidence_isrc,
-        base_confidence_mbid=m.base_confidence_mbid,
-        base_confidence_artist_title=m.base_confidence_artist_title,
-        threshold_isrc=m.threshold_isrc,
-        threshold_mbid=m.threshold_mbid,
-        threshold_artist_title=m.threshold_artist_title,
-        threshold_default=m.threshold_default,
-        high_similarity_threshold=m.high_similarity_threshold,
-        title_max_penalty=m.title_max_penalty,
-        artist_max_penalty=m.artist_max_penalty,
-        duration_missing_penalty=m.duration_missing_penalty,
-        duration_max_penalty=m.duration_max_penalty,
-        duration_tolerance_ms=m.duration_tolerance_ms,
-        duration_per_second_penalty=m.duration_per_second_penalty,
-    )
+    return DomainMatchingConfig(**settings.matching.model_dump())

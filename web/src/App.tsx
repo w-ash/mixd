@@ -16,6 +16,12 @@ const PlaylistDetail = lazy(() =>
 const Imports = lazy(() =>
   import("./pages/Imports").then((m) => ({ default: m.Imports })),
 );
+const Library = lazy(() =>
+  import("./pages/Library").then((m) => ({ default: m.Library })),
+);
+const TrackDetail = lazy(() =>
+  import("./pages/TrackDetail").then((m) => ({ default: m.TrackDetail })),
+);
 const Settings = lazy(() =>
   import("./pages/Settings").then((m) => ({ default: m.Settings })),
 );
@@ -54,6 +60,22 @@ export function App() {
             element={
               <Suspense>
                 <PlaylistDetail />
+              </Suspense>
+            }
+          />
+          <Route
+            path="library"
+            element={
+              <Suspense>
+                <Library />
+              </Suspense>
+            }
+          />
+          <Route
+            path="library/:id"
+            element={
+              <Suspense>
+                <TrackDetail />
               </Suspense>
             }
           />

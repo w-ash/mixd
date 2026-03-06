@@ -308,10 +308,9 @@ class TestClientSmokeViaRealHttpx:
         """Minimal settings patch for SpotifyAPIClient init."""
         with patch("src.infrastructure.connectors.spotify.client.settings") as s:
             s.api.spotify_market = "US"
-            s.api.spotify_request_timeout = 15
-            s.api.spotify_retry_count = 3
-            s.api.spotify_retry_base_delay = 0.5
-            s.api.spotify_retry_max_delay = 30.0
+            s.api.spotify.retry_count = 3
+            s.api.spotify.retry_base_delay = 0.5
+            s.api.spotify.retry_max_delay = 30.0
             yield s
 
     async def test_spotify_success_response_does_not_crash_hook(self, spotify_settings):
@@ -421,10 +420,10 @@ class TestClientSmokeViaRealHttpx:
             s.credentials.lastfm_key = "test_key"
             s.credentials.lastfm_secret.get_secret_value.return_value = "test_secret"
             s.credentials.lastfm_username = "test_user"
-            s.api.lastfm_request_timeout = 10.0
-            s.api.lastfm_retry_count_rate_limit = 3
-            s.api.lastfm_retry_base_delay = 0.5
-            s.api.lastfm_retry_max_delay = 30.0
+            s.api.lastfm.request_timeout = 10.0
+            s.api.lastfm.retry_count = 3
+            s.api.lastfm.retry_base_delay = 0.5
+            s.api.lastfm.retry_max_delay = 30.0
 
             client = LastFMAPIClient()
             # Must not raise RuntimeError from the event hook

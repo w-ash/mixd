@@ -79,7 +79,7 @@ class UpdatePlaylistRequest(BaseModel):
 # --- Domain-to-schema converters ---
 
 
-def _to_artist_schema(artist: Artist) -> ArtistSchema:
+def to_artist_schema(artist: Artist) -> ArtistSchema:
     return ArtistSchema(name=artist.name)
 
 
@@ -87,7 +87,7 @@ def _to_track_summary(track: Track) -> TrackSummarySchema:
     return TrackSummarySchema(
         id=track.id,
         title=track.title,
-        artists=[_to_artist_schema(a) for a in track.artists],
+        artists=[to_artist_schema(a) for a in track.artists],
         album=track.album,
         duration_ms=track.duration_ms,
     )

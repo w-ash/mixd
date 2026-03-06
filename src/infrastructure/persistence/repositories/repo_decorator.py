@@ -31,6 +31,7 @@ from sqlalchemy.exc import (
 )
 
 from src.config import get_logger
+from src.domain.exceptions import NotFoundError
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -182,7 +183,7 @@ def db_operation(operation_name: str | None = None):
                 )
                 raise
 
-            except ValueError as e:
+            except (ValueError, NotFoundError) as e:
                 # Handle domain value errors (e.g. "not found" from get_by_id)
                 exec_time = (time.perf_counter() - start_time) * 1000
                 logger.debug(

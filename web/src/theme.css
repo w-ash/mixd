@@ -50,6 +50,7 @@
   --color-status-connected: oklch(0.72 0.17 155);
   --color-status-expired: oklch(0.7 0.15 70);
   --color-status-available: oklch(0.65 0.12 230);
+  --color-status-liked: oklch(0.65 0.2 25);
 
   /* Typography */
   --font-display: "Space Grotesk", system-ui, sans-serif;

@@ -22,7 +22,6 @@ class TestImportConfig:
 
         # Batch processing defaults
         assert config.batch_size == 1000
-        assert config.progress_frequency == 100
 
     def test_import_config_custom_values(self):
         """Test that ImportConfig accepts custom values."""
@@ -30,13 +29,11 @@ class TestImportConfig:
             play_threshold_ms=180_000,  # 3 minutes
             play_threshold_percentage=0.6,  # 60%
             batch_size=500,
-            progress_frequency=50,
         )
 
         assert config.play_threshold_ms == 180_000
         assert config.play_threshold_percentage == 0.6
         assert config.batch_size == 500
-        assert config.progress_frequency == 50
 
     def test_play_threshold_ms_validation(self):
         """Test that play threshold is reasonable."""

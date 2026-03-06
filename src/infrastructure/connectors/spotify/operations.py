@@ -87,7 +87,7 @@ class SpotifyOperations:
         results: dict[str, SpotifyTrack] = {}
 
         # Process in batches using Spotify's bulk API (50 tracks per call)
-        batch_size = settings.api.spotify_batch_size
+        batch_size = settings.api.spotify.batch_size
         total_batches = (len(track_ids) + batch_size - 1) // batch_size
 
         logger.info(f"Fetching {len(track_ids)} tracks in {total_batches} batches")
@@ -120,8 +120,8 @@ class SpotifyOperations:
                 continue
 
             # Brief delay between requests if configured
-            if settings.api.spotify_request_delay > 0:
-                await asyncio.sleep(settings.api.spotify_request_delay)
+            if settings.api.spotify.request_delay > 0:
+                await asyncio.sleep(settings.api.spotify.request_delay)
 
         logger.info(f"Retrieved {len(results)}/{len(track_ids)} tracks")
         return results
@@ -328,8 +328,8 @@ class SpotifyOperations:
                 continue
 
             # Brief delay between requests if configured
-            if settings.api.spotify_request_delay > 0:
-                await asyncio.sleep(settings.api.spotify_request_delay)
+            if settings.api.spotify.request_delay > 0:
+                await asyncio.sleep(settings.api.spotify.request_delay)
 
     # Differential Playlist Operations
 

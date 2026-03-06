@@ -24,7 +24,7 @@ class TestExecutorHelperFunctions:
         executor = create_executor_for_connectors()
 
         assert isinstance(executor, ThreadPoolExecutor)
-        assert executor._max_workers == settings.api.lastfm_concurrency
+        assert executor._max_workers == settings.api.lastfm.concurrency
         assert executor._thread_name_prefix == "narada_io"
 
         # Clean up

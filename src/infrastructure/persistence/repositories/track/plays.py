@@ -6,7 +6,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, override
+from typing import override
 
 from attrs import define
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
+from src.domain.repositories.interfaces import PlayAggregationResult
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
@@ -234,7 +235,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         metrics: list[str],
         period_start: datetime | None = None,
         period_end: datetime | None = None,
-    ) -> dict[str, dict[int, Any]]:
+    ) -> PlayAggregationResult:
         """Get aggregated play data for specified tracks and metrics.
 
         Args:
@@ -262,7 +263,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             period_end=period_end,
         )
 
-        result: dict[str, dict[int, Any]] = {}
+        result: PlayAggregationResult = {}
 
         # Build base query
         base_query = select(DBTrackPlay).where(
@@ -381,14 +382,23 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 if track_id is not None
             }
 
-        # Ensure all requested track_ids are present in results
-        for metric_name, metric_data in result.items():
+        # Backfill missing track_ids with defaults for each requested metric
+        if "total_plays" in result:
             for track_id in track_ids:
-                if track_id not in metric_data:
-                    if metric_name in {"total_plays", "period_plays"}:
-                        metric_data[track_id] = 0
-                    else:  # last_played_dates
-                        metric_data[track_id] = None
+                if track_id not in result["total_plays"]:
+                    result["total_plays"][track_id] = 0
+        if "period_plays" in result:
+            for track_id in track_ids:
+                if track_id not in result["period_plays"]:
+                    result["period_plays"][track_id] = 0
+        if "first_played_dates" in result:
+            for track_id in track_ids:
+                if track_id not in result["first_played_dates"]:
+                    result["first_played_dates"][track_id] = None
+        if "last_played_dates" in result:
+            for track_id in track_ids:
+                if track_id not in result["last_played_dates"]:
+                    result["last_played_dates"][track_id] = None
 
         return result
 
