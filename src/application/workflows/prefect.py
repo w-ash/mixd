@@ -18,6 +18,7 @@ from prefect.logging import get_run_logger
 
 # Use Narada's standard logger for module-level logging; Prefect tasks use get_run_logger()
 from src.application.services.progress_manager import AsyncProgressManager
+from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
@@ -36,7 +37,39 @@ logger = get_logger(__name__)
 # One-time registry validation guard — runs before first workflow execution
 _registry_validated = False
 
-# --- Progress tracking integration ---
+# --- Timeout configuration ---
+
+_CATEGORY_TIMEOUTS: dict[str, int] = {
+    "source": WorkflowConstants.SOURCE_TIMEOUT_SECONDS,
+    "enricher": WorkflowConstants.ENRICHER_TIMEOUT_SECONDS,
+    "destination": WorkflowConstants.DESTINATION_TIMEOUT_SECONDS,
+}
+
+
+def _get_node_timeout(node_type: str) -> int:
+    """Return Prefect task timeout in seconds based on node category.
+
+    Source/enricher/destination nodes hit external APIs (5min budget).
+    Everything else (filter, sorter, selector, combiner) is a pure
+    in-memory transform (1min safety margin).
+    """
+    category = node_type.split(".", 1)[0]
+    return _CATEGORY_TIMEOUTS.get(category, WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS)
+
+
+# --- Failure hook ---
+
+
+def _on_node_failure(task: Any, task_run: Any, state: Any) -> None:
+    """Prefect on_failure state hook for structured failure logging."""
+    node_logger = get_logger(__name__)
+    node_logger.error(
+        "Prefect task failed",
+        task_name=getattr(task, "name", "unknown"),
+        task_run_name=getattr(task_run, "name", "unknown"),
+        state_name=getattr(state, "name", "unknown"),
+    )
+
 
 # --- Node execution ---
 
@@ -45,6 +78,7 @@ _registry_validated = False
     tags=["node"],
     cache_policy=NONE,  # Disable caching due to non-serializable context objects
     task_run_name="execute-{node_type}",
+    on_failure=[_on_node_failure],
     # No retries — source/enricher nodes retry via infrastructure tenacity policies;
     # transform nodes are pure and deterministic (retrying won't help)
 )
@@ -232,7 +266,10 @@ def build_flow(
                     start_ns = time.perf_counter_ns()
 
                     try:
-                        result = await execute_node(node_type, task_context, config)
+                        timeout = _get_node_timeout(node_type)
+                        result = await execute_node.with_options(
+                            timeout_seconds=timeout
+                        )(node_type, task_context, config)
                     except Exception as exc:
                         duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
                         await node_observer.on_node_failed(

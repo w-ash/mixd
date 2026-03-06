@@ -1,11 +1,14 @@
 """Tests for Prefect workflow execution.
 
-Tests that workflow result extraction, metrics aggregation work correctly.
+Tests that workflow result extraction, metrics aggregation, and node
+timeout configuration work correctly.
 Validation and topological sort tests have moved to test_validation.py.
 """
 
 import pytest
 
+from src.application.workflows.prefect import _get_node_timeout
+from src.config.constants import WorkflowConstants
 from src.domain.entities.track import TrackList
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
@@ -115,3 +118,27 @@ class TestAggregateWorkflowMetrics:
 
         result = _aggregate_workflow_metrics(task_results)
         assert result == {}
+
+
+class TestGetNodeTimeout:
+    """Tests for _get_node_timeout category-based timeout mapping."""
+
+    def test_source_timeout(self):
+        """Source nodes get the external API timeout."""
+        assert _get_node_timeout("source.playlist") == WorkflowConstants.SOURCE_TIMEOUT_SECONDS
+
+    def test_enricher_timeout(self):
+        """Enricher nodes get the external API timeout."""
+        assert _get_node_timeout("enricher.spotify") == WorkflowConstants.ENRICHER_TIMEOUT_SECONDS
+
+    def test_destination_timeout(self):
+        """Destination nodes get the external API timeout."""
+        assert _get_node_timeout("destination.create_playlist") == WorkflowConstants.DESTINATION_TIMEOUT_SECONDS
+
+    def test_filter_defaults_to_transform(self):
+        """Filter nodes get the transform (pure) timeout."""
+        assert _get_node_timeout("filter.by_metric") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+
+    def test_unknown_defaults_to_transform(self):
+        """Unknown categories default to transform timeout."""
+        assert _get_node_timeout("unknown.thing") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS

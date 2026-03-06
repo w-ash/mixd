@@ -79,6 +79,20 @@ class ConnectorConstants:
     DB_PSEUDO_CONNECTOR: Final = "db"
 
 
+class WorkflowConstants:
+    """Prefect task timeout budgets per node category.
+
+    Source/enricher/destination nodes call external APIs and need generous
+    timeouts. Transform nodes (filter, sort, select) are pure in-memory
+    operations — 60s is a safety margin, not an expected duration.
+    """
+
+    SOURCE_TIMEOUT_SECONDS: Final = 300  # 5min — external API fetches
+    ENRICHER_TIMEOUT_SECONDS: Final = 300  # 5min — batch API enrichment
+    TRANSFORM_TIMEOUT_SECONDS: Final = 60  # 1min — pure transforms (safety)
+    DESTINATION_TIMEOUT_SECONDS: Final = 300  # 5min — external API writes
+
+
 class LastFMConstants:
     """Last.fm API format specifications and processing constants."""
 
