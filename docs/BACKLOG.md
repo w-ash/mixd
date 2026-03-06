@@ -296,81 +296,57 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 ---
 
 ### v0.3.3: Dashboard & Stats (Vertical Slice 4)
-**Goal**: Landing page with aggregate statistics, connector health, and data quality signals.
+**Goal**: Landing page with aggregate statistics and per-connector breakdowns.
 
-**Context**: The dashboard ties everything together — it's the first thing users see and provides contextual navigation to Library, Playlists, and Imports. Requires new aggregation use cases.
+**Context**: The dashboard ties everything together — it's the first thing users see. Consolidated the originally-planned 4 use cases into a single `GetDashboardStatsUseCase` that collects all counts in one UoW transaction.
 
-#### Stats Use Cases Epic
+**Deferred to future versions**: Sync status overview (last synced timestamps), metadata freshness tracking, recent activity feed, connector health badges. These are lower-value without more connectors and will fit naturally into v0.4.0+ when workflow execution history exists.
 
-- [ ] **Track Statistics Use Case**
+#### Dashboard Stats Epic
+
+- [x] **Dashboard Stats Use Case**
     - Effort: S
-    - What: `GetTrackStatsUseCase` — aggregate statistics without loading all entities
-    - Why: Dashboard needs counts: "15,234 tracks total, 8,456 liked, 12,891 played"
+    - Status: ✅ Completed (2026-03-06)
+    - What: `GetDashboardStatsUseCase` — single use case collecting aggregate counts from 5 repositories
+    - Why: Dashboard needs counts: "1,234 tracks total, 456 liked, 56,789 plays, 12 playlists"
     - Dependencies: None
-    - Status: 🔜 Not Started
     - Notes:
-        - Output: Total tracks, tracks per connector, liked count, played count
-        - Optimized aggregation queries (COUNT, not fetching rows)
-        - Can include: duplicate detection counts, unmapped track counts
+        - Consolidated planned `GetTrackStatsUseCase` + `GetConnectorMappingStatsUseCase` into one use case
+        - Output: `DashboardStatsResult` (total_tracks, total_plays, total_playlists, total_liked, tracks_by_connector, liked_by_connector)
+        - New repository count methods: `count_all_tracks()`, `count_all_plays()`, `count_all_playlists()`, `count_total_liked()`, `count_tracks_by_connector()`, `count_liked_by_service()`
+        - Batch `GROUP BY` query for liked-by-service (avoids N+1 per connector)
+        - Protocol methods added to all 5 repository interfaces
 
-- [ ] **Connector Mapping Statistics Use Case**
-    - Effort: S
-    - What: `GetConnectorMappingStatsUseCase` — aggregate mapping statistics
-    - Why: Dashboard needs "5,234 tracks mapped to Spotify, 3,891 to Last.fm"
-    - Dependencies: None
-    - Status: 🔜 Not Started
+- [x] **Dashboard Stats Endpoint**
+    - Effort: XS
+    - Status: ✅ Completed (2026-03-06)
+    - What: `GET /api/v1/stats/dashboard` — single endpoint for all dashboard data
+    - Why: Dashboard page needs aggregate stats in one request
+    - Dependencies: Dashboard Stats Use Case
     - Notes:
-        - Output: Counts per connector, unmapped track counts, confidence distribution
-        - Queries track_mappings table with aggregations
+        - `DashboardStatsSchema` with `from_attributes=True` for zero-copy attrs→Pydantic conversion
+        - OpenAPI schema + Orval codegen for typed frontend hooks
 
-- [ ] **Sync Status Overview Use Case**
+- [x] **Dashboard Page**
     - Effort: M
-    - What: `GetSyncStatusUseCase` — comprehensive sync state for all connectors
-    - Why: Users need "Last synced with Spotify: 2 days ago, Last.fm: 5 hours ago"
-    - Dependencies: None (sync_checkpoints table has all data)
-    - Status: 🔜 Not Started
-    - Notes:
-        - Queries sync_checkpoints table
-        - Output: Per-connector, per-entity (likes/plays) last sync timestamps
-        - Domain: `SyncStatusDashboard` value object with formatted output
-
-- [ ] **Metadata Freshness Tracking Use Case**
-    - Effort: S
-    - What: `GetMetadataFreshnessUseCase` — when was track data last updated from connectors?
-    - Why: Show "Spotify metadata: updated 3 days ago" on dashboard
-    - Dependencies: None (connector_tracks.last_updated exists)
-    - Status: 🔜 Not Started
-    - Notes:
-        - Input: track_ids, connector_name
-        - Output: Per-track, per-connector last update timestamps
-        - Uses existing `get_metadata_timestamps()` repository method
-
-#### Dashboard API + Frontend Epic
-
-- [ ] **Dashboard Stats Endpoints**
-    - Effort: S
-    - What: `GET /stats/dashboard` (aggregate stats), `GET /connectors` (connector status)
-    - Why: Dashboard page needs a single endpoint for all summary data
-    - Dependencies: Stats use cases above
-    - Status: 🔜 Not Started
-
-- [ ] **Dashboard Page**
-    - Effort: M
-    - What: Landing page with stat cards, connector health badges, freshness alerts, and activity feed
+    - Status: ✅ Completed (2026-03-06)
+    - What: Landing page with stat cards and per-connector breakdowns
     - Why: First thing users see — ties the whole app together
-    - Dependencies: Dashboard Stats Endpoints
-    - Status: 🔜 Not Started
+    - Dependencies: Dashboard Stats Endpoint
     - Notes:
-        - Dashboard (`/`): stat cards (total tracks, playlists, plays), connector health badges, freshness alerts
-        - Recent activity feed (last imports, last workflow runs)
-        - Freshness alerts link to Import Center; connector issues link to Settings (informational, not action buttons)
+        - 4 stat cards: Total Tracks (hero), Total Plays, Liked Tracks, Playlists
+        - Per-connector breakdowns with `ConnectorIcon` on Tracks and Liked cards
+        - `DashboardSkeleton` loading state, `EmptyState` with Settings CTA for fresh databases
+        - Error state with typed error messages
+        - `formatCount()` utility for locale-aware thousand separators
+        - Staggered fade-up entrance animations
 
 ---
 
-### v0.4.0: Workflows & Connector Links (Vertical Slice 5)
-**Goal**: Workflow visualization (React Flow DAG), execution with SSE progress, and connector playlist linking. Completes the web UI feature set.
+### v0.4.0: Workflows (Vertical Slice 5)
+**Goal**: Bring Narada's differentiator to the web — workflow persistence, visualization, and execution.
 
-**Context**: Workflows are Narada's differentiator — declarative pipelines composing user-defined criteria. This milestone brings them to the web with read-only visualization and one-click execution. Connector playlist linking enables push/pull sync from the web.
+**Context**: Workflows are Narada's core value proposition — declarative pipelines composing user-defined criteria. Currently stored as JSON files and run via CLI. This milestone adds database persistence, a full CRUD API, React Flow DAG visualization, and one-click execution with SSE progress. The beefiest vertical slice: new database table, 6 use cases, Alembic migration, React Flow integration.
 
 #### Workflow Persistence Epic
 
@@ -401,6 +377,13 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Workflow Editor (`/workflows/:id/edit`): JSON editor with validation (visual drag-and-drop builder deferred to v0.7.0)
         - React Flow integration: custom node components for source/enricher/transform/destination, edge styling
 
+---
+
+### v0.4.1: Connector Playlist Linking (Vertical Slice 6)
+**Goal**: Link canonical playlists to external service playlists and sync changes from the web.
+
+**Context**: Use cases already exist (`CreateConnectorPlaylistUseCase`, `UpdateConnectorPlaylistUseCase`). This milestone adds the API routes, frontend UI, and bidirectional sync controls. Completes the web UI feature set.
+
 #### Playlist Connector Links Epic
 
 - [ ] **Playlist Links Management**
@@ -417,7 +400,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.4.1: CI/CD & Quality Hardening
+### v0.4.2: CI/CD & Quality Hardening
 **Goal**: Pause on features to harden the stack. CI pipeline, test suites, type audit, accessibility.
 
 **Context**: The web UI has 6+ working pages (Dashboard, Library, Playlists, Imports, Workflows, Settings). Before adding more features, establish regression protection and quality gates.

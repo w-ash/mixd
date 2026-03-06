@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, cast, override
 
 from attrs import define
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -222,6 +222,16 @@ class TrackConnectorRepository:
             "raw_metadata": raw_metadata or {},
             "last_updated": datetime.now(UTC),
         }
+
+    @db_operation("count_tracks_by_connector")
+    async def count_tracks_by_connector(self) -> dict[str, int]:
+        """Count distinct tracks per connector name."""
+        stmt = select(
+            DBTrackMapping.connector_name,
+            func.count(func.distinct(DBTrackMapping.track_id)),
+        ).group_by(DBTrackMapping.connector_name)
+        result = await self.session.execute(stmt)
+        return {str(row[0]): int(row[1]) for row in result.fetchall()}
 
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(

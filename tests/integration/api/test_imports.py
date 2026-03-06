@@ -46,7 +46,9 @@ def _parse_sse_events(raw: str) -> list[dict[str, str]]:
 class TestImportEndpoints:
     """Tests that import endpoints return operation_id responses."""
 
-    async def test_import_lastfm_history_returns_operation_id(self, client: httpx.AsyncClient):
+    async def test_import_lastfm_history_returns_operation_id(
+        self, client: httpx.AsyncClient
+    ):
         response = await client.post(
             "/api/v1/imports/lastfm/history",
             json={"mode": "recent"},
@@ -77,7 +79,9 @@ class TestImportEndpoints:
 
         assert response.status_code == 422  # Validation error
 
-    async def test_import_spotify_likes_returns_operation_id(self, client: httpx.AsyncClient):
+    async def test_import_spotify_likes_returns_operation_id(
+        self, client: httpx.AsyncClient
+    ):
         response = await client.post(
             "/api/v1/imports/spotify/likes",
             json={},
@@ -96,7 +100,9 @@ class TestImportEndpoints:
         assert response.status_code == 200
         assert "operation_id" in response.json()
 
-    async def test_export_lastfm_likes_returns_operation_id(self, client: httpx.AsyncClient):
+    async def test_export_lastfm_likes_returns_operation_id(
+        self, client: httpx.AsyncClient
+    ):
         response = await client.post(
             "/api/v1/imports/lastfm/likes",
             json={},
@@ -125,7 +131,9 @@ class TestCheckpointEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
-        assert len(data) == 4  # spotify/likes, lastfm/likes, lastfm/plays, spotify/plays
+        assert (
+            len(data) == 4
+        )  # spotify/likes, lastfm/likes, lastfm/plays, spotify/plays
 
     async def test_get_checkpoints_schema(self, client: httpx.AsyncClient):
         response = await client.get("/api/v1/imports/checkpoints")
@@ -137,7 +145,9 @@ class TestCheckpointEndpoints:
             assert "has_previous_sync" in checkpoint
             assert checkpoint["entity_type"] in ("likes", "plays")
 
-    async def test_checkpoints_no_previous_sync_for_fresh_db(self, client: httpx.AsyncClient):
+    async def test_checkpoints_no_previous_sync_for_fresh_db(
+        self, client: httpx.AsyncClient
+    ):
         response = await client.get("/api/v1/imports/checkpoints")
 
         data = response.json()
@@ -157,10 +167,10 @@ class TestOperationEndpoints:
         assert "operation_ids" in data
         assert isinstance(data["operation_ids"], list)
 
-    async def test_unknown_operation_progress_returns_404(self, client: httpx.AsyncClient):
-        response = await client.get(
-            "/api/v1/operations/nonexistent-id/progress"
-        )
+    async def test_unknown_operation_progress_returns_404(
+        self, client: httpx.AsyncClient
+    ):
+        response = await client.get("/api/v1/operations/nonexistent-id/progress")
 
         assert response.status_code == 404
 
@@ -186,9 +196,7 @@ class TestSSEProgressStreaming:
         await queue.put(SSE_SENTINEL)
 
         try:
-            response = await client.get(
-                f"/api/v1/operations/{operation_id}/progress"
-            )
+            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
 
             assert response.status_code == 200
             assert "text/event-stream" in response.headers["content-type"]
@@ -229,9 +237,7 @@ class TestSSEProgressStreaming:
         await queue.put(SSE_SENTINEL)
 
         try:
-            response = await client.get(
-                f"/api/v1/operations/{operation_id}/progress"
-            )
+            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
 
             events = _parse_sse_events(response.text)
             typed_events = [e for e in events if "event" in e]
@@ -311,9 +317,7 @@ class TestSSEProgressStreaming:
         await queue.put(SSE_SENTINEL)
 
         try:
-            response = await client.get(
-                f"/api/v1/operations/{operation_id}/progress"
-            )
+            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
 
             events = _parse_sse_events(response.text)
             progress_events = [e for e in events if e.get("event") == "progress"]
@@ -336,9 +340,7 @@ class TestSSEProgressStreaming:
         await queue.put(SSE_SENTINEL)
 
         try:
-            response = await client.get(
-                f"/api/v1/operations/{operation_id}/progress"
-            )
+            response = await client.get(f"/api/v1/operations/{operation_id}/progress")
 
             assert response.status_code == 200
             events = _parse_sse_events(response.text)

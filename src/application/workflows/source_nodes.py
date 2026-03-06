@@ -123,8 +123,8 @@ async def playlist_source(
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
         async def _sync_and_upsert(uow: UnitOfWorkProtocol):
-            connector_playlist: ConnectorPlaylist = (
-                await sync_connector_playlist(connector, playlist_id, uow)
+            connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
+                connector, playlist_id, uow
             )
             if not connector_playlist.items:
                 return None

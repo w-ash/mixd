@@ -15,9 +15,7 @@ import httpx
 class TestGetConnectors:
     """GET /api/v1/connectors returns connector status array."""
 
-    async def test_returns_all_four_connectors(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_returns_all_four_connectors(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
         assert response.status_code == 200
@@ -288,9 +286,7 @@ class TestAppleMusicStatus:
 class TestLastfmStatus:
     """Last.fm connector status from settings."""
 
-    async def test_status_reflects_settings(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_status_reflects_settings(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
         lastfm = next(c for c in response.json() if c["name"] == "lastfm")

@@ -43,10 +43,13 @@ async def find_test_playlists(session, load_tracks: bool = False) -> list[DBPlay
     child rows. If SQLAlchemy loads them into the session, it tries to set
     playlist_id=NULL on flush — violating the NOT NULL constraint.
     """
-    stmt = select(DBPlaylist).where(
-        DBPlaylist.name.like("TEST_%")
-        | DBPlaylist.name.in_(TEST_PLAYLIST_NAMES)
-    ).order_by(DBPlaylist.created_at)
+    stmt = (
+        select(DBPlaylist)
+        .where(
+            DBPlaylist.name.like("TEST_%") | DBPlaylist.name.in_(TEST_PLAYLIST_NAMES)
+        )
+        .order_by(DBPlaylist.created_at)
+    )
 
     if load_tracks:
         stmt = stmt.options(selectinload(DBPlaylist.tracks))
@@ -129,7 +132,9 @@ async def cleanup(dry_run: bool = False, force: bool = False) -> None:
         print("  Test Playlist Cleanup Preview")
         print(f"{'=' * 60}")
         print(f"  Total playlists in database: {total_playlists}")
-        print(f"  Test playlists to delete:    {len(playlists)} ({len(playlists) * 100 // total_playlists}%)")
+        print(
+            f"  Test playlists to delete:    {len(playlists)} ({len(playlists) * 100 // total_playlists}%)"
+        )
         print(f"  Related playlist_tracks:     {pt_count}")
         print(f"  Related playlist_mappings:   {mapping_count}")
         print("\n  Breakdown by name:")
@@ -163,7 +168,9 @@ async def cleanup(dry_run: bool = False, force: bool = False) -> None:
         for playlist in playlists_for_delete:
             await session.delete(playlist)
         await session.commit()
-        print(f"  Deleted {len(playlists)} playlists (+ {pt_count} playlist_tracks, {mapping_count} mappings via CASCADE)")
+        print(
+            f"  Deleted {len(playlists)} playlists (+ {pt_count} playlist_tracks, {mapping_count} mappings via CASCADE)"
+        )
 
         # Phase 4: Find and delete orphaned test tracks
         orphans = await find_orphan_tracks(session, set())

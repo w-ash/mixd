@@ -5,8 +5,5 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.3.3
  */
-import type { ValidationError } from './validationError';
 
-export interface HTTPValidationError {
-  detail?: ValidationError[];
-}
+export type DashboardStatsSchemaTracksByConnector = {[key: string]: number};

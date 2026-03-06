@@ -106,7 +106,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         # Add internal ID first
         if db_model.id:
-            connector_track_identifiers[ConnectorConstants.DB_PSEUDO_CONNECTOR] = str(db_model.id)
+            connector_track_identifiers[ConnectorConstants.DB_PSEUDO_CONNECTOR] = str(
+                db_model.id
+            )
 
         # Add direct IDs from the track model
         if db_model.spotify_id:

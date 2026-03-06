@@ -27,7 +27,11 @@ router = APIRouter(prefix="/tracks", tags=["tracks"])
 
 @router.get("")
 async def list_tracks(
-    q: str | None = Query(default=None, min_length=BusinessLimits.MIN_SEARCH_LENGTH, description="Search title/artist/album"),
+    q: str | None = Query(
+        default=None,
+        min_length=BusinessLimits.MIN_SEARCH_LENGTH,
+        description="Search title/artist/album",
+    ),
     liked: bool | None = Query(default=None, description="Filter by liked status"),
     connector: str | None = Query(default=None, description="Filter by connector"),
     sort: str = Query(default="title_asc", description="Sort field and direction"),
@@ -36,14 +40,21 @@ async def list_tracks(
 ) -> PaginatedResponse[LibraryTrackSchema]:
     """List tracks with optional search, filters, sorting, and pagination."""
     command = ListTracksCommand(
-        query=q, liked=liked, connector=connector,
-        sort_by=sort, limit=limit, offset=offset,
+        query=q,
+        liked=liked,
+        connector=connector,
+        sort_by=sort,
+        limit=limit,
+        offset=offset,
     )
     result = await execute_use_case(
         lambda uow: ListTracksUseCase().execute(command, uow)
     )
     return PaginatedResponse(
-        data=[to_library_track(t, liked_track_ids=result.liked_track_ids) for t in result.tracks],
+        data=[
+            to_library_track(t, liked_track_ids=result.liked_track_ids)
+            for t in result.tracks
+        ],
         total=result.total,
         limit=result.limit,
         offset=result.offset,
@@ -68,7 +79,9 @@ async def get_track_playlists(track_id: int) -> list[PlaylistBriefSchema]:
     return [playlist_to_brief_schema(p) for p in playlists]
 
 
-async def _get_playlists_for_track(uow: UnitOfWorkProtocol, track_id: int) -> list[Playlist]:
+async def _get_playlists_for_track(
+    uow: UnitOfWorkProtocol, track_id: int
+) -> list[Playlist]:
     """Fetch playlists for a track with existence check."""
     async with uow:
         # Verify track exists (raises NotFoundError if not)

@@ -1,5 +1,7 @@
 """Narada source code root package."""
 
-from importlib.metadata import version
+import tomllib
+from pathlib import Path
 
-__version__ = version("narada")
+_pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+__version__: str = tomllib.loads(_pyproject.read_text())["tool"]["poetry"]["version"]

@@ -98,7 +98,11 @@ class TrackDetailSchema(BaseModel):
 
 def _get_connector_names(track: Track) -> list[str]:
     """Extract connector names from track identifiers, excluding internal 'db'."""
-    return [c for c in track.connector_track_identifiers if c != ConnectorConstants.DB_PSEUDO_CONNECTOR]
+    return [
+        c
+        for c in track.connector_track_identifiers
+        if c != ConnectorConstants.DB_PSEUDO_CONNECTOR
+    ]
 
 
 def to_library_track(track: Track, *, liked_track_ids: set[int]) -> LibraryTrackSchema:

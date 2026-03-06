@@ -246,7 +246,11 @@ class TestComprehensiveErrorClassification:
             ),
             (
                 "get_next_page",
-                (SpotifyPaginatedPlaylistItems(next="https://api.spotify.com/v1/test"),),
+                (
+                    SpotifyPaginatedPlaylistItems(
+                        next="https://api.spotify.com/v1/test"
+                    ),
+                ),
                 "_get_next_page_impl",
             ),
         ],

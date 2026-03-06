@@ -95,7 +95,11 @@ class TestValidateWorkflowDef:
         with pytest.raises(ValueError, match=r"must be str.*got int"):
             validate_workflow_def({
                 "tasks": [
-                    {"id": "src_1", "type": "source.playlist", "config": {"playlist_id": 123}},
+                    {
+                        "id": "src_1",
+                        "type": "source.playlist",
+                        "config": {"playlist_id": 123},
+                    },
                 ]
             })
 
@@ -106,7 +110,11 @@ class TestValidateWorkflowDef:
         with pytest.raises(ValueError, match="must not be empty"):
             validate_workflow_def({
                 "tasks": [
-                    {"id": "src_1", "type": "source.playlist", "config": {"playlist_id": "  "}},
+                    {
+                        "id": "src_1",
+                        "type": "source.playlist",
+                        "config": {"playlist_id": "  "},
+                    },
                 ]
             })
 
@@ -115,9 +123,13 @@ class TestValidateWorkflowDef:
         from src.application.workflows.prefect import _validate_node_config
 
         # int should pass
-        _validate_node_config("selector.percentage", {"percentage": 50}, task_id="sel_1")
+        _validate_node_config(
+            "selector.percentage", {"percentage": 50}, task_id="sel_1"
+        )
         # float should pass
-        _validate_node_config("selector.percentage", {"percentage": 33.3}, task_id="sel_1")
+        _validate_node_config(
+            "selector.percentage", {"percentage": 33.3}, task_id="sel_1"
+        )
 
     def test_string_as_number_config_raises(self):
         """String value for numeric config key raises ValueError."""

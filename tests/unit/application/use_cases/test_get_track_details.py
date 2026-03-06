@@ -83,7 +83,11 @@ class TestGetTrackDetailsHappyPath:
     async def test_connector_mappings_exclude_db(self, mock_uow) -> None:
         track = make_track(
             id=1,
-            connector_track_identifiers={"spotify": "sp_123", "lastfm": "lf_456", "db": "1"},
+            connector_track_identifiers={
+                "spotify": "sp_123",
+                "lastfm": "lf_456",
+                "db": "1",
+            },
         )
         mock_uow.get_track_repository().get_by_id.return_value = track
         mock_uow.get_like_repository().get_track_likes.return_value = []

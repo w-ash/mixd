@@ -1,8 +1,8 @@
 
 # Project Narada Roadmap
 
-**Current Development Version**: 0.3.2
-**Current Initiative**: Track Library & Search
+**Current Development Version**: 0.3.3
+**Current Initiative**: Dashboard & Stats
 
 Strategic overview of Project Narada's development direction. Explains the why at a product level for future features, plus key architectural decisions.
 
@@ -87,9 +87,10 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.3.0** | Web UI foundation + playlists + settings | ✅ Completed |
 | **v0.3.1** | Imports + real-time progress | ✅ Completed |
 | **v0.3.2** | Track library + search | ✅ Completed |
-| **v0.3.3** | Dashboard + stats | 🔜 Not Started |
-| **v0.4.0** | Workflows + connector links | 🔜 Not Started |
-| **v0.4.1** | CI/CD + quality hardening | 🔜 Not Started |
+| **v0.3.3** | Dashboard + stats | ✅ Completed |
+| **v0.4.0** | Workflows (persistence, visualization, execution) | 🔜 Not Started |
+| **v0.4.1** | Connector playlist linking | 🔜 Not Started |
+| **v0.4.2** | CI/CD + quality hardening | 🔜 Not Started |
 | **v0.5.0** | PostgreSQL + deployment + OAuth | 🔜 Not Started |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started |
 | **v0.7.0** | Interactive workflow editor | 🔜 Not Started |
@@ -108,13 +109,16 @@ Make the web UI operational: trigger Spotify likes import, Last.fm history impor
 ### v0.3.2: Track Library & Search ✅
 Library page with paginated table (50 tracks/page), text search (title/artist/album via ilike), filters (liked status, connector), and column sorting (title, duration, added date). Track Detail page shows full metadata, connector mappings, per-service like status, play summary, and playlist memberships. Merged `ListTracksUseCase` handles both browsing and search. `GetTrackDetailsUseCase` assembles data from 4 repositories in a single UoW scope. Server-side pagination for 10-50k track collections.
 
-### v0.3.3: Dashboard & Stats
-Landing page with aggregate statistics, connector health, and data quality signals. Implements data visibility use cases (`GetTrackStats`, `GetConnectorMappingStats`, `GetMetadataFreshness`).
+### v0.3.3: Dashboard & Stats ✅
+Dashboard landing page with aggregate stat cards (total tracks, plays, playlists, liked) and per-connector breakdowns. Single `GetDashboardStatsUseCase` collects counts from 5 repositories via batch aggregation queries. `GET /api/v1/stats/dashboard` endpoint. React dashboard with skeleton loading, empty state with Settings CTA, error handling, and `formatCount` locale-aware formatting. Version now reads directly from `pyproject.toml` via `tomllib` (no stale metadata).
 
-### v0.4.0: Workflows & Connector Links
-Workflow visualization (React Flow DAG), execution with SSE progress, and connector playlist linking. Completes the web UI feature set. Workflow CRUD requires a new `workflows` table for persistence (currently JSON files).
+### v0.4.0: Workflows
+Narada's differentiator brought to the web. Database persistence for workflow definitions (new `workflows` table, Alembic migration), CRUD use cases, React Flow DAG visualization, JSON editor with validation, and one-click execution with SSE progress streaming. Workflow CRUD is the beefiest vertical slice — new table, 6 use cases, React Flow integration.
 
-### v0.4.1: CI/CD & Quality Hardening
+### v0.4.1: Connector Playlist Linking
+Link canonical playlists to Spotify/Apple Music playlists and sync changes from the web. Push/pull sync backed by existing `CreateConnectorPlaylistUseCase` and `UpdateConnectorPlaylistUseCase`. Completes the web UI feature set.
+
+### v0.4.2: CI/CD & Quality Hardening
 Pause on features to harden the stack. GitHub Actions (pytest, ruff, basedpyright), E2E tests (Playwright), type safety audit, data integrity monitoring, accessibility audit (WCAG 2.2 AA), shell completion for CLI.
 
 ### v0.5.0: PostgreSQL, Deployment & OAuth

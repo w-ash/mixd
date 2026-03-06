@@ -213,13 +213,16 @@ class GetPlayedTracksUseCase:
         # Cast needed: dict invariance means dict[int, int] ≠ dict[int, MetricValue]
         tracklist = TrackList(
             tracks=tracks,
-            metadata=cast(TrackListMetadata, {
-                "operation": "get_played_tracks",
-                "metrics": {
-                    "total_plays": play_metrics.get("total_plays", {}),
-                    "last_played_dates": play_metrics.get("last_played_dates", {}),
+            metadata=cast(
+                TrackListMetadata,
+                {
+                    "operation": "get_played_tracks",
+                    "metrics": {
+                        "total_plays": play_metrics.get("total_plays", {}),
+                        "last_played_dates": play_metrics.get("last_played_dates", {}),
+                    },
                 },
-            }),
+            ),
         )
 
         return tracklist

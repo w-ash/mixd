@@ -7,7 +7,9 @@ Each test gets a fresh database via the client fixture.
 import httpx
 
 
-async def _create_track(client: httpx.AsyncClient, title: str, artist: str = "Artist") -> int:
+async def _create_track(
+    client: httpx.AsyncClient, title: str, artist: str = "Artist"
+) -> int:
     """Create a track via playlist creation (tracks need to exist in DB).
 
     Since there's no direct track creation API, we insert tracks via
@@ -20,9 +22,7 @@ async def _create_track(client: httpx.AsyncClient, title: str, artist: str = "Ar
     from src.domain.entities.track import Artist, Track
 
     track = Track(title=title, artists=[Artist(name=artist)])
-    result = await execute_use_case(
-        lambda uow: _save_track(uow, track)
-    )
+    result = await execute_use_case(lambda uow: _save_track(uow, track))
     return result
 
 
@@ -89,7 +89,9 @@ class TestListTracksEndpoint:
         body = response.json()
         assert body["total"] == 1
 
-    async def test_search_min_length_validation(self, client: httpx.AsyncClient) -> None:
+    async def test_search_min_length_validation(
+        self, client: httpx.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/tracks?q=a")
 
         assert response.status_code == 422
@@ -144,7 +146,9 @@ class TestGetTrackDetailEndpoint:
         assert "playlists" in body
         assert body["play_summary"]["total_plays"] == 0
 
-    async def test_nonexistent_track_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_nonexistent_track_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/tracks/99999")
 
         assert response.status_code == 404
@@ -161,7 +165,9 @@ class TestGetTrackPlaylistsEndpoint:
         assert response.status_code == 200
         assert response.json() == []
 
-    async def test_nonexistent_track_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_nonexistent_track_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/tracks/99999/playlists")
 
         assert response.status_code == 404

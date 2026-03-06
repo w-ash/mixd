@@ -105,9 +105,7 @@ class TestSpotifyRelinkingValidation:
             assert old_track_data.id == "current_id_456", (
                 "Should return current track ID"
             )
-            assert old_track_data.name == "Saturday", (
-                "Should have correct track name"
-            )
+            assert old_track_data.name == "Saturday", "Should have correct track name"
             assert old_track_data.linked_from is not None
             assert old_track_data.linked_from.id == "old_id_123", (
                 "Should preserve original ID"

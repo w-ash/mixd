@@ -39,7 +39,9 @@ async def _insert_track(
     return db_track.id
 
 
-async def _like_track(session: AsyncSession, track_id: int, service: str = "spotify") -> None:
+async def _like_track(
+    session: AsyncSession, track_id: int, service: str = "spotify"
+) -> None:
     """Create a liked status for a track."""
     like = DBTrackLike(
         track_id=track_id,
@@ -254,7 +256,9 @@ class TestListTracksSorting:
 class TestListTracksPaginationBoundary:
     """Pagination edge cases."""
 
-    async def test_offset_beyond_total_returns_empty(self, db_session: AsyncSession) -> None:
+    async def test_offset_beyond_total_returns_empty(
+        self, db_session: AsyncSession
+    ) -> None:
         """Requesting offset > total should return empty list, not error."""
         await _insert_track(db_session, "Only Track")
 
@@ -269,7 +273,9 @@ class TestListTracksPaginationBoundary:
 class TestListTracksLikedIds:
     """Verify liked_track_ids (third element) from list_tracks."""
 
-    async def test_liked_ids_returned_for_liked_tracks(self, db_session: AsyncSession) -> None:
+    async def test_liked_ids_returned_for_liked_tracks(
+        self, db_session: AsyncSession
+    ) -> None:
         """liked_track_ids should contain IDs of tracks with TrackLike records."""
         id1 = await _insert_track(db_session, "Liked Song")
         id2 = await _insert_track(db_session, "Also Liked")
@@ -285,7 +291,9 @@ class TestListTracksLikedIds:
         assert id2 in liked_ids
         assert len(liked_ids) == 2
 
-    async def test_empty_liked_ids_when_no_likes(self, db_session: AsyncSession) -> None:
+    async def test_empty_liked_ids_when_no_likes(
+        self, db_session: AsyncSession
+    ) -> None:
         await _insert_track(db_session, "Unloved Track")
 
         uow = get_unit_of_work(db_session)

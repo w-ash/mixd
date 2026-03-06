@@ -29,6 +29,10 @@ from src.domain.matching.types import MatchResultsById, RawProviderMatch
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
 
+    def count_all_tracks(self) -> Awaitable[int]:
+        """Count all tracks in the database."""
+        ...
+
     def save_track(self, track: Track) -> Awaitable[Track]:
         """Save track."""
         ...
@@ -128,6 +132,10 @@ class TrackRepositoryProtocol(Protocol):
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
 
+    def count_all_playlists(self) -> Awaitable[int]:
+        """Count all playlists in the database."""
+        ...
+
     def get_playlist_by_id(self, playlist_id: int) -> Awaitable[Playlist]:
         """Get playlist by ID."""
         ...
@@ -184,6 +192,14 @@ class PlaylistRepositoryProtocol(Protocol):
 
 class LikeRepositoryProtocol(Protocol):
     """Repository interface for like persistence operations."""
+
+    def count_total_liked(self) -> Awaitable[int]:
+        """Count tracks liked on any service (DISTINCT track_id where is_liked=true)."""
+        ...
+
+    def count_liked_by_service(self) -> Awaitable[dict[str, int]]:
+        """Count liked tracks grouped by service (single query)."""
+        ...
 
     def get_track_likes(
         self, track_id: int, services: list[str] | None = None
@@ -290,6 +306,10 @@ class CheckpointRepositoryProtocol(Protocol):
 
 class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
+
+    def count_tracks_by_connector(self) -> Awaitable[dict[str, int]]:
+        """Count distinct tracks per connector (excluding internal pseudo-connectors)."""
+        ...
 
     def find_track_by_connector(
         self, connector: str, connector_id: str
@@ -544,6 +564,10 @@ class PlayAggregationResult(TypedDict, total=False):
 
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
+
+    def count_all_plays(self) -> Awaitable[int]:
+        """Count all play records in the database."""
+        ...
 
     def bulk_insert_plays(self, plays: list[TrackPlay]) -> Awaitable[tuple[int, int]]:
         """Bulk insert plays.

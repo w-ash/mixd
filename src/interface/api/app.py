@@ -80,9 +80,11 @@ def create_app() -> FastAPI:
     from src.interface.api.routes.imports import router as imports_router
     from src.interface.api.routes.operations import router as operations_router
     from src.interface.api.routes.playlists import router as playlists_router
+    from src.interface.api.routes.stats import router as stats_router
     from src.interface.api.routes.tracks import router as tracks_router
 
     app.include_router(health_router, prefix="/api/v1")
+    app.include_router(stats_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")
     app.include_router(tracks_router, prefix="/api/v1")
     app.include_router(connectors_router, prefix="/api/v1")

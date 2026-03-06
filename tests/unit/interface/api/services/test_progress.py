@@ -155,9 +155,7 @@ class TestSSEProgressSubscriber:
         await subscriber.on_operation_started(operation)
         queue.get_nowait()  # Drain the started event
 
-        event = create_progress_event(
-            "op-1", current=50, total=100, message="Halfway"
-        )
+        event = create_progress_event("op-1", current=50, total=100, message="Halfway")
         await subscriber.on_progress_event(event)
 
         sse_event = queue.get_nowait()

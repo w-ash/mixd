@@ -48,9 +48,7 @@ class TestCreatePlaylist:
     """POST /api/v1/playlists creates a new playlist."""
 
     async def test_create_with_name_only(self, client: httpx.AsyncClient) -> None:
-        response = await client.post(
-            "/api/v1/playlists", json={"name": "My Playlist"}
-        )
+        response = await client.post("/api/v1/playlists", json={"name": "My Playlist"})
 
         assert response.status_code == 201
         body = response.json()
@@ -92,9 +90,7 @@ class TestGetPlaylist:
     """GET /api/v1/playlists/{id} returns playlist detail."""
 
     async def test_get_existing_playlist(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/playlists", json={"name": "Fetch Me"}
-        )
+        create_resp = await client.post("/api/v1/playlists", json={"name": "Fetch Me"})
         playlist_id = create_resp.json()["id"]
 
         response = await client.get(f"/api/v1/playlists/{playlist_id}")
@@ -105,9 +101,7 @@ class TestGetPlaylist:
         assert body["id"] == playlist_id
         assert "entries" in body
 
-    async def test_get_nonexistent_returns_404(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_get_nonexistent_returns_404(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/playlists/99999")
 
         assert response.status_code == 404
@@ -119,9 +113,7 @@ class TestUpdatePlaylist:
     """PATCH /api/v1/playlists/{id} updates playlist metadata."""
 
     async def test_update_name(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/playlists", json={"name": "Original"}
-        )
+        create_resp = await client.post("/api/v1/playlists", json={"name": "Original"})
         playlist_id = create_resp.json()["id"]
 
         response = await client.patch(
@@ -132,9 +124,7 @@ class TestUpdatePlaylist:
         assert response.json()["name"] == "Updated"
 
     async def test_update_description(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/playlists", json={"name": "Test"}
-        )
+        create_resp = await client.post("/api/v1/playlists", json={"name": "Test"})
         playlist_id = create_resp.json()["id"]
 
         response = await client.patch(
@@ -148,9 +138,7 @@ class TestUpdatePlaylist:
     async def test_update_nonexistent_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.patch(
-            "/api/v1/playlists/99999", json={"name": "Nope"}
-        )
+        response = await client.patch("/api/v1/playlists/99999", json={"name": "Nope"})
 
         assert response.status_code == 404
 
@@ -159,9 +147,7 @@ class TestDeletePlaylist:
     """DELETE /api/v1/playlists/{id} removes a playlist."""
 
     async def test_delete_existing(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/playlists", json={"name": "Delete Me"}
-        )
+        create_resp = await client.post("/api/v1/playlists", json={"name": "Delete Me"})
         playlist_id = create_resp.json()["id"]
 
         response = await client.delete(f"/api/v1/playlists/{playlist_id}")
@@ -184,9 +170,7 @@ class TestGetPlaylistTracks:
     """GET /api/v1/playlists/{id}/tracks returns paginated entries."""
 
     async def test_empty_playlist_tracks(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/playlists", json={"name": "Empty"}
-        )
+        create_resp = await client.post("/api/v1/playlists", json={"name": "Empty"})
         playlist_id = create_resp.json()["id"]
 
         response = await client.get(f"/api/v1/playlists/{playlist_id}/tracks")

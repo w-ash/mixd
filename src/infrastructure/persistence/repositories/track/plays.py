@@ -94,6 +94,13 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             mapper=TrackPlayMapper(),
         )
 
+    @db_operation("count_all_plays")
+    async def count_all_plays(self) -> int:
+        """Count all play records in the database."""
+        stmt = self.count()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
     @db_operation("bulk_insert_plays")
     async def bulk_insert_plays(self, plays: list[TrackPlay]) -> tuple[int, int]:
         """Bulk insert track plays efficiently with deduplication.

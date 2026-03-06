@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.2
+ * OpenAPI spec version: 0.3.3
  */
 import type { ValidationErrorCtx } from './validationErrorCtx';
 

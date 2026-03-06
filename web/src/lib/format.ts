@@ -50,6 +50,11 @@ export function decodeHtmlEntities(text: string): string {
   return text.replace(ENTITY_RE, (match) => HTML_ENTITIES[match] ?? match);
 }
 
+/** Format a number with locale-aware thousand separators (e.g. 1,234). */
+export function formatCount(n: number): string {
+  return n.toLocaleString();
+}
+
 /** Format milliseconds as "m:ss". Returns "\u2014" for nullish input. */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "\u2014";

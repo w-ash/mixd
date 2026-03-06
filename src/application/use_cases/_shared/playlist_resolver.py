@@ -42,7 +42,7 @@ async def resolve_playlist(
 
     try:
         return await playlist_repo.get_playlist_by_id(int(playlist_id))
-    except (ValueError, NotFoundError):
+    except ValueError, NotFoundError:
         # ValueError: not an integer — treat as external connector ID
         # NotFoundError: integer ID but no matching playlist
         playlist = await playlist_repo.get_playlist_by_connector(

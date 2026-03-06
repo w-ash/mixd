@@ -49,6 +49,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
 
+    @db_operation("count_all_tracks")
+    async def count_all_tracks(self) -> int:
+        """Count all tracks in the database."""
+        stmt = self.count()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
     @db_operation("find_tracks_by_ids")
     async def find_tracks_by_ids(self, track_ids: list[int]) -> dict[int, Track]:
         """Find multiple tracks by their internal IDs in a single batch operation.
@@ -173,11 +180,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if query:
             pattern = f"%{query}%"
             # TODO: search against denormalized artists_text column for index-friendly search
-            conditions.append(or_(
-                DBTrack.title.ilike(pattern),
-                DBTrack.album.ilike(pattern),
-                cast(DBTrack.artists, String).ilike(pattern),
-            ))
+            conditions.append(
+                or_(
+                    DBTrack.title.ilike(pattern),
+                    DBTrack.album.ilike(pattern),
+                    cast(DBTrack.artists, String).ilike(pattern),
+                )
+            )
 
         if liked is not None:
             liked_subq = (
@@ -237,7 +246,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if track_ids:
             liked_stmt = (
                 select(DBTrackLike.track_id)
-                .where(DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked == True)  # noqa: E712
+                .where(
+                    DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked == True
+                )  # noqa: E712
                 .distinct()
             )
             liked_result = await self.session.execute(liked_stmt)

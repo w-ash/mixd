@@ -63,6 +63,17 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self.connector_repository = TrackConnectorRepository(session)
 
     # -------------------------------------------------------------------------
+    # COUNT METHODS
+    # -------------------------------------------------------------------------
+
+    @db_operation("count_all_playlists")
+    async def count_all_playlists(self) -> int:
+        """Count all playlists in the database."""
+        stmt = self.count()
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
+    # -------------------------------------------------------------------------
     # ENHANCED QUERY METHODS
     # -------------------------------------------------------------------------
 
