@@ -1,13 +1,19 @@
 """Tests for Prefect workflow execution.
 
-Tests that workflow result extraction, metrics aggregation, and node
-timeout configuration work correctly.
+Tests that workflow result extraction, metrics aggregation, node timeout
+configuration, and execution guard work correctly.
 Validation and topological sort tests have moved to test_validation.py.
 """
 
 import pytest
 
-from src.application.workflows.prefect import _get_node_timeout
+from src.application.workflows.prefect import (
+    WorkflowAlreadyRunningError,
+    _get_node_timeout,
+    _running_lock,
+    _running_workflows,
+    is_workflow_running,
+)
 from src.config.constants import WorkflowConstants
 from src.domain.entities.track import TrackList
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
@@ -142,3 +148,30 @@ class TestGetNodeTimeout:
     def test_unknown_defaults_to_transform(self):
         """Unknown categories default to transform timeout."""
         assert _get_node_timeout("unknown.thing") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+
+
+class TestExecutionGuard:
+    """Tests for concurrent execution guard."""
+
+    @pytest.fixture(autouse=True)
+    async def _clean_guard(self):
+        """Ensure guard state is clean before and after each test."""
+        _running_workflows.clear()
+        yield
+        _running_workflows.clear()
+
+    async def test_is_workflow_running_false_when_idle(self):
+        """No workflows running returns False."""
+        assert await is_workflow_running("wf-1") is False
+
+    async def test_is_workflow_running_true_when_active(self):
+        """Manually marked workflow shows as running."""
+        async with _running_lock:
+            _running_workflows.add("wf-1")
+        assert await is_workflow_running("wf-1") is True
+
+    async def test_already_running_error_has_workflow_id(self):
+        """WorkflowAlreadyRunningError carries the workflow ID."""
+        err = WorkflowAlreadyRunningError("wf-42")
+        assert err.workflow_id == "wf-42"
+        assert "wf-42" in str(err)

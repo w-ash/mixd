@@ -8,6 +8,7 @@ recovery, and database session management for long-running playlist operations.
 
 # pyright: reportExplicitAny=false, reportAny=false
 
+import asyncio
 import datetime
 import time
 from typing import Any
@@ -36,6 +37,25 @@ logger = get_logger(__name__)
 
 # One-time registry validation guard — runs before first workflow execution
 _registry_validated = False
+
+# --- Execution guard (conflict detection) ---
+
+_running_workflows: set[str] = set()
+_running_lock = asyncio.Lock()
+
+
+async def is_workflow_running(workflow_id: str) -> bool:
+    """Check if a workflow is currently executing (for v0.4.1 409 Conflict)."""
+    async with _running_lock:
+        return workflow_id in _running_workflows
+
+
+class WorkflowAlreadyRunningError(Exception):
+    """Raised when attempting to execute a workflow that is already running."""
+
+    def __init__(self, workflow_id: str) -> None:
+        self.workflow_id = workflow_id
+        super().__init__(f"Workflow '{workflow_id}' is already running")
 
 # --- Timeout configuration ---
 
@@ -438,74 +458,85 @@ async def run_workflow(
 
     validate_workflow_def(workflow_def)
 
+    # Execution guard — prevent concurrent runs of the same workflow
+    workflow_id = workflow_def.id
+    async with _running_lock:
+        if workflow_id in _running_workflows:
+            raise WorkflowAlreadyRunningError(workflow_id)
+        _running_workflows.add(workflow_id)
+
     logger = get_run_logger()
     workflow_name = workflow_def.name
 
-    # Initialize workflow-level progress tracking
-    workflow_operation_id = None
-    if progress_manager:
-        total_tasks = len(workflow_def.tasks)
-
-        workflow_operation = create_progress_operation(
-            description=f"Executing {workflow_name}", total_items=total_tasks
-        )
-        workflow_operation_id = await progress_manager.start_operation(
-            workflow_operation
-        )
-        logger.info(
-            f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
-        )
-
-    # Auto-create ProgressNodeObserver when progress_manager is active and no
-    # explicit observer was provided
-    effective_observer: NodeExecutionObserver | None = (
-        observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
-    )
-    if effective_observer is None and progress_manager and workflow_operation_id:
-        effective_observer = ProgressNodeObserver(
-            progress_manager, workflow_operation_id
-        )
-
     try:
-        with tags("workflow", workflow_name):
-            # Start timing
-            start_time = datetime.datetime.now(datetime.UTC)
+        # Initialize workflow-level progress tracking
+        workflow_operation_id = None
+        if progress_manager:
+            total_tasks = len(workflow_def.tasks)
 
-            # Build and execute the workflow
-            workflow = build_flow(workflow_def, observer=effective_observer)
-            context = await workflow(
-                workflow_progress_manager=progress_manager,
-                workflow_operation_id=workflow_operation_id,
-                **parameters,
+            workflow_operation = create_progress_operation(
+                description=f"Executing {workflow_name}", total_items=total_tasks
+            )
+            workflow_operation_id = await progress_manager.start_operation(
+                workflow_operation
+            )
+            logger.info(
+                f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
             )
 
-            # Calculate execution time
-            end_time = datetime.datetime.now(datetime.UTC)
-            execution_time = (end_time - start_time).total_seconds()
-
-            # Extract typed task results from context
-            task_results: dict[str, NodeResult] = context.pop("_task_results", {})
-
-            # Extract result with actual execution time
-            result = extract_workflow_result(
-                workflow_def,
-                task_results,
-                execution_time,
+        # Auto-create ProgressNodeObserver when progress_manager is active and no
+        # explicit observer was provided
+        effective_observer: NodeExecutionObserver | None = (
+            observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
+        )
+        if effective_observer is None and progress_manager and workflow_operation_id:
+            effective_observer = ProgressNodeObserver(
+                progress_manager, workflow_operation_id
             )
 
-            # Complete workflow-level progress tracking
-            if progress_manager and workflow_operation_id:
-                await progress_manager.complete_operation(
-                    workflow_operation_id, OperationStatus.COMPLETED
+        try:
+            with tags("workflow", workflow_name):
+                # Start timing
+                start_time = datetime.datetime.now(datetime.UTC)
+
+                # Build and execute the workflow
+                workflow = build_flow(workflow_def, observer=effective_observer)
+                context = await workflow(
+                    workflow_progress_manager=progress_manager,
+                    workflow_operation_id=workflow_operation_id,
+                    **parameters,
                 )
 
-            return result
-    except Exception:
-        # Mark workflow progress as failed
-        if progress_manager and workflow_operation_id:
-            await progress_manager.complete_operation(
-                workflow_operation_id, OperationStatus.FAILED
-            )
+                # Calculate execution time
+                end_time = datetime.datetime.now(datetime.UTC)
+                execution_time = (end_time - start_time).total_seconds()
 
-        logger.exception("Workflow execution failed")
-        raise
+                # Extract typed task results from context
+                task_results: dict[str, NodeResult] = context.pop("_task_results", {})
+
+                # Extract result with actual execution time
+                result = extract_workflow_result(
+                    workflow_def,
+                    task_results,
+                    execution_time,
+                )
+
+                # Complete workflow-level progress tracking
+                if progress_manager and workflow_operation_id:
+                    await progress_manager.complete_operation(
+                        workflow_operation_id, OperationStatus.COMPLETED
+                    )
+
+                return result
+        except Exception:
+            # Mark workflow progress as failed
+            if progress_manager and workflow_operation_id:
+                await progress_manager.complete_operation(
+                    workflow_operation_id, OperationStatus.FAILED
+                )
+
+            logger.exception("Workflow execution failed")
+            raise
+    finally:
+        async with _running_lock:
+            _running_workflows.discard(workflow_id)

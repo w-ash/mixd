@@ -15,7 +15,7 @@ from .node_factories import (
 from .node_registry import get_node, node
 
 # Workflow execution
-from .prefect import run_workflow
+from .prefect import WorkflowAlreadyRunningError, is_workflow_running, run_workflow
 from .registry_validation import validate_registry
 from .validation import topological_sort, validate_workflow_def
 from .workflow_loader import list_workflow_defs, load_workflow_def
@@ -23,9 +23,11 @@ from .workflow_loader import list_workflow_defs, load_workflow_def
 # Export clean public API
 __all__ = [
     "NodeContext",
+    "WorkflowAlreadyRunningError",
     "build_external_enrichment_config",
     "create_enricher_node",
     "get_node",
+    "is_workflow_running",
     "list_workflow_defs",
     "load_workflow_def",
     "make_combiner_node",
