@@ -66,6 +66,10 @@ async def create_playlist(
     """
     tracklist, config, workflow_context = _prepare_destination(context, config)
 
+    if context.get("dry_run"):
+        logger.info("Dry-run mode: skipping playlist create", node="destination.create_playlist")
+        return {"tracklist": tracklist}
+
     playlist_name = config.get("name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
@@ -143,6 +147,10 @@ async def update_playlist(
         ValueError: If required 'playlist_id' field missing from config.
     """
     tracklist, config, workflow_context = _prepare_destination(context, config)
+
+    if context.get("dry_run"):
+        logger.info("Dry-run mode: skipping playlist update", node="destination.update_playlist")
+        return {"tracklist": tracklist}
 
     playlist_id = config.get("playlist_id")
     if not playlist_id:

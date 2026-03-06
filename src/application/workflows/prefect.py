@@ -26,7 +26,7 @@ from src.domain.entities.progress import (
     OperationStatus,
     create_progress_operation,
 )
-from src.domain.entities.workflow import WorkflowDef
+from src.domain.entities.workflow import NodeExecutionRecord, WorkflowDef
 
 from .node_registry import get_node
 from .observers import ProgressNodeObserver
@@ -174,6 +174,7 @@ def _get_input_track_count(
 def build_flow(
     workflow_def: WorkflowDef,
     observer: NodeExecutionObserver | None = None,
+    dry_run: bool = False,
 ) -> Any:
     """Converts typed workflow definition into executable Prefect flow function.
 
@@ -184,6 +185,7 @@ def build_flow(
     Args:
         workflow_def: Typed workflow definition with tasks, dependencies, and config.
         observer: Optional lifecycle observer for node start/complete/fail events.
+        dry_run: When True, destination nodes skip external writes.
 
     Returns:
         Async Prefect flow function ready for execution.
@@ -235,8 +237,10 @@ def build_flow(
                 "progress_manager": workflow_progress_manager,
                 "workflow_operation_id": workflow_operation_id,
                 "total_tasks": total_nodes,
+                "dry_run": dry_run,
             }
             task_results: dict[str, NodeResult] = {}
+            node_records: list[NodeExecutionRecord] = []
 
             try:
                 # Execute tasks in dependency order
@@ -295,6 +299,15 @@ def build_flow(
                         await node_observer.on_node_failed(
                             task_def, exc, execution_order, total_nodes, duration_ms
                         )
+                        node_records.append(NodeExecutionRecord(
+                            node_id=task_id,
+                            node_type=node_type,
+                            execution_order=execution_order,
+                            status="failed",
+                            duration_ms=duration_ms,
+                            input_track_count=input_track_count,
+                            error_message=str(exc),
+                        ))
                         raise
 
                     duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
@@ -308,6 +321,15 @@ def build_flow(
                         input_track_count,
                         output_track_count,
                     )
+                    node_records.append(NodeExecutionRecord(
+                        node_id=task_id,
+                        node_type=node_type,
+                        execution_order=execution_order,
+                        status="completed",
+                        duration_ms=duration_ms,
+                        input_track_count=input_track_count,
+                        output_track_count=output_track_count,
+                    ))
 
                     # Store result in context and task_results
                     context[task_id] = result
@@ -323,6 +345,7 @@ def build_flow(
                 flow_logger.info("Workflow completed successfully")
 
                 context["_task_results"] = task_results
+                context["_node_records"] = node_records
                 return context
             finally:
                 # Close cached connector instances (httpx pools) on success or failure,
@@ -428,6 +451,7 @@ async def run_workflow(
     workflow_def: WorkflowDef,
     progress_manager: AsyncProgressManager | None = None,
     observer: object | None = None,
+    dry_run: bool = False,
     **parameters: object,
 ) -> OperationResult:
     """Executes complete playlist workflow from JSON definition to final result.
@@ -500,7 +524,7 @@ async def run_workflow(
                 start_time = datetime.datetime.now(datetime.UTC)
 
                 # Build and execute the workflow
-                workflow = build_flow(workflow_def, observer=effective_observer)
+                workflow = build_flow(workflow_def, observer=effective_observer, dry_run=dry_run)
                 context = await workflow(
                     workflow_progress_manager=progress_manager,
                     workflow_operation_id=workflow_operation_id,

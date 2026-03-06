@@ -193,6 +193,37 @@ class TestTopologicalSort:
         assert len(result) == 1
 
 
+class TestNodeExecutionRecord:
+    """Tests for NodeExecutionRecord domain entity."""
+
+    def test_frozen_immutability(self):
+        """Frozen record raises on attribute mutation."""
+        from src.domain.entities.workflow import NodeExecutionRecord
+
+        record = NodeExecutionRecord(
+            node_id="src_1",
+            node_type="source.playlist",
+            execution_order=1,
+            status="completed",
+            duration_ms=150,
+            output_track_count=10,
+        )
+        with pytest.raises(AttributeError):
+            record.status = "failed"  # type: ignore[misc]
+
+    def test_defaults(self):
+        """Default values for optional fields."""
+        from src.domain.entities.workflow import NodeExecutionRecord
+
+        record = NodeExecutionRecord(
+            node_id="t1", node_type="filter.by_metric", execution_order=2, status="completed"
+        )
+        assert record.duration_ms == 0
+        assert record.input_track_count is None
+        assert record.output_track_count is None
+        assert record.error_message is None
+
+
 class TestWorkflowDefConstruction:
     """Tests for WorkflowDef and WorkflowTaskDef attrs entities."""
 

@@ -86,6 +86,18 @@ class TestCreatePlaylist:
         assert "tracklist" in result
 
 
+    async def test_create_dry_run_returns_tracklist_without_write(self, mock_context):
+        """Dry-run mode skips external write and returns tracklist."""
+        from src.application.workflows.destination_nodes import create_playlist
+
+        mock_context["dry_run"] = True
+        config = {"name": "My Playlist"}
+        result = await create_playlist(mock_context, config)
+
+        assert "tracklist" in result
+        mock_context["workflow_context"].execute_use_case.assert_not_called()
+
+
 class TestUpdatePlaylist:
     """Tests for update_playlist destination node."""
 
@@ -123,3 +135,14 @@ class TestUpdatePlaylist:
 
         with pytest.raises(ValueError, match="playlist_id"):
             await update_playlist(mock_context, {})
+
+    async def test_update_dry_run_returns_tracklist_without_write(self, mock_context):
+        """Dry-run mode skips external write and returns tracklist."""
+        from src.application.workflows.destination_nodes import update_playlist
+
+        mock_context["dry_run"] = True
+        config = {"playlist_id": "pl-1"}
+        result = await update_playlist(mock_context, config)
+
+        assert "tracklist" in result
+        mock_context["workflow_context"].execute_use_case.assert_not_called()
