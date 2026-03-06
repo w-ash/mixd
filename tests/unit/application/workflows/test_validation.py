@@ -7,8 +7,11 @@ and DAG ordering with cycle detection.
 import pytest
 
 from src.application.workflows.validation import (
+    ConnectorNotAvailableError,
     _validate_node_config,
+    extract_required_connectors,
     topological_sort,
+    validate_connector_availability,
     validate_workflow_def,
 )
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
@@ -267,3 +270,95 @@ class TestWorkflowDefConstruction:
         assert wf.id == "my_wf"
         assert len(wf.tasks) == 1
         assert wf.tasks[0].result_key == "source_result"
+
+
+class TestExtractRequiredConnectors:
+    """Tests for extract_required_connectors pre-flight check."""
+
+    def test_explicit_connector_in_config(self):
+        """Config connector field is extracted."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "abc", "connector": "spotify"},
+                ),
+            ],
+        )
+        assert extract_required_connectors(wf) == {"spotify"}
+
+    def test_implicit_enricher_connector(self):
+        """Enricher type name implies connector requirement."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="e1", type="enricher.lastfm"),
+                WorkflowTaskDef(id="e2", type="enricher.spotify"),
+            ],
+        )
+        assert extract_required_connectors(wf) == {"lastfm", "spotify"}
+
+    def test_no_connectors_needed(self):
+        """Workflow with only DB-backed nodes needs no connectors."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
+                WorkflowTaskDef(id="f1", type="filter.deduplicate", upstream=["src_1"]),
+            ],
+        )
+        assert extract_required_connectors(wf) == set()
+
+    def test_deduplicates_same_connector(self):
+        """Multiple nodes using same connector produce single entry."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "abc", "connector": "spotify"},
+                ),
+                WorkflowTaskDef(
+                    id="dest_1",
+                    type="destination.update_playlist",
+                    config={"playlist_id": "xyz", "connector": "spotify"},
+                    upstream=["src_1"],
+                ),
+            ],
+        )
+        assert extract_required_connectors(wf) == {"spotify"}
+
+
+class TestValidateConnectorAvailability:
+    """Tests for validate_connector_availability."""
+
+    def test_all_present(self):
+        """No missing connectors returns empty list."""
+        assert validate_connector_availability({"spotify", "lastfm"}, ["spotify", "lastfm", "musicbrainz"]) == []
+
+    def test_missing_connectors(self):
+        """Missing connectors returned sorted."""
+        result = validate_connector_availability({"spotify", "apple_music"}, ["spotify", "lastfm"])
+        assert result == ["apple_music"]
+
+    def test_empty_required(self):
+        """No requirements always passes."""
+        assert validate_connector_availability(set(), ["spotify"]) == []
+
+
+class TestConnectorNotAvailableError:
+    """Tests for ConnectorNotAvailableError."""
+
+    def test_carries_missing_list(self):
+        """Error provides missing connector names."""
+        err = ConnectorNotAvailableError(["apple_music", "tidal"])
+        assert err.missing_connectors == ["apple_music", "tidal"]
+        assert "apple_music" in str(err)
+        assert "tidal" in str(err)

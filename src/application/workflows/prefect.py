@@ -31,7 +31,13 @@ from src.domain.entities.workflow import NodeExecutionRecord, WorkflowDef
 from .node_registry import get_node
 from .observers import ProgressNodeObserver
 from .protocols import NodeExecutionObserver, NodeResult, NullNodeObserver
-from .validation import topological_sort, validate_workflow_def
+from .validation import (
+    ConnectorNotAvailableError,
+    extract_required_connectors,
+    topological_sort,
+    validate_connector_availability,
+    validate_workflow_def,
+)
 
 logger = get_logger(__name__)
 
@@ -481,6 +487,16 @@ async def run_workflow(
         _registry_validated = True
 
     validate_workflow_def(workflow_def)
+
+    # Pre-flight connector validation — fail fast before any I/O
+    required_connectors = extract_required_connectors(workflow_def)
+    if required_connectors:
+        from .context import ConnectorRegistryImpl
+
+        available = ConnectorRegistryImpl().list_connectors()
+        missing = validate_connector_availability(required_connectors, available)
+        if missing:
+            raise ConnectorNotAvailableError(missing)
 
     # Execution guard — prevent concurrent runs of the same workflow
     workflow_id = workflow_def.id

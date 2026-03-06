@@ -136,3 +136,46 @@ def validate_workflow_def(workflow_def: WorkflowDef) -> None:
     # Validate node config required keys per node type
     for task_def in workflow_def.tasks:
         _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
+
+
+# --- Connector pre-flight validation ---
+
+
+def extract_required_connectors(workflow_def: WorkflowDef) -> set[str]:
+    """Extract connector names required by workflow nodes.
+
+    Sources:
+    - Explicit ``config["connector"]`` on source/destination nodes
+    - Implicit from enricher node types (e.g., ``enricher.spotify`` → "spotify")
+    """
+    connectors: set[str] = set()
+    for task_def in workflow_def.tasks:
+        # Explicit connector in config (source.playlist, destination.*)
+        if connector := task_def.config.get("connector"):
+            connectors.add(str(connector))
+
+        # Implicit connector from enricher type
+        if task_def.type.startswith("enricher."):
+            _, _, connector_name = task_def.type.partition(".")
+            connectors.add(connector_name)
+
+    return connectors
+
+
+def validate_connector_availability(
+    required: set[str], available: list[str]
+) -> list[str]:
+    """Return sorted list of missing connectors (empty = all available)."""
+    available_set = set(available)
+    missing = sorted(required - available_set)
+    return missing
+
+
+class ConnectorNotAvailableError(Exception):
+    """Raised when a workflow requires connectors that are not configured."""
+
+    def __init__(self, missing_connectors: list[str]) -> None:
+        self.missing_connectors = missing_connectors
+        super().__init__(
+            f"Missing required connectors: {', '.join(missing_connectors)}"
+        )
