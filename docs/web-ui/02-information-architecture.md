@@ -32,9 +32,9 @@ Dashboard and Stats are merged into a single page at `/`. The dashboard IS the s
 | `/playlists/:id` | Playlist Detail | Flow 3.2, 3.3, 3.4, 3.5, 3.6 | Track list, add/remove/reorder. Edit name/description uses inline dialog. |
 | `/playlists/:id/links` | Connector Links | Flow 5.1, 5.2, 5.3, 5.4 | Link management, sync direction, push/pull |
 | `/workflows` | Workflow List | Flow 6.1 | All workflows with last run status |
-| `/workflows/new` | Create Workflow | Flow 6.4 | JSON editor (v0.4.0), visual builder (v0.7.0) |
-| `/workflows/:id` | Workflow Detail | Flow 6.3 | React Flow DAG, execution history |
-| `/workflows/:id/edit` | Edit Workflow | Flow 6.4 | JSON editor (v0.4.0), visual builder (v0.7.0) |
+| `/workflows/new` | Create Workflow | Flow 6.4 | Visual drag-and-drop editor (v0.4.2) |
+| `/workflows/:id` | Workflow Detail | Flow 6.2, 6.3 | React Flow DAG (v0.4.0), execution history (v0.4.1) |
+| `/workflows/:id/edit` | Edit Workflow | Flow 6.4 | Visual drag-and-drop editor (v0.4.2) |
 | `/imports` | Import Center | Flow 4.1 | Available operations, checkpoints, activity feed |
 | `/settings` | Settings | Flow 1.1, 1.2 | Connector auth, reconnect, preferences |
 
@@ -51,7 +51,7 @@ Every page has an empty state. Text guides users to the canonical location for t
 | Dashboard `/` | "Connect services in Settings to get started." |
 | Library `/library` | "No tracks yet. Import data from the Import Center." |
 | Playlists `/playlists` | "No playlists yet. Create your first playlist to start curating your music collection." [New Playlist] |
-| Workflows `/workflows` | "No workflows yet." [Create Workflow] |
+| Workflows `/workflows` | "No workflows yet. Create your first workflow or start from a template." [Create Workflow] [Browse Templates] |
 | Imports `/imports` | "No import history. Connect a service in Settings first." Available operations cards still shown. |
 | Playlist Detail (no tracks) | "This playlist is empty. Add tracks by linking a connector playlist or using workflows." |
 | Track Detail (no mappings) | "Not mapped to any services. This track exists only in your Narada library." |

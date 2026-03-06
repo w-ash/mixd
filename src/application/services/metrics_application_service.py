@@ -12,15 +12,21 @@ from typing import TYPE_CHECKING, Any
 
 from attrs import define, field
 
+from src.application.services.sub_operation_progress import (
+    complete_sub_operation,
+    create_sub_operation,
+)
 from src.application.utilities.enhanced_database_batch_processor import (
     EnhancedDatabaseBatchProcessor,
 )
 from src.config import get_logger
+from src.domain.entities.progress import OperationStatus
 from src.domain.entities.track import Track
 from src.domain.repositories import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
     from src.application.connector_protocols import TrackMetadataConnector
+    from src.application.services.progress_manager import AsyncProgressManager
     from src.application.workflows.protocols import MetricConfigProvider
 
 type _MetricsTuple = tuple[int, str, str, float | int | bool]
@@ -55,6 +61,8 @@ class MetricsApplicationService:
         metric_names: list[str],
         uow: UnitOfWorkProtocol,
         connector_instance: TrackMetadataConnector | None = None,
+        progress_manager: AsyncProgressManager | None = None,
+        parent_operation_id: str | None = None,
     ) -> tuple[dict[str, dict[int, Any]], dict[str, set[int]]]:
         """Get track metrics from external APIs using cache-first strategy.
 
@@ -69,6 +77,8 @@ class MetricsApplicationService:
             metric_names: List of metric names to retrieve (e.g., ['spotify_popularity', 'lastfm_user_playcount']).
             uow: Unit of work for database transaction management.
             connector_instance: Optional connector instance for fresh metadata fetching.
+            progress_manager: Optional progress manager for sub-operation tracking.
+            parent_operation_id: Parent operation ID for sub-operation nesting.
 
         Returns:
             Tuple of (metrics_dict, fresh_ids_dict) where:
@@ -176,13 +186,38 @@ class MetricsApplicationService:
                     )
 
                 if tracks_with_identity:
+                    progress_callback = None
+                    sub_op_id: str | None = None
                     try:
+                        # Create sub-operation callback for granular progress
+                        if progress_manager and parent_operation_id:
+                            sub_op_id, progress_callback = await create_sub_operation(
+                                progress_manager,
+                                description=f"Fetching {connector} metadata",
+                                total_items=len(tracks_with_identity),
+                                parent_operation_id=parent_operation_id,
+                                phase="enrich",
+                                node_type="enricher",
+                            )
+
                         fresh_metadata = (
                             await connector_instance.get_external_track_data(
-                                tracks_with_identity
+                                tracks_with_identity,
+                                progress_callback=progress_callback,
                             )
                         )
+
+                        # Complete sub-operation
+                        if progress_manager and sub_op_id:
+                            await complete_sub_operation(progress_manager, sub_op_id)
                     except Exception as e:
+                        # Complete sub-operation as failed
+                        if progress_manager and sub_op_id:
+                            await complete_sub_operation(
+                                progress_manager,
+                                sub_op_id,
+                                OperationStatus.FAILED,
+                            )
                         logger.error(
                             f"Failed to fetch metrics from {connector} API: {e}"
                         )

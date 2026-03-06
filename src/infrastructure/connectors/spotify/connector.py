@@ -9,6 +9,7 @@ SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: API response dicts, connector facade delegation
 
+from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, override
 
 from attrs import define, field
@@ -93,7 +94,9 @@ class SpotifyConnector(BaseAPIConnector):
     # Track Operations - Delegate to operations
 
     async def get_external_track_data(
-        self, tracks: list[Track]
+        self,
+        tracks: list[Track],
+        _progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Unified interface for retrieving complete Spotify track data (TrackMetadataConnector protocol).
 

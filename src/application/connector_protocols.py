@@ -13,6 +13,7 @@ Separated from ``workflows.protocols`` to break a circular import chain:
 # pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
 from src.domain.entities import ConnectorPlaylist, ConnectorTrack
@@ -51,7 +52,9 @@ class TrackMetadataConnector(Protocol):
     """
 
     async def get_external_track_data(
-        self, tracks: list[Track]
+        self,
+        tracks: list[Track],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Retrieve complete track data from the external service for multiple tracks."""
         ...

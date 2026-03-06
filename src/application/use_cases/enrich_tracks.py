@@ -10,7 +10,10 @@ Processes multiple tracks efficiently in batches.
 # pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
-from typing import Any, Literal, Never, cast
+from typing import TYPE_CHECKING, Any, Literal, Never, cast
+
+if TYPE_CHECKING:
+    from src.application.services.progress_manager import AsyncProgressManager
 
 from attrs import define, field
 
@@ -84,6 +87,8 @@ class EnrichTracksCommand:
 
     tracklist: TrackList
     enrichment_config: EnrichmentConfig
+    progress_manager: AsyncProgressManager | None = None
+    parent_operation_id: str | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate command parameters."""
@@ -182,7 +187,11 @@ class EnrichTracksUseCase:
                     # Delegate to appropriate enrichment strategy
                     if command.enrichment_config.enrichment_type == "external_metadata":
                         result = await self._enrich_external_metadata(
-                            filtered_tracklist, command.enrichment_config, uow
+                            filtered_tracklist,
+                            command.enrichment_config,
+                            uow,
+                            progress_manager=command.progress_manager,
+                            parent_operation_id=command.parent_operation_id,
                         )
                     elif command.enrichment_config.enrichment_type == "play_history":
                         result = await self._enrich_play_history(
@@ -222,7 +231,12 @@ class EnrichTracksUseCase:
                     )
 
     async def _enrich_external_metadata(
-        self, tracklist: TrackList, config: EnrichmentConfig, uow: UnitOfWorkProtocol
+        self,
+        tracklist: TrackList,
+        config: EnrichmentConfig,
+        uow: UnitOfWorkProtocol,
+        progress_manager: AsyncProgressManager | None = None,
+        parent_operation_id: str | None = None,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
         """Enriches tracks with metadata from external APIs.
 
@@ -284,6 +298,8 @@ class EnrichTracksUseCase:
             metric_names=metric_names,
             uow=uow,
             connector_instance=config.connector_instance,
+            progress_manager=progress_manager,
+            parent_operation_id=parent_operation_id,
         )
 
         # Attach metrics and fresh_ids to tracklist metadata

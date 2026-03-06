@@ -37,6 +37,19 @@ from .protocols import NodeResult
 logger = get_logger(__name__)
 
 
+def _extract_library_config(
+    config: dict[str, Any], default_sort: str
+) -> tuple[int, str | None, str]:
+    """Extract shared config for library source nodes (liked/played)."""
+    limit = min(
+        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
+        BusinessLimits.MAX_USER_LIMIT,
+    )
+    connector_filter: str | None = config.get("connector_filter")
+    sort_by = str(config.get("sort_by", default_sort))
+    return limit, connector_filter, sort_by
+
+
 def _build_source_tracklist(
     tracks: list[Track], playlist_name: str, source: str, source_id: str
 ) -> TrackList:
@@ -122,6 +135,10 @@ async def playlist_source(
         # Connector-based playlist: sync + upsert in a single atomic transaction
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
+        await ctx.emit_phase_progress(
+            "fetch", "source", f"Fetching playlist from {connector}"
+        )
+
         async def _sync_and_upsert(uow: UnitOfWorkProtocol):
             connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
                 connector, playlist_id, uow
@@ -193,13 +210,7 @@ async def source_liked_tracks(
     Returns:
         Dict with 'tracklist' containing favorited tracks and metadata.
     """
-    # Extract config with type-narrowing (validated at workflow parse time)
-    limit: int = min(
-        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
-        BusinessLimits.MAX_USER_LIMIT,
-    )
-    connector_filter: str | None = config.get("connector_filter")
-    sort_by: str = str(config.get("sort_by", "liked_at_desc"))
+    limit, connector_filter, sort_by = _extract_library_config(config, "liked_at_desc")
 
     # Create command for use case
     command = GetLikedTracksCommand(
@@ -211,6 +222,8 @@ async def source_liked_tracks(
     # Get workflow context and execute use case
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
+
+    await ctx.emit_phase_progress("query", "source", "Querying liked tracks")
 
     # Execute business logic in use case
     result = await workflow_context.execute_use_case(
@@ -247,14 +260,8 @@ async def source_played_tracks(
     Returns:
         Dict with 'tracklist' containing played tracks and metadata.
     """
-    # Extract config with type-narrowing (validated at workflow parse time)
-    limit: int = min(
-        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
-        BusinessLimits.MAX_USER_LIMIT,
-    )
+    limit, connector_filter, sort_by = _extract_library_config(config, "played_at_desc")
     days_back: int | None = config.get("days_back")
-    connector_filter: str | None = config.get("connector_filter")
-    sort_by: str = str(config.get("sort_by", "played_at_desc"))
 
     # Create command for use case
     command = GetPlayedTracksCommand(
@@ -267,6 +274,8 @@ async def source_played_tracks(
     # Get workflow context and execute use case
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
+
+    await ctx.emit_phase_progress("query", "source", "Querying play history")
 
     # Execute business logic in use case
     result = await workflow_context.execute_use_case(

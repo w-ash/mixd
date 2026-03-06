@@ -204,7 +204,9 @@ class RichProgressProvider:
     async def on_operation_started(self, operation: ProgressOperation) -> None:
         """Handle notification that a new operation has started.
 
-        Creates a new Rich progress task for the operation.
+        Creates a new Rich progress task for the operation. Sub-operations
+        (those with parent_operation_id in metadata) are displayed with an
+        indented prefix and shorter cleanup delay.
 
         Args:
             operation: Newly started operation
@@ -214,9 +216,14 @@ class RichProgressProvider:
             if not self._progress_started:
                 await self.start_display()
 
+            # Sub-operations get indented description
+            description = operation.description
+            if operation.metadata.get("parent_operation_id"):
+                description = f"  ↳ {description}"
+
             # Create Rich task for this operation
             task_id = self._progress.add_task(
-                description=operation.description,
+                description=description,
                 total=operation.total_items,
                 completed=0,
             )
@@ -347,9 +354,15 @@ class RichProgressProvider:
                 description=operation_task.operation.description,
             )
 
+            # Sub-operations clean up faster (0.5s vs 2.0s)
+            is_sub_operation = bool(
+                operation_task.operation.metadata.get("parent_operation_id")
+            )
+            cleanup_delay = 0.5 if is_sub_operation else 2.0
+
             # Schedule cleanup after brief display of final status
             cleanup_task = asyncio.create_task(
-                self._cleanup_completed_task(operation_id)
+                self._cleanup_completed_task(operation_id, delay_seconds=cleanup_delay)
             )
             # Track cleanup task for proper cancellation
             self._cleanup_tasks.add(cleanup_task)

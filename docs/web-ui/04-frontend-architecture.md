@@ -18,13 +18,15 @@
 | Server state | **Tanstack Query** | Stale-while-revalidate, background refetch, optimistic updates |
 | Components | **shadcn/ui** (owned source) | Accessible Radix primitives + Tailwind styling. Source code copied into project, not a runtime dependency |
 | Animation | **Motion** (React) | CSS-first for simple transitions; Motion for orchestrated sequences |
-| Workflow viz | **React Flow** | DAG rendering with pan/zoom, node customization |
+| Workflow viz | **React Flow (xyflow) v12+** | DAG rendering with pan/zoom, custom nodes, interactive editing |
+| DAG layout | **ELKjs** | Layered auto-layout for workflow DAGs (superior to Dagre) |
+| Workflow state | **Zustand** | React Flow canvas state (nodes, edges, viewport, undo/redo) |
 | Error boundaries | **react-error-boundary** | `resetKeys` for auto-reset on navigation; lighter than hand-written class component |
 | Testing | **Vitest** (unit/integration) + **Playwright** (E2E) | Native ESM, Jest-compatible API |
 | Package mgr | **pnpm** | Faster installs, efficient disk usage |
 | Linting + Format | **Biome 2.x** | Rust-based, single tool for lint + format (Ruff equivalent for JS/TS) |
 
-**No Redux / Zustand**: Tanstack Query handles all server state. Local UI state (modals, forms) lives in React component state. No global state management library needed at this scale.
+**State management policy**: Tanstack Query handles all server state. Local UI state (modals, forms) lives in React component state. **Exception**: Zustand is used for React Flow canvas state (nodes, edges, viewport, undo/redo history) — this is React Flow's officially recommended state management pattern via `applyNodeChanges`/`applyEdgeChanges` helpers. Zustand is scoped exclusively to the workflow editor; it does not replace Tanstack Query for server state.
 
 ---
 
@@ -226,6 +228,23 @@ web/
 │   │       ├── OperationProgress.test.tsx
 │   │       ├── TablePagination.tsx  Page controls for paginated list views
 │   │       └── TablePagination.test.tsx
+│   │   └── workflow/                Workflow editor components (v0.4.0+)
+│   │       ├── nodes/              Custom React Flow node components per category
+│   │       │   ├── SourceNode.tsx
+│   │       │   ├── EnricherNode.tsx
+│   │       │   ├── FilterNode.tsx
+│   │       │   ├── SorterNode.tsx
+│   │       │   ├── SelectorNode.tsx
+│   │       │   ├── CombinerNode.tsx
+│   │       │   └── DestinationNode.tsx
+│   │       ├── BaseWorkflowNode.tsx Shared node shell: category color, icon, label, config summary
+│   │       ├── WorkflowCanvas.tsx   React Flow wrapper with viewer/editor modes
+│   │       ├── NodePalette.tsx      Draggable node type sidebar (v0.4.2)
+│   │       ├── NodeConfigPanel.tsx  Dynamic config form for selected node (v0.4.2)
+│   │       ├── EditorToolbar.tsx    Save, preview, run, undo/redo actions (v0.4.2)
+│   │       └── ExecutionOverlay.tsx Per-node status overlay during execution (v0.4.1)
+│   ├── stores/
+│   │   └── useWorkflowStore.ts     Zustand store for React Flow canvas state
 │   ├── hooks/
 │   │   ├── usePagination.ts         URL-state pagination (page param ↔ offset/limit)
 │   │   ├── usePagination.test.tsx
@@ -263,7 +282,7 @@ web/
 
 > **Test coverage**: 16 test files, ~105 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
-> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Workflows.tsx` / `WorkflowDetail.tsx` / `WorkflowEditor.tsx` (v0.4.0), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
+> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Workflows.tsx` / `WorkflowDetail.tsx` (v0.4.0), `WorkflowEditor.tsx` (v0.4.2), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
 >
 > **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
 >

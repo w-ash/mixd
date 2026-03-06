@@ -416,4 +416,114 @@ describe("useOperationProgress", () => {
       });
     });
   });
+
+  it("handles sub_operation_started event", async () => {
+    mockSSEWithEvents([
+      {
+        event: "started",
+        data: JSON.stringify({ total: 100, description: "Running workflow" }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          description: "Fetching Last.fm metadata",
+          total: 50,
+          phase: "enrich",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.subOperation).toEqual(
+        expect.objectContaining({
+          operationId: "sub-1",
+          description: "Fetching Last.fm metadata",
+          total: 50,
+          phase: "enrich",
+        }),
+      );
+    });
+  });
+
+  it("handles sub_progress event", async () => {
+    mockSSEWithEvents([
+      {
+        event: "started",
+        data: JSON.stringify({ total: 100, description: "Running workflow" }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          description: "Fetching metadata",
+          total: 50,
+        }),
+      },
+      {
+        event: "sub_progress",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          current: 25,
+          total: 50,
+          message: "Processed 25/50",
+          completion_percentage: 50.0,
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.subOperation).toEqual(
+        expect.objectContaining({
+          current: 25,
+          total: 50,
+          message: "Processed 25/50",
+          completionPercentage: 50.0,
+        }),
+      );
+    });
+  });
+
+  it("handles sub_operation_completed event", async () => {
+    mockSSEWithEvents([
+      {
+        event: "started",
+        data: JSON.stringify({ total: 100, description: "Running workflow" }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          description: "Fetching metadata",
+          total: 50,
+        }),
+      },
+      {
+        event: "sub_operation_completed",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          final_status: "completed",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      // After sub_operation_completed, subOperation should be null
+      expect(result.current.progress?.subOperation).toBeNull();
+      // But the main operation should still be running
+      expect(result.current.progress?.status).toBe("running");
+    });
+  });
 });

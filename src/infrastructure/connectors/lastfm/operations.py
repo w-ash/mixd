@@ -17,6 +17,7 @@ providing reusable business logic while maintaining clean separation of concerns
 
 # pyright: reportAny=false, reportExplicitAny=false
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from attrs import define, field
@@ -260,7 +261,10 @@ class LastFMOperations:
     # Batch Operations
 
     async def batch_get_track_info(
-        self, tracks: list[Track], **_options: Any
+        self,
+        tracks: list[Track],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
+        **_options: Any,
     ) -> dict[int, LastFMTrackInfo]:
         """Fetch track information for multiple tracks using queue-based rate limiting."""
         from src.config import settings
@@ -296,7 +300,9 @@ class LastFMOperations:
 
         # Process batch with queue-based rate limiting
         results: dict[int, LastFMTrackInfo] = {}
-        async for _item_id, result in processor.process_batch(tracks, process_track):
+        async for _item_id, result in processor.process_batch(
+            tracks, process_track, progress_callback=progress_callback
+        ):
             if isinstance(result, TrackProcessingResult) and result.info.lastfm_title:
                 results[result.track_id] = result.info
 

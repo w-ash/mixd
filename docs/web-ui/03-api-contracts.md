@@ -446,110 +446,248 @@ Defined in `src/interface/api/schemas/playlists.py`.
 
 ## 3. Workflows
 
+### Workflow CRUD (v0.4.0)
+
 ```
 GET    /workflows
-       → { data: WorkflowSummary[], total, limit, offset }
+       ?include_templates=true&limit=&offset=
+       -> { data: WorkflowSummary[], total, limit, offset }
 ```
-- **Use case**: List workflows
-- **Status**: Needs implementation
+- **Use case**: `ListWorkflowsUseCase`
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: `include_templates` defaults to `true`. Templates have `is_template: true` and cannot be edited/deleted.
 
 ```
 POST   /workflows
-       body: { name: str, definition: object }
-       → Workflow
+       body: { name: str, description?: str, definition: object }
+       -> WorkflowDetail (201)
 ```
-- **Use case**: Create workflow
-- **Status**: Needs implementation
+- **Use case**: `CreateWorkflowUseCase`
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: Validates definition via `validate_workflow_def()` before persisting. Returns `422` with structured `ValidationError[]` on invalid definition.
 
 ```
 GET    /workflows/{id}
-       → Workflow (with full definition)
+       -> WorkflowDetail
 ```
-- **Use case**: Get workflow
-- **Status**: Needs implementation
+- **Use case**: `GetWorkflowUseCase`
+- **Status**: Needs implementation (v0.4.0)
 
 ```
 PATCH  /workflows/{id}
-       body: { name?: str, definition?: object }
-       → Workflow
+       body: { name?: str, description?: str, definition?: object }
+       -> WorkflowDetail
 ```
-- **Use case**: Update workflow
-- **Status**: Needs implementation
+- **Use case**: `UpdateWorkflowUseCase`
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: Templates (`is_template=true`) return `403 Forbidden`. Validates definition if provided.
 
 ```
 DELETE /workflows/{id}
-       → 204
+       -> 204
 ```
-- **Use case**: Delete workflow
-- **Status**: Needs implementation
-
-```
-POST   /workflows/{id}/run
-       → { operation_id: str }
-```
-- **Use case**: Execute workflow via Prefect
-- **Status**: Needs implementation
-
-```
-POST   /workflows/{id}/preview
-       → { tracks: TrackSummary[], node_results: NodeExecutionSummary[] }
-```
-- **Use case**: Dry-run workflow (skip destination writes)
-- **Status**: Needs implementation
+- **Use case**: `DeleteWorkflowUseCase`
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: Templates return `403 Forbidden`.
 
 ```
 POST   /workflows/validate
        body: { definition: object }
-       → { valid: bool, errors: ValidationError[] }
+       -> { valid: bool, errors: ValidationError[] }
 ```
-- **Use case**: Validate workflow definition
-- **Status**: Needs implementation
+- **Use case**: Validate workflow definition (structural only, no execution)
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: Checks: valid JSON, known node types, valid DAG (no cycles), required config fields present, config value types correct.
+
+```
+GET    /workflows/nodes
+       -> { data: NodeTypeInfo[] }
+```
+- **Use case**: Node registry introspection (for editor node palette and reference)
+- **Status**: Needs implementation (v0.4.0)
+- **Notes**: Returns all registered node types with category, description, and config schema. Sourced from `list_nodes()` in `node_registry.py`.
+
+### Workflow Execution (v0.4.1)
+
+```
+POST   /workflows/{id}/run
+       -> { operation_id: str, run_id: int }
+```
+- **Use case**: `RunWorkflowUseCase` (delegates to `run_workflow()` in `prefect.py`)
+- **Status**: Needs implementation (v0.4.1)
+- **Notes**: Pre-flight validation checks required connectors. Returns `503` with `{ required_connectors: ["spotify"] }` if unmet. Returns `409 Conflict` if workflow is already running. Emits `node_status` SSE events during execution.
 
 ```
 GET    /workflows/{id}/runs
        ?limit=&offset=
-       → { data: WorkflowRun[], total, limit, offset }
+       -> { data: WorkflowRunSummary[], total, limit, offset }
 ```
-- **Use case**: List workflow runs
-- **Status**: Needs implementation
+- **Use case**: `GetWorkflowRunsUseCase`
+- **Status**: Needs implementation (v0.4.1)
 
 ```
 GET    /workflows/{id}/runs/{run_id}
-       → WorkflowRun (with per-node details)
+       -> WorkflowRunDetail
 ```
-- **Use case**: Get run detail
-- **Status**: Needs implementation
+- **Use case**: `GetWorkflowRunsUseCase`
+- **Status**: Needs implementation (v0.4.1)
+- **Notes**: Includes `definition_snapshot` (the exact workflow definition at execution time) and per-node execution details.
 
-### Workflow Object Schemas (stub)
+### Workflow Preview (v0.4.2)
+
+```
+POST   /workflows/{id}/preview
+       -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
+```
+- **Use case**: `PreviewWorkflowUseCase` (dry-run: destination nodes become no-ops)
+- **Status**: Needs implementation (v0.4.2)
+- **Notes**: Enricher nodes still call external APIs for realistic output. Only destination writes are skipped. Streams SSE progress during execution.
+
+```
+POST   /workflows/preview
+       body: { definition: object }
+       -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
+```
+- **Use case**: `PreviewWorkflowUseCase` (for unsaved workflows)
+- **Status**: Needs implementation (v0.4.2)
+
+### Workflow SSE Events (v0.4.1)
+
+In addition to the standard `progress` events from `GET /operations/{id}/progress`, workflow execution emits `node_status` events:
+
+```
+event: node_status
+data: {
+  "node_id": "filter_step",
+  "node_type": "filter.by_metric",
+  "status": "RUNNING",
+  "input_track_count": 120
+}
+
+event: node_status
+data: {
+  "node_id": "filter_step",
+  "node_type": "filter.by_metric",
+  "status": "COMPLETED",
+  "output_track_count": 42,
+  "duration_ms": 1200
+}
+```
+
+`node_status` fields:
+- `node_id` (str): Task ID from definition (e.g., "filter_step")
+- `node_type` (str): Node type key (e.g., "filter.by_metric")
+- `status` (str): PENDING | RUNNING | COMPLETED | FAILED | SKIPPED
+- `input_track_count` (int | null): Track count entering this node
+- `output_track_count` (int | null): Track count after this node
+- `duration_ms` (int | null): Execution time in milliseconds
+- `error_message` (str | null): Error details for FAILED status
+
+### Workflow Object Schemas
 
 ```json
-// WorkflowSummary
+// WorkflowSummary (list view)
 {
   "id": 1,
-  "name": "string",
-  "description": "string",
+  "name": "Current Obsessions",
+  "description": "Heavy rotation tracks from the last 30 days",
+  "is_template": false,
+  "source_template": "current_obsessions",
+  "task_count": 6,
+  "node_types": ["source", "enricher", "filter", "sorter", "selector", "destination"],
   "last_run": {
-    "status": "COMPLETED | FAILED | RUNNING | null",
-    "completed_at": "ISO8601 | null",
+    "id": 3,
+    "status": "COMPLETED",
+    "completed_at": "2026-03-01T10:00:45Z",
     "output_track_count": 42
+  },
+  "created_at": "2026-02-15T09:00:00Z",
+  "updated_at": "2026-03-01T10:00:00Z"
+}
+
+// WorkflowDetail (extends WorkflowSummary)
+{
+  ...WorkflowSummary,
+  "definition": {
+    "id": "current_obsessions",
+    "name": "Current Obsessions",
+    "version": "1.0",
+    "tasks": [
+      { "id": "src", "type": "source.playlist", "config": {"playlist_id": "spotify:liked"}, "upstream": [] },
+      { "id": "enrich", "type": "enricher.play_history", "config": {"days_back": 30}, "upstream": ["src"] }
+    ]
   }
 }
 
-// WorkflowRun
+// WorkflowRunSummary (list view)
 {
-  "id": "uuid",
-  "workflow_id": 1,
-  "started_at": "ISO8601",
-  "completed_at": "ISO8601 | null",
-  "status": "PENDING | RUNNING | COMPLETED | FAILED | CANCELLED",
-  "result_summary": {
-    "tracks_output": 42,
-    "destination_playlist_id": 5
-  },
-  "node_results": [
-    { "node_id": "source", "status": "COMPLETED", "track_count": 120, "duration_ms": 3400 }
-  ],
-  "error": "string | null"
+  "id": 3,
+  "status": "COMPLETED",
+  "started_at": "2026-03-01T10:00:00Z",
+  "completed_at": "2026-03-01T10:00:45Z",
+  "duration_ms": 45000,
+  "output_track_count": 42,
+  "error_message": null
+}
+
+// WorkflowRunDetail (extends WorkflowRunSummary)
+{
+  ...WorkflowRunSummary,
+  "definition_snapshot": { /* full WorkflowDef JSON as it was at execution time */ },
+  "output_playlist_id": 5,
+  "nodes": [
+    {
+      "node_id": "src",
+      "node_type": "source.playlist",
+      "status": "COMPLETED",
+      "started_at": "2026-03-01T10:00:00Z",
+      "completed_at": "2026-03-01T10:00:03Z",
+      "duration_ms": 3400,
+      "input_track_count": null,
+      "output_track_count": 120,
+      "error_message": null,
+      "execution_order": 1
+    },
+    {
+      "node_id": "filter_step",
+      "node_type": "filter.by_metric",
+      "status": "COMPLETED",
+      "started_at": "2026-03-01T10:00:03Z",
+      "completed_at": "2026-03-01T10:00:05Z",
+      "duration_ms": 1200,
+      "input_track_count": 120,
+      "output_track_count": 42,
+      "error_message": null,
+      "execution_order": 3
+    }
+  ]
+}
+
+// NodeTypeInfo (for editor node palette)
+{
+  "type": "filter.by_metric",
+  "category": "filter",
+  "description": "Filter tracks by metric value range",
+  "required_config": ["metric_name"],
+  "optional_config": ["min_value", "max_value", "include_missing"]
+}
+
+// ValidationError
+{
+  "task_id": "filter_step",
+  "field": "config.metric_name",
+  "message": "Required config key 'metric_name' is missing"
+}
+
+// NodePreviewSummary (preview/dry-run results)
+{
+  "node_id": "filter_step",
+  "node_type": "filter.by_metric",
+  "output_track_count": 42,
+  "sample_tracks": [
+    { "title": "Song A", "artists": ["Artist 1"], "album": "Album X" },
+    { "title": "Song B", "artists": ["Artist 2"], "album": "Album Y" }
+  ]
 }
 ```
 

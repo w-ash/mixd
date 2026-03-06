@@ -265,7 +265,10 @@ def create_enricher_node(
 
         enrichment_config = build_config(ctx, config)
         command = EnrichTracksCommand(
-            tracklist=tracklist, enrichment_config=enrichment_config
+            tracklist=tracklist,
+            enrichment_config=enrichment_config,
+            progress_manager=context.get("progress_manager"),
+            parent_operation_id=context.get("workflow_operation_id"),
         )
 
         workflow_context = ctx.extract_workflow_context()

@@ -113,12 +113,16 @@ class RateLimitedBatchProcessor:
         self,
         items: list[TItem],
         process_func: Callable[[TItem], Awaitable[TResult]],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> AsyncIterator[tuple[str, TResult | None]]:
         """Process batch of items with rate limiting and concurrent execution.
 
         Args:
             items: List of items to process
             process_func: Async function to process individual items
+            progress_callback: Optional async callback invoked after each item completes.
+                Signature: (completed_count, total, message) -> None.
+                Enables granular sub-operation progress for callers.
 
         Yields:
             Tuples of (item_id, result) as items complete successfully
@@ -175,6 +179,13 @@ class RateLimitedBatchProcessor:
                         (time.time() - self.batch_start_time) * 1000, 1
                     ),
                 )
+
+                if progress_callback is not None:
+                    await progress_callback(
+                        completed_count,
+                        self.total_expected_items,
+                        f"Processed {completed_count}/{self.total_expected_items}",
+                    )
 
                 yield item_id, result
 

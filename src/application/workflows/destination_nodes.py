@@ -70,7 +70,13 @@ async def create_playlist(
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
 
+    ctx = NodeContext(context)
+
     if connector := config.get("connector"):
+        await ctx.emit_phase_progress(
+            "sync", "destination", f"Creating playlist on {connector}"
+        )
+
         # Create on both canonical and connector
         command = CreateConnectorPlaylistCommand(
             tracklist=tracklist,
@@ -144,7 +150,13 @@ async def update_playlist(
 
     append: bool = bool(config.get("append", False))
 
+    ctx = NodeContext(context)
+
     if connector := config.get("connector"):
+        await ctx.emit_phase_progress(
+            "sync", "destination", f"Syncing playlist to {connector}"
+        )
+
         # playlist_id is connector ID - update connector with optimistic canonical sync
         command = UpdateConnectorPlaylistCommand(
             playlist_id=playlist_id,

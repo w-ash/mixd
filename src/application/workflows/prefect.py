@@ -25,9 +25,11 @@ from src.domain.entities.progress import (
     create_progress_event,
     create_progress_operation,
 )
+from src.domain.entities.workflow import WorkflowDef
 
 from .node_registry import get_node
 from .protocols import NodeResult
+from .validation import topological_sort, validate_workflow_def
 
 logger = get_logger(__name__)
 
@@ -121,173 +123,26 @@ def generate_flow_run_name(flow_name: str) -> str:
     )
 
 
-def topological_sort(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Orders tasks by dependencies to ensure upstream tasks execute first.
-
-    Uses 3-color DFS to detect cycles: unvisited → visiting (gray) → visited (black).
-    A back-edge to a gray node means a cycle exists.
-    """
-    graph = {task["id"]: task.get("upstream", []) for task in tasks}
-
-    visited: set[str] = set()
-    visiting: set[str] = set()
-    result: list[dict[str, Any]] = []
-
-    task_by_id = {task["id"]: task for task in tasks}
-
-    def visit(node_id: str) -> None:
-        if node_id in visited:
-            return
-        if node_id in visiting:
-            raise ValueError(f"Cycle detected in workflow: {node_id}")
-        visiting.add(node_id)
-        for dep in graph.get(node_id, []):
-            visit(dep)
-        visiting.discard(node_id)
-        visited.add(node_id)
-        if node_id in task_by_id:
-            result.append(task_by_id[node_id])
-
-    for task_id in graph:
-        visit(task_id)
-
-    return result
-
-
-# Required config keys per node type — derived from node function contracts.
-# Nodes not listed here have no required config keys (all optional with defaults).
-_REQUIRED_CONFIG: dict[str, list[str]] = {
-    "source.playlist": ["playlist_id"],
-    "filter.by_metric": ["metric_name"],
-    "filter.by_tracks": ["exclusion_source"],
-    "filter.by_artists": ["exclusion_source"],
-    "filter.by_liked_status": ["service"],
-    "selector.percentage": ["percentage"],
-    "destination.create_playlist": ["name"],
-    "destination.update_playlist": ["playlist_id"],
-}
-
-# Expected types for required config values — catches type mismatches
-# (e.g., playlist_id: 123 instead of "abc-123") before expensive I/O runs.
-# Values are single types or tuples of types (for isinstance() checks).
-_REQUIRED_CONFIG_TYPES: dict[str, dict[str, type | tuple[type, ...]]] = {
-    "source.playlist": {"playlist_id": str},
-    "filter.by_metric": {"metric_name": str},
-    "filter.by_tracks": {"exclusion_source": str},
-    "filter.by_artists": {"exclusion_source": str},
-    "filter.by_liked_status": {"service": str},
-    "selector.percentage": {"percentage": (int, float)},
-    "destination.create_playlist": {"name": str},
-    "destination.update_playlist": {"playlist_id": str},
-}
-
-
-def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) -> None:
-    """Validate that a node's config contains all required keys with correct types.
-
-    Called during workflow definition validation to catch config errors
-    before any expensive I/O operations run. Nodes not in _REQUIRED_CONFIG
-    have no mandatory keys and pass validation unconditionally.
-
-    Raises:
-        ValueError: If required config keys are missing, have wrong types,
-            or are empty strings when a non-empty string is required.
-    """
-    required = _REQUIRED_CONFIG.get(node_type, [])
-    missing = [k for k in required if k not in config]
-    if missing:
-        raise ValueError(
-            f"Task '{task_id}' (type '{node_type}') missing required config: {missing}"
-        )
-
-    # Validate value types for required keys
-    type_requirements = _REQUIRED_CONFIG_TYPES.get(node_type, {})
-    for key, expected_type in type_requirements.items():
-        if key not in config:
-            continue
-        value = config[key]
-        if not isinstance(value, expected_type):
-            type_name = (
-                expected_type.__name__
-                if isinstance(expected_type, type)
-                else " | ".join(t.__name__ for t in expected_type)
-            )
-            raise ValueError(  # noqa: TRY004  # consistent with other config validation errors
-                f"Task '{task_id}' config key '{key}' must be {type_name}, "
-                f"got {type(value).__name__}: {value!r}"
-            )
-        # Reject empty strings for required string keys
-        if isinstance(value, str) and not value.strip():
-            raise ValueError(f"Task '{task_id}' config key '{key}' must not be empty")
-
-
-def validate_workflow_def(workflow_def: dict[str, Any]) -> None:
-    """Validate workflow definition structure before execution.
-
-    Catches structural errors early — before any expensive I/O operations run.
-    Checks for: non-empty tasks, required fields, valid upstream references,
-    and resolvable node types.
-
-    Raises:
-        ValueError: If the workflow definition is structurally invalid.
-    """
-    tasks = workflow_def.get("tasks", [])
-    if not tasks:
-        raise ValueError("Workflow has no tasks")
-
-    task_ids: set[str] = set()
-    for task_def in tasks:
-        if "id" not in task_def:
-            raise ValueError(f"Task missing required 'id' field: {task_def}")
-        if "type" not in task_def:
-            raise ValueError(f"Task '{task_def['id']}' missing required 'type' field")
-        task_ids.add(task_def["id"])
-
-    # Validate upstream references point to existing tasks
-    for task_def in tasks:
-        for upstream_id in task_def.get("upstream", []):
-            if upstream_id not in task_ids:
-                raise ValueError(
-                    f"Task '{task_def['id']}' references unknown upstream '{upstream_id}'. Available: {sorted(task_ids)}"
-                )
-
-    # Validate node types are resolvable in the registry
-    for task_def in tasks:
-        node_type = task_def["type"]
-        try:
-            get_node(node_type)
-        except KeyError:
-            raise ValueError(
-                f"Task '{task_def['id']}' has unknown node type '{node_type}'"
-            ) from None
-
-    # Validate node config required keys per node type
-    for task_def in tasks:
-        config = task_def.get("config", {})
-        _validate_node_config(task_def["type"], config, task_id=task_def["id"])
-
-
-def build_flow(workflow_def: dict[str, Any]) -> Any:
-    """Converts workflow definition JSON into executable Prefect flow function.
+def build_flow(workflow_def: WorkflowDef) -> Any:
+    """Converts typed workflow definition into executable Prefect flow function.
 
     Performs topological sort of tasks based on dependencies, creates shared database
     session, and builds dynamic flow that executes nodes in correct order while
     passing results between dependent tasks.
 
     Args:
-        workflow_def: JSON workflow definition with tasks, dependencies, and config
+        workflow_def: Typed workflow definition with tasks, dependencies, and config.
 
     Returns:
-        Async Prefect flow function ready for execution
+        Async Prefect flow function ready for execution.
     """
 
     # Extract workflow metadata
-    flow_name = workflow_def.get("name", "unnamed_workflow")
-    flow_description = workflow_def.get("description", "")
-    tasks = workflow_def.get("tasks", [])
+    flow_name = workflow_def.name
+    flow_description = workflow_def.description
 
     # Sort tasks in execution order
-    sorted_tasks = topological_sort(tasks)
+    sorted_tasks = topological_sort(workflow_def.tasks)
 
     @flow(
         name=flow_name,
@@ -317,8 +172,9 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
             # Create workflow context with shared session
             workflow_context = create_workflow_context(shared_session)
 
-            # Initialize execution context
-            context = {
+            # Initialize execution context — heterogeneous bag accumulating
+            # task results, upstream IDs, and progress metadata during execution
+            context: dict[str, Any] = {
                 "parameters": parameters,
                 "workflow_context": workflow_context,
                 "workflow_name": flow_name,
@@ -331,14 +187,14 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
             try:
                 # Execute tasks in dependency order
                 for task_index, task_def in enumerate(sorted_tasks):
-                    task_id = task_def["id"]
-                    node_type = task_def["type"]
+                    task_id = task_def.id
+                    node_type = task_def.type
 
                     # Log the task start
                     flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
 
                     # Resolve configuration with current context
-                    config = task_def.get("config", {})
+                    config = task_def.config
 
                     # Create task-specific context with upstream results and progress tracking
                     task_context = context.copy()
@@ -346,26 +202,24 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
                         task_index + 1
                     )  # 1-based indexing for progress
 
-                    if task_def.get("upstream"):
-                        if len(task_def["upstream"]) == 1:
+                    if task_def.upstream:
+                        if len(task_def.upstream) == 1:
                             # Single upstream case
-                            task_context["upstream_task_id"] = task_def["upstream"][0]
+                            task_context["upstream_task_id"] = task_def.upstream[0]
                         else:
                             # Multiple upstream case - first one is primary by convention
                             # (unless config specifies a primary_input)
                             primary_input = config.get("primary_input")
-                            if primary_input and primary_input in task_def["upstream"]:
+                            if primary_input and primary_input in task_def.upstream:
                                 task_context["upstream_task_id"] = primary_input
                             else:
-                                task_context["upstream_task_id"] = task_def["upstream"][
-                                    0
-                                ]
+                                task_context["upstream_task_id"] = task_def.upstream[0]
 
                         # Add all upstream tasks as a list for nodes that need multiple inputs
-                        task_context["upstream_task_ids"] = task_def["upstream"]
+                        task_context["upstream_task_ids"] = task_def.upstream
 
                         # Copy upstream task results into context
-                        for upstream_id in task_def["upstream"]:
+                        for upstream_id in task_def.upstream:
                             if upstream_id in task_results:
                                 task_context[upstream_id] = task_results[upstream_id]
 
@@ -377,9 +231,11 @@ def build_flow(workflow_def: dict[str, Any]) -> Any:
                     task_results[task_id] = result
 
                     # Also store in context under node-specified result key if present
-                    if result_key := task_def.get("result_key"):
-                        flow_logger.debug(f"Storing result under key: {result_key}")
-                        context[result_key] = result
+                    if task_def.result_key:
+                        flow_logger.debug(
+                            f"Storing result under key: {task_def.result_key}"
+                        )
+                        context[task_def.result_key] = result
 
                     # Task completed - progress tracking handled in execute_node
 
@@ -433,9 +289,8 @@ def _aggregate_workflow_metrics(
 
 
 def extract_workflow_result(
-    workflow_def: dict[str, Any],
+    workflow_def: WorkflowDef,
     task_results: dict[str, NodeResult],
-    flow_run_name: str,
     execution_time: float,
 ) -> OperationResult:
     """Extracts final tracklist and aggregates metrics from all workflow tasks.
@@ -447,7 +302,6 @@ def extract_workflow_result(
     Args:
         workflow_def: Original workflow definition
         task_results: Results from all executed tasks
-        flow_run_name: Prefect flow run identifier
         execution_time: Total workflow execution time in seconds
 
     Returns:
@@ -456,18 +310,14 @@ def extract_workflow_result(
 
     # Find the destination task - it should be the last one in the workflow
     destination_task = next(
-        (
-            t
-            for t in reversed(workflow_def.get("tasks", []))
-            if t.get("type", "").startswith("destination.")
-        ),
+        (t for t in reversed(workflow_def.tasks) if t.type.startswith("destination.")),
         None,
     )
 
     if not destination_task:
         raise ValueError("No destination task found in workflow")
 
-    destination_id = destination_task["id"]
+    destination_id = destination_task.id
 
     if destination_id not in task_results:
         raise ValueError(f"Destination task result not found: {destination_id}")
@@ -486,7 +336,7 @@ def extract_workflow_result(
     return OperationResult(
         tracks=final_tracks,
         metrics=all_metrics,
-        operation_name=workflow_def.get("name", flow_run_name),
+        operation_name=workflow_def.name,
         execution_time=execution_time,
         tracklist=final_tracklist,
     )
@@ -494,10 +344,10 @@ def extract_workflow_result(
 
 @flow(name="run_workflow")
 async def run_workflow(
-    workflow_def: dict[str, Any],
+    workflow_def: WorkflowDef,
     progress_manager: AsyncProgressManager | None = None,
     **parameters: object,
-) -> tuple[dict[str, Any], OperationResult]:
+) -> OperationResult:
     """Executes complete playlist workflow from JSON definition to final result.
 
     Main entry point for workflow execution. Builds Prefect flow from definition,
@@ -505,12 +355,12 @@ async def run_workflow(
     extracts final results with aggregated metrics.
 
     Args:
-        workflow_def: JSON workflow definition with tasks and dependencies
-        progress_manager: Optional AsyncProgressManager for CLI progress tracking
-        **parameters: Dynamic parameters passed to workflow tasks
+        workflow_def: Typed workflow definition with tasks and dependencies.
+        progress_manager: Optional AsyncProgressManager for CLI progress tracking.
+        **parameters: Dynamic parameters passed to workflow tasks.
 
     Returns:
-        Tuple of (execution context with all task results, structured final result)
+        Structured operation result with final tracks and aggregated metrics.
     """
 
     global _registry_validated
@@ -523,13 +373,12 @@ async def run_workflow(
     validate_workflow_def(workflow_def)
 
     logger = get_run_logger()
-    workflow_name = workflow_def.get("name", "unnamed")
+    workflow_name = workflow_def.name
 
     # Initialize workflow-level progress tracking
     workflow_operation_id = None
     if progress_manager:
-        tasks = workflow_def.get("tasks", [])
-        total_tasks = len(tasks)
+        total_tasks = len(workflow_def.tasks)
 
         workflow_operation = create_progress_operation(
             description=f"Executing {workflow_name}", total_items=total_tasks
@@ -558,18 +407,13 @@ async def run_workflow(
             end_time = datetime.datetime.now(datetime.UTC)
             execution_time = (end_time - start_time).total_seconds()
 
-            # Add metadata to context
-            context["workflow_name"] = workflow_name
-
             # Extract typed task results from context
             task_results: dict[str, NodeResult] = context.pop("_task_results", {})
 
             # Extract result with actual execution time
-            flow_run_name = workflow.flow_run_name
             result = extract_workflow_result(
                 workflow_def,
                 task_results,
-                flow_run_name,
                 execution_time,
             )
 
@@ -579,7 +423,7 @@ async def run_workflow(
                     workflow_operation_id, OperationStatus.COMPLETED
                 )
 
-            return context, result
+            return result
     except Exception:
         # Mark workflow progress as failed
         if progress_manager and workflow_operation_id:

@@ -117,6 +117,8 @@ class TestEnrichTracksUseCase:
             metric_names=["spotify_popularity"],  # From track_metric_names
             uow=mock_uow,
             connector_instance=external_metadata_config.connector_instance,
+            progress_manager=None,
+            parent_operation_id=None,
         )
 
     async def test_play_history_enrichment_success(
@@ -251,6 +253,8 @@ class TestEnrichTracksUseCase:
             metric_names=["spotify_popularity"],
             uow=mock_uow,
             connector_instance=external_metadata_config.connector_instance,
+            progress_manager=None,
+            parent_operation_id=None,
         )
 
     @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")

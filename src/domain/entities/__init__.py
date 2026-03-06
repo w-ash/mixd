@@ -40,6 +40,9 @@ from .track import (
 # Track mapping entity
 from .track_mapping import TrackMapping
 
+# Workflow definition entities
+from .workflow import WorkflowDef, WorkflowTaskDef
+
 __all__ = [
     "Artist",
     "ConnectorPlaylist",
@@ -64,6 +67,8 @@ __all__ = [
     "TrackMapping",
     "TrackMetric",
     "TrackPlay",
+    "WorkflowDef",
+    "WorkflowTaskDef",
     "create_lastfm_play_record",
     "ensure_utc",
     "utc_now_factory",

@@ -8,17 +8,16 @@ of concerns. Follows [tool] [noun] [verb] command patterns for consistency.
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
 
 from collections.abc import Sequence
-import json
-from pathlib import Path
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Literal
 
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
+from src.application.workflows.workflow_loader import list_workflow_defs
+from src.domain.entities.workflow import WorkflowDef
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_workflow_definitions_path
 from src.interface.cli.console import (
     get_console,
     get_error_console,
@@ -28,16 +27,6 @@ from src.interface.cli.ui import display_operation_result
 
 console = get_console()
 err_console = get_error_console()
-
-
-class _WorkflowInfo(TypedDict):
-    """Typed shape for workflow metadata loaded from JSON definitions."""
-
-    id: str
-    name: str
-    description: str
-    task_count: int
-    path: str
 
 
 # Create workflow app following 2025 Typer patterns
@@ -87,12 +76,12 @@ def run(
         if workflow_id is None:
             return
 
-    workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
-    if not workflow_info:
+    workflow_def = next((wf for wf in workflows if wf.id == workflow_id), None)
+    if not workflow_def:
         err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
         raise typer.Exit(1)
 
-    _execute_workflow(workflow_info, show_results, output_format, quiet)
+    _execute_workflow(workflow_def, show_results, output_format, quiet)
 
 
 @app.command(name="list")
@@ -115,7 +104,20 @@ def list_workflows(
         # Machine-readable output for automation
         import json
 
-        print(json.dumps(workflows, indent=2))
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": wf.id,
+                        "name": wf.name,
+                        "description": wf.description,
+                        "task_count": len(wf.tasks),
+                    }
+                    for wf in workflows
+                ],
+                indent=2,
+            )
+        )
     else:
         # Human-readable table
         _display_workflows_table(workflows)
@@ -145,27 +147,27 @@ def _show_interactive_workflow_browser() -> None:
 
     workflow_id = _prompt_for_workflow_selection(workflows)
     if workflow_id:
-        workflow_info = next((wf for wf in workflows if wf["id"] == workflow_id), None)
-        if not workflow_info:
+        workflow_def = next((wf for wf in workflows if wf.id == workflow_id), None)
+        if not workflow_def:
             err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
             return
         console.print(
             f"\n[green]Executing workflow:[/green] [bold]{workflow_id}[/bold]"
         )
         _execute_workflow(
-            workflow_info, show_results=True, output_format="table", quiet=False
+            workflow_def, show_results=True, output_format="table", quiet=False
         )
 
 
-def _prompt_for_workflow_selection(workflows: Sequence[_WorkflowInfo]) -> str | None:
+def _prompt_for_workflow_selection(workflows: Sequence[WorkflowDef]) -> str | None:
     """Enhanced workflow selection with fuzzy matching support."""
     # Build choices: numbers, IDs, and common exit terms
     choices: list[str] = []
     id_map: dict[str, str] = {}
 
     for i, wf in enumerate(workflows, 1):
-        choices.extend((str(i), wf["id"]))
-        id_map[str(i)] = wf["id"]
+        choices.extend((str(i), wf.id))
+        id_map[str(i)] = wf.id
 
     choices.extend(["q", "quit", "exit", "cancel"])
 
@@ -183,27 +185,21 @@ def _prompt_for_workflow_selection(workflows: Sequence[_WorkflowInfo]) -> str | 
     if choice.isdigit():
         return id_map.get(choice)
     else:
-        return choice if choice in [wf["id"] for wf in workflows] else None
+        return choice if choice in [wf.id for wf in workflows] else None
 
 
 def _execute_workflow(
-    workflow_info: _WorkflowInfo,
+    workflow_def: WorkflowDef,
     show_results: bool,
     output_format: Literal["table", "json"],
     quiet: bool,
 ) -> None:
     """Execute workflow with Rich progress display and error handling."""
     try:
-        # Load workflow definition
-        workflow_path = Path(workflow_info["path"])
-        workflow_def: dict[str, Any] = json.loads(  # type: ignore[reportAny]  # json.loads
-            workflow_path.read_text(encoding="utf-8")
-        )
-
         if not quiet:
             console.print(
                 Panel.fit(
-                    f"[bold]{workflow_info['name']}[/bold]\n[dim]{workflow_info['description']}[/dim]\n[cyan]Tasks: [bold]{workflow_info.get('task_count', 0)}[/bold][/cyan]",
+                    f"[bold]{workflow_def.name}[/bold]\n[dim]{workflow_def.description}[/dim]\n[cyan]Tasks: [bold]{len(workflow_def.tasks)}[/bold][/cyan]",
                     title="[bold bright_blue]⚡ Executing Workflow[/bold bright_blue]",
                     border_style="blue",
                 )
@@ -221,7 +217,7 @@ def _execute_workflow(
 
                 return await execute_workflow(workflow_def, progress_manager)
 
-        _, result = run_async(_run_with_progress())
+        result = run_async(_run_with_progress())
 
         if not quiet:
             track_count = (
@@ -229,7 +225,7 @@ def _execute_workflow(
             )
             console.print(
                 Panel.fit(
-                    f"[bold green]{workflow_info['name']}[/bold green]\n[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
+                    f"[bold green]{workflow_def.name}[/bold green]\n[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
                     title="[bold green]✓ Workflow Completed[/bold green]",
                     border_style="green",
                 )
@@ -244,7 +240,7 @@ def _execute_workflow(
         raise typer.Exit(1) from e
 
 
-def _display_workflows_table(workflows: Sequence[_WorkflowInfo]) -> None:
+def _display_workflows_table(workflows: Sequence[WorkflowDef]) -> None:
     """Display workflows in a Rich table for reference."""
     table = Table(
         title="Available Workflows",
@@ -263,41 +259,15 @@ def _display_workflows_table(workflows: Sequence[_WorkflowInfo]) -> None:
     for i, wf in enumerate(workflows, 1):
         table.add_row(
             str(i),
-            wf["id"],
-            wf["name"],
-            wf["description"],
-            str(wf["task_count"]),
+            wf.id,
+            wf.name,
+            wf.description,
+            str(len(wf.tasks)),
         )
 
     console.print(table)
 
 
-def _get_available_workflows() -> list[_WorkflowInfo]:
+def _get_available_workflows() -> list[WorkflowDef]:
     """Get available workflow definitions with metadata."""
-    definitions_path = get_workflow_definitions_path()
-    workflows: list[_WorkflowInfo] = []
-
-    if not definitions_path.exists():
-        return workflows
-
-    for json_file in definitions_path.glob("*.json"):
-        try:
-            definition: dict[str, object] = json.loads(json_file.read_text())  # type: ignore[reportAny]  # json.loads
-            tasks_raw = definition.get("tasks")
-            task_count = len(tasks_raw) if isinstance(tasks_raw, list) else 0  # type: ignore[reportAny]  # JSON list element type unknown
-            workflows.append(
-                _WorkflowInfo(
-                    id=str(definition.get("id", json_file.stem)),
-                    name=str(definition.get("name", "Unknown")),
-                    description=str(definition.get("description", "")),
-                    task_count=task_count,
-                    path=str(json_file),
-                )
-            )
-        except (OSError, json.JSONDecodeError) as e:
-            console.print(
-                f"[yellow]Warning: Could not parse {json_file.name}: {e}[/yellow]"
-            )
-            continue
-
-    return workflows
+    return list_workflow_defs()

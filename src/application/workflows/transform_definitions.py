@@ -230,7 +230,7 @@ COMBINER_REGISTRY: dict[str, CombinerEntry] = {
         concatenate,
         "Combines multiple playlists into one",
     ),
-    "concatenate_playlists": CombinerEntry(
+    "concatenate_playlists": CombinerEntry(  # Alias — used by 3 JSON definitions
         concatenate,
         "Joins playlists in specified order",
     ),

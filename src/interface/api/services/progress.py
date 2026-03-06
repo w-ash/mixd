@@ -121,8 +121,37 @@ class SSEProgressSubscriber:
 
     _registry: SSEOperationRegistry
     _event_counters: dict[str, int] = field(factory=dict)
+    _sub_op_parents: dict[str, str] = field(factory=dict)  # sub_op_id → parent_op_id
 
     async def on_operation_started(self, operation: ProgressOperation) -> None:
+        parent_id = operation.metadata.get("parent_operation_id")
+
+        # Sub-operations route to the parent's queue
+        if parent_id:
+            queue = await self._registry.get_queue(parent_id)
+            if queue is None:
+                return
+
+            # Track sub-operation → parent mapping for later routing
+            self._sub_op_parents[operation.operation_id] = parent_id
+
+            # Use parent's event counter for consistent sequencing
+            event_id = self._next_event_id(parent_id)
+            await queue.put({
+                "id": event_id,
+                "event": "sub_operation_started",
+                "data": {
+                    "operation_id": operation.operation_id,
+                    "parent_operation_id": parent_id,
+                    "description": operation.description,
+                    "total": operation.total_items,
+                    "phase": operation.metadata.get("phase"),
+                    "node_type": operation.metadata.get("node_type"),
+                    "status": operation.status.value,
+                },
+            })
+            return
+
         queue = await self._registry.get_queue(operation.operation_id)
         if queue is None:
             return
@@ -142,8 +171,29 @@ class SSEProgressSubscriber:
         })
 
     async def on_progress_event(self, event: ProgressEvent) -> None:
+        # Try direct queue first (normal operations)
         queue = await self._registry.get_queue(event.operation_id)
+
         if queue is None:
+            # Check if this is a sub-operation — look up parent via tracked mapping
+            parent_id = self._sub_op_parents.get(event.operation_id)
+            if parent_id:
+                queue = await self._registry.get_queue(parent_id)
+                if queue is not None:
+                    event_id = self._next_event_id(parent_id)
+                    await queue.put({
+                        "id": event_id,
+                        "event": "sub_progress",
+                        "data": {
+                            "operation_id": event.operation_id,
+                            "parent_operation_id": parent_id,
+                            "current": event.current,
+                            "total": event.total,
+                            "message": event.message,
+                            "status": event.status.value,
+                            "completion_percentage": event.completion_percentage,
+                        },
+                    })
             return
 
         event_id = self._next_event_id(event.operation_id)
@@ -168,7 +218,23 @@ class SSEProgressSubscriber:
         self, operation_id: str, final_status: OperationStatus
     ) -> None:
         queue = await self._registry.get_queue(operation_id)
+
         if queue is None:
+            # May be a sub-operation completing — route to parent
+            parent_id = self._sub_op_parents.pop(operation_id, None)
+            if parent_id:
+                parent_queue = await self._registry.get_queue(parent_id)
+                if parent_queue is not None:
+                    event_id = self._next_event_id(parent_id)
+                    await parent_queue.put({
+                        "id": event_id,
+                        "event": "sub_operation_completed",
+                        "data": {
+                            "operation_id": operation_id,
+                            "parent_operation_id": parent_id,
+                            "final_status": final_status.value,
+                        },
+                    })
             return
 
         event_id = self._next_event_id(operation_id)

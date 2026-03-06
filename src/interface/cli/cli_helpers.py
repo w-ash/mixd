@@ -24,20 +24,6 @@ from src.interface.cli.console import get_console, progress_coordination_context
 console = get_console()
 
 
-def get_workflow_definitions_path() -> Path:
-    """Get the path to the workflow definitions directory.
-
-    Computes the path relative to the CLI package location, navigating
-    up to src/ and then into application/workflows/definitions/.
-    """
-    return (
-        Path(__file__).parent.parent.parent
-        / "application"
-        / "workflows"
-        / "definitions"
-    )
-
-
 def parse_date_string(
     date_str: str | None, field_name: str = "date"
 ) -> datetime | None:

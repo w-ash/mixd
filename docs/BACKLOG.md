@@ -343,43 +343,279 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.4.0: Workflows (Vertical Slice 5)
-**Goal**: Bring Narada's differentiator to the web — workflow persistence, visualization, and execution.
+### v0.4.0: Workflow Persistence & Visualization (Vertical Slice 5a)
+**Goal**: Persist workflow definitions to the database and display them as interactive DAGs in the web UI. Foundation for execution and editing in subsequent milestones.
 
-**Context**: Workflows are Narada's core value proposition — declarative pipelines composing user-defined criteria. Currently stored as JSON files and run via CLI. This milestone adds database persistence, a full CRUD API, React Flow DAG visualization, and one-click execution with SSE progress. The beefiest vertical slice: new database table, 6 use cases, Alembic migration, React Flow integration.
+**Context**: Workflows are Narada's core value proposition — declarative pipelines composing user-defined criteria. Currently stored as JSON files and run via CLI only. This milestone adds database persistence, a CRUD API, a template system for built-in workflows, and React Flow DAG visualization. No execution from the web yet — users can see and manage workflows visually, but run them via CLI until v0.4.1.
+
+**What this unlocks**: Web-based workflow management, visual pipeline understanding, template-based onboarding for new users.
+
+**Key tech choices**:
+- **React Flow (xyflow) v12+** with **ELKjs** for layered auto-layout (superior to Dagre for complex DAGs)
+- **Zustand** for React Flow canvas state (nodes, edges, viewport) — React Flow's officially recommended state management pattern. All server state remains in Tanstack Query.
+- **7 custom node components** color-coded by category: Source (blue), Enricher (purple), Filter (orange), Sorter (gold), Selector (teal), Combiner (pink), Destination (green)
 
 #### Workflow Persistence Epic
 
-- [ ] **Workflow CRUD Use Cases + Table**
-    - Effort: M
-    - What: Workflow persistence (new `workflows` table), CRUD use cases, execution endpoint
-    - Why: Currently workflows are JSON files — need database persistence for web CRUD and execution history
+- [ ] **Workflow Database Table + Repository**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: New `workflows` table, Alembic migration, `WorkflowRepositoryProtocol`, SQLAlchemy implementation
+    - Why: Foundation for all web workflow features
     - Dependencies: None
-    - Status: 🔜 Not Started
     - Notes:
-        - **New `workflows` table**: `id UUID`, `name VARCHAR`, `description TEXT`, `definition JSONB`, `created_at`, `updated_at`
-        - Use cases: `ListWorkflows`, `GetWorkflow`, `CreateWorkflow`, `UpdateWorkflow`, `DeleteWorkflow`, `RunWorkflow`
-        - Alembic migration (works on both SQLite JSON and PostgreSQL JSONB)
-        - `RunWorkflow` delegates to existing `run_workflow()` in `prefect.py`
-        - Execution endpoint streams progress via SSEProgressProvider (v0.3.1)
+        - **New `workflows` table**: `id INTEGER PK`, `name VARCHAR(255) NOT NULL`, `description TEXT`, `definition JSON NOT NULL`, `is_template BOOLEAN DEFAULT FALSE`, `source_template VARCHAR(100)`, `created_at DATETIME(tz)`, `updated_at DATETIME(tz)`
+        - `definition` column stores the complete `WorkflowDef` serialization (id, name, description, version, tasks[]). JSON on SQLite, JSONB on PostgreSQL.
+        - Domain entity: `Workflow` (attrs, frozen) in `domain/entities/workflow.py` — wraps `WorkflowDef` with database identity + template metadata
+        - Repository: `WorkflowRepositoryProtocol` in `domain/repositories/`, impl in `infrastructure/persistence/repositories/workflow/`
 
-#### Workflow API + Frontend Epic
+- [ ] **Workflow CRUD Use Cases**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: List, Get, Create, Update, Delete use cases for workflow persistence
+    - Why: API needs use cases to back route handlers
+    - Dependencies: Workflow Database Table
+    - Notes:
+        - 5 use cases: `ListWorkflowsUseCase`, `GetWorkflowUseCase`, `CreateWorkflowUseCase`, `UpdateWorkflowUseCase`, `DeleteWorkflowUseCase`
+        - Create/Update validates definition via existing `validate_workflow_def()` before persisting
+        - Templates are read-only — Update/Delete reject `is_template=True` workflows with `403 Forbidden`
+        - **Template seeding**: on startup, upsert JSON definitions from `definitions/` as templates with `is_template=True`
 
-- [ ] **Workflow Pages**
-    - Effort: L
-    - What: Workflow List, Workflow Detail with React Flow DAG visualization, JSON editor, and execution
-    - Why: Workflows are the core product — users need to see and run them from the web
+- [ ] **Workflow API Routes**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: REST endpoints for workflow CRUD + validation + node reference
+    - Why: Web UI needs API access to workflow data
     - Dependencies: Workflow CRUD Use Cases
-    - Status: 🔜 Not Started
     - Notes:
-        - Workflow List (`/workflows`): name, description, last run status, run button
-        - Workflow Detail (`/workflows/:id`): React Flow DAG visualization (read-only), execution history, "Run" button with SSE progress
-        - Workflow Editor (`/workflows/:id/edit`): JSON editor with validation (visual drag-and-drop builder deferred to v0.7.0)
-        - React Flow integration: custom node components for source/enricher/transform/destination, edge styling
+        - `GET /workflows` (with `?include_templates=true`), `POST /workflows`, `GET /workflows/{id}`, `PATCH /workflows/{id}`, `DELETE /workflows/{id}`
+        - `POST /workflows/validate` — structural validation without execution, returns `{ valid, errors[] }`
+        - `GET /workflows/nodes` — node type reference for editor (type key, category, description, required/optional config keys). Introspects the existing node registry.
+        - Pydantic schemas: `WorkflowSummarySchema`, `WorkflowDetailSchema`, `ValidationErrorSchema`, `NodeTypeInfoSchema`
+
+#### Workflow Frontend Epic
+
+- [ ] **Workflow List Page**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: Workflow listing with template badges, type indicators, CRUD actions
+    - Why: Entry point for workflow management in the web UI
+    - Dependencies: Workflow API Routes
+    - Notes:
+        - Table: Name, Description (truncated), Task Count, Node Type badges (colored category dots), Template badge, Created, Actions
+        - "New Workflow" button, "Use Template" clone action for template rows
+        - Empty state: "No workflows yet. Create your first workflow or start from a template." [Create Workflow] [Browse Templates]
+        - Orval codegen for typed hooks + MSW mocks
+
+- [ ] **React Flow DAG Visualization**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Read-only React Flow DAG on Workflow Detail page with custom nodes per category
+    - Why: Visual pipeline understanding is the key differentiator for the web UI
+    - Dependencies: Workflow API Routes
+    - Notes:
+        - **`@xyflow/react` v12+** with **ELKjs** for auto-layout (layered, left-to-right)
+        - 7 custom node components in `web/src/components/workflow/nodes/`: `SourceNode`, `EnricherNode`, `FilterNode`, `SorterNode`, `SelectorNode`, `CombinerNode`, `DestinationNode`
+        - `BaseWorkflowNode` shared component: category color, icon, type label, config summary
+        - Minimap in bottom-right corner, zoom controls, pan interaction
+        - **Zustand store** (`useWorkflowStore`) for React Flow canvas state (nodes, edges, viewport)
+        - Read-only in v0.4.0: no drag, connect, or delete interactions
+        - Responsive: DAG fills available width, auto-zoom to fit on load
 
 ---
 
-### v0.4.1: Connector Playlist Linking (Vertical Slice 6)
+### v0.4.1: Workflow Execution & Run History (Vertical Slice 5b)
+**Goal**: Execute workflows from the web with live per-node status on the DAG and persist complete run history.
+
+**Context**: v0.4.0 delivered workflow persistence and read-only visualization. This milestone adds one-click execution with SSE progress streaming, per-node status visualization on the DAG (the "live pipeline" experience), and run history with per-node inspection. Leverages SSE infrastructure from v0.3.1 and Prefect execution engine from v0.2.7.
+
+**What this unlocks**: Full web-based workflow lifecycle — create, visualize, execute, review history. Users see their pipeline executing in real time, node by node.
+
+**Innovative patterns** (borrowed from n8n, Temporal, Prefect):
+- **Per-node live status on DAG**: Pending -> Running (animated pulse) -> Completed (green + track count) -> Failed (red + error)
+- **Definition snapshots**: Each run stores the exact `WorkflowDef` JSON used, so editing a workflow never breaks historical run views
+- **Pre-flight connector validation**: Checks required connectors before execution starts, not after the first node fails
+- **Execution timeline**: Horizontal bar chart of per-node durations showing where time was spent
+
+#### Execution Infrastructure Epic
+
+- [ ] **Workflow Run Tables + Repository**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: `workflow_runs` + `workflow_run_nodes` tables, Alembic migration, repository
+    - Why: Persist execution history with per-node granularity
+    - Dependencies: v0.4.0 (workflows table)
+    - Notes:
+        - **`workflow_runs` table**: `id INTEGER PK`, `workflow_id INTEGER FK(workflows.id, CASCADE)`, `status VARCHAR(20) NOT NULL` (PENDING/RUNNING/COMPLETED/FAILED/CANCELLED), `definition_snapshot JSON NOT NULL`, `started_at DATETIME(tz)`, `completed_at DATETIME(tz)`, `duration_ms INTEGER`, `output_track_count INTEGER`, `output_playlist_id INTEGER FK(playlists.id, SET NULL)`, `error_message TEXT`
+        - **`workflow_run_nodes` table**: `id INTEGER PK`, `run_id INTEGER FK(workflow_runs.id, CASCADE)`, `node_id VARCHAR(100) NOT NULL`, `node_type VARCHAR(100) NOT NULL`, `status VARCHAR(20) NOT NULL`, `started_at DATETIME(tz)`, `completed_at DATETIME(tz)`, `duration_ms INTEGER`, `input_track_count INTEGER`, `output_track_count INTEGER`, `error_message TEXT`, `execution_order INTEGER NOT NULL`
+        - `definition_snapshot`: frozen copy of WorkflowDef JSON at execution time — critical for historical run DAG accuracy
+
+- [ ] **RunWorkflow + GetWorkflowRuns Use Cases**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Execute workflow with run recording, list/get runs with node details
+    - Why: Web needs execution with history tracking
+    - Dependencies: Workflow Run Tables
+    - Notes:
+        - `RunWorkflowUseCase`: snapshot definition, create run record, delegate to existing `run_workflow()` in `prefect.py`, update node records via callback
+        - Pre-flight validation: check required connectors before execution (return 503 with `{ required_connectors: ["spotify"] }`)
+        - `GetWorkflowRunsUseCase`: paginated run list + single run with per-node details
+        - `execute_node` in `prefect.py` gains a callback to update `workflow_run_nodes` and emit SSE `node_status` events
+
+- [ ] **Workflow Execution API Routes + SSE Enhancement**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: Run endpoint, runs list/detail endpoints, SSE node_status events
+    - Why: Web UI needs execution trigger and history access
+    - Dependencies: RunWorkflow Use Case
+    - Notes:
+        - `POST /workflows/{id}/run` -> `{ operation_id, run_id }` (409 Conflict if already running)
+        - `GET /workflows/{id}/runs` (paginated), `GET /workflows/{id}/runs/{run_id}` (with per-node data)
+        - New SSE event type: `node_status` with `{ node_id, node_type, status, input_track_count?, output_track_count?, duration_ms?, error_message? }`
+        - Extends existing `OperationRegistry` + `SSEProgressProvider` infrastructure
+
+#### Execution Frontend Epic
+
+- [ ] **Live DAG Execution Visualization**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Per-node status animation on React Flow DAG during workflow execution
+    - Why: The "live pipeline" experience is the web UI's key differentiator
+    - Dependencies: React Flow DAG (v0.4.0)
+    - Notes:
+        - Node status states: Pending (grey dashed border) -> Running (blue pulse animation) -> Completed (green + track count badge) -> Failed (red + error icon)
+        - Edge particle animation on completed edges showing data flow direction
+        - Current node glow effect using `--shadow-glow` design token
+        - SSE `node_status` events drive Zustand store updates -> React Flow re-renders
+        - Overall progress bar + message area below DAG
+        - `useOperationProgress` hook extended with `onNodeStatus` callback
+
+- [ ] **Run History & Node Inspection**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Execution history table, run detail with per-node inspection, historical run DAG overlay
+    - Why: Users need to review past executions and diagnose failures
+    - Dependencies: Live DAG Visualization
+    - Notes:
+        - Execution History table below DAG: Run #, Started, Duration, Status badge, Output track count, "View" action
+        - Viewing a historical run renders the DAG from `definition_snapshot` (not current definition) with execution overlay
+        - Per-node inspection panel: click a node to see track count delta (e.g., "Filter removed 78 of 120 tracks"), execution time, sample output tracks (first 10 titles)
+        - Execution timeline: horizontal bar chart of per-node durations (Temporal-inspired)
+
+- [ ] **WorkflowSummary Last Run Integration**
+    - Effort: XS
+    - Status: 🔜 Not Started
+    - What: Add `last_run` to WorkflowSummary, update list page with Run button + status badges
+    - Why: Users need to see run status at a glance and trigger runs from the list
+    - Dependencies: Run History
+    - Notes:
+        - `GET /workflows` response adds `last_run: { id, status, completed_at, output_track_count } | null`
+        - Status badges: Never Run (grey), Running (blue animated), Completed (green), Failed (red)
+        - "Run" button per row with confirmation dialog
+
+---
+
+### v0.4.2: Visual Workflow Editor & Preview (Vertical Slice 5c)
+**Goal**: Create and edit workflows visually with a drag-and-drop graph editor, real-time validation, and dry-run preview.
+
+**Context**: v0.4.0 added persistence and visualization, v0.4.1 added execution and run history. This milestone completes the web workflow lifecycle with visual creation and editing. Uses React Flow's interactive mode with a node palette sidebar and configuration panel — the full n8n/Windmill-style visual builder experience.
+
+**What this unlocks**: Full self-service workflow lifecycle from the web. Users no longer need CLI access or filesystem editing to create/modify workflows.
+
+**Key UX patterns** (borrowed from n8n, Windmill, React Flow Pro):
+- **Three-panel layout**: Node Palette (left) | React Flow Canvas (center) | Config Panel (right)
+- **Drag-and-drop from palette**: DnD context + `screenToFlowPosition` for precise node placement
+- **Undo/redo history stack**: Zustand state snapshots for every editor action
+- **Edge validation**: Prevents self-loops, duplicate edges, and invalid node connections
+- **Auto-layout on demand**: ELKjs re-arranges nodes after manual edits
+
+#### Editor Infrastructure Epic
+
+- [ ] **Workflow Preview/Dry-Run Endpoint**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Execute workflow without destination writes, return per-node output summaries
+    - Why: Users need to test workflows before committing to playlist changes
+    - Dependencies: RunWorkflow Use Case (v0.4.1)
+    - Notes:
+        - `PreviewWorkflowUseCase`: execute with `dry_run=True` flag in WorkflowContext — destination nodes become no-ops
+        - `POST /workflows/{id}/preview` (saved) and `POST /workflows/preview` (unsaved definition)
+        - Returns: output tracks (first 20), per-node track counts, per-node sample tracks (first 10 titles per node)
+        - Enricher nodes still call external APIs for realistic output — only destination writes are skipped
+        - SSE progress during preview execution (reuses `useOperationProgress` hook)
+
+#### Editor Frontend Epic
+
+- [ ] **Visual Workflow Editor Canvas**
+    - Effort: L
+    - Status: 🔜 Not Started
+    - What: Interactive React Flow editor with drag, connect, delete, select, and auto-layout
+    - Why: Users need to build workflows visually without editing JSON
+    - Dependencies: React Flow DAG (v0.4.0), Workflow API (v0.4.0)
+    - Notes:
+        - **React Flow interactive mode**: drag nodes, connect edges, delete nodes/edges, select + multi-select
+        - **Zustand editor store** extends the read-only viewer store: adds undo/redo (history stack of node/edge snapshots), add/remove node, add/remove edge, update node config
+        - **ELKjs auto-layout** button: re-arrange nodes automatically after manual edits
+        - **Edge validation**: `onConnect` handler validates connections (no self-loops, no duplicate edges, type compatibility)
+        - **Connection rules**: source nodes have no inputs, destination nodes have no outputs, combiners accept multiple inputs
+        - Create (`/workflows/new`) and Edit (`/workflows/:id/edit`) routes share the same editor component
+
+- [ ] **Node Palette Sidebar**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Draggable node type sidebar organized by category with search
+    - Why: Users need to discover and add available node types to the canvas
+    - Dependencies: Node reference API endpoint (v0.4.0), Editor Canvas
+    - Notes:
+        - Left sidebar with 7 category accordions: Source (3 nodes), Enricher (3), Filter (9), Sorter (8), Selector (2), Combiner (4), Destination (2)
+        - Drag-and-drop from palette to canvas using React Flow's DnD pattern (DnD context + `screenToFlowPosition`)
+        - Visual ghost preview during drag
+        - Search/filter within the palette
+        - Each entry shows: category-colored icon, type name, brief description
+        - Data sourced from `GET /workflows/nodes` endpoint
+
+- [ ] **Node Configuration Panel**
+    - Effort: M
+    - Status: 🔜 Not Started
+    - What: Dynamic form panel for configuring the selected node's parameters
+    - Why: Users need to configure node behavior without editing JSON
+    - Dependencies: Editor Canvas
+    - Notes:
+        - Right sidebar appears when a node is selected on the canvas
+        - Dynamic form generated from node's config schema (required/optional fields)
+        - Field types: text input, number input, select dropdown, boolean toggle, date picker
+        - Validation: required field indicators, type checking, range validation
+        - Changes update the node's `data.config` in Zustand store immediately
+        - Header shows: node category badge, type name, description
+
+- [ ] **Preview/Dry-Run Panel**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: Preview results display panel showing track output and per-node summaries
+    - Why: Users need to test workflows before running them for real
+    - Dependencies: Preview endpoint, Editor Canvas
+    - Notes:
+        - Bottom drawer or right panel shows preview results
+        - Output track count, first 20 track titles with artist/album
+        - Per-node summary: track count at each stage through the pipeline
+        - "Preview mode -- no playlists were created or modified" banner
+        - SSE progress during preview execution
+
+- [ ] **Editor Toolbar**
+    - Effort: S
+    - Status: 🔜 Not Started
+    - What: Top toolbar with save, preview, run, undo/redo, and layout actions
+    - Why: Users need quick access to editor actions
+    - Dependencies: Editor Canvas, Preview Panel
+    - Notes:
+        - Buttons: Save, Preview (dry-run), Run, Undo, Redo, Auto-Layout, Zoom to Fit, Delete Selected
+        - Save serializes React Flow state -> WorkflowDef JSON -> `POST /workflows` or `PATCH /workflows/{id}`
+        - Unsaved changes indicator (dot on Save button, browser `beforeunload` warning)
+        - Keyboard shortcuts: Ctrl+S (save), Ctrl+Z (undo), Ctrl+Shift+Z (redo), Delete (remove selected), Ctrl+A (select all)
+
+---
+
+### v0.4.3: Connector Playlist Linking (Vertical Slice 6)
 **Goal**: Link canonical playlists to external service playlists and sync changes from the web.
 
 **Context**: Use cases already exist (`CreateConnectorPlaylistUseCase`, `UpdateConnectorPlaylistUseCase`). This milestone adds the API routes, frontend UI, and bidirectional sync controls. Completes the web UI feature set.
@@ -400,7 +636,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
 
 ---
 
-### v0.4.2: CI/CD & Quality Hardening
+### v0.4.4: CI/CD & Quality Hardening
 **Goal**: Pause on features to harden the stack. CI pipeline, test suites, type audit, accessibility.
 
 **Context**: The web UI has 6+ working pages (Dashboard, Library, Playlists, Imports, Workflows, Settings). Before adding more features, establish regression protection and quality gates.
@@ -766,78 +1002,47 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
         - Frontend: Manual mapping correction UI on Track Detail, "Unmapped" filter in Library, dashboard DQ alerts
         - Interactive step-through for bulk operations
 
-### v0.7.0: Interactive Workflow Editor
-**Goal**: Full editing capabilities with intuitive graphical interface
+### v0.7.0: Advanced Workflow Features
+**Goal**: Power-user workflow capabilities building on the visual editor foundation from v0.4.2.
 
-**Context**: v0.4.0 provides read-only workflow visualization + execution with a JSON editor. This milestone upgrades the JSON editor to a graphical drag-and-drop interface.
+**Context**: v0.4.2 delivered the core visual drag-and-drop workflow editor with node palette, configuration panel, undo/redo, and preview. This milestone adds advanced features for power users who build complex multi-branch pipelines.
 
-> User flow sketch: [01-user-flows.md § 6.5](web-ui/01-user-flows.md#65-visual-workflow-builder-v070-sketch)
+#### Advanced Editor Epics
 
-#### Interactive Editing System Epics
-- [ ] **Drag-and-Drop Node Creation**
+- [ ] **Sub-Flows & Node Grouping**
     - Effort: M
-    - What: Implement drag-and-drop node creation from node palette
-    - Why: Need intuitive workflow creation experience
-    - Dependencies: v0.4.0 (Workflow pages)
-    - Status: Not Started
+    - What: Group related nodes into collapsible sub-flows for complex workflows
+    - Why: Large workflows (10+ nodes) become hard to navigate without grouping
+    - Dependencies: v0.4.2 (Visual Editor)
+    - Status: 🔜 Not Started
     - Notes:
-        - Create node palette component
-        - Implement drag source for node types
-        - Add drop target handling
-        - Include node positioning logic
-        - Support undo/redo
+        - React Flow's `parentId` and `extent: 'parent'` for nested nodes
+        - Labeled group nodes as collapsible containers
+        - Expand/collapse toggle to show/hide group internals
+        - Groups can be named and reused as "snippets"
 
-- [ ] **Node Configuration Panel**
+- [ ] **Workflow Versioning & Diff**
     - Effort: L
-    - What: Create dynamic configuration panel for node parameters
-    - Why: Users need to configure node behavior without JSON editing
-    - Dependencies: v0.4.0 (Workflow pages)
-    - Status: Not Started
+    - What: Track workflow definition changes over time with visual diff
+    - Why: Users need to understand what changed between versions and revert if needed
+    - Dependencies: v0.4.2 (Visual Editor)
+    - Status: 🔜 Not Started
     - Notes:
-        - Generate form from node schema
-        - Implement validation
-        - Add help text and documentation
-        - Support complex parameter types
-        - Include preset configurations
+        - `workflow_versions` table: version number, definition snapshot, created_at, change_summary
+        - Side-by-side DAG diff view: added nodes (green), removed nodes (red), modified nodes (yellow)
+        - Revert to any previous version
+        - Auto-version on save (not every keystroke)
 
-- [ ] **Edge Management**
-    - Effort: M
-    - What: Implement interactive edge creation and deletion
-    - Why: Users need to visually connect nodes
-    - Dependencies: Drag-and-Drop Node Creation
-    - Status: Not Started
-    - Notes:
-        - Add interactive connection points
-        - Implement edge validation
-        - Support edge deletion
-        - Include edge styling
-        - Handle edge repositioning
-
-- [ ] **Visual Editor Save/Load**
+- [ ] **Workflow Import/Export**
     - Effort: S
-    - What: Add save/load functionality for visual workflow editor
-    - Why: Users need to persist their work from the drag-and-drop editor
-    - Dependencies: Node Configuration Panel
-    - Status: Not Started
+    - What: Export workflow definitions as JSON files, import from file or URL
+    - Why: Share workflows between Narada instances, backup/restore
+    - Dependencies: v0.4.2 (Visual Editor)
+    - Status: 🔜 Not Started
     - Notes:
-        - Implement save API endpoint
-        - Add version control
-        - Support auto-save
-        - Include export/import
-        - Handle validation during save
-
-- [ ] **In-Editor Validation**
-    - Effort: M
-    - What: Add real-time validation of workflow structure
-    - Why: Users need immediate feedback on workflow validity
-    - Dependencies: Edge Management
-    - Status: Not Started
-    - Notes:
-        - Validate node configurations
-        - Check edge validity
-        - Highlight errors
-        - Provide guidance
-        - Support auto-correction
+        - Export: download WorkflowDef as `.json` file
+        - Import: upload `.json` file, validate, create new workflow
+        - Share via URL (encoded definition in query param for small workflows)
 
 ---
 

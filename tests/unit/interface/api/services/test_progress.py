@@ -229,3 +229,134 @@ class TestSSEProgressSubscriber:
 
         ids = [e["id"] for e in events]
         assert ids == ["evt_1", "evt_2", "evt_3", "evt_4"]  # started + 3 progress
+
+
+# ---------------------------------------------------------------------------
+# SSEProgressSubscriber — Sub-operation routing
+# ---------------------------------------------------------------------------
+
+
+class TestSSEProgressSubscriberSubOperations:
+    """Tests that sub-operation events route to parent queues correctly."""
+
+    async def test_sub_operation_started_routes_to_parent_queue(self):
+        registry = SSEOperationRegistry()
+        parent_queue = await registry.register("op-1")
+        subscriber = SSEProgressSubscriber(registry)
+
+        # Start the parent operation first to initialize its counter
+        parent_op = ProgressOperation(
+            operation_id="op-1",
+            description="Workflow run",
+            status=OperationStatus.RUNNING,
+        )
+        await subscriber.on_operation_started(parent_op)
+        parent_queue.get_nowait()  # Drain the parent started event
+
+        # Start a sub-operation with parent metadata
+        sub_op = ProgressOperation(
+            operation_id="sub-1",
+            description="Fetching lastfm metadata",
+            total_items=50,
+            status=OperationStatus.RUNNING,
+            metadata={
+                "parent_operation_id": "op-1",
+                "phase": "enrich",
+                "node_type": "enricher",
+            },
+        )
+        await subscriber.on_operation_started(sub_op)
+
+        event = parent_queue.get_nowait()
+        assert event["event"] == "sub_operation_started"
+        assert event["data"]["operation_id"] == "sub-1"
+        assert event["data"]["parent_operation_id"] == "op-1"
+        assert event["data"]["description"] == "Fetching lastfm metadata"
+        assert event["data"]["total"] == 50
+        assert event["data"]["phase"] == "enrich"
+        assert event["data"]["node_type"] == "enricher"
+
+    async def test_sub_progress_routes_to_parent_queue(self):
+        registry = SSEOperationRegistry()
+        parent_queue = await registry.register("op-1")
+        subscriber = SSEProgressSubscriber(registry)
+
+        # Start parent
+        parent_op = ProgressOperation(
+            operation_id="op-1",
+            description="Workflow run",
+            status=OperationStatus.RUNNING,
+        )
+        await subscriber.on_operation_started(parent_op)
+        parent_queue.get_nowait()  # Drain
+
+        # Start sub-operation
+        sub_op = ProgressOperation(
+            operation_id="sub-1",
+            description="Fetching metadata",
+            total_items=100,
+            status=OperationStatus.RUNNING,
+            metadata={
+                "parent_operation_id": "op-1",
+                "phase": "enrich",
+                "node_type": "enricher",
+            },
+        )
+        await subscriber.on_operation_started(sub_op)
+        parent_queue.get_nowait()  # Drain sub_operation_started
+
+        # Emit progress for the sub-operation
+        progress_event = create_progress_event(
+            "sub-1", current=25, total=100, message="Processed 25/100"
+        )
+        await subscriber.on_progress_event(progress_event)
+
+        event = parent_queue.get_nowait()
+        assert event["event"] == "sub_progress"
+        assert event["data"]["operation_id"] == "sub-1"
+        assert event["data"]["parent_operation_id"] == "op-1"
+        assert event["data"]["current"] == 25
+        assert event["data"]["total"] == 100
+        assert event["data"]["message"] == "Processed 25/100"
+        assert event["data"]["completion_percentage"] == 25.0
+
+    async def test_sub_operation_completed_routes_to_parent(self):
+        registry = SSEOperationRegistry()
+        parent_queue = await registry.register("op-1")
+        subscriber = SSEProgressSubscriber(registry)
+
+        # Start parent
+        parent_op = ProgressOperation(
+            operation_id="op-1",
+            description="Workflow run",
+            status=OperationStatus.RUNNING,
+        )
+        await subscriber.on_operation_started(parent_op)
+        parent_queue.get_nowait()  # Drain
+
+        # Start sub-operation
+        sub_op = ProgressOperation(
+            operation_id="sub-1",
+            description="Fetching metadata",
+            total_items=100,
+            status=OperationStatus.RUNNING,
+            metadata={
+                "parent_operation_id": "op-1",
+                "phase": "enrich",
+                "node_type": "enricher",
+            },
+        )
+        await subscriber.on_operation_started(sub_op)
+        parent_queue.get_nowait()  # Drain sub_operation_started
+
+        # Complete the sub-operation
+        await subscriber.on_operation_completed("sub-1", OperationStatus.COMPLETED)
+
+        event = parent_queue.get_nowait()
+        assert event["event"] == "sub_operation_completed"
+        assert event["data"]["operation_id"] == "sub-1"
+        assert event["data"]["parent_operation_id"] == "op-1"
+        assert event["data"]["final_status"] == "completed"
+
+        # No sentinel should be placed (only parent completion sends sentinel)
+        assert parent_queue.empty()

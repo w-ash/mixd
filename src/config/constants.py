@@ -6,7 +6,13 @@ such as HTTP status codes, API format specifications, and business rule limits.
 For user-configurable values, see settings.py instead.
 """
 
-from typing import Final
+from typing import Final, Literal
+
+# Workflow progress tracking types
+type Phase = Literal["fetch", "enrich", "query", "save", "sync"]
+type NodeType = Literal[
+    "source", "enricher", "destination", "filter", "sorter", "selector"
+]
 
 
 class HTTPStatus:

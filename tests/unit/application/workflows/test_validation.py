@@ -1,0 +1,238 @@
+"""Tests for workflow validation and topological sort.
+
+Tests structural validation (required config, upstream references, node types)
+and DAG ordering with cycle detection.
+"""
+
+import pytest
+
+from src.application.workflows.validation import (
+    _validate_node_config,
+    topological_sort,
+    validate_workflow_def,
+)
+from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
+
+
+class TestValidateWorkflowDef:
+    """Tests for validate_workflow_def structural checks."""
+
+    def test_empty_workflow_raises(self):
+        """Workflow with no tasks raises ValueError."""
+        with pytest.raises(ValueError, match="Workflow has no tasks"):
+            validate_workflow_def(WorkflowDef(id="empty", name="empty"))
+
+    def test_unknown_upstream_raises(self):
+        """Upstream reference to nonexistent task raises ValueError."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "test-123"},
+                ),
+                WorkflowTaskDef(
+                    id="dest_1",
+                    type="destination.create_playlist",
+                    config={"name": "Test"},
+                    upstream=["nonexistent"],
+                ),
+            ],
+        )
+        with pytest.raises(ValueError, match="unknown upstream 'nonexistent'"):
+            validate_workflow_def(wf)
+
+    def test_unknown_node_type_raises(self):
+        """Unregistered node type raises ValueError."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[WorkflowTaskDef(id="src_1", type="totally.fake")],
+        )
+        with pytest.raises(ValueError, match=r"unknown node type 'totally\.fake'"):
+            validate_workflow_def(wf)
+
+    def test_valid_workflow_passes(self):
+        """Well-formed workflow definition passes validation."""
+        validate_workflow_def(WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "test-123"},
+                ),
+                WorkflowTaskDef(
+                    id="dest_1",
+                    type="destination.create_playlist",
+                    config={"name": "Test Playlist"},
+                    upstream=["src_1"],
+                ),
+            ],
+        ))
+
+    def test_missing_required_config_raises(self):
+        """Node with missing required config key raises ValueError."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[WorkflowTaskDef(id="src_1", type="source.playlist", config={})],
+        )
+        with pytest.raises(ValueError, match=r"missing required config.*playlist_id"):
+            validate_workflow_def(wf)
+
+    def test_wrong_type_config_value_raises(self):
+        """Config value with wrong type (int instead of str) raises ValueError."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": 123},
+                )
+            ],
+        )
+        with pytest.raises(ValueError, match=r"must be str.*got int"):
+            validate_workflow_def(wf)
+
+    def test_empty_string_config_value_raises(self):
+        """Empty string for required string config key raises ValueError."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src_1",
+                    type="source.playlist",
+                    config={"playlist_id": "  "},
+                )
+            ],
+        )
+        with pytest.raises(ValueError, match="must not be empty"):
+            validate_workflow_def(wf)
+
+    def test_numeric_percentage_accepted(self):
+        """Percentage config accepts both int and float values."""
+        _validate_node_config(
+            "selector.percentage", {"percentage": 50}, task_id="sel_1"
+        )
+        _validate_node_config(
+            "selector.percentage", {"percentage": 33.3}, task_id="sel_1"
+        )
+
+    def test_string_as_number_config_raises(self):
+        """String value for numeric config key raises ValueError."""
+        with pytest.raises(ValueError, match=r"must be int \| float.*got str"):
+            _validate_node_config(
+                "selector.percentage", {"percentage": "50"}, task_id="sel_1"
+            )
+
+    def test_optional_config_keys_not_required(self):
+        """Nodes without required config (e.g., filters with defaults) pass."""
+        validate_workflow_def(WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
+                WorkflowTaskDef(
+                    id="filter_1",
+                    type="filter.deduplicate",
+                    upstream=["src_1"],
+                ),
+            ],
+        ))
+
+
+class TestTopologicalSort:
+    """Tests for topological_sort with cycle detection."""
+
+    def test_cycle_detection_raises(self):
+        """Mutual dependency A->B->A raises ValueError."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x", upstream=["B"]),
+            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
+        ]
+        with pytest.raises(ValueError, match="Cycle detected"):
+            topological_sort(tasks)
+
+    def test_self_referencing_task_raises(self):
+        """Self-referencing task A->A raises ValueError."""
+        tasks = [WorkflowTaskDef(id="A", type="x", upstream=["A"])]
+        with pytest.raises(ValueError, match="Cycle detected"):
+            topological_sort(tasks)
+
+    def test_valid_dag_sorts_correctly(self):
+        """Linear chain C->B->A produces correct order [A, B, C]."""
+        tasks = [
+            WorkflowTaskDef(id="C", type="x", upstream=["B"]),
+            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
+            WorkflowTaskDef(id="A", type="x"),
+        ]
+        result = topological_sort(tasks)
+        ids = [t.id for t in result]
+        assert ids.index("A") < ids.index("B") < ids.index("C")
+
+    def test_no_upstream_tasks(self):
+        """Tasks with no dependencies are sorted without error."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x"),
+            WorkflowTaskDef(id="B", type="x"),
+        ]
+        result = topological_sort(tasks)
+        assert len(result) == 2
+
+    def test_dangling_upstream_reference(self):
+        """Upstream reference to nonexistent task is handled gracefully."""
+        tasks = [WorkflowTaskDef(id="A", type="x", upstream=["nonexistent"])]
+        result = topological_sort(tasks)
+        assert len(result) == 1
+
+
+class TestWorkflowDefConstruction:
+    """Tests for WorkflowDef and WorkflowTaskDef attrs entities."""
+
+    def test_defaults(self):
+        """Default values applied correctly."""
+        wf = WorkflowDef(id="test", name="Test")
+        assert wf.description == ""
+        assert wf.version == "1.0"
+        assert wf.tasks == []
+
+    def test_task_defaults(self):
+        """WorkflowTaskDef defaults for config, upstream, result_key."""
+        task = WorkflowTaskDef(id="t1", type="source.playlist")
+        assert task.config == {}
+        assert task.upstream == []
+        assert task.result_key is None
+
+    def test_frozen_immutability(self):
+        """Frozen entities raise on attribute mutation."""
+        wf = WorkflowDef(id="test", name="Test")
+        with pytest.raises(AttributeError):
+            wf.name = "Changed"  # type: ignore[misc]
+
+    def test_full_construction(self):
+        """Full construction with all fields."""
+        wf = WorkflowDef(
+            id="my_wf",
+            name="My Workflow",
+            description="Does things",
+            version="2.0",
+            tasks=[
+                WorkflowTaskDef(
+                    id="src",
+                    type="source.playlist",
+                    config={"playlist_id": "abc"},
+                    upstream=[],
+                    result_key="source_result",
+                ),
+            ],
+        )
+        assert wf.id == "my_wf"
+        assert len(wf.tasks) == 1
+        assert wf.tasks[0].result_key == "source_result"

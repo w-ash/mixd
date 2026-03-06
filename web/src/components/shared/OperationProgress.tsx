@@ -1,5 +1,8 @@
 import { AlertTriangle, Check, Ellipsis, Play, X } from "lucide-react";
-import type { OperationProgress as OperationProgressData } from "@/hooks/useOperationProgress";
+import type {
+  OperationProgress as OperationProgressData,
+  SubOperationProgress,
+} from "@/hooks/useOperationProgress";
 import { cn } from "@/lib/utils";
 
 function formatEta(seconds: number): string {
@@ -119,6 +122,51 @@ export function OperationProgress({
           style={
             progress.status !== "pending"
               ? { width: `${Math.max(percentage, isTerminal ? 100 : 2)}%` }
+              : undefined
+          }
+        />
+      </div>
+
+      {/* Sub-operation progress */}
+      {progress.subOperation && (
+        <SubOperationBar subOperation={progress.subOperation} />
+      )}
+    </output>
+  );
+}
+
+function SubOperationBar({
+  subOperation,
+}: {
+  subOperation: SubOperationProgress;
+}) {
+  const subPercentage = subOperation.completionPercentage ?? 0;
+  const isDeterminate = subOperation.total !== null;
+
+  return (
+    <output
+      className="ml-4 block space-y-1 border-l-2 border-text-faint/20 pl-3"
+      aria-label={`Sub-operation: ${subOperation.message}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs text-text-muted">
+          {subOperation.message}
+        </span>
+        {isDeterminate && subOperation.total !== null && (
+          <span className="shrink-0 text-xs tabular-nums text-text-faint font-mono">
+            {subOperation.current}/{subOperation.total}
+          </span>
+        )}
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-surface-elevated">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-300 ease-out bg-primary/60",
+            !isDeterminate && "animate-pulse w-full opacity-40",
+          )}
+          style={
+            isDeterminate
+              ? { width: `${Math.max(subPercentage, 2)}%` }
               : undefined
           }
         />

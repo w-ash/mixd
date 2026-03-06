@@ -17,6 +17,7 @@ function makeProgress(
     completionPercentage: 50,
     itemsPerSecond: null,
     etaSeconds: null,
+    subOperation: null,
     ...overrides,
   };
 }
@@ -108,5 +109,61 @@ describe("OperationProgress", () => {
     );
 
     expect(screen.getByText("30.0/min")).toBeInTheDocument();
+  });
+
+  it("renders sub-operation progress bar when present", () => {
+    render(
+      <OperationProgress
+        progress={makeProgress({
+          subOperation: {
+            operationId: "sub-1",
+            description: "Fetching metadata",
+            current: 25,
+            total: 50,
+            message: "Processed 25/50",
+            phase: "enrich",
+            completionPercentage: 50,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Processed 25/50")).toBeInTheDocument();
+    expect(screen.getByText("25/50")).toBeInTheDocument();
+  });
+
+  it("renders indeterminate sub-operation without count", () => {
+    render(
+      <OperationProgress
+        progress={makeProgress({
+          subOperation: {
+            operationId: "sub-1",
+            description: "Fetching playlist",
+            current: 0,
+            total: null,
+            message: "Fetching playlist from Spotify",
+            phase: "fetch",
+            completionPercentage: null,
+          },
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText("Fetching playlist from Spotify"),
+    ).toBeInTheDocument();
+    // Should NOT show a count within the sub-operation section
+    const subOutput = screen.getByLabelText(
+      "Sub-operation: Fetching playlist from Spotify",
+    );
+    expect(subOutput.querySelector(".font-mono")).not.toBeInTheDocument();
+  });
+
+  it("does not render sub-operation when null", () => {
+    render(
+      <OperationProgress progress={makeProgress({ subOperation: null })} />,
+    );
+
+    expect(screen.queryByLabelText(/Sub-operation/)).not.toBeInTheDocument();
   });
 });

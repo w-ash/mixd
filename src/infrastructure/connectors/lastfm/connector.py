@@ -9,6 +9,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: API response data, framework types
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, ClassVar, override
 
@@ -85,7 +86,9 @@ class LastFMConnector(BaseAPIConnector):
         return await self._operations.batch_get_track_info(tracks)
 
     async def get_external_track_data(
-        self, tracks: list[Track]
+        self,
+        tracks: list[Track],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[int, dict[str, Any]]:
         """Unified interface for retrieving complete Last.fm track data (TrackMetadataConnector protocol).
 
@@ -94,7 +97,9 @@ class LastFMConnector(BaseAPIConnector):
         """
         import attrs
 
-        typed_results = await self._operations.batch_get_track_info(tracks)
+        typed_results = await self._operations.batch_get_track_info(
+            tracks, progress_callback=progress_callback
+        )
         return {
             track_id: {
                 f.name: v

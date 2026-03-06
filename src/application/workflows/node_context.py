@@ -5,13 +5,14 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-# pyright: reportExplicitAny=false
+# pyright: reportExplicitAny=false, reportAny=false
 
 from typing import Any, cast
 
 from attrs import define
 
 from src.config import get_logger
+from src.config.constants import NodeType, Phase
 from src.domain.entities.track import TrackList
 
 from .protocols import NodeResult, UseCaseProvider, WorkflowContext
@@ -40,7 +41,7 @@ class NodeContext:
         # Check for workflow context with upstream task — data dict is Prefect's
         # heterogeneous context (task results, metadata, workflow_context), inherently Any-valued
         if "upstream_task_id" in self.data:
-            upstream_id = str(self.data["upstream_task_id"])  # type: ignore[reportAny]
+            upstream_id = str(self.data["upstream_task_id"])
             upstream_data = self.data.get(upstream_id)
             if isinstance(upstream_data, dict) and "tracklist" in upstream_data:
                 result: object = upstream_data["tracklist"]  # type: ignore[reportAny]  # dict narrowed from Any
@@ -64,7 +65,7 @@ class NodeContext:
                 logger.warning(f"Task ID not found in context: {task_id}")
                 continue
 
-            task_result: object = self.data[task_id]  # type: ignore[reportAny]  # Prefect context dict
+            task_result: object = self.data[task_id]  # Prefect context dict
             if not isinstance(task_result, dict):
                 logger.warning(f"Invalid task result for {task_id}: not a dictionary")
                 continue
@@ -129,3 +130,26 @@ class NodeContext:
             )
 
         return registry.get_connector(connector_name)
+
+    async def emit_phase_progress(
+        self, phase: Phase, node_type: NodeType, message: str
+    ) -> None:
+        """Emit a lightweight phase progress event if progress tracking is active.
+
+        No-ops silently when progress_manager or workflow_operation_id are absent
+        (e.g., CLI runs without SSE progress).
+        """
+        progress_manager = self.data.get("progress_manager")
+        workflow_operation_id = self.data.get("workflow_operation_id")
+        if progress_manager and workflow_operation_id:
+            from src.application.services.sub_operation_progress import (
+                emit_phase_progress,
+            )
+
+            await emit_phase_progress(
+                progress_manager,
+                workflow_operation_id,
+                phase=phase,
+                node_type=node_type,
+                message=message,
+            )

@@ -10,6 +10,16 @@ export type OperationStatus =
   | "failed"
   | "cancelled";
 
+export interface SubOperationProgress {
+  operationId: string;
+  description: string;
+  current: number;
+  total: number | null;
+  message: string;
+  phase: string | null;
+  completionPercentage: number | null;
+}
+
 export interface OperationProgress {
   status: OperationStatus;
   current: number;
@@ -19,6 +29,7 @@ export interface OperationProgress {
   completionPercentage: number | null;
   itemsPerSecond: number | null;
   etaSeconds: number | null;
+  subOperation: SubOperationProgress | null;
 }
 
 export interface UseOperationProgressOptions {
@@ -40,6 +51,7 @@ const DEFAULT_PROGRESS: Omit<OperationProgress, "status" | "message"> = {
   completionPercentage: null,
   itemsPerSecond: null,
   etaSeconds: null,
+  subOperation: null,
 };
 
 /**
@@ -146,9 +158,52 @@ export function useOperationProgress(
               ...prev,
               status: "failed" as const,
               message: data.message ?? "Operation failed",
+              subOperation: null,
             }));
             invalidateQueries();
             cleanup();
+            break;
+
+          case "sub_operation_started":
+            setProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    subOperation: {
+                      operationId: data.operation_id ?? "",
+                      description: data.description ?? "",
+                      current: 0,
+                      total: data.total ?? null,
+                      message: data.description ?? "",
+                      phase: data.phase ?? null,
+                      completionPercentage: null,
+                    },
+                  }
+                : prev,
+            );
+            break;
+
+          case "sub_progress":
+            setProgress((prev) =>
+              prev?.subOperation
+                ? {
+                    ...prev,
+                    subOperation: {
+                      ...prev.subOperation,
+                      current: data.current ?? prev.subOperation.current,
+                      total: data.total ?? prev.subOperation.total,
+                      message: data.message ?? prev.subOperation.message,
+                      completionPercentage: data.completion_percentage ?? null,
+                    },
+                  }
+                : prev,
+            );
+            break;
+
+          case "sub_operation_completed":
+            setProgress((prev) =>
+              prev ? { ...prev, subOperation: null } : prev,
+            );
             break;
         }
       } catch {

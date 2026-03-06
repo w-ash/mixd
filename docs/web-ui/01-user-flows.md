@@ -749,7 +749,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 6. Workflows
 
-> **Available starting v0.4.0.** Requires workflow persistence (`workflows` table), CRUD use cases, and workflow API routes. Visual builder and LLM-assisted creation are later milestones (v0.7.0, v0.8.0).
+> **Available starting v0.4.0** (persistence + visualization), **v0.4.1** (execution + run history), **v0.4.2** (visual editor + preview). Requires workflow persistence (`workflows` table), CRUD use cases, workflow API routes, and React Flow integration.
 
 ### 6.1 Workflow List
 
@@ -757,27 +757,38 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 **Steps**:
 
-1. Workflow list page shows all defined workflows.
-   - Each row: Name, Description (truncated), Last Run status badge, Last Run date, Track count output (if last run succeeded), Actions
+1. Workflow list page shows all defined workflows (user-created and templates).
+   - Each row: Name, Description (truncated), Task Count, Node Type badges (colored category dots), Last Run status badge, Last Run date, Track count output (if last run succeeded), Template badge, Actions
 
-2. **Status badges**:
+2. **Template rows** are visually distinct:
+   - Template badge ("Template") shown next to name
+   - "Use Template" action clones the template into a new editable user workflow
+   - Templates cannot be edited or deleted directly
+
+3. **Status badges** (from last run, v0.4.1+):
    - **Never Run** (grey)
-   - **Running** (blue, animated)
-   - **Completed** (green) with "42 tracks"
-   - **Failed** (red) with error preview
+   - **Running** (blue, animated pulse)
+   - **Completed** (green) with "42 tracks" output count
+   - **Failed** (red) with error preview tooltip
 
-3. **Action buttons** per row:
-   - **Run**: Execute the workflow (with confirmation)
+4. **Action buttons** per row:
+   - **Run** (v0.4.1+): Execute the workflow (with confirmation dialog)
    - **View**: Navigate to workflow detail
-   - **Edit** (v0.4.0: JSON editor, v0.7.0: visual editor)
-   - **Delete** (danger, with confirmation)
+   - **Edit** (v0.4.2+): Open visual editor
+   - **Delete** (danger, with confirmation -- not available for templates)
+   - **Use Template** (templates only): Clone into new user workflow
 
-4. **Create Workflow** button in top-right.
+5. **Create Workflow** button in top-right.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load list | `GET /workflows` | List workflows | Needs implementation |
+| Load list | `GET /workflows?include_templates=true` | `ListWorkflowsUseCase` | Needs implementation (v0.4.0) |
+| Clone template | `POST /workflows` (with template's definition) | `CreateWorkflowUseCase` | Needs implementation (v0.4.0) |
+
+**Edge cases**:
+- No workflows and no templates: "No workflows yet. Create your first workflow." [Create Workflow]
+- No user workflows but templates exist: Templates shown with prominent "Use Template" CTA.
 
 ---
 
@@ -787,41 +798,58 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 **Steps**:
 
-1. Confirmation dialog:
+1. **Pre-flight validation** (before confirmation dialog):
+   - Backend checks required connectors: "Does this workflow need Spotify? Is it connected?"
+   - If prerequisites unmet: Error toast: "This workflow requires Spotify. Connect it in Settings." with link to `/settings`.
+   - If prerequisites met: Confirmation dialog opens.
+
+2. Confirmation dialog:
    - "Run 'Weekly Obsessions'?"
-   - Optional: Show last run summary for context
+   - Shows last run summary for context (if exists): "Last run: Mar 1, 42 tracks output"
    - **Run** / **Cancel**
 
-2. User clicks **Run**.
+3. User clicks **Run**.
    - Calls `POST /workflows/{id}/run`.
-   - Returns `{ operation_id }`.
+   - Returns `{ operation_id, run_id }`.
 
-3. **Per-stage progress visualization**:
-   - The workflow detail page (or an expanded progress section) shows the DAG.
-   - Each node in the DAG shows its status:
-     - **Pending** (grey): not yet started
-     - **Running** (blue pulse): currently executing
-     - **Completed** (green): finished, shows track count
-     - **Failed** (red): error occurred
-   - Current stage highlighted. Edges animate to show data flow direction.
-   - Progress bar below the DAG shows overall completion.
+4. **Per-node live status visualization** (the "live pipeline" experience):
+   - The workflow detail page shows the DAG with per-node execution status.
+   - Each node in the DAG animates through states:
+     - **Pending** (grey, dashed border): not yet started
+     - **Running** (blue, pulsing border animation): currently executing
+     - **Completed** (green, solid border, track count badge): finished successfully
+     - **Failed** (red, solid border, error icon): error occurred
+   - Edges animate on completion: flowing particle animation shows data flow direction
+   - Current running node has a glow effect (using the `--shadow-glow` design token)
+   - Progress bar below the DAG shows overall completion percentage
    - Message area: "Enriching tracks with Last.fm data... (45/120 tracks)"
 
-4. On completion:
+5. SSE stream (`GET /operations/{id}/progress`) delivers two event types:
+   - `progress` events (existing): overall operation progress
+   - `node_status` events (new): per-node status updates
+   ```
+   event: node_status
+   data: {"node_id": "filter_step", "node_type": "filter.by_metric", "status": "RUNNING", "input_track_count": 120}
+
+   event: node_status
+   data: {"node_id": "filter_step", "node_type": "filter.by_metric", "status": "COMPLETED", "output_track_count": 42, "duration_ms": 1200}
+   ```
+
+6. On completion:
    - All nodes green (or red for failures).
    - **Result summary**: "Pipeline complete. 42 tracks output to 'Weekly Obsessions - 2026-03-01' on Spotify."
-   - Link to the output playlist.
+   - Link to the output playlist (if destination created/updated one).
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /workflows/{id}/run` | Workflow execution | Needs implementation |
-| 3 | `GET /operations/{id}/progress` | SSE with per-stage metadata | Needs implementation |
+| 1 | `POST /workflows/{id}/run` | Pre-flight + execution | Needs implementation (v0.4.1) |
+| 4-5 | `GET /operations/{id}/progress` | SSE with `node_status` events | Needs implementation (v0.4.1) |
 
 **Edge cases**:
 - Workflow already running: Backend returns `409 Conflict`. Toast: "This workflow is already running."
 - A node fails mid-pipeline: Pipeline halts at failed node. Completed nodes keep their results. Error message shown on the failed node. Overall status: Failed.
-- Connector not connected (workflow requires Spotify but not linked): Pre-flight check before run. Error: "This workflow requires Spotify. Connect it in Settings."
+- Connector not connected: Pre-flight check catches this before execution starts (see step 1).
 
 ---
 
@@ -832,107 +860,130 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Steps**:
 
 1. Workflow detail page shows:
-   - **Header**: Name, description, version, created/modified dates
-   - **DAG Visualization** (React Flow):
-     - Nodes arranged left-to-right showing the pipeline
-     - Node types color-coded: source (blue), enricher (purple), filter (orange), sorter (yellow), selector (teal), combiner (pink), destination (green)
-     - Each node shows: type label, key config (e.g., "limit: 20"), last run output count
-     - Edges show data flow between nodes
-     - Pan, zoom, and minimap for large workflows
-
-   - **Execution History** table below:
+   - **Header**: Name, description, template badge (if template), created/modified dates
+   - **DAG Visualization** (React Flow, v0.4.0):
+     - Nodes arranged left-to-right using ELKjs layered auto-layout
+     - Node types color-coded: Source (blue), Enricher (purple), Filter (orange), Sorter (gold), Selector (teal), Combiner (pink), Destination (green)
+     - Each node shows: category icon, type label (human-readable), key config summary (e.g., "limit: 20", "metric: lastfm_play_count")
+     - Edges show data flow between nodes with directional arrows
+     - Pan, zoom, and minimap for navigation
+   - **Execution History** table below DAG (v0.4.1):
      | Run | Started | Duration | Status | Output | Actions |
      |-----|---------|----------|--------|--------|---------|
      | #3 | Mar 1, 10:00 | 45s | Completed | 42 tracks | View Details |
      | #2 | Feb 22, 10:00 | 38s | Completed | 39 tracks | View Details |
      | #1 | Feb 15, 10:00 | 1m 12s | Failed | - | View Details |
 
-2. **Run Details** expand to show per-node execution data:
-   - Input/output track counts per node
-   - Execution time per node
-   - Error details for failed nodes
-   - Summary metrics from `SummaryMetricCollection`
+2. **Run Details** (v0.4.1) -- expand from history table or click "View Details":
+   - DAG re-renders from `definition_snapshot` (not current definition) with execution overlay
+   - Per-node execution overlay: input/output track counts, execution time, status color
+   - **Per-node inspection** (click a node): side panel shows:
+     - Track count delta: "Filter removed 78 of 120 tracks" or "Source loaded 120 tracks"
+     - Execution time: "3.4s"
+     - Sample output tracks: first 10 track titles with artist names
+     - Error details for failed nodes (error message, stack trace preview)
+   - **Execution timeline**: horizontal bar chart showing duration per node (Temporal-inspired)
+     - Color-coded bars matching node category colors
+     - Total duration annotation
 
-3. **Action buttons**: Run, Edit, Delete
+3. **Action buttons**: Run (v0.4.1), Edit (v0.4.2), Delete
+   - For templates: "Use Template" instead of Edit, no Delete
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load workflow | `GET /workflows/{id}` | Get workflow definition | Needs implementation |
-| Load history | `GET /workflows/{id}/runs` | List runs | Needs implementation |
-| Load run detail | `GET /workflows/{id}/runs/{run_id}` | Get run detail | Needs implementation |
+| Load workflow | `GET /workflows/{id}` | `GetWorkflowUseCase` | Needs implementation (v0.4.0) |
+| Load history | `GET /workflows/{id}/runs` | `GetWorkflowRunsUseCase` | Needs implementation (v0.4.1) |
+| Load run detail | `GET /workflows/{id}/runs/{run_id}` | `GetWorkflowRunsUseCase` | Needs implementation (v0.4.1) |
 
 ---
 
-### 6.4 Creating/Editing a Workflow (JSON Editor -- v0.4.0)
+### 6.4 Creating/Editing a Workflow (Visual Editor -- v0.4.2)
 
-**Trigger**: User clicks **Create Workflow** or **Edit** on an existing workflow.
+**Trigger**: User clicks **Create Workflow**, **Edit** on an existing workflow, or **Use Template** on a template.
 
 **Steps**:
 
-1. Editor page shows:
-   - **Name** and **Description** fields at top
-   - **JSON Editor** (Monaco editor or CodeMirror):
-     - Syntax highlighting for JSON
-     - Inline validation against workflow schema
-     - Auto-complete for node types (source.playlist, filter.by_metric, etc.)
-   - **Node Reference** sidebar: collapsible list of all available node types with their config schemas
-   - **Preview** button: dry-run the workflow to see what it would produce without writing to destination
+1. Editor page opens with **three-panel layout**:
+   - **Left: Node Palette** -- draggable node types organized by category
+   - **Center: React Flow Canvas** -- interactive graph editor
+   - **Right: Node Configuration Panel** -- form-based config for selected node
+   - **Top: Editor Toolbar** -- Save, Preview, Run, Undo, Redo, Auto-Layout, Zoom to Fit, Delete Selected
 
-2. User writes/edits the workflow JSON following the structure defined in [GUIDE_WORKFLOWS.md](../GUIDE_WORKFLOWS.md):
-   ```json
-   {
-     "id": "my_workflow",
-     "name": "My Custom Workflow",
-     "tasks": [
-       { "id": "src", "type": "source.playlist", "config": {...} },
-       { "id": "filter", "type": "filter.by_metric", "config": {...}, "upstream": ["src"] }
-     ]
-   }
-   ```
+2. **Building a workflow** (typical flow):
+   a. User enters **Name** and **Description** in the header fields.
+   b. User browses the **Node Palette** by category (Source, Enricher, Filter, Sorter, Selector, Combiner, Destination).
+   c. User **drags** a node type from the palette onto the canvas. A new node appears at the drop position.
+   d. User **connects** nodes by dragging from one node's output handle to another node's input handle. Edges appear showing data flow.
+   e. User **clicks** a node to select it. The **Configuration Panel** appears on the right with the node's config form.
+   f. User fills in config values (e.g., `metric_name: "lastfm_play_count"`, `min_value: 8`). Changes apply immediately.
+   g. Repeat steps b-f for each node in the pipeline.
+   h. User clicks **Auto-Layout** to clean up node arrangement (ELKjs layered algorithm).
 
-3. User clicks **Save**.
+3. **Node Palette** details:
+   - Accordion sections by category: Source (3), Enricher (3), Filter (9), Sorter (8), Selector (2), Combiner (4), Destination (2)
+   - Search/filter bar at top of palette
+   - Each entry: category-colored icon, type name (e.g., "Filter by Metric"), brief description
+   - Drag from palette to canvas with ghost preview at cursor
+   - Data sourced from `GET /workflows/nodes` endpoint
+
+4. **Node Configuration Panel** details:
+   - Header: category badge, type name, description
+   - Dynamic form fields generated from node's config schema:
+     - Required fields marked with indicator
+     - Text inputs, number inputs, select dropdowns, boolean toggles, date pickers
+     - Inline validation (e.g., "metric_name is required", "min_value must be a number")
+   - Changes update the Zustand store immediately (reflected on canvas node labels)
+
+5. **Edge validation** (automatic):
+   - Cannot connect a node to itself (self-loop prevention)
+   - Cannot create duplicate edges between the same pair of nodes
+   - Source nodes have no input handles, destination nodes have no output handles
+   - Combiners accept multiple input edges
+   - Cycle detection prevents circular dependencies
+
+6. **Undo/Redo** (full history):
+   - Every action (add node, remove node, connect edge, move node, config change) is recorded
+   - Ctrl+Z to undo, Ctrl+Shift+Z to redo
+   - Toolbar shows undo/redo buttons with disabled state when stack is empty
+
+7. **Saving**:
+   - User clicks **Save** (or Ctrl+S).
+   - Editor serializes React Flow state (nodes + edges + config) -> `WorkflowDef` JSON.
    - Calls `POST /workflows` (new) or `PATCH /workflows/{id}` (edit).
-   - Backend validates the workflow definition (valid JSON, known node types, valid DAG structure, required config fields).
-   - On validation error: inline error messages highlighting the problematic task.
+   - Backend validates the definition (valid node types, valid DAG, required config fields).
+   - On validation error: toast with error details, problematic nodes highlighted red on canvas.
+   - Unsaved changes indicator: dot on Save button, browser `beforeunload` warning on navigation.
 
-4. **Preview/Dry-run**:
-   - User clicks **Preview**.
-   - Calls `POST /workflows/{id}/preview` (or `POST /workflows/preview` for unsaved).
+8. **Preview/Dry-run** (v0.4.2):
+   - User clicks **Preview** in the toolbar.
+   - Calls `POST /workflows/{id}/preview` (saved) or `POST /workflows/preview` (unsaved).
    - Backend executes the workflow but skips destination writes.
-   - Returns: preview of the resulting playlist (track names, count) and per-node execution summary.
-   - Displayed in a side panel.
+   - Preview panel slides in showing:
+     - Output track count and first 20 track titles
+     - Per-node summary: track count at each stage through the pipeline
+     - "Preview mode -- no playlists were created or modified" banner
+   - SSE progress shown during preview execution.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Create | `POST /workflows` | Create workflow | Needs implementation |
-| Update | `PATCH /workflows/{id}` | Update workflow | Needs implementation |
-| Validate | `POST /workflows/validate` | Validate definition | Needs implementation |
-| Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation |
+| Load node types | `GET /workflows/nodes` | Node registry introspection | Needs implementation (v0.4.0) |
+| Create | `POST /workflows` | `CreateWorkflowUseCase` | Needs implementation (v0.4.0) |
+| Update | `PATCH /workflows/{id}` | `UpdateWorkflowUseCase` | Needs implementation (v0.4.0) |
+| Validate | `POST /workflows/validate` | Validate definition | Needs implementation (v0.4.0) |
+| Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation (v0.4.2) |
 
 **Edge cases**:
-- Invalid JSON: Editor highlights syntax errors before submission.
-- Unknown node type: Validation returns "Unknown node type 'filter.foo'. Available: filter.by_metric, filter.by_release_date, ..."
-- Circular dependency: Validation detects DAG cycle and returns error.
-- Preview with external API calls: Enricher nodes still call external APIs during preview (to show realistic output). Only destination writes are skipped.
+- Dropped node on invalid position (off canvas): Node snaps to nearest valid position.
+- Edge to incompatible node type: Connection rejected silently (handle doesn't snap).
+- Very large workflow (20+ nodes): Auto-layout keeps it organized. Minimap helps navigation.
+- Workflow from template has nodes with service-specific config (e.g., Spotify playlist ID): User must update config values before saving. Validation catches unconfigured required fields.
+- Browser refresh with unsaved changes: `beforeunload` warning prompts user to save or discard.
 
 ---
 
-### 6.5 Visual Workflow Builder (v0.7.0 Sketch)
-
-> This is a forward-looking sketch. v0.7.0 replaces the JSON editor with a visual builder.
-
-**Concept**:
-- Left sidebar: **Node Palette** with draggable node types organized by category
-- Center canvas: React Flow editor where users drag nodes, connect edges, configure
-- Right sidebar: **Node Configuration Panel** -- form-based config for the selected node
-- Top toolbar: Save, Run, Preview, Undo/Redo
-- Validation runs continuously as the user builds
-
----
-
-### 6.6 LLM-Assisted Workflow Creation (v0.8.0 Sketch)
+### 6.5 LLM-Assisted Workflow Creation (v0.8.0 Sketch)
 
 > Forward-looking sketch for v0.8.0.
 
@@ -942,7 +993,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 - LLM generates a workflow definition
 - Preview shows the generated DAG and a dry-run result
 - User can tweak in the visual editor or iterate via chat
-- "Looks good, save it" → persists the workflow
+- "Looks good, save it" -> persists the workflow
 
 ---
 
