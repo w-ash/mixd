@@ -33,7 +33,7 @@ function overrideTracks(data: unknown[], total?: number) {
 describe("Library", () => {
   it("renders loading skeleton initially", () => {
     renderWithProviders(<Library />);
-    const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+    const skeletons = document.querySelectorAll('[class*="shimmer"]');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
@@ -151,7 +151,7 @@ describe("Library", () => {
       expect(screen.getByText("Liked Track")).toBeInTheDocument();
     });
 
-    expect(screen.getByTitle("Liked")).toBeInTheDocument();
+    expect(screen.getByLabelText("Liked")).toBeInTheDocument();
   });
 
   it("renders search input", async () => {
@@ -195,6 +195,9 @@ describe("Library", () => {
 
     expect(
       screen.getByRole("button", { name: /Sort by Title/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Sort by Artist/ }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Sort by Duration/ }),

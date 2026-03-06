@@ -1,6 +1,6 @@
+import { AlertTriangle, ArrowUp, Heart, Music } from "lucide-react";
 import { useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
-
 import { useGetConnectorsApiV1ConnectorsGet } from "@/api/generated/connectors/connectors";
 import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -8,6 +8,13 @@ import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -20,8 +27,10 @@ import {
 import { usePagination } from "@/hooks/usePagination";
 import { useTrackSearch } from "@/hooks/useTrackSearch";
 import { formatDuration } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
+const STAGGER_CAP = 15;
 
 type SortField = "title" | "artist" | "duration" | "added";
 type SortDir = "asc" | "desc";
@@ -59,8 +68,6 @@ function TrackTableSkeleton() {
           <Skeleton className="h-5 w-56" />
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-5 w-16" />
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-5 w-8" />
         </div>
       ))}
     </div>
@@ -85,7 +92,6 @@ function SortableHead({
 }) {
   const isActive = field === currentField;
   const nextDir = isActive && currentDir === "asc" ? "desc" : "asc";
-  const arrow = isActive ? (currentDir === "asc" ? " \u2191" : " \u2193") : "";
 
   return (
     <TableHead
@@ -101,10 +107,14 @@ function SortableHead({
         aria-label={`Sort by ${SORT_LABELS[field]} ${nextDir === "asc" ? "ascending" : "descending"}`}
       >
         {children}
-        {arrow && (
-          <span className="text-text-muted" aria-hidden="true">
-            {arrow}
-          </span>
+        {isActive && (
+          <ArrowUp
+            className={cn(
+              "size-3 transition-transform duration-150",
+              currentDir === "desc" && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
         )}
       </button>
     </TableHead>
@@ -236,30 +246,40 @@ export function Library() {
           )}
         </div>
 
-        <select
-          value={likedParam ?? ""}
-          onChange={(e) => setFilter("liked", e.target.value || null)}
-          className="h-9 rounded-md border border-input bg-transparent px-3 font-display text-sm leading-none [text-box:trim-both_cap_alphabetic] text-text"
-          aria-label="Filter by liked status"
+        <Select
+          value={likedParam ?? "all"}
+          onValueChange={(value) =>
+            setFilter("liked", value === "all" ? null : value)
+          }
         >
-          <option value="">All tracks</option>
-          <option value="true">Liked</option>
-          <option value="false">Not liked</option>
-        </select>
+          <SelectTrigger aria-label="Filter by liked status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All tracks</SelectItem>
+            <SelectItem value="true">Liked</SelectItem>
+            <SelectItem value="false">Not liked</SelectItem>
+          </SelectContent>
+        </Select>
 
-        <select
-          value={connectorParam ?? ""}
-          onChange={(e) => setFilter("connector", e.target.value || null)}
-          className="h-9 rounded-md border border-input bg-transparent px-3 font-display text-sm leading-none [text-box:trim-both_cap_alphabetic] text-text"
-          aria-label="Filter by connector"
+        <Select
+          value={connectorParam ?? "all"}
+          onValueChange={(value) =>
+            setFilter("connector", value === "all" ? null : value)
+          }
         >
-          <option value="">All connectors</option>
-          {connectors.map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name.charAt(0).toUpperCase() + c.name.slice(1)}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="Filter by connector">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All connectors</SelectItem>
+            {connectors.map((c) => (
+              <SelectItem key={c.name} value={c.name}>
+                {c.name.charAt(0).toUpperCase() + c.name.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading */}
@@ -268,7 +288,7 @@ export function Library() {
       {/* Error */}
       {isError && (
         <EmptyState
-          icon="!"
+          icon={<AlertTriangle className="size-10" />}
           heading="Failed to load tracks"
           description={
             error instanceof Error
@@ -281,7 +301,7 @@ export function Library() {
       {/* Empty state */}
       {!isLoading && !isError && tracks.length === 0 && (
         <EmptyState
-          icon="♪"
+          icon={<Music className="size-10" />}
           heading={hasFilters ? "No matching tracks" : "No tracks yet"}
           description={
             hasFilters
@@ -294,11 +314,17 @@ export function Library() {
       {/* Track table */}
       {!isLoading && !isError && tracks.length > 0 && (
         <div
-          className={`transition-opacity ${isPlaceholderData ? "opacity-70" : ""}`}
+          className={cn(
+            "transition-all duration-200",
+            isPlaceholderData && "opacity-70 blur-[0.5px]",
+          )}
         >
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8">
+                  <span className="sr-only">Liked</span>
+                </TableHead>
                 <SortableHead
                   field="title"
                   currentField={sortField}
@@ -307,23 +333,52 @@ export function Library() {
                 >
                   Title
                 </SortableHead>
-                <TableHead className="w-40">Album</TableHead>
+                <SortableHead
+                  field="artist"
+                  currentField={sortField}
+                  currentDir={sortDir}
+                  onSort={handleSort}
+                >
+                  Artist
+                </SortableHead>
+                <TableHead className="w-48">Album</TableHead>
                 <SortableHead
                   field="duration"
                   currentField={sortField}
                   currentDir={sortDir}
                   onSort={handleSort}
-                  className="w-24 text-right"
+                  className="w-20 text-right"
                 >
                   Duration
                 </SortableHead>
-                <TableHead className="w-40">Connectors</TableHead>
-                <TableHead className="w-16 text-center">Liked</TableHead>
+                <TableHead className="w-24 text-center">Sources</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tracks.map((track) => (
-                <TableRow key={track.id} className="group">
+              {tracks.map((track, index) => (
+                <TableRow
+                  key={track.id}
+                  className="group relative"
+                  style={
+                    index < STAGGER_CAP
+                      ? {
+                          animation: `fade-in-row 300ms ease-out ${index * 20}ms both`,
+                        }
+                      : undefined
+                  }
+                >
+                  {/* Liked */}
+                  <TableCell className="relative w-8 text-center">
+                    {/* Gold hover accent bar */}
+                    <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                    {track.is_liked && (
+                      <Heart
+                        className="mx-auto size-3.5 text-status-liked -translate-y-px"
+                        aria-label="Liked"
+                      />
+                    )}
+                  </TableCell>
+                  {/* Title */}
                   <TableCell>
                     <Link
                       to={`/library/${track.id}`}
@@ -331,38 +386,31 @@ export function Library() {
                     >
                       {track.title}
                     </Link>
-                    <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
-                      {track.artists.map((a) => a.name).join(", ")}
-                    </p>
                   </TableCell>
-                  <TableCell className="text-text-muted text-sm truncate max-w-40">
+                  {/* Artist */}
+                  <TableCell className="text-text-muted text-sm truncate max-w-48">
+                    {track.artists.map((a) => a.name).join(", ")}
+                  </TableCell>
+                  {/* Album */}
+                  <TableCell className="text-text-muted text-sm truncate max-w-48">
                     {track.album ?? "\u2014"}
                   </TableCell>
+                  {/* Duration */}
                   <TableCell className="text-right tabular-nums text-text-muted text-sm">
                     {formatDuration(track.duration_ms)}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
+                  {/* Sources */}
+                  <TableCell className="w-24">
+                    <span className="flex justify-center gap-1">
                       {track.connector_names.map((name) => (
                         <ConnectorIcon
                           key={name}
                           name={name}
-                          className="text-xs"
+                          iconSize="sm"
+                          labelHidden
                         />
                       ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {track.is_liked && (
-                      <span
-                        className="text-status-liked"
-                        role="img"
-                        title="Liked"
-                        aria-label="Liked"
-                      >
-                        &#9829;
-                      </span>
-                    )}
+                    </span>
                   </TableCell>
                 </TableRow>
               ))}

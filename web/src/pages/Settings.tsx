@@ -1,8 +1,10 @@
+import { AlertTriangle, HelpCircle } from "lucide-react";
 import { useGetConnectorsApiV1ConnectorsGet } from "@/api/generated/connectors/connectors";
 import type { ConnectorStatusSchema } from "@/api/generated/model";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorCard } from "@/components/shared/ConnectorCard";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const sections = [
@@ -63,12 +65,7 @@ function ConnectorSection({
 
   return (
     <div className="space-y-3">
-      <div>
-        <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-          {title}
-        </h2>
-        <p className="mt-1 text-sm text-text-faint">{description}</p>
-      </div>
+      <SectionHeader title={title} description={description} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {connectors.map((connector) => (
           <ConnectorCard key={connector.name} connector={connector} />
@@ -95,7 +92,7 @@ export function Settings() {
 
       {isError && (
         <EmptyState
-          icon="!"
+          icon={<AlertTriangle className="size-10" />}
           heading="Failed to load connectors"
           description={
             error instanceof Error
@@ -107,14 +104,14 @@ export function Settings() {
 
       {!isLoading && !isError && connectors.length === 0 && (
         <EmptyState
-          icon="?"
+          icon={<HelpCircle className="size-10" />}
           heading="No connectors configured"
           description="No music service connectors are available."
         />
       )}
 
       {!isLoading && !isError && connectors.length > 0 && (
-        <div className="space-y-8">
+        <div className="space-y-12">
           {sections.map((section) => (
             <ConnectorSection
               key={section.title}

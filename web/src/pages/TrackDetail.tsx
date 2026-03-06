@@ -1,3 +1,4 @@
+import { ArrowLeft, HelpCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { useGetTrackDetailApiV1TracksTrackIdGet } from "@/api/generated/tracks/tracks";
@@ -6,7 +7,12 @@ import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import {
+  decodeHtmlEntities,
+  formatDate,
+  formatDateTime,
+  formatDuration,
+} from "@/lib/format";
 
 function DetailSkeleton() {
   return (
@@ -52,13 +58,31 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-surface-sunken p-5">
+    <section className="rounded-lg border-l-2 border-primary/30 bg-surface-sunken p-5">
       <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wider text-text-muted">
         {title}
       </h2>
       {children}
     </section>
   );
+}
+
+/** Build external URL for a connector track ID, or null if not linkable */
+function getConnectorTrackUrl(
+  connectorName: string,
+  trackId: string,
+): string | null {
+  switch (connectorName) {
+    case "spotify":
+      return `https://open.spotify.com/track/${trackId}`;
+    case "musicbrainz":
+      return `https://musicbrainz.org/recording/${trackId}`;
+    case "lastfm":
+      // Last.fm IDs are often full URLs already; MBIDs and lastfm: prefixes aren't linkable
+      return trackId.startsWith("https://") ? trackId : null;
+    default:
+      return null;
+  }
 }
 
 export function TrackDetail() {
@@ -77,7 +101,7 @@ export function TrackDetail() {
   if (isError) {
     return (
       <EmptyState
-        icon="?"
+        icon={<HelpCircle className="size-10" />}
         heading="Track not found"
         description="This track doesn't exist or has been removed."
       />
@@ -97,7 +121,8 @@ export function TrackDetail() {
           to="/library"
           className="text-sm text-text-muted hover:text-text transition-colors"
         >
-          &larr; Back to Library
+          <ArrowLeft className="inline size-3.5 -translate-y-px" /> Back to
+          Library
         </Link>
       </div>
 
@@ -111,7 +136,7 @@ export function TrackDetail() {
         {track.album && <Field label="Album">{track.album}</Field>}
         <Field label="Duration">{formatDuration(track.duration_ms)}</Field>
         {track.release_date && (
-          <Field label="Release Date">{track.release_date}</Field>
+          <Field label="Release Date">{formatDate(track.release_date)}</Field>
         )}
         {track.isrc && (
           <Field label="ISRC">
@@ -133,9 +158,26 @@ export function TrackDetail() {
                   className="flex items-center justify-between"
                 >
                   <ConnectorIcon name={m.connector_name} />
-                  <code className="text-xs text-text-muted font-mono">
-                    {m.connector_track_id}
-                  </code>
+                  {(() => {
+                    const url = getConnectorTrackUrl(
+                      m.connector_name,
+                      m.connector_track_id,
+                    );
+                    return url ? (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-text-muted font-mono hover:text-primary transition-colors"
+                      >
+                        {m.connector_track_id}
+                      </a>
+                    ) : (
+                      <code className="text-xs text-text-muted font-mono">
+                        {m.connector_track_id}
+                      </code>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>
@@ -147,32 +189,32 @@ export function TrackDetail() {
           {likeEntries.length === 0 ? (
             <p className="text-sm text-text-muted">No like data.</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="grid grid-cols-[auto_auto_1fr] items-center gap-x-3 gap-y-2 text-sm">
               {likeEntries.map(([service, status]) => (
                 <li
                   key={service}
-                  className="flex items-center justify-between text-sm"
+                  className="col-span-3 grid grid-cols-subgrid items-center"
                 >
                   <span className="capitalize text-text">{service}</span>
-                  <span className="flex items-center gap-2">
-                    {status.is_liked ? (
-                      <Badge
-                        variant="default"
-                        className="bg-status-liked/20 text-status-liked border-status-liked/30"
-                      >
-                        Liked
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-text-muted">
-                        Not liked
-                      </Badge>
-                    )}
-                    {status.liked_at && (
-                      <span className="text-xs text-text-muted">
-                        {formatDateTime(status.liked_at)}
-                      </span>
-                    )}
-                  </span>
+                  {status.is_liked ? (
+                    <Badge
+                      variant="default"
+                      className="bg-status-liked/20 text-status-liked border-status-liked/30"
+                    >
+                      Liked
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-text-muted">
+                      Not liked
+                    </Badge>
+                  )}
+                  {status.liked_at ? (
+                    <span className="text-xs text-text-muted">
+                      {formatDateTime(status.liked_at)}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
                 </li>
               ))}
             </ul>
@@ -216,7 +258,7 @@ export function TrackDetail() {
                   </Link>
                   {p.description && (
                     <p className="text-xs text-text-muted line-clamp-1">
-                      {p.description}
+                      {decodeHtmlEntities(p.description)}
                     </p>
                   )}
                 </li>

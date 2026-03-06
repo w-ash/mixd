@@ -81,7 +81,7 @@ export function ConnectorCard({
   const authDetail = getAuthDetail(connector);
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-card p-4">
+    <div className="flex h-full flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-4 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
       <div className="flex items-start justify-between gap-2">
         <ConnectorIcon name={connector.name} iconSize="lg" />
         {getStatusBadge(connector)}

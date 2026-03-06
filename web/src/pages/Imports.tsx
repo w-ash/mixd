@@ -14,9 +14,13 @@ import type {
   ImportLastfmHistoryRequestMode,
 } from "@/api/generated/model";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
+import {
+  ConnectorIcon,
+  type ConnectorName,
+} from "@/components/shared/ConnectorIcon";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { OperationProgress } from "@/components/shared/OperationProgress";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { useOperationProgress } from "@/hooks/useOperationProgress";
 import { formatDateTime } from "@/lib/format";
@@ -54,7 +58,7 @@ function makeOperationCallbacks(
 // ─── Operation Card ──────────────────────────────────────────────
 
 interface OperationCardProps {
-  connector: string;
+  connector: ConnectorName;
   title: string;
   description: string;
   checkpoint: CheckpointStatusSchema | undefined;
@@ -83,7 +87,7 @@ function OperationCard({
     progress?.status === "running" || progress?.status === "pending";
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-4 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-sm font-semibold">{title}</h3>
@@ -288,18 +292,13 @@ export function Imports() {
         description="Import and sync your music data across services."
       />
 
-      <div className="space-y-8">
+      <div className="space-y-12">
         {/* ── Listening History ──────────────────────── */}
         <section className="space-y-3">
-          <div>
-            <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-              Listening History
-            </h2>
-            <p className="mt-1 text-sm text-text-faint">
-              Your play counts across services — scrobbles, stream history, and
-              data exports.
-            </p>
-          </div>
+          <SectionHeader
+            title="Listening History"
+            description="Your play counts across services — scrobbles, stream history, and data exports."
+          />
           <div className="space-y-3">
             <LastfmHistoryImport checkpoints={checkpoints} />
             <SpotifyHistoryImport checkpoints={checkpoints} />
@@ -308,14 +307,10 @@ export function Imports() {
 
         {/* ── Liked Tracks ──────────────────────────── */}
         <section className="space-y-3">
-          <div>
-            <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-              Liked Tracks
-            </h2>
-            <p className="mt-1 text-sm text-text-faint">
-              Tracks you've hearted or loved — sync between Spotify and Last.fm.
-            </p>
-          </div>
+          <SectionHeader
+            title="Liked Tracks"
+            description="Tracks you've hearted or loved — sync between Spotify and Last.fm."
+          />
           <div className="space-y-3">
             <SpotifyLikesImport checkpoints={checkpoints} />
             <LastfmLikesExport checkpoints={checkpoints} />

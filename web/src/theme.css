@@ -57,9 +57,18 @@
   --font-body: "Newsreader", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
+  /* Elevation — warm ambient glow, not cold gray box-shadow */
+  --shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
+  --shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
+
   /* Spacing */
   --spacing-page: 2rem;
   --spacing-section: 1.5rem;
+
+  /* Animations */
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+  --animate-fade-up: fade-up 300ms ease-out both;
+  --animate-fade-in-row: fade-in-row 300ms ease-out both;
 }
 
 /* ── shadcn/ui token bridge ──────────────────────────── */
@@ -185,5 +194,49 @@ html {
   pre,
   kbd {
     font-family: var(--font-mono);
+  }
+}
+
+/* ── Background grain texture (analog/vinyl feel) ──── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* ── Keyframes ─────────────────────────────────────── */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-row {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }

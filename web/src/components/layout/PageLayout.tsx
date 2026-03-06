@@ -21,7 +21,9 @@ export function PageLayout() {
           FallbackComponent={PageErrorFallback}
           resetKeys={[pathname]}
         >
-          <Outlet />
+          <div key={pathname} className="animate-fade-up">
+            <Outlet />
+          </div>
         </ErrorBoundary>
       </main>
     </div>

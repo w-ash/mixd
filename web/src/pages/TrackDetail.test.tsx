@@ -54,7 +54,7 @@ function renderTrackDetail(trackId = 42) {
 describe("TrackDetail", () => {
   it("renders loading skeleton initially", () => {
     renderTrackDetail();
-    const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+    const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
@@ -70,7 +70,7 @@ describe("TrackDetail", () => {
     expect(screen.getByText("Radiohead")).toBeInTheDocument();
     expect(screen.getByText("OK Computer")).toBeInTheDocument();
     expect(screen.getByText("6:26")).toBeInTheDocument();
-    expect(screen.getByText("1997-06-16")).toBeInTheDocument();
+    expect(screen.getByText(/1997/)).toBeInTheDocument();
     expect(screen.getByText("GBAYE9700100")).toBeInTheDocument();
   });
 

@@ -1,3 +1,4 @@
+import { AlertTriangle, Music } from "lucide-react";
 import { Link } from "react-router";
 
 import { useListPlaylistsApiV1PlaylistsGet } from "@/api/generated/playlists/playlists";
@@ -16,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePagination } from "@/hooks/usePagination";
-import { formatDate } from "@/lib/format";
+import { decodeHtmlEntities, formatDate } from "@/lib/format";
 
 function PlaylistTableSkeleton() {
   return (
@@ -58,7 +59,7 @@ export function Playlists() {
 
       {isError && (
         <EmptyState
-          icon="!"
+          icon={<AlertTriangle className="size-10" />}
           heading="Failed to load playlists"
           description={
             error instanceof Error
@@ -70,7 +71,7 @@ export function Playlists() {
 
       {!isLoading && !isError && playlists.length === 0 && (
         <EmptyState
-          icon="♫"
+          icon={<Music className="size-10" />}
           heading="No playlists yet"
           description="Create your first playlist to start curating your music collection."
           action={<CreatePlaylistModal />}
@@ -100,7 +101,7 @@ export function Playlists() {
                     </Link>
                     {playlist.description && (
                       <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
-                        {playlist.description}
+                        {decodeHtmlEntities(playlist.description)}
                       </p>
                     )}
                   </TableCell>

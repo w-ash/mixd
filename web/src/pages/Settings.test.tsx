@@ -10,7 +10,7 @@ describe("Settings", () => {
   it("renders loading skeleton initially", () => {
     renderWithProviders(<Settings />);
 
-    const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+    const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 

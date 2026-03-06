@@ -76,7 +76,7 @@ const connectorConfig = {
   },
 } as const;
 
-type ConnectorName = keyof typeof connectorConfig;
+export type ConnectorName = keyof typeof connectorConfig;
 
 const iconSizes = {
   sm: "h-4 w-4",
@@ -88,12 +88,15 @@ interface ConnectorIconProps {
   className?: string;
   /** Icon size — "sm" (16px, default) or "lg" (32px). */
   iconSize?: keyof typeof iconSizes;
+  /** Hide the text label — show icon only. */
+  labelHidden?: boolean;
 }
 
 export function ConnectorIcon({
   name,
   className = "",
   iconSize = "sm",
+  labelHidden = false,
 }: ConnectorIconProps) {
   const config = connectorConfig[name as ConnectorName];
   if (!config) return null;
@@ -106,7 +109,7 @@ export function ConnectorIcon({
       title={config.label}
     >
       <Logo className={`${iconSizes[iconSize]} shrink-0`} />
-      {config.label}
+      {!labelHidden && config.label}
     </span>
   );
 }

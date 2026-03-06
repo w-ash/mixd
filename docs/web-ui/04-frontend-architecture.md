@@ -141,11 +141,23 @@ One well-orchestrated page load creates more delight than scattered micro-intera
 
 ### Backgrounds & Depth
 
+- **Background grain**: SVG feTurbulence noise overlay on `body::after` at `opacity: 0.035`, `mix-blend-mode: overlay`. Breaks flat digital surfaces.
 - Dark gradient meshes on dashboard/hero areas — subtle warmth, not flat black
-- Subtle noise texture overlay for analog/vinyl feel
-- Card elevation via warm-tinted ambient glow, not generic gray `box-shadow`
 - Album art with gentle blur for contextual backgrounds on detail pages (dark overlay for readability)
-- Borders: subtle warm-tinted dividers, not harsh lines
+
+**Container hierarchy** (implemented):
+
+| Level | Usage | Visual Treatment |
+|-------|-------|------------------|
+| **Inset** | Sections within cards, code blocks, metadata grids | `bg-surface-sunken` + no border + left-accent `border-l-2 border-primary/30` |
+| **Flat** | Default content areas, table containers | `bg-surface` + `border-border-muted` (lighter border) |
+| **Elevated** | Primary cards (ConnectorCard, OperationCard, modals) | `bg-surface-elevated` + `shadow-elevated` + warm glow on hover (`shadow-glow`, `border-primary/20`) |
+
+**Shadow tokens** (`theme.css`):
+- `--shadow-elevated`: `0 2px 12px oklch(0.08 0.01 60 / 0.5)` — warm ambient
+- `--shadow-glow`: `0 0 20px oklch(0.75 0.15 85 / 0.06)` — gold hover glow
+
+**Borders**: Asymmetric — prefer left-accent bars (`border-l-2 border-primary/40`) and bottom rules over full border boxes. PageHeader has `border-b border-border-muted`. Section headers use left accent for scannability.
 
 ---
 

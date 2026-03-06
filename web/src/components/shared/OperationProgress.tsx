@@ -1,3 +1,4 @@
+import { AlertTriangle, Check, Ellipsis, Play, X } from "lucide-react";
 import type { OperationProgress as OperationProgressData } from "@/hooks/useOperationProgress";
 import { cn } from "@/lib/utils";
 
@@ -14,41 +15,41 @@ function formatRate(rate: number): string {
 
 const statusConfig = {
   pending: {
-    icon: "...",
+    icon: <Ellipsis className="size-3" />,
     label: "Waiting",
     barClass: "bg-text-faint",
     iconBg: "bg-text-faint/20",
     iconText: "text-text-faint",
   },
   running: {
-    icon: "▶",
+    icon: <Play className="size-3 fill-current" />,
     label: "Running",
     barClass: "bg-primary",
     iconBg: "bg-primary/20",
     iconText: "text-primary",
   },
   completed: {
-    icon: "✓",
+    icon: <Check className="size-3" />,
     label: "Complete",
     barClass: "bg-status-connected",
     iconBg: "bg-status-connected/20",
     iconText: "text-status-connected",
   },
   failed: {
-    icon: "!",
+    icon: <AlertTriangle className="size-3" />,
     label: "Failed",
     barClass: "bg-destructive",
     iconBg: "bg-destructive/20",
     iconText: "text-destructive",
   },
   cancelled: {
-    icon: "×",
+    icon: <X className="size-3" />,
     label: "Cancelled",
     barClass: "bg-text-faint",
     iconBg: "bg-text-faint/20",
     iconText: "text-text-faint",
   },
-} as const;
+};
 
 interface OperationProgressProps {
   progress: OperationProgressData;
@@ -77,7 +78,7 @@ export function OperationProgress({
         <div className="flex items-center gap-2 min-w-0">
           <span
             className={cn(
-              "flex size-5 shrink-0 items-center justify-center rounded-full text-xs leading-none font-bold [text-box:trim-both_cap_alphabetic]",
+              "flex size-5 shrink-0 items-center justify-center rounded-full",
               config.iconBg,
               config.iconText,
             )}

@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { HelpCircle, Music } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate } from "@/lib/format";
+import { decodeHtmlEntities, formatDate } from "@/lib/format";
 
 function formatDuration(ms: number | null | undefined): string {
   if (!ms) return "\u2014";
@@ -270,7 +271,7 @@ export function PlaylistDetail() {
   if (playlistError) {
     return (
       <EmptyState
-        icon="?"
+        icon={<HelpCircle className="size-10" />}
         heading="Playlist not found"
         description="This playlist doesn't exist or has been deleted."
       />
@@ -288,7 +289,11 @@ export function PlaylistDetail() {
     <div>
       <PageHeader
         title={playlist.name}
-        description={playlist.description ?? undefined}
+        description={
+          playlist.description
+            ? decodeHtmlEntities(playlist.description)
+            : undefined
+        }
         action={
           <div className="flex gap-2">
             <EditPlaylistDialog
@@ -351,7 +356,7 @@ export function PlaylistDetail() {
 
       {!tracksLoading && entries.length === 0 && (
         <EmptyState
-          icon="♫"
+          icon={<Music className="size-10" />}
           heading="This playlist is empty"
           description="Add tracks by linking a connector playlist or using workflows."
         />

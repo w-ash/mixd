@@ -11,7 +11,7 @@ describe("Playlists", () => {
     renderWithProviders(<Playlists />);
 
     // Skeleton elements should be present during loading
-    const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+    const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
