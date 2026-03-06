@@ -14,6 +14,8 @@ into WorkflowContext, which provides unified access to all workflow dependencies
 from collections.abc import Awaitable, Callable
 from typing import Protocol, TypedDict
 
+from src.domain.entities.workflow import WorkflowTaskDef
+
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
 )
@@ -207,3 +209,79 @@ class NodeResult(TypedDict):
     """
 
     tracklist: TrackList
+
+
+class NodeExecutionObserver(Protocol):
+    """Callback protocol for node lifecycle events during workflow execution.
+
+    Implementations receive notifications when nodes start, complete, or fail.
+    This is THE hook point for v0.4.1: web SSE events, run-history recording,
+    and CLI progress all implement this same protocol.
+
+    Note: Sub-operation progress within nodes (e.g., "Fetching page 3 from Spotify")
+    uses a separate mechanism (emit_phase_progress). This observer tracks node-level
+    lifecycle only.
+    """
+
+    async def on_node_starting(
+        self,
+        task_def: WorkflowTaskDef,
+        execution_order: int,
+        total_nodes: int,
+        input_track_count: int | None,
+    ) -> None: ...
+
+    async def on_node_completed(
+        self,
+        task_def: WorkflowTaskDef,
+        result: NodeResult,
+        execution_order: int,
+        total_nodes: int,
+        duration_ms: int,
+        input_track_count: int | None,
+        output_track_count: int,
+    ) -> None: ...
+
+    async def on_node_failed(
+        self,
+        task_def: WorkflowTaskDef,
+        error: Exception,
+        execution_order: int,
+        total_nodes: int,
+        duration_ms: int,
+    ) -> None: ...
+
+
+class NullNodeObserver:
+    """No-op observer — eliminates None checks when no observer is provided."""
+
+    async def on_node_starting(
+        self,
+        task_def: WorkflowTaskDef,
+        execution_order: int,
+        total_nodes: int,
+        input_track_count: int | None,
+    ) -> None:
+        pass
+
+    async def on_node_completed(
+        self,
+        task_def: WorkflowTaskDef,
+        result: NodeResult,
+        execution_order: int,
+        total_nodes: int,
+        duration_ms: int,
+        input_track_count: int | None,
+        output_track_count: int,
+    ) -> None:
+        pass
+
+    async def on_node_failed(
+        self,
+        task_def: WorkflowTaskDef,
+        error: Exception,
+        execution_order: int,
+        total_nodes: int,
+        duration_ms: int,
+    ) -> None:
+        pass

@@ -9,6 +9,7 @@ recovery, and database session management for long-running playlist operations.
 # pyright: reportExplicitAny=false, reportAny=false
 
 import datetime
+import time
 from typing import Any
 
 from prefect import flow, tags, task
@@ -21,14 +22,13 @@ from src.config.logging import get_logger
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
     OperationStatus,
-    ProgressStatus,
-    create_progress_event,
     create_progress_operation,
 )
 from src.domain.entities.workflow import WorkflowDef
 
 from .node_registry import get_node
-from .protocols import NodeResult
+from .observers import ProgressNodeObserver
+from .protocols import NodeExecutionObserver, NodeResult, NullNodeObserver
 from .validation import topological_sort, validate_workflow_def
 
 logger = get_logger(__name__)
@@ -83,26 +83,7 @@ async def execute_node(
         # Execute node
         result = await node_func(enhanced_context, config)
 
-        # Update unified workflow progress after node completion
-        progress_manager = context.get("progress_manager")
-        workflow_operation_id = context.get("workflow_operation_id")
-        if progress_manager and workflow_operation_id:
-            current_step = context.get("current_step", 0)
-            total_tasks = context.get("total_tasks", 1)
-
-            # Create friendly display name for the node type
-            display_name = node_type.replace("_", " ").replace(".", " ").title()
-
-            # Emit progress event for completed node
-            event = create_progress_event(
-                operation_id=workflow_operation_id,
-                current=current_step,
-                total=total_tasks,
-                message=f"Completed {display_name}",
-                status=ProgressStatus.IN_PROGRESS,
-            )
-            await progress_manager.emit_progress(event)
-
+        # Progress tracking now handled by NodeExecutionObserver in build_flow()
         task_logger.info(f"Node completed successfully: {node_type}")
 
     except Exception:
@@ -123,7 +104,23 @@ def generate_flow_run_name(flow_name: str) -> str:
     )
 
 
-def build_flow(workflow_def: WorkflowDef) -> Any:
+def _get_input_track_count(
+    task_def: Any, task_results: dict[str, NodeResult]
+) -> int | None:
+    """Extract track count from upstream result, if available."""
+    if not task_def.upstream:
+        return None
+    upstream_id = task_def.upstream[0]
+    upstream_result = task_results.get(upstream_id)
+    if upstream_result:
+        return len(upstream_result["tracklist"].tracks)
+    return None
+
+
+def build_flow(
+    workflow_def: WorkflowDef,
+    observer: NodeExecutionObserver | None = None,
+) -> Any:
     """Converts typed workflow definition into executable Prefect flow function.
 
     Performs topological sort of tasks based on dependencies, creates shared database
@@ -132,10 +129,12 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
 
     Args:
         workflow_def: Typed workflow definition with tasks, dependencies, and config.
+        observer: Optional lifecycle observer for node start/complete/fail events.
 
     Returns:
         Async Prefect flow function ready for execution.
     """
+    node_observer = observer or NullNodeObserver()
 
     # Extract workflow metadata
     flow_name = workflow_def.name
@@ -174,13 +173,14 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
 
             # Initialize execution context — heterogeneous bag accumulating
             # task results, upstream IDs, and progress metadata during execution
+            total_nodes = len(sorted_tasks)
             context: dict[str, Any] = {
                 "parameters": parameters,
                 "workflow_context": workflow_context,
                 "workflow_name": flow_name,
                 "progress_manager": workflow_progress_manager,
                 "workflow_operation_id": workflow_operation_id,
-                "total_tasks": len(sorted_tasks),
+                "total_tasks": total_nodes,
             }
             task_results: dict[str, NodeResult] = {}
 
@@ -189,6 +189,7 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
                 for task_index, task_def in enumerate(sorted_tasks):
                     task_id = task_def.id
                     node_type = task_def.type
+                    execution_order = task_index + 1  # 1-based
 
                     # Log the task start
                     flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
@@ -198,9 +199,7 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
 
                     # Create task-specific context with upstream results and progress tracking
                     task_context = context.copy()
-                    task_context["current_step"] = (
-                        task_index + 1
-                    )  # 1-based indexing for progress
+                    task_context["current_step"] = execution_order
 
                     if task_def.upstream:
                         if len(task_def.upstream) == 1:
@@ -223,8 +222,35 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
                             if upstream_id in task_results:
                                 task_context[upstream_id] = task_results[upstream_id]
 
-                    # Execute node with Prefect's native progress tracking
-                    result = await execute_node(node_type, task_context, config)
+                    # Notify observer and time execution
+                    input_track_count = _get_input_track_count(
+                        task_def, task_results
+                    )
+                    await node_observer.on_node_starting(
+                        task_def, execution_order, total_nodes, input_track_count
+                    )
+                    start_ns = time.perf_counter_ns()
+
+                    try:
+                        result = await execute_node(node_type, task_context, config)
+                    except Exception as exc:
+                        duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+                        await node_observer.on_node_failed(
+                            task_def, exc, execution_order, total_nodes, duration_ms
+                        )
+                        raise
+
+                    duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+                    output_track_count = len(result["tracklist"].tracks)
+                    await node_observer.on_node_completed(
+                        task_def,
+                        result,
+                        execution_order,
+                        total_nodes,
+                        duration_ms,
+                        input_track_count,
+                        output_track_count,
+                    )
 
                     # Store result in context and task_results
                     context[task_id] = result
@@ -236,8 +262,6 @@ def build_flow(workflow_def: WorkflowDef) -> Any:
                             f"Storing result under key: {task_def.result_key}"
                         )
                         context[task_def.result_key] = result
-
-                    # Task completed - progress tracking handled in execute_node
 
                 flow_logger.info("Workflow completed successfully")
 
@@ -346,6 +370,7 @@ def extract_workflow_result(
 async def run_workflow(
     workflow_def: WorkflowDef,
     progress_manager: AsyncProgressManager | None = None,
+    observer: object | None = None,
     **parameters: object,
 ) -> OperationResult:
     """Executes complete playlist workflow from JSON definition to final result.
@@ -357,6 +382,10 @@ async def run_workflow(
     Args:
         workflow_def: Typed workflow definition with tasks and dependencies.
         progress_manager: Optional AsyncProgressManager for CLI progress tracking.
+        observer: Optional NodeExecutionObserver for node lifecycle events.
+            Typed as ``object`` because Prefect validates flow params via Pydantic
+            which rejects Protocol types. When progress_manager is provided and
+            no explicit observer, a ProgressNodeObserver is created automatically.
         **parameters: Dynamic parameters passed to workflow tasks.
 
     Returns:
@@ -390,13 +419,23 @@ async def run_workflow(
             f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
         )
 
+    # Auto-create ProgressNodeObserver when progress_manager is active and no
+    # explicit observer was provided
+    effective_observer: NodeExecutionObserver | None = (
+        observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
+    )
+    if effective_observer is None and progress_manager and workflow_operation_id:
+        effective_observer = ProgressNodeObserver(
+            progress_manager, workflow_operation_id
+        )
+
     try:
         with tags("workflow", workflow_name):
             # Start timing
             start_time = datetime.datetime.now(datetime.UTC)
 
             # Build and execute the workflow
-            workflow = build_flow(workflow_def)
+            workflow = build_flow(workflow_def, observer=effective_observer)
             context = await workflow(
                 workflow_progress_manager=progress_manager,
                 workflow_operation_id=workflow_operation_id,
