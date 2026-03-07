@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.3
+ * OpenAPI spec version: 0.4.0
  */
 import type { DashboardStatsSchemaLikedByConnector } from './dashboardStatsSchemaLikedByConnector';
 import type { DashboardStatsSchemaTracksByConnector } from './dashboardStatsSchemaTracksByConnector';

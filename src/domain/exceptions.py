@@ -8,3 +8,7 @@ specific HTTP status codes without parsing error message text.
 
 class NotFoundError(Exception):
     """Raised when a requested entity does not exist."""
+
+
+class TemplateReadOnlyError(Exception):
+    """Raised when attempting to modify or delete a read-only template workflow."""

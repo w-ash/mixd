@@ -95,7 +95,7 @@ def _to_track_summary(track: Track) -> TrackSummarySchema:
 
 def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchema:
     return PlaylistEntrySchema(
-        position=position,
+        position=position + 1,
         track=_to_track_summary(entry.track),
         added_at=entry.added_at,
     )

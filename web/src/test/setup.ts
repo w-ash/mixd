@@ -11,6 +11,7 @@ import { getOperationsMock } from "@/api/generated/operations/operations.msw";
 import { getPlaylistsMock } from "@/api/generated/playlists/playlists.msw";
 import { getStatsMock } from "@/api/generated/stats/stats.msw";
 import { getTracksMock } from "@/api/generated/tracks/tracks.msw";
+import { getWorkflowsMock } from "@/api/generated/workflows/workflows.msw";
 
 export const server = setupServer(
   ...getPlaylistsMock(),
@@ -20,6 +21,7 @@ export const server = setupServer(
   ...getImportsMock(),
   ...getOperationsMock(),
   ...getStatsMock(),
+  ...getWorkflowsMock(),
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));

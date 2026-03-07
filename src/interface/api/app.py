@@ -38,6 +38,26 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     subscriber = SSEProgressSubscriber(registry)
     manager = get_progress_manager()
     sub_id = await manager.subscribe(subscriber)
+
+    # Seed built-in workflow templates (idempotent)
+    try:
+        from src.application.services.workflow_template_seeder import (
+            seed_workflow_templates,
+        )
+        from src.infrastructure.persistence.database.db_connection import get_session
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+
+        async with get_session() as session:
+            uow = get_unit_of_work(session)
+            await seed_workflow_templates(uow)
+    except Exception as e:
+        # Gracefully handle missing migration or DB errors during startup
+        from src.config import get_logger
+
+        get_logger(__name__).warning("Failed to seed workflow templates", error=str(e))
+
     yield
     await manager.unsubscribe(sub_id)
 
@@ -82,11 +102,13 @@ def create_app() -> FastAPI:
     from src.interface.api.routes.playlists import router as playlists_router
     from src.interface.api.routes.stats import router as stats_router
     from src.interface.api.routes.tracks import router as tracks_router
+    from src.interface.api.routes.workflows import router as workflows_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")
     app.include_router(tracks_router, prefix="/api/v1")
+    app.include_router(workflows_router, prefix="/api/v1")
     app.include_router(connectors_router, prefix="/api/v1")
     app.include_router(imports_router, prefix="/api/v1")
     app.include_router(operations_router, prefix="/api/v1")

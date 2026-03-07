@@ -60,6 +60,17 @@ class TrackMetadataConnector(Protocol):
         ...
 
 
+class LibraryContainsConnector(Protocol):
+    """Connector that can check if items exist in a user's saved library."""
+
+    async def check_library_contains(self, uris: list[str]) -> dict[str, bool]:
+        """Check which URIs are saved in the user's library.
+
+        Returns a mapping of URI → True/False.
+        """
+        ...
+
+
 class LikedTrackConnector(Protocol):
     """Connector that can read a user's liked/saved tracks."""
 

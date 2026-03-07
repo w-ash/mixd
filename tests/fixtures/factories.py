@@ -23,6 +23,7 @@ from src.domain.entities.playlist import (
     PlaylistEntry,
 )
 from src.domain.entities.track import Artist, ConnectorTrack, Track
+from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
     SpotifyArtist,
@@ -154,6 +155,51 @@ def make_connector_playlist_item(
         position=position,
         **kwargs,
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow factories
+# ---------------------------------------------------------------------------
+
+
+def make_workflow_def(
+    id: str = "test-workflow",
+    name: str = "Test Workflow",
+    tasks: list[WorkflowTaskDef] | None = None,
+    **kwargs,
+) -> WorkflowDef:
+    """Build a :class:`WorkflowDef` with sensible defaults."""
+    if tasks is None:
+        tasks = [
+            WorkflowTaskDef(
+                id="source",
+                type="source.liked_tracks",
+                config={"service": "spotify"},
+            ),
+        ]
+    return WorkflowDef(id=id, name=name, tasks=tasks, **kwargs)
+
+
+def make_workflow(
+    id: int | None = 1,
+    definition: WorkflowDef | None = None,
+    is_template: bool = False,
+    source_template: str | None = None,
+    **kwargs,
+) -> Workflow:
+    """Build a :class:`Workflow` with sensible defaults."""
+    return Workflow(
+        id=id,
+        definition=definition or make_workflow_def(),
+        is_template=is_template,
+        source_template=source_template,
+        **kwargs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ConnectorPlaylist factories
+# ---------------------------------------------------------------------------
 
 
 def make_connector_playlist(

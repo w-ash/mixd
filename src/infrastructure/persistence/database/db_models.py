@@ -569,6 +569,28 @@ class DBPlaylistTrack(BaseEntity):
     )
 
 
+class DBWorkflow(BaseEntity):
+    """Persisted workflow definition with template metadata.
+
+    Stores the complete WorkflowDef as a JSON column alongside identity
+    and template tracking fields. source_template enables upsert-by-key
+    during template seeding (NULLs don't conflict in unique constraints).
+    """
+
+    __tablename__: str = "workflows"
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000))
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_template: Mapped[str | None] = mapped_column(String(100))
+
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint("source_template", name="uq_workflows_source_template"),
+        Index("ix_workflows_is_template", "is_template"),
+    )
+
+
 class DBSyncCheckpoint(BaseEntity):
     """Sync state tracking for incremental operations.
 

@@ -14,6 +14,8 @@ from tests.fixtures.factories import (
     make_spotify_track,
     make_track,
     make_tracks,
+    make_workflow,
+    make_workflow_def,
 )
 from tests.fixtures.mocks import (
     make_mock_checkpoint_repo,
@@ -24,6 +26,7 @@ from tests.fixtures.mocks import (
     make_mock_plays_repo,
     make_mock_track_repo,
     make_mock_uow,
+    make_mock_workflow_repo,
     make_tracking_emitter,
 )
 
@@ -39,10 +42,13 @@ __all__ = [
     "make_mock_plays_repo",
     "make_mock_track_repo",
     "make_mock_uow",
+    "make_mock_workflow_repo",
     "make_playlist",
     "make_playlist_with_entries",
     "make_spotify_track",
     "make_track",
     "make_tracking_emitter",
     "make_tracks",
+    "make_workflow",
+    "make_workflow_def",
 ]

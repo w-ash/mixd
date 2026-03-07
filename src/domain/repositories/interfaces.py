@@ -23,6 +23,7 @@ from src.domain.entities import (
     TrackLike,
     TrackPlay,
 )
+from src.domain.entities.workflow import Workflow
 from src.domain.matching.types import MatchResultsById, RawProviderMatch
 
 
@@ -705,6 +706,34 @@ class ServiceConnectorProvider(Protocol):
         ...
 
 
+class WorkflowRepositoryProtocol(Protocol):
+    """Repository interface for workflow persistence operations."""
+
+    def list_workflows(
+        self, *, include_templates: bool = True
+    ) -> Awaitable[list[Workflow]]:
+        """List all workflows, optionally filtering out templates."""
+        ...
+
+    def get_workflow_by_id(self, workflow_id: int) -> Awaitable[Workflow]:
+        """Get workflow by ID. Raises NotFoundError if not found."""
+        ...
+
+    def save_workflow(self, workflow: Workflow) -> Awaitable[Workflow]:
+        """Create or update a workflow."""
+        ...
+
+    def delete_workflow(self, workflow_id: int) -> Awaitable[bool]:
+        """Delete workflow by ID. Returns True if deleted."""
+        ...
+
+    def get_workflow_by_source_template(
+        self, source_template: str
+    ) -> Awaitable[Workflow | None]:
+        """Find workflow by source template key. Returns None if not found."""
+        ...
+
+
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
@@ -779,6 +808,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_connector_play_repository(self) -> ConnectorPlayRepositoryProtocol:
         """Get connector play repository for play ingestion and resolution operations."""
+        ...
+
+    def get_workflow_repository(self) -> WorkflowRepositoryProtocol:
+        """Get workflow repository using this unit of work's transaction."""
         ...
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:

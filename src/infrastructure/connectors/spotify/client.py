@@ -516,6 +516,39 @@ class SpotifyAPIClient(BaseAPIClient):
     # User Library Methods
     # -------------------------------------------------------------------------
 
+    async def check_library_contains(self, uris: list[str]) -> dict[str, bool]:
+        """Check which items are in the user's saved library.
+
+        Calls Spotify's /me/library/contains endpoint in batches of 40.
+        Accepts Spotify URIs (e.g., "spotify:track:{id}").
+        Returns a dict mapping each URI to True/False.
+        """
+        if not uris:
+            return {}
+
+        results: dict[str, bool] = {}
+        for i in range(0, len(uris), SpotifyConstants.LIBRARY_CONTAINS_BATCH_SIZE):
+            batch = uris[i : i + SpotifyConstants.LIBRARY_CONTAINS_BATCH_SIZE]
+            data = await self._api_call(
+                "check_spotify_library_contains",
+                self._check_library_contains_impl,
+                batch,
+            )
+            if data is not None:
+                results.update(zip(batch, data, strict=True))
+            else:
+                results.update(dict.fromkeys(batch, False))
+        return results
+
+    async def _check_library_contains_impl(self, uris: list[str]) -> list[bool]:
+        """Pure implementation — GET /me/library/contains."""
+        response = await self._client.get(
+            "/me/library/contains",
+            params={"uris": ",".join(uris)},
+        )
+        _ = response.raise_for_status()
+        return response.json()
+
     async def get_saved_tracks(
         self, limit: int = 50, offset: int = 0
     ) -> dict[str, Any] | None:

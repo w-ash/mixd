@@ -7,6 +7,7 @@ Used by validation, execution (Prefect), API schemas, and persistence layers.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: node config values are heterogeneous (str, int, float, bool, list)
 
+from datetime import datetime
 from typing import Any, Literal
 
 from attrs import define, field
@@ -102,3 +103,46 @@ class WorkflowDef:
     description: str = ""
     version: str = "1.0"
     tasks: list[WorkflowTaskDef] = field(factory=list)
+
+
+def parse_task_dict(t: dict[str, Any]) -> WorkflowTaskDef:
+    """Parse a single task dict from JSON into a typed WorkflowTaskDef.
+
+    Shared by the workflow_loader (JSON files) and persistence mapper (DB JSON column).
+    """
+    return WorkflowTaskDef(
+        id=str(t["id"]),
+        type=str(t["type"]),
+        config=dict(t.get("config", {})),
+        upstream=list(t.get("upstream", [])),
+        result_key=t.get("result_key"),
+    )
+
+
+def parse_workflow_def(raw: dict[str, Any]) -> WorkflowDef:
+    """Reconstruct a WorkflowDef from a JSON-serialized dict."""
+    raw_tasks: list[dict[str, Any]] = raw.get("tasks", [])
+    return WorkflowDef(
+        id=str(raw.get("id", "")),
+        name=str(raw.get("name", "")),
+        description=str(raw.get("description", "")),
+        version=str(raw.get("version", "1.0")),
+        tasks=[parse_task_dict(t) for t in raw_tasks],
+    )
+
+
+@define(frozen=True, slots=True)
+class Workflow:
+    """Persisted workflow wrapping a WorkflowDef with database identity.
+
+    Separates persistence concerns (id, timestamps, template metadata) from
+    the workflow definition itself. The definition JSON column maps directly
+    to ``WorkflowDef`` via ``attrs.asdict()`` / reconstruction.
+    """
+
+    id: int | None = None
+    definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
+    is_template: bool = False
+    source_template: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

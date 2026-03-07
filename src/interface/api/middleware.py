@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from src.config import get_logger
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 
 logger = get_logger(__name__)
 
@@ -23,6 +23,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={
                 "error": {
                     "code": "NOT_FOUND",
+                    "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(TemplateReadOnlyError)
+    async def template_readonly_handler(
+        _request: Request, exc: TemplateReadOnlyError
+    ) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": {
+                    "code": "TEMPLATE_READONLY",
                     "message": str(exc),
                 }
             },

@@ -25,6 +25,14 @@ const TrackDetail = lazy(() =>
 const Settings = lazy(() =>
   import("./pages/Settings").then((m) => ({ default: m.Settings })),
 );
+const Workflows = lazy(() =>
+  import("./pages/Workflows").then((m) => ({ default: m.Workflows })),
+);
+const WorkflowDetail = lazy(() =>
+  import("./pages/WorkflowDetail").then((m) => ({
+    default: m.WorkflowDetail,
+  })),
+);
 
 export function App() {
   return (
@@ -60,6 +68,22 @@ export function App() {
             element={
               <Suspense>
                 <PlaylistDetail />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workflows"
+            element={
+              <Suspense>
+                <Workflows />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workflows/:id"
+            element={
+              <Suspense>
+                <WorkflowDetail />
               </Suspense>
             }
           />

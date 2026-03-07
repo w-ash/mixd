@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.3.3"
+    "version": "0.4.0"
   },
   "paths": {
     "/api/v1/health": {
@@ -303,9 +303,9 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 200,
+              "maximum": 10000,
               "minimum": 1,
-              "default": 50,
+              "default": 10000,
               "title": "Limit"
             }
           },
@@ -545,6 +545,309 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Workflows",
+        "description": "List all workflows with pagination.",
+        "operationId": "list_workflows_api_v1_workflows_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "include_templates",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Templates"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_WorkflowSummarySchema_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Create Workflow",
+        "description": "Create a new user workflow.",
+        "operationId": "create_workflow_api_v1_workflows_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/nodes": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Node Types",
+        "description": "List all available workflow node types with config schemas.",
+        "operationId": "list_node_types_api_v1_workflows_nodes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NodeTypeInfoSchema"
+                  },
+                  "type": "array",
+                  "title": "Response List Node Types Api V1 Workflows Nodes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/validate": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Validate Workflow",
+        "description": "Validate a workflow definition without persisting.",
+        "operationId": "validate_workflow_api_v1_workflows_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowValidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Workflow",
+        "description": "Get a workflow by ID with full definition.",
+        "operationId": "get_workflow_api_v1_workflows__workflow_id__get",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Update Workflow",
+        "description": "Update a user workflow's definition. Template workflows cannot be modified.",
+        "operationId": "update_workflow_api_v1_workflows__workflow_id__patch",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Delete Workflow",
+        "description": "Delete a user workflow. Template workflows cannot be deleted.",
+        "operationId": "delete_workflow_api_v1_workflows__workflow_id__delete",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1001,6 +1304,18 @@
         "title": "CreatePlaylistRequest",
         "description": "Request body for POST /playlists."
       },
+      "CreateWorkflowRequest": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "definition"
+        ],
+        "title": "CreateWorkflowRequest"
+      },
       "DashboardStatsSchema": {
         "properties": {
           "total_tracks": {
@@ -1268,6 +1583,45 @@
         "title": "LikeStatusSchema",
         "description": "Per-service like status."
       },
+      "NodeTypeInfoSchema": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "required_config": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Config",
+            "default": []
+          },
+          "optional_config": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Optional Config",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "category",
+          "description"
+        ],
+        "title": "NodeTypeInfoSchema"
+      },
       "OperationStartedResponse": {
         "properties": {
           "operation_id": {
@@ -1374,6 +1728,37 @@
           "offset"
         ],
         "title": "PaginatedResponse[PlaylistSummarySchema]"
+      },
+      "PaginatedResponse_WorkflowSummarySchema_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowSummarySchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaginatedResponse[WorkflowSummarySchema]"
       },
       "PlaySummarySchema": {
         "properties": {
@@ -1775,6 +2160,18 @@
         "title": "UpdatePlaylistRequest",
         "description": "Request body for PATCH /playlists/{id}."
       },
+      "UpdateWorkflowRequest": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "definition"
+        ],
+        "title": "UpdateWorkflowRequest"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -1814,6 +2211,309 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkflowDefSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": "1.0"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTaskDefSchema"
+            },
+            "type": "array",
+            "title": "Tasks",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "WorkflowDefSchema"
+      },
+      "WorkflowDetailSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_template": {
+            "type": "boolean",
+            "title": "Is Template"
+          },
+          "source_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Template"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          },
+          "node_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Node Types"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "is_template",
+          "task_count",
+          "node_types",
+          "definition"
+        ],
+        "title": "WorkflowDetailSchema"
+      },
+      "WorkflowSummarySchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_template": {
+            "type": "boolean",
+            "title": "Is Template"
+          },
+          "source_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Template"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          },
+          "node_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Node Types"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "is_template",
+          "task_count",
+          "node_types"
+        ],
+        "title": "WorkflowSummarySchema"
+      },
+      "WorkflowTaskDefSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config",
+            "default": {}
+          },
+          "upstream": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Upstream",
+            "default": []
+          },
+          "result_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "WorkflowTaskDefSchema"
+      },
+      "WorkflowValidationErrorSchema": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "field",
+          "message"
+        ],
+        "title": "WorkflowValidationErrorSchema"
+      },
+      "WorkflowValidationRequest": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "definition"
+        ],
+        "title": "WorkflowValidationRequest"
+      },
+      "WorkflowValidationResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowValidationErrorSchema"
+            },
+            "type": "array",
+            "title": "Errors",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "WorkflowValidationResponse"
       }
     }
   }

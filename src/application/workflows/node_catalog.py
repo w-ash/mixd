@@ -12,6 +12,7 @@ touching transform_definitions.py.
 """
 
 from .destination_nodes import create_playlist, update_playlist
+from .enricher_nodes import enrich_spotify_liked_status
 from .node_factories import (
     build_external_enrichment_config,
     build_play_history_enrichment_config,
@@ -48,6 +49,7 @@ _ = node(
     description="Resolves tracks to Last.fm and fetches play counts",
     input_type="tracklist",
     output_type="tracklist",
+    required_connectors=["lastfm"],
 )(
     create_enricher_node(
         build_external_enrichment_config({
@@ -63,6 +65,7 @@ _ = node(
     description="Enriches tracks with Spotify explicit flags",
     input_type="tracklist",
     output_type="tracklist",
+    required_connectors=["spotify"],
 )(
     create_enricher_node(
         build_external_enrichment_config({
@@ -79,6 +82,14 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(create_enricher_node(build_play_history_enrichment_config))
+
+_ = node(
+    "enricher.spotify_liked_status",
+    description="Checks which tracks are saved in the user's Spotify library and persists status",
+    input_type="tracklist",
+    output_type="tracklist",
+    required_connectors=["spotify"],
+)(enrich_spotify_liked_status)
 
 # === TRANSFORM NODES (auto-registered from TRANSFORM_REGISTRY) ===
 for _category, _entries in TRANSFORM_REGISTRY.items():

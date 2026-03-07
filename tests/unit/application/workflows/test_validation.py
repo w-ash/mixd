@@ -6,6 +6,7 @@ and DAG ordering with cycle detection.
 
 import pytest
 
+import src.application.workflows.node_catalog  # noqa: F401 — triggers node registration
 from src.application.workflows.validation import (
     ConnectorNotAvailableError,
     _validate_node_config,
@@ -317,6 +318,28 @@ class TestExtractRequiredConnectors:
             tasks=[
                 WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
                 WorkflowTaskDef(id="f1", type="filter.deduplicate", upstream=["src_1"]),
+            ],
+        )
+        assert extract_required_connectors(wf) == set()
+
+    def test_enricher_spotify_liked_status_extracts_spotify(self):
+        """enricher.spotify_liked_status requires 'spotify', not 'spotify_liked_status'."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="e1", type="enricher.spotify_liked_status"),
+            ],
+        )
+        assert extract_required_connectors(wf) == {"spotify"}
+
+    def test_enricher_play_history_needs_no_connector(self):
+        """enricher.play_history is DB-only — no connector needed."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="e1", type="enricher.play_history"),
             ],
         )
         assert extract_required_connectors(wf) == set()

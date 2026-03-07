@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config.logging import get_logger
-from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
+from src.domain.entities.workflow import WorkflowDef, parse_workflow_def
 
 logger = get_logger(__name__)
 
@@ -21,17 +21,6 @@ logger = get_logger(__name__)
 def get_definitions_dir() -> Path:
     """Get the path to the workflow definitions directory."""
     return Path(__file__).parent / "definitions"
-
-
-def _parse_task(t: dict[str, Any]) -> WorkflowTaskDef:
-    """Parse a single task dict from JSON into a typed WorkflowTaskDef."""
-    return WorkflowTaskDef(
-        id=str(t["id"]),
-        type=str(t["type"]),
-        config=dict(t.get("config", {})),
-        upstream=list(t.get("upstream", [])),
-        result_key=t.get("result_key"),
-    )
 
 
 def load_workflow_def(path: Path) -> WorkflowDef:
@@ -49,17 +38,9 @@ def load_workflow_def(path: Path) -> WorkflowDef:
         KeyError/TypeError: If required fields are missing or malformed.
     """
     raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-
-    raw_tasks: list[dict[str, Any]] = raw.get("tasks", [])
-    tasks = [_parse_task(t) for t in raw_tasks]
-
-    return WorkflowDef(
-        id=str(raw.get("id", path.stem)),
-        name=str(raw.get("name", "Unknown")),
-        description=str(raw.get("description", "")),
-        version=str(raw.get("version", "1.0")),
-        tasks=tasks,
-    )
+    raw.setdefault("id", path.stem)
+    raw.setdefault("name", "Unknown")
+    return parse_workflow_def(raw)
 
 
 def list_workflow_defs(definitions_dir: Path | None = None) -> list[WorkflowDef]:

@@ -39,8 +39,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
+    "@xyflow/react": "^12.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "elkjs": "^0.11.1",
     "eventsource-parser": "^3.0.6",
     "lucide-react": "^0.576.0",
     "radix-ui": "^1.4.3",

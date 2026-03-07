@@ -79,20 +79,30 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | `filter.by_tracks` | Excludes tracks from input that are present in exclusion source | `exclusion_source`: Task ID of exclusion source |
 | `filter.by_artists` | Excludes tracks whose artists appear in exclusion source | `exclusion_source`: Task ID of exclusion source<br>`exclude_all_artists`: Boolean, if true, excludes tracks if any artist is present in the exclusion source |
 | `filter.by_metric` | Filters tracks based on metric value range | `metric_name`: Metric to filter by<br>`min_value`: Minimum value (inclusive)<br>`max_value`: Maximum value (inclusive)<br>`include_missing`: Whether to include tracks without the metric |
+| `filter.by_duration` | Filters tracks by duration range | `min_ms`: Minimum duration in milliseconds (inclusive)<br>`max_ms`: Maximum duration in milliseconds (inclusive)<br>`include_missing`: Whether to include tracks without duration data |
+| `filter.by_liked_status` | **Filters tracks by liked/loved status on a specific service** | `service`: Service name to check (required) — `"spotify"`, `"lastfm"`, `"narada"`, etc.<br>`is_liked`: Boolean — `true` to keep liked tracks, `false` to keep non-liked tracks (default: `true`) |
+| `filter.by_explicit` | Filters tracks by explicit content flag | `keep`: Which tracks to keep — `"explicit"`, `"clean"`, or `"all"` (default: `"all"`)<br>**Note**: Requires upstream Spotify enrichment to populate the `explicit_flag` metric |
 | `filter.by_play_history` | **Advanced play history filtering with flexible date and play count constraints** | `min_plays`: Minimum play count (inclusive)<br>`max_plays`: Maximum play count (inclusive)<br>`after_date`: Earliest date for play history (absolute)<br>`before_date`: Latest date for play history (absolute)<br>`days_back`: Number of days back from now (relative)<br>`days_forward`: Number of days forward from now (relative)<br>`include_missing`: Include tracks with no play history<br>**Note**: At least one constraint required. Relative dates take precedence over absolute dates. |
 
 ### Sorter Nodes
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `sorter.by_metric` | Sorts tracks by any metric specified in config | `metric_name`: Name of metric to sort by (e.g., "lastfm_user_playcount", "lastfm_global_playcount", "lastfm_listeners", "lastfm_global_playcount")<br>`reverse`: Boolean to reverse sort order |
+| `sorter.by_metric` | Sorts tracks by any metric specified in config | `metric_name`: Name of metric to sort by (e.g., "lastfm_user_playcount", "lastfm_global_playcount", "lastfm_listeners")<br>`reverse`: Boolean to reverse sort order |
+| `sorter.by_release_date` | Sorts tracks by release date | `reverse`: Boolean to reverse sort order |
 | `sorter.by_play_history` | **Sorts tracks by play frequency within optional time windows** | `start_date`: Include tracks played after this ISO date (absolute mode)<br>`end_date`: Include tracks played before this ISO date (absolute mode)<br>`min_days_back`: Start of time window, days from today (relative mode)<br>`max_days_back`: End of time window, days from today (relative mode)<br>`reverse`: Sort order - true for most played first, false for least played first<br>**Note**: Three clear time window modes: None (all-time), Absolute (ISO dates), or Relative (integer days). |
+| `sorter.by_added_at` | Sorts tracks by date added to source playlist | `ascending`: Boolean — `true` for oldest first, `false` for newest first (default: `true`) |
+| `sorter.by_first_played` | Sorts tracks by date first played | `ascending`: Boolean — `true` for oldest first, `false` for newest first (default: `true`) |
+| `sorter.by_last_played` | Sorts tracks by date most recently played | `ascending`: Boolean — `true` for oldest first, `false` for newest first (default: `true`) |
+| `sorter.reverse` | Reverses current track order | (No configuration required) |
+| `sorter.weighted_shuffle` | Shuffles tracks with configurable strength | `shuffle_strength`: Float between 0.0–1.0 (default: `0.5`)<br>0.0 = original order, 1.0 = fully random |
 
 ### Selector Nodes
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `selector.limit_tracks` | Limits playlist to specified number of tracks | `count`: Maximum number of tracks<br>`method`: Selection method (`first`, `last`, or `random`) |
+| `selector.limit_tracks` | Limits playlist to specified number of tracks | `count`: Maximum number of tracks (default: `10`)<br>`method`: Selection method — `first`, `last`, or `random` (default: `"first"`) |
+| `selector.percentage` | Selects a percentage of tracks | `percentage`: Percentage of tracks to keep (required)<br>`method`: Selection method — `first`, `last`, or `random` (default: `"first"`) |
 
 ### Combiner Nodes
 
@@ -101,6 +111,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | `combiner.merge_playlists` | Combines multiple playlists into one | `sources`: Array of task IDs to combine |
 | `combiner.concatenate_playlists` | Joins playlists in specified order | `order`: Array of task IDs in desired concatenation order |
 | `combiner.interleave_playlists` | Interleaves tracks from multiple playlists | `sources`: Array of task IDs to interleave |
+| `combiner.intersect_playlists` | Keeps only tracks common to all input sources | `sources`: Array of task IDs to intersect |
 
 ### Destination Nodes
 

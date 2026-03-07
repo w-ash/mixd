@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.3.3
+ * OpenAPI spec version: 0.4.0
  */
 
 export * from './artistSchema';
@@ -12,6 +12,7 @@ export * from './checkpointStatusSchema';
 export * from './connectorMappingSchema';
 export * from './connectorStatusSchema';
 export * from './createPlaylistRequest';
+export * from './createWorkflowRequest';
 export * from './dashboardStatsSchema';
 export * from './dashboardStatsSchemaLikedByConnector';
 export * from './dashboardStatsSchemaTracksByConnector';
@@ -27,10 +28,13 @@ export * from './likeStatusSchema';
 export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
 export * from './listTracksApiV1TracksGetParams';
+export * from './listWorkflowsApiV1WorkflowsGetParams';
+export * from './nodeTypeInfoSchema';
 export * from './operationStartedResponse';
 export * from './paginatedResponseLibraryTrackSchema';
 export * from './paginatedResponsePlaylistEntrySchema';
 export * from './paginatedResponsePlaylistSummarySchema';
+export * from './paginatedResponseWorkflowSummarySchema';
 export * from './playlistBriefSchema';
 export * from './playlistDetailSchema';
 export * from './playlistEntrySchema';
@@ -40,5 +44,14 @@ export * from './trackDetailSchema';
 export * from './trackDetailSchemaLikeStatus';
 export * from './trackSummarySchema';
 export * from './updatePlaylistRequest';
+export * from './updateWorkflowRequest';
 export * from './validationError';
 export * from './validationErrorCtx';
+export * from './workflowDefSchema';
+export * from './workflowDetailSchema';
+export * from './workflowSummarySchema';
+export * from './workflowTaskDefSchema';
+export * from './workflowTaskDefSchemaConfig';
+export * from './workflowValidationErrorSchema';
+export * from './workflowValidationRequest';
+export * from './workflowValidationResponse';

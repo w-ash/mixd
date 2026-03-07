@@ -1,0 +1,55 @@
+{
+  "id": "likely_suspects",
+  "name": "Likely Suspects",
+  "description": "Tracks from Interesting 26 that you haven't liked yet — potential favorites waiting to be discovered, ranked by Last.fm global popularity",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_interesting_26",
+      "type": "source.playlist",
+      "config": {
+        "playlist_id": "3kBXf2CDyUedgSCqAz3LFg",
+        "connector": "spotify"
+      }
+    },
+    {
+      "id": "enrich_liked_status",
+      "type": "enricher.spotify_liked_status",
+      "config": {},
+      "upstream": ["source_interesting_26"]
+    },
+    {
+      "id": "filter_not_liked",
+      "type": "filter.by_liked_status",
+      "config": {
+        "service": "spotify",
+        "is_liked": false
+      },
+      "upstream": ["enrich_liked_status"]
+    },
+    {
+      "id": "enrich_lastfm",
+      "type": "enricher.lastfm",
+      "upstream": ["filter_not_liked"]
+    },
+    {
+      "id": "sort_by_global_plays",
+      "type": "sorter.by_metric",
+      "config": {
+        "metric_name": "lastfm_global_playcount",
+        "reverse": true
+      },
+      "upstream": ["enrich_lastfm"]
+    },
+    {
+      "id": "update_likely_suspects",
+      "type": "destination.update_playlist",
+      "config": {
+        "playlist_id": "2CupvTx2VRLdvk5EAf7jKd",
+        "connector": "spotify",
+        "append": false
+      },
+      "upstream": ["sort_by_global_plays"]
+    }
+  ]
+}

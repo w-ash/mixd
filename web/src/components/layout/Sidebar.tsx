@@ -1,5 +1,6 @@
 import {
   ArrowDownToLine,
+  GitBranch,
   LayoutDashboard,
   Library,
   ListMusic,
@@ -13,6 +14,7 @@ const navItems = [
   { to: "/", label: "Dashboard", Icon: LayoutDashboard },
   { to: "/imports", label: "Imports", Icon: ArrowDownToLine },
   { to: "/playlists", label: "Playlists", Icon: ListMusic },
+  { to: "/workflows", label: "Workflows", Icon: GitBranch },
   { to: "/library", label: "Library", Icon: Library },
   { to: "/settings", label: "Settings", Icon: Settings },
 ] as const;
@@ -60,7 +62,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-5 py-4">
-        <span className="font-mono text-xs text-text-faint">v0.3</span>
+        <span className="font-mono text-xs text-text-faint">v0.4</span>
       </div>
     </nav>
   );

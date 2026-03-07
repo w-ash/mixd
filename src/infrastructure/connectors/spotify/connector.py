@@ -179,7 +179,11 @@ class SpotifyConnector(BaseAPIConnector):
             playlist_id, operations, snapshot_id, track_repo
         )
 
-    # User Library Operations - Delegate to operations
+    # User Library Operations - Delegate to client/operations
+
+    async def check_library_contains(self, uris: list[str]) -> dict[str, bool]:
+        """Check which items are in the user's saved library."""
+        return await self._client.check_library_contains(uris)
 
     async def get_liked_tracks(
         self,

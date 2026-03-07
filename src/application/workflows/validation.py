@@ -154,10 +154,10 @@ def extract_required_connectors(workflow_def: WorkflowDef) -> set[str]:
         if connector := task_def.config.get("connector"):
             connectors.add(str(connector))
 
-        # Implicit connector from enricher type
-        if task_def.type.startswith("enricher."):
-            _, _, connector_name = task_def.type.partition(".")
-            connectors.add(connector_name)
+        # Registry-declared connector requirements
+        _, metadata = get_node(task_def.type)
+        if node_connectors := metadata.get("required_connectors"):
+            connectors.update(node_connectors)
 
     return connectors
 
@@ -169,6 +169,69 @@ def validate_connector_availability(
     available_set = set(available)
     missing = sorted(required - available_set)
     return missing
+
+
+def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, str]]:
+    """Validate workflow definition returning structured error details.
+
+    Wraps validate_workflow_def() logic, catching ValueError and converting
+    to structured [{task_id, field, message}] dicts. Empty list = valid.
+    """
+    errors: list[dict[str, str]] = []
+
+    if not workflow_def.tasks:
+        errors.append({
+            "task_id": "",
+            "field": "tasks",
+            "message": "Workflow has no tasks",
+        })
+        return errors
+
+    task_ids = {task.id for task in workflow_def.tasks}
+
+    for task_def in workflow_def.tasks:
+        errors.extend(
+            {
+                "task_id": task_def.id,
+                "field": "upstream",
+                "message": f"References unknown upstream '{upstream_id}'",
+            }
+            for upstream_id in task_def.upstream
+            if upstream_id not in task_ids
+        )
+
+    for task_def in workflow_def.tasks:
+        try:
+            get_node(task_def.type)
+        except KeyError:
+            errors.append({
+                "task_id": task_def.id,
+                "field": "type",
+                "message": f"Unknown node type '{task_def.type}'",
+            })
+            continue
+
+        try:
+            _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
+        except ValueError as e:
+            errors.append({
+                "task_id": task_def.id,
+                "field": "config",
+                "message": str(e),
+            })
+
+    # Check for cycles
+    try:
+        topological_sort(workflow_def.tasks)
+    except ValueError as e:
+        errors.append({"task_id": "", "field": "tasks", "message": str(e)})
+
+    return errors
+
+
+def get_node_config_schema() -> dict[str, dict[str, type | tuple[type, ...]]]:
+    """Public accessor for node config schema (used by API node catalog endpoint)."""
+    return _NODE_CONFIG_SCHEMA
 
 
 class ConnectorNotAvailableError(Exception):

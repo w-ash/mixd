@@ -108,6 +108,21 @@ def make_mock_metrics_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_workflow_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`WorkflowRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.list_workflows.return_value = overrides.pop("list_workflows", [])
+    repo.get_workflow_by_id.return_value = overrides.pop("get_workflow_by_id", None)
+    repo.save_workflow.side_effect = overrides.pop("save_workflow", lambda w: w)
+    repo.delete_workflow.return_value = overrides.pop("delete_workflow", True)
+    repo.get_workflow_by_source_template.return_value = overrides.pop(
+        "get_workflow_by_source_template", None
+    )
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 # ---------------------------------------------------------------------------
 # Progress tracking helpers
 # ---------------------------------------------------------------------------
@@ -182,6 +197,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
     uow.get_metrics_repository = MagicMock(
         return_value=repo_overrides.get("metrics_repo", make_mock_metrics_repo())
+    )
+    uow.get_workflow_repository = MagicMock(
+        return_value=repo_overrides.get("workflow_repo", make_mock_workflow_repo())
     )
 
     # Connector provider (optional override)

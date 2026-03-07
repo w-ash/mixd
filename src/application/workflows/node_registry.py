@@ -38,6 +38,7 @@ class NodeMetadata(TypedDict):
     input_type: NotRequired[str]
     output_type: NotRequired[str]
     factory_created: NotRequired[bool]
+    required_connectors: NotRequired[list[str]]
 
 
 class _NodeRegisterKwargs(TypedDict, total=False):
@@ -47,6 +48,7 @@ class _NodeRegisterKwargs(TypedDict, total=False):
     input_type: str | None
     output_type: str | None
     category: NodeType | None
+    required_connectors: list[str] | None
 
 
 # Singleton registry using a class-based pattern
@@ -64,6 +66,7 @@ class NodeRegistry:
         input_type: str | None = None,
         output_type: str | None = None,
         category: NodeType | None = None,
+        required_connectors: list[str] | None = None,
     ) -> Callable[[NodeFn], NodeFn]:
         """Register a node with the registry.
 
@@ -73,6 +76,7 @@ class NodeRegistry:
             input_type: Type of input the node expects
             output_type: Type of output the node produces
             category: Node category (source, filter, etc.)
+            required_connectors: External service connectors this node needs at runtime
 
         Returns:
             Decorator that registers the node
@@ -102,6 +106,8 @@ class NodeRegistry:
                 metadata["output_type"] = output_type
             if hasattr(func, "__factory__"):
                 metadata["factory_created"] = True
+            if required_connectors is not None:
+                metadata["required_connectors"] = required_connectors
 
             # Store in registry directly — no wrapper overhead
             self._registry[node_id] = (func, metadata)

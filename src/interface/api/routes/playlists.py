@@ -116,7 +116,7 @@ async def delete_playlist(playlist_id: int) -> Response:
 @router.get("/{playlist_id}/tracks")
 async def get_playlist_tracks(
     playlist_id: int,
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=10000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistEntrySchema]:
     """Get paginated track entries for a playlist."""
