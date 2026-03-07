@@ -11,11 +11,12 @@ from collections.abc import Callable
 from typing import Any
 
 from src.config import get_logger, settings
-from src.config.constants import SpotifyConstants
+from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.inward_resolver import (
+    FallbackHint,
     SpotifyInwardResolver,
 )
 
@@ -93,8 +94,18 @@ class SpotifyConnectorPlayResolver:
         if not connector_plays:
             return [], self._create_empty_metrics()
 
-        # Step 1: Extract unique Spotify track IDs
-        unique_spotify_ids = self._extract_unique_spotify_ids(connector_plays)
+        # Step 1: Extract unique Spotify track IDs + fallback hints in a single pass
+        unique_ids_set: set[str] = set()
+        fallback_hints: dict[str, FallbackHint] = {}
+        for cp in connector_plays:
+            sid = self._extract_spotify_id_from_connector_play(cp)
+            if sid:
+                unique_ids_set.add(sid)
+                if sid not in fallback_hints and cp.artist_name and cp.track_name:
+                    fallback_hints[sid] = FallbackHint(
+                        artist_name=cp.artist_name, track_name=cp.track_name
+                    )
+        unique_spotify_ids = list(unique_ids_set)
 
         if not unique_spotify_ids:
             logger.warning("No valid Spotify track IDs found in connector plays")
@@ -104,7 +115,9 @@ class SpotifyConnectorPlayResolver:
         (
             canonical_tracks_map,
             canonical_track_metrics,
-        ) = await self._resolve_spotify_ids_to_canonical_tracks(unique_spotify_ids, uow)
+        ) = await self._resolve_spotify_ids_to_canonical_tracks(
+            unique_spotify_ids, uow, fallback_hints=fallback_hints
+        )
 
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
         track_plays: list[TrackPlay] = []
@@ -186,7 +199,11 @@ class SpotifyConnectorPlayResolver:
                 "spotify_track_uri": connector_play.service_metadata.get("track_uri"),
                 "spotify_track_id": spotify_id,
                 # Resolution tracking
-                "resolution_method": "spotify_connector_play_resolver",
+                "resolution_method": self._inward_resolver.get_resolution_method(
+                    spotify_id
+                )
+                if spotify_id
+                else MatchMethod.PLAY_RESOLVER,
                 "architecture_version": "connector_plays_deferred_resolution",
                 # Preserve any additional Spotify metadata
                 **{
@@ -227,6 +244,8 @@ class SpotifyConnectorPlayResolver:
             "updated_tracks_count": canonical_track_metrics["updated_tracks_count"],
             "unique_tracks_processed": len(unique_spotify_ids),
             "tracks_resolved": len(canonical_tracks_map),
+            "fallback_resolved": len(self._inward_resolver.fallback_resolved_ids),
+            "redirect_resolved": len(self._inward_resolver.redirect_resolved_ids),
         }
 
         logger.info(
@@ -243,17 +262,6 @@ class SpotifyConnectorPlayResolver:
         )
 
         return track_plays, spotify_metrics
-
-    def _extract_unique_spotify_ids(
-        self, connector_plays: list[ConnectorTrackPlay]
-    ) -> list[str]:
-        """Extract unique Spotify track IDs from connector plays."""
-        unique_ids: set[str] = set()
-        for connector_play in connector_plays:
-            spotify_id = self._extract_spotify_id_from_connector_play(connector_play)
-            if spotify_id:
-                unique_ids.add(spotify_id)
-        return list(unique_ids)
 
     def _extract_spotify_id_from_connector_play(
         self, connector_play: ConnectorTrackPlay
@@ -299,17 +307,21 @@ class SpotifyConnectorPlayResolver:
         return None
 
     async def _resolve_spotify_ids_to_canonical_tracks(
-        self, spotify_ids: list[str], uow: UnitOfWorkProtocol
+        self,
+        spotify_ids: list[str],
+        uow: UnitOfWorkProtocol,
+        *,
+        fallback_hints: dict[str, FallbackHint] | None = None,
     ) -> tuple[dict[str, Track], dict[str, int]]:
         """Resolve Spotify track IDs to canonical tracks.
 
         Delegates to SpotifyInwardResolver which handles:
         - Bulk lookup of existing connector mappings
         - Batch Spotify API fetch for missing tracks
-        - Relinking (primary + secondary mappings)
+        - Fallback search for dead IDs using artist+title hints
         """
         tracks_map, metrics = await self._inward_resolver.resolve_to_canonical_tracks(
-            spotify_ids, uow
+            spotify_ids, uow, fallback_hints=fallback_hints
         )
         return tracks_map, {
             "new_tracks_count": metrics.created,
@@ -329,4 +341,6 @@ class SpotifyConnectorPlayResolver:
             "updated_tracks_count": 0,
             "unique_tracks_processed": 0,
             "tracks_resolved": 0,
+            "fallback_resolved": 0,
+            "redirect_resolved": 0,
         }

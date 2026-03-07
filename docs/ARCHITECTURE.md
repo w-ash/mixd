@@ -445,31 +445,27 @@ tracks (canonical) ↔ track_mappings ↔ connector_tracks (service-specific)
 - Confidence scoring for match quality
 - Independent service updates
 
-#### Spotify Track Relinking
+#### Spotify Stale ID Resolution
 
-Spotify "relinks" tracks when their market availability changes — replacing ID `A` with ID `B` and returning `linked_from.id = "A"` in the response. Without handling this, the same physical track appears under different IDs across playlists and likes, creating duplicate canonical tracks.
+Spotify tracks can change IDs when relinked (label transfers, catalogue cleanup). The `inward_resolver.py` module handles three resolution scenarios for historical data:
+
+**Three-tier resolution strategy**:
+1. **DIRECT**: `GET /tracks/{id}` returns the same ID — 100% confidence, primary mapping
+2. **REDIRECT**: `GET /tracks/{old_id}` returns a track with a *different* `.id` — 100% confidence, dual mapping (new ID primary, old ID secondary for cache)
+3. **SEARCH FALLBACK**: `GET /tracks/{id}` returns 404 (true dead) — artist+title search at 70% confidence, dual mapping (found ID primary, dead ID secondary)
 
 **Dedup signals** (the only valid merge criteria):
-1. **Spotify `linked_from`** — authoritative "these two IDs are the same track"
+1. **Spotify redirect** — authoritative "these two IDs are the same track"
 2. **ISRC match** — same recording by definition (already in `save_track()`)
 
-Name/artist matching is explicitly **not** used — different versions (live, acoustic, remaster) are different canonical tracks.
+Name/artist matching is explicitly **not** used for dedup — different versions (live, acoustic, remaster) are different canonical tracks. The search fallback is approximate and flagged with lower confidence.
 
-**Implementation** (4 layers):
-
-```
-conversions.py          → Stores linked_from.id in raw_metadata["linked_from_id"]
-sync_likes.py           → Expands dedup lookup with alternate IDs during likes import
-connector.py            → Creates secondary (non-primary) connector mappings during ingestion
-playlist_processing.py  → Expands dedup lookup with alternate IDs during playlist sync
-```
-
-The pattern creates **dual connector mappings** per relinked track — one primary (current market ID) and one secondary (original ID, `is_primary=False`). Future lookups under either ID find the canonical track. The `linked_from_id` flows through `raw_metadata` (not a domain field) to keep Spotify-specific concerns out of the domain layer.
+The secondary mapping in scenarios 2 and 3 ensures future imports with the old ID resolve instantly via the bulk lookup fast path (no API call needed).
 
 ### Temporal Data Design
 
 - **Immutable Events**: Play history, sync operations
-- **Time-Series Metrics**: Popularity, play counts
+- **Time-Series Metrics**: Play counts, listener counts
 - **Checkpoint System**: Incremental sync state
 
 **Benefits**: 

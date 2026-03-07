@@ -59,23 +59,25 @@ class TestValidateWorkflowDef:
 
     def test_valid_workflow_passes(self):
         """Well-formed workflow definition passes validation."""
-        validate_workflow_def(WorkflowDef(
-            id="test",
-            name="test",
-            tasks=[
-                WorkflowTaskDef(
-                    id="src_1",
-                    type="source.playlist",
-                    config={"playlist_id": "test-123"},
-                ),
-                WorkflowTaskDef(
-                    id="dest_1",
-                    type="destination.create_playlist",
-                    config={"name": "Test Playlist"},
-                    upstream=["src_1"],
-                ),
-            ],
-        ))
+        validate_workflow_def(
+            WorkflowDef(
+                id="test",
+                name="test",
+                tasks=[
+                    WorkflowTaskDef(
+                        id="src_1",
+                        type="source.playlist",
+                        config={"playlist_id": "test-123"},
+                    ),
+                    WorkflowTaskDef(
+                        id="dest_1",
+                        type="destination.create_playlist",
+                        config={"name": "Test Playlist"},
+                        upstream=["src_1"],
+                    ),
+                ],
+            )
+        )
 
     def test_missing_required_config_raises(self):
         """Node with missing required config key raises ValueError."""
@@ -137,18 +139,20 @@ class TestValidateWorkflowDef:
 
     def test_optional_config_keys_not_required(self):
         """Nodes without required config (e.g., filters with defaults) pass."""
-        validate_workflow_def(WorkflowDef(
-            id="test",
-            name="test",
-            tasks=[
-                WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
-                WorkflowTaskDef(
-                    id="filter_1",
-                    type="filter.deduplicate",
-                    upstream=["src_1"],
-                ),
-            ],
-        ))
+        validate_workflow_def(
+            WorkflowDef(
+                id="test",
+                name="test",
+                tasks=[
+                    WorkflowTaskDef(id="src_1", type="source.liked_tracks"),
+                    WorkflowTaskDef(
+                        id="filter_1",
+                        type="filter.deduplicate",
+                        upstream=["src_1"],
+                    ),
+                ],
+            )
+        )
 
 
 class TestTopologicalSort:
@@ -219,7 +223,10 @@ class TestNodeExecutionRecord:
         from src.domain.entities.workflow import NodeExecutionRecord
 
         record = NodeExecutionRecord(
-            node_id="t1", node_type="filter.by_metric", execution_order=2, status="completed"
+            node_id="t1",
+            node_type="filter.by_metric",
+            execution_order=2,
+            status="completed",
         )
         assert record.duration_ms == 0
         assert record.input_track_count is None
@@ -341,11 +348,18 @@ class TestValidateConnectorAvailability:
 
     def test_all_present(self):
         """No missing connectors returns empty list."""
-        assert validate_connector_availability({"spotify", "lastfm"}, ["spotify", "lastfm", "musicbrainz"]) == []
+        assert (
+            validate_connector_availability(
+                {"spotify", "lastfm"}, ["spotify", "lastfm", "musicbrainz"]
+            )
+            == []
+        )
 
     def test_missing_connectors(self):
         """Missing connectors returned sorted."""
-        result = validate_connector_availability({"spotify", "apple_music"}, ["spotify", "lastfm"])
+        result = validate_connector_availability(
+            {"spotify", "apple_music"}, ["spotify", "lastfm"]
+        )
         assert result == ["apple_music"]
 
     def test_empty_required(self):

@@ -4,7 +4,7 @@ Provides composable summary metric objects that carry their own display metadata
 eliminating the need for UI layer to guess labels from generic field names.
 
 These are distinct from:
-- TrackMetric: Time-series metrics from external services (e.g., popularity over time)
+- TrackMetric: Time-series metrics from external services (e.g., play counts over time)
 - OperationResult.metrics: Per-track operational metrics (e.g., similarity scores per track)
 """
 

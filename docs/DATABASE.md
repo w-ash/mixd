@@ -158,7 +158,7 @@ CREATE TABLE track_metrics (
     id INTEGER PRIMARY KEY,
     track_id INTEGER NOT NULL,           -- FK to tracks table
     connector_name VARCHAR(32) NOT NULL, -- Source service name
-    metric_type VARCHAR(32) NOT NULL,    -- Metric type (play_count, popularity, etc)
+    metric_type VARCHAR(32) NOT NULL,    -- Metric type (play_count, explicit_flag, etc)
     value FLOAT NOT NULL,               -- Numeric metric value
     collected_at DATETIME NOT NULL,      -- When the metric was collected
     created_at DATETIME NOT NULL,
@@ -172,7 +172,7 @@ CREATE INDEX ix_track_metrics_lookup ON track_metrics(track_id, connector_name, 
 
 **Key Points:**
 - Time-series design for historical metrics with timestamps
-- Supports various metric types (plays, popularity, etc.)
+- Supports various metric types (plays, explicit flag, etc.)
 - Clearly identifies the source of each metric
 - Floating-point values for wide range of metrics
 

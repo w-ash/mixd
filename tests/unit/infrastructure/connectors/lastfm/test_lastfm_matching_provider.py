@@ -6,8 +6,6 @@ and the fact that LastFM does NOT use _match_by_isrc/_match_by_artist_title.
 
 from unittest.mock import AsyncMock
 
-import pytest
-
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.matching_provider import LastFMProvider
@@ -199,19 +197,13 @@ class TestLastFMProviderCreateRawMatch:
         assert result is None
 
 
-class TestLastFMProviderAbstractMethods:
-    """Verify that LastFM does not use the ISRC/artist_title abstract methods."""
+class TestLastFMProviderProtocolCompliance:
+    """Verify that LastFMProvider satisfies the MatchProvider protocol."""
 
-    async def test_match_by_isrc_raises_not_implemented(self):
-        """_match_by_isrc should raise NotImplementedError."""
+    def test_has_service_name(self):
         provider, _ = _make_provider()
+        assert provider.service_name == "lastfm"
 
-        with pytest.raises(NotImplementedError):
-            await provider._match_by_isrc([make_track(id=1)])
-
-    async def test_match_by_artist_title_raises_not_implemented(self):
-        """_match_by_artist_title should raise NotImplementedError."""
+    def test_has_fetch_raw_matches_for_tracks(self):
         provider, _ = _make_provider()
-
-        with pytest.raises(NotImplementedError):
-            await provider._match_by_artist_title([make_track(id=1)])
+        assert callable(provider.fetch_raw_matches_for_tracks)

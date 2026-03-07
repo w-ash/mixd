@@ -63,12 +63,12 @@ class TestInwardResolverUsesUrlFormat:
             lastfm_album_name="Pablo Honey",
         )
 
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = []
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = False
 
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         saved_track = make_track(id=42)
@@ -93,12 +93,12 @@ class TestInwardResolverUsesUrlFormat:
             lastfm_album_name=None,
         )
 
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = []
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = False
 
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         saved_track = make_track(id=42)
@@ -118,7 +118,6 @@ class TestInwardResolverUsesUrlFormat:
         """Phase 1 bulk lookup should find tracks stored with artist::title dedup key."""
         resolver = LastfmInwardResolver(
             lastfm_client=AsyncMock(),
-            spotify_connector=MagicMock(),
         )
 
         existing_track = make_track(id=10)

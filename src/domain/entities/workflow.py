@@ -7,9 +7,11 @@ Used by validation, execution (Prefect), API schemas, and persistence layers.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: node config values are heterogeneous (str, int, float, bool, list)
 
-from typing import Any
+from typing import Any, Literal
 
 from attrs import define, field
+
+NodeExecutionStatus = Literal["completed", "failed", "skipped"]
 
 
 @define(frozen=True, slots=True)
@@ -32,27 +34,51 @@ class WorkflowTaskDef:
 
 
 @define(frozen=True, slots=True)
+class NodeExecutionEvent:
+    """Snapshot of node execution state passed to lifecycle observers.
+
+    Bundles execution context into a single object so observer protocol methods
+    stay at 2 parameters (event + method-specific data like result or error).
+    """
+
+    task_def: WorkflowTaskDef
+    execution_order: int
+    total_nodes: int
+    duration_ms: int = 0
+    input_track_count: int | None = None
+    output_track_count: int | None = None
+
+    def to_record(
+        self,
+        *,
+        status: NodeExecutionStatus,
+        error_message: str | None = None,
+    ) -> NodeExecutionRecord:
+        """Derive a persistence-ready record from this event."""
+        return NodeExecutionRecord(
+            node_id=self.task_def.id,
+            node_type=self.task_def.type,
+            execution_order=self.execution_order,
+            status=status,
+            duration_ms=self.duration_ms,
+            input_track_count=self.input_track_count,
+            output_track_count=self.output_track_count,
+            error_message=error_message,
+        )
+
+
+@define(frozen=True, slots=True)
 class NodeExecutionRecord:
     """Per-node execution result for run history recording.
 
     Captures what happened to each node during a workflow run. Maps directly
     to v0.4.1's ``workflow_run_nodes`` table rows via ``attrs.asdict()``.
-
-    Attributes:
-        node_id: Task identifier within the workflow.
-        node_type: Node type key (e.g., "enricher.spotify").
-        execution_order: 1-based position in execution sequence.
-        status: Outcome — "completed", "failed", or "skipped".
-        duration_ms: Wall-clock time in milliseconds.
-        input_track_count: Tracks received from upstream (None for source nodes).
-        output_track_count: Tracks in result tracklist (None on failure).
-        error_message: Exception message on failure, None otherwise.
     """
 
     node_id: str
     node_type: str
     execution_order: int
-    status: str  # "completed" | "failed" | "skipped"
+    status: NodeExecutionStatus
     duration_ms: int = 0
     input_track_count: int | None = None
     output_track_count: int | None = None

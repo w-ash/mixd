@@ -262,14 +262,22 @@
       ]
     },
     {
-      "id": "sort_popularity_final",
+      "id": "enrich_lastfm",
+      "type": "enricher.lastfm",
+      "config": {},
+      "upstream": [
+        "filter_not_artist_in_blech"
+      ]
+    },
+    {
+      "id": "sort_playcount_final",
       "type": "sorter.by_metric",
       "config": {
-        "metric_name": "spotify_popularity",
+        "metric_name": "lastfm_global_playcount",
         "reverse": true
       },
       "upstream": [
-        "filter_not_artist_in_blech"
+        "enrich_lastfm"
       ]
     },
     {
@@ -281,7 +289,7 @@
         "connector": "spotify"
       },
       "upstream": [
-        "sort_popularity_final"
+        "sort_playcount_final"
       ]
     }
   ]

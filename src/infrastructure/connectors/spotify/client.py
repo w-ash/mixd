@@ -13,6 +13,7 @@ Key components:
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: response.json() wire format, API response dicts
 
+import asyncio
 from typing import Any, ClassVar, override
 
 from attrs import define, field
@@ -60,6 +61,7 @@ class SpotifyAPIClient(BaseAPIClient):
     _token_manager: SpotifyTokenManager = field(init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
     _client: httpx.AsyncClient = field(init=False, repr=False)
+    _cached_user_id: str | None = field(init=False, default=None, repr=False)
 
     @property
     def market(self) -> str:
@@ -98,31 +100,54 @@ class SpotifyAPIClient(BaseAPIClient):
     # Track API Methods
     # -------------------------------------------------------------------------
 
-    async def get_tracks_bulk(self, track_ids: list[str]) -> list[SpotifyTrack] | None:
-        """Fetch multiple tracks from Spotify (up to 50 per request)."""
-        data = await self._api_call(
-            "get_spotify_tracks_bulk", self._get_tracks_bulk_impl, track_ids
-        )
-        if not data or "tracks" not in data:
-            return None
-        return [SpotifyTrack.model_validate(t) for t in data["tracks"] if t]
+    async def get_track(self, track_id: str) -> SpotifyTrack | None:
+        """Fetch a single track from Spotify by ID."""
+        data = await self._api_call("get_spotify_track", self._get_track_impl, track_id)
+        return SpotifyTrack.model_validate(data) if data else None
 
-    async def _get_tracks_bulk_impl(
-        self, track_ids: list[str]
-    ) -> dict[str, Any] | None:
+    async def _get_track_impl(self, track_id: str) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        if not track_ids or len(track_ids) > SpotifyConstants.TRACKS_BULK_LIMIT:
-            logger.warning(
-                f"Invalid track_ids list: {len(track_ids) if track_ids else 0} items"
-            )
-            return None
-
         response = await self._client.get(
-            "/tracks",
-            params={"ids": ",".join(track_ids), "market": self.market},
+            f"/tracks/{track_id}",
+            params={"market": self.market},
         )
         _ = response.raise_for_status()
         return response.json()
+
+    async def get_tracks_concurrent(
+        self, track_ids: list[str]
+    ) -> dict[str, SpotifyTrack]:
+        """Fetch multiple tracks concurrently with structured concurrency.
+
+        Uses asyncio.TaskGroup + Semaphore to limit concurrent requests.
+        Tracks that fail to fetch are silently skipped (logged as warnings).
+
+        Returns a dict keyed by REQUESTED ID, not the returned track's .id field.
+        This distinction matters when Spotify redirects old IDs to new ones —
+        the caller needs to find the result using the ID they asked about.
+        """
+        if not track_ids:
+            return {}
+
+        semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
+        results: dict[str, SpotifyTrack] = {}
+
+        async def _fetch_one(tid: str) -> None:
+            async with semaphore:
+                try:
+                    track = await self.get_track(tid)
+                    if track is not None:
+                        results[tid] = track
+                    else:
+                        logger.warning(f"Failed to fetch track {tid}")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch track {tid}: {e}")
+
+        async with asyncio.TaskGroup() as tg:
+            for tid in track_ids:
+                _ = tg.create_task(_fetch_one(tid))
+
+        return results
 
     # -------------------------------------------------------------------------
     # Search API Methods
@@ -180,7 +205,7 @@ class SpotifyAPIClient(BaseAPIClient):
             params={
                 "q": query,
                 "type": "track",
-                "limit": min(limit, 50),
+                "limit": min(limit, SpotifyConstants.SEARCH_MAX_LIMIT),
                 "market": self.market,
             },
         )
@@ -208,25 +233,25 @@ class SpotifyAPIClient(BaseAPIClient):
         _ = response.raise_for_status()
         return response.json()
 
-    async def get_playlist_tracks(
+    async def get_playlist_items(
         self, playlist_id: str, limit: int = 100, offset: int = 0
     ) -> SpotifyPaginatedPlaylistItems | None:
-        """Fetch tracks from a Spotify playlist with pagination."""
+        """Fetch items from a Spotify playlist with pagination."""
         data = await self._api_call(
-            "get_spotify_playlist_tracks",
-            self._get_playlist_tracks_impl,
+            "get_spotify_playlist_items",
+            self._get_playlist_items_impl,
             playlist_id,
             limit,
             offset,
         )
         return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
 
-    async def _get_playlist_tracks_impl(
+    async def _get_playlist_items_impl(
         self, playlist_id: str, limit: int = 100, offset: int = 0
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
         response = await self._client.get(
-            f"/playlists/{playlist_id}/tracks",
+            f"/playlists/{playlist_id}/items",
             params={
                 "limit": min(limit, 100),
                 "offset": offset,
@@ -320,7 +345,7 @@ class SpotifyAPIClient(BaseAPIClient):
             body["position"] = position
 
         response = await self._client.post(
-            f"/playlists/{playlist_id}/tracks",
+            f"/playlists/{playlist_id}/items",
             json=body,
         )
         _ = response.raise_for_status()
@@ -358,13 +383,13 @@ class SpotifyAPIClient(BaseAPIClient):
         snapshot_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
-        body: dict[str, Any] = {"tracks": items}
+        body: dict[str, Any] = {"items": items}
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
         response = await self._client.request(
             "DELETE",
-            f"/playlists/{playlist_id}/tracks",
+            f"/playlists/{playlist_id}/items",
             json=body,
         )
         _ = response.raise_for_status()
@@ -419,7 +444,7 @@ class SpotifyAPIClient(BaseAPIClient):
             body["snapshot_id"] = snapshot_id
 
         response = await self._client.put(
-            f"/playlists/{playlist_id}/tracks",
+            f"/playlists/{playlist_id}/items",
             json=body,
         )
         _ = response.raise_for_status()
@@ -450,7 +475,7 @@ class SpotifyAPIClient(BaseAPIClient):
     ) -> dict[str, Any] | None:
         """Pure implementation without retry logic."""
         response = await self._client.put(
-            f"/playlists/{playlist_id}/tracks",
+            f"/playlists/{playlist_id}/items",
             json={"uris": items},
         )
         _ = response.raise_for_status()
@@ -537,3 +562,12 @@ class SpotifyAPIClient(BaseAPIClient):
         response = await self._client.get("/me")
         _ = response.raise_for_status()
         return response.json()
+
+    async def get_current_user_id(self) -> str | None:
+        """Get (and cache) the current user's Spotify ID."""
+        if self._cached_user_id is not None:
+            return self._cached_user_id
+        user_data = await self.get_current_user()
+        if user_data and "id" in user_data:
+            self._cached_user_id = user_data["id"]
+        return self._cached_user_id

@@ -2,7 +2,7 @@
 
 Unlike pure domain transforms (src/domain/transforms/), these functions
 depend on upstream enrichment data in TrackList.metadata — play counts,
-popularity scores, explicit flags, and listening dates. They also use
+play counts, explicit flags, and listening dates. They also use
 logging for diagnostic output.
 
 If your transform only needs Track fields (title, artists, duration, etc.),

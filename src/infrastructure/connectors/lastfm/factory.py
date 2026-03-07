@@ -33,9 +33,19 @@ def create_play_resolver() -> Any:
     Returns:
         Configured LastfmConnectorPlayResolver
     """
+    from src.infrastructure.connectors.spotify import SpotifyConnector
+    from src.infrastructure.connectors.spotify.cross_discovery import (
+        SpotifyCrossDiscoveryProvider,
+    )
+
     from .play_resolver import LastfmConnectorPlayResolver
     from .track_resolution_service import LastfmTrackResolutionService
 
+    cross_discovery = SpotifyCrossDiscoveryProvider(
+        spotify_connector=SpotifyConnector(),
+    )
     return LastfmConnectorPlayResolver(
-        lastfm_resolution_service=LastfmTrackResolutionService()
+        lastfm_resolution_service=LastfmTrackResolutionService(
+            cross_discovery=cross_discovery,
+        )
     )

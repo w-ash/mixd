@@ -291,7 +291,8 @@ class LastFMOperations:
 
         # Create rate-limited batch processor with LastFM-specific settings
         lastfm_rate = settings.api.lastfm.rate_limit
-        assert lastfm_rate is not None, "Last.fm rate_limit must be configured"
+        if lastfm_rate is None:
+            raise ValueError("Last.fm rate_limit must be configured")
         processor = RateLimitedBatchProcessor(
             rate_per_second=lastfm_rate,
             connector_name="lastfm",

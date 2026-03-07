@@ -11,6 +11,7 @@ from tests.fixtures.factories import (
     make_connector_track,
     make_playlist,
     make_playlist_with_entries,
+    make_spotify_track,
     make_track,
     make_tracks,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "make_mock_uow",
     "make_playlist",
     "make_playlist_with_entries",
+    "make_spotify_track",
     "make_track",
     "make_tracking_emitter",
     "make_tracks",

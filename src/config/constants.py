@@ -36,7 +36,8 @@ class SpotifyConstants:
 
     URI_PARTS_COUNT: Final = 3  # "spotify:track:<id>"
     TRACK_ID_LENGTH: Final = 22
-    TRACKS_BULK_LIMIT: Final = 50  # max items per /tracks bulk-fetch
+    SEARCH_MAX_LIMIT: Final = 10  # max results per search query (Feb 2026 API)
+    FALLBACK_SIMILARITY_THRESHOLD: Final[float] = 0.7
 
 
 class BusinessLimits:
@@ -91,6 +92,25 @@ class WorkflowConstants:
     ENRICHER_TIMEOUT_SECONDS: Final = 300  # 5min — batch API enrichment
     TRANSFORM_TIMEOUT_SECONDS: Final = 60  # 1min — pure transforms (safety)
     DESTINATION_TIMEOUT_SECONDS: Final = 300  # 5min — external API writes
+
+
+class MatchMethod:
+    """Track resolution method identifiers.
+
+    Used in connector mappings and play context to record HOW a track ID
+    was resolved. Written by inward resolvers, read by play resolvers for
+    context tagging, and asserted in tests.
+    """
+
+    DIRECT_IMPORT: Final = "direct_import"
+    SEARCH_FALLBACK: Final = "search_fallback"
+    ARTIST_TITLE: Final = "artist_title"
+    SPOTIFY_REDIRECT: Final = "spotify_redirect"
+    PLAY_RESOLVER: Final = "spotify_connector_play_resolver"
+    LASTFM_DISCOVERY: Final = "lastfm_discovery"
+    # Secondary mappings for stale IDs (old ID → same canonical track)
+    DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
+    SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
 
 
 class LastFMConstants:

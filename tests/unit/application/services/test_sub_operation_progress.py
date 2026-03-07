@@ -4,7 +4,7 @@ Tests create_sub_operation, complete_sub_operation, and emit_phase_progress
 functions that bridge infrastructure callbacks to AsyncProgressManager.
 """
 
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
 from src.application.services.sub_operation_progress import (
     complete_sub_operation,
@@ -87,9 +87,7 @@ class TestCompleteSubOperation:
     async def test_complete_sub_operation_with_failed_status(self):
         mock_manager = _make_mock_manager()
 
-        await complete_sub_operation(
-            mock_manager, "sub-op-456", OperationStatus.FAILED
-        )
+        await complete_sub_operation(mock_manager, "sub-op-456", OperationStatus.FAILED)
 
         mock_manager.complete_operation.assert_awaited_once_with(
             "sub-op-456", OperationStatus.FAILED

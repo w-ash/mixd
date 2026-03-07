@@ -201,7 +201,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
      - Mini chart (sparkline) of play frequency over time if data exists
    - **Metrics** section: connector-specific metrics
      - Last.fm: user play count, global play count, listener count
-     - Spotify: popularity score
+
 
 2. **Actions** available on this page:
    - **Like/Unlike**: Toggle like status per service. Calls `POST /tracks/{id}/like` or `DELETE /tracks/{id}/like` with `{ connector: "spotify" }`.

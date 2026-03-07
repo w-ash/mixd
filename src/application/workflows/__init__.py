@@ -28,10 +28,12 @@ from .workflow_loader import list_workflow_defs, load_workflow_def
 
 # Export clean public API
 __all__ = [
+    "ConnectorNotAvailableError",
     "NodeContext",
     "WorkflowAlreadyRunningError",
     "build_external_enrichment_config",
     "create_enricher_node",
+    "extract_required_connectors",
     "get_node",
     "is_workflow_running",
     "list_workflow_defs",
@@ -39,8 +41,6 @@ __all__ = [
     "make_combiner_node",
     "make_node",
     "node",
-    "ConnectorNotAvailableError",
-    "extract_required_connectors",
     "run_workflow",
     "topological_sort",
     "validate_connector_availability",

@@ -1,8 +1,9 @@
-"""Unit tests for progress_callback parameter on RateLimitedBatchProcessor.process_batch().
+"""Unit tests for RateLimitedBatchProcessor.
 
-Verifies that the optional progress callback is invoked with correct (completed, total, message)
-tuples after each item completes, and that omitting it causes no errors.
+Verifies progress callback, concurrent dict safety, and task cleanup.
 """
+
+import asyncio
 
 from src.infrastructure.connectors._shared.rate_limited_batch_processor import (
     RateLimitedBatchProcessor,
@@ -72,3 +73,47 @@ class TestProgressCallbackEdgeCases:
 
         # Should complete without errors
         assert len(results) == 2
+
+
+class TestConcurrentDictSafety:
+    """Tests that _collect_results snapshots the dict to avoid RuntimeError."""
+
+    async def test_concurrent_writes_do_not_raise_runtime_error(self):
+        """Slow process func forces concurrent dict writes during collection."""
+        processor = _make_processor()
+        items = list(range(10))
+
+        async def slow_process(item: int) -> int:
+            # Stagger completions to maximize concurrent dict mutation
+            await asyncio.sleep(0.01 * item)
+            return item
+
+        results: list[tuple[str, int | None]] = []
+        async for item_id, result in processor.process_batch(items, slow_process):
+            results.append((item_id, result))
+
+        assert len(results) == 10
+
+
+class TestTaskCleanup:
+    """Tests that orphaned work-item tasks are cancelled on shutdown."""
+
+    async def test_running_tasks_cancelled_on_early_exit(self):
+        """Tasks still running when consumer breaks are cancelled in finally."""
+        processor = _make_processor()
+        items = list(range(5))
+
+        async def blocking_process(item: int) -> int:
+            # First item completes fast, rest block until cancelled
+            if item == 0:
+                return item
+            await asyncio.sleep(60)
+            return item
+
+        async for _item_id, _result in processor.process_batch(items, blocking_process):
+            # Break after first result — remaining tasks should be cancelled
+            break
+
+        # Give the finally block a tick to cancel tasks
+        await asyncio.sleep(0.05)
+        assert len(processor.running_tasks) == 0

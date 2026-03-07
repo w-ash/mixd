@@ -13,6 +13,7 @@ import datetime
 import time
 from typing import Any
 
+import attrs
 from prefect import flow, tags, task
 from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
@@ -26,11 +27,15 @@ from src.domain.entities.progress import (
     OperationStatus,
     create_progress_operation,
 )
-from src.domain.entities.workflow import NodeExecutionRecord, WorkflowDef
+from src.domain.entities.workflow import (
+    NodeExecutionEvent,
+    NodeExecutionRecord,
+    WorkflowDef,
+)
 
 from .node_registry import get_node
-from .observers import ProgressNodeObserver
-from .protocols import NodeExecutionObserver, NodeResult, NullNodeObserver
+from .observers import NullNodeObserver, ProgressNodeObserver
+from .protocols import NodeExecutionObserver, NodeResult
 from .validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
@@ -63,7 +68,9 @@ class WorkflowAlreadyRunningError(Exception):
         self.workflow_id = workflow_id
         super().__init__(f"Workflow '{workflow_id}' is already running")
 
+
 # --- Timeout configuration ---
+
 
 _CATEGORY_TIMEOUTS: dict[str, int] = {
     "source": WorkflowConstants.SOURCE_TIMEOUT_SECONDS,
@@ -88,8 +95,7 @@ def _get_node_timeout(node_type: str) -> int:
 
 def _on_node_failure(task: Any, task_run: Any, state: Any) -> None:
     """Prefect on_failure state hook for structured failure logging."""
-    node_logger = get_logger(__name__)
-    node_logger.error(
+    logger.error(
         "Prefect task failed",
         task_name=getattr(task, "name", "unknown"),
         task_run_name=getattr(task_run, "name", "unknown"),
@@ -287,12 +293,14 @@ def build_flow(
                                 task_context[upstream_id] = task_results[upstream_id]
 
                     # Notify observer and time execution
-                    input_track_count = _get_input_track_count(
-                        task_def, task_results
+                    input_track_count = _get_input_track_count(task_def, task_results)
+                    base_event = NodeExecutionEvent(
+                        task_def=task_def,
+                        execution_order=execution_order,
+                        total_nodes=total_nodes,
+                        input_track_count=input_track_count,
                     )
-                    await node_observer.on_node_starting(
-                        task_def, execution_order, total_nodes, input_track_count
-                    )
+                    await node_observer.on_node_starting(base_event)
                     start_ns = time.perf_counter_ns()
 
                     try:
@@ -302,40 +310,24 @@ def build_flow(
                         )(node_type, task_context, config)
                     except Exception as exc:
                         duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
-                        await node_observer.on_node_failed(
-                            task_def, exc, execution_order, total_nodes, duration_ms
+                        failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
+                        await node_observer.on_node_failed(failed_event, exc)
+                        node_records.append(
+                            failed_event.to_record(
+                                status="failed", error_message=str(exc)
+                            )
                         )
-                        node_records.append(NodeExecutionRecord(
-                            node_id=task_id,
-                            node_type=node_type,
-                            execution_order=execution_order,
-                            status="failed",
-                            duration_ms=duration_ms,
-                            input_track_count=input_track_count,
-                            error_message=str(exc),
-                        ))
                         raise
 
                     duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
                     output_track_count = len(result["tracklist"].tracks)
-                    await node_observer.on_node_completed(
-                        task_def,
-                        result,
-                        execution_order,
-                        total_nodes,
-                        duration_ms,
-                        input_track_count,
-                        output_track_count,
-                    )
-                    node_records.append(NodeExecutionRecord(
-                        node_id=task_id,
-                        node_type=node_type,
-                        execution_order=execution_order,
-                        status="completed",
+                    completed_event = attrs.evolve(
+                        base_event,
                         duration_ms=duration_ms,
-                        input_track_count=input_track_count,
                         output_track_count=output_track_count,
-                    ))
+                    )
+                    await node_observer.on_node_completed(completed_event, result)
+                    node_records.append(completed_event.to_record(status="completed"))
 
                     # Store result in context and task_results
                     context[task_id] = result
@@ -407,7 +399,7 @@ def extract_workflow_result(
 
     Finds the destination task (playlist creation/update) to get the final filtered
     tracklist, then combines metrics from all intermediate tasks (play counts,
-    popularity scores, etc.) into a comprehensive result structure.
+    listener counts, etc.) into a comprehensive result structure.
 
     Args:
         workflow_def: Original workflow definition
@@ -505,7 +497,7 @@ async def run_workflow(
             raise WorkflowAlreadyRunningError(workflow_id)
         _running_workflows.add(workflow_id)
 
-    logger = get_run_logger()
+    flow_logger = get_run_logger()
     workflow_name = workflow_def.name
 
     try:
@@ -520,15 +512,13 @@ async def run_workflow(
             workflow_operation_id = await progress_manager.start_operation(
                 workflow_operation
             )
-            logger.info(
+            flow_logger.info(
                 f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
             )
 
         # Auto-create ProgressNodeObserver when progress_manager is active and no
         # explicit observer was provided
-        effective_observer: NodeExecutionObserver | None = (
-            observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
-        )
+        effective_observer: NodeExecutionObserver | None = observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
         if effective_observer is None and progress_manager and workflow_operation_id:
             effective_observer = ProgressNodeObserver(
                 progress_manager, workflow_operation_id
@@ -540,7 +530,9 @@ async def run_workflow(
                 start_time = datetime.datetime.now(datetime.UTC)
 
                 # Build and execute the workflow
-                workflow = build_flow(workflow_def, observer=effective_observer, dry_run=dry_run)
+                workflow = build_flow(
+                    workflow_def, observer=effective_observer, dry_run=dry_run
+                )
                 context = await workflow(
                     workflow_progress_manager=progress_manager,
                     workflow_operation_id=workflow_operation_id,
@@ -575,7 +567,7 @@ async def run_workflow(
                     workflow_operation_id, OperationStatus.FAILED
                 )
 
-            logger.exception("Workflow execution failed")
+            flow_logger.exception("Workflow execution failed")
             raise
     finally:
         async with _running_lock:

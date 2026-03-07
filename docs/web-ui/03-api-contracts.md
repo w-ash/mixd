@@ -143,7 +143,7 @@ The Track API object is an **assembled view** composed from:
 - `Track` entity (title, artists, album, duration_ms, release_date, isrc)
 - `track_mappings` (connector linkage with confidence)
 - `track_likes` (per-service like status)
-- `track_metrics` (collected metrics like play counts, popularity)
+- `track_metrics` (collected metrics like play counts)
 
 ```
 GET    /tracks

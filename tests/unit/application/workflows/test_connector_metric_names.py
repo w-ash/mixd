@@ -27,9 +27,9 @@ class TestGetConnectorMetricNames:
 
     def test_prefixed_match(self):
         """Connector-prefixed attribute resolves correctly."""
-        mc = _make_metric_config(["spotify_popularity"])
-        result = _get_connector_metric_names(mc, "spotify", ["popularity"])
-        assert result == ["spotify_popularity"]
+        mc = _make_metric_config(["explicit_flag"])
+        result = _get_connector_metric_names(mc, "spotify", ["explicit_flag"])
+        assert result == ["explicit_flag"]
 
     def test_prefixed_lastfm_alias(self):
         """Prefixed matching: user_playcount -> lastfm_user_playcount."""
@@ -42,10 +42,10 @@ class TestGetConnectorMetricNames:
         assert result == ["lastfm_user_playcount"]
 
     def test_prefixed_spotify_alias(self):
-        """Prefixed matching: popularity -> spotify_popularity."""
-        mc = _make_metric_config(["spotify_popularity"])
-        result = _get_connector_metric_names(mc, "spotify", ["popularity"])
-        assert result == ["spotify_popularity"]
+        """Exact matching: explicit_flag resolves directly."""
+        mc = _make_metric_config(["explicit_flag"])
+        result = _get_connector_metric_names(mc, "spotify", ["explicit_flag"])
+        assert result == ["explicit_flag"]
 
     def test_unknown_attribute_returns_empty(self):
         """Unknown attribute logs warning and is not included."""

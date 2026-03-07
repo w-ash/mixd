@@ -111,14 +111,14 @@ class TestPrimaryMappingQueries:
             connector_track_identifier="meta_old_id",
             title="Metadata Test",
             artists={"names": ["Artist"]},
-            raw_metadata={"popularity": 30},
+            raw_metadata={"explicit": False},
         )
         new_ct = DBConnectorTrack(
             connector_name="spotify",
             connector_track_identifier="meta_new_id",
             title="Metadata Test",
             artists={"names": ["Artist"]},
-            raw_metadata={"popularity": 80},
+            raw_metadata={"explicit": True},
         )
         db_session.add_all([old_ct, new_ct])
         await db_session.flush()
@@ -147,7 +147,7 @@ class TestPrimaryMappingQueries:
         result = await repo.get_connector_metadata([db_track.id], "spotify")
 
         assert db_track.id in result
-        assert result[db_track.id] == {"popularity": 80}
+        assert result[db_track.id] == {"explicit": True}
 
     async def test_ingest_bulk_sets_primary_per_track(
         self, db_session: AsyncSession, test_data_tracker
@@ -159,7 +159,7 @@ class TestPrimaryMappingQueries:
                 connector_track_identifier=f"bulk_sp_{i}",
                 title=f"Bulk Track {i}",
                 artists=[Artist(name=f"Bulk Artist {i}")],
-                raw_metadata={"popularity": 50 + i},
+                raw_metadata={"explicit": i % 2 == 0},
             )
             for i in range(3)
         ]

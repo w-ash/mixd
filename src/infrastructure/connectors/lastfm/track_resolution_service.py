@@ -6,17 +6,19 @@ Resolves Last.fm play data to canonical tracks by:
 3. Mapping resolved tracks back to the original play record order
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 
 from src.config import get_logger
 from src.domain.entities import PlayRecord, Track
+from src.domain.matching.protocols import CrossDiscoveryProvider
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.inward_resolver import (
     LastfmInwardResolver,
 )
-from src.infrastructure.connectors.spotify import SpotifyConnector
 
 logger = get_logger(__name__)
 
@@ -30,20 +32,18 @@ class LastfmTrackResolutionService:
     - Maps resolved tracks back to input order
     """
 
-    spotify_connector: SpotifyConnector
     lastfm_client: LastFMAPIClient
     _inward_resolver: LastfmInwardResolver
 
     def __init__(
         self,
-        spotify_connector: SpotifyConnector | None = None,
+        cross_discovery: CrossDiscoveryProvider | None = None,
         lastfm_client: LastFMAPIClient | None = None,
     ):
-        self.spotify_connector = spotify_connector or SpotifyConnector()
         self.lastfm_client = lastfm_client or LastFMAPIClient()
         self._inward_resolver = LastfmInwardResolver(
             lastfm_client=self.lastfm_client,
-            spotify_connector=self.spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
     async def resolve_plays_to_canonical_tracks(

@@ -10,6 +10,7 @@ external implementations, following the dependency inversion principle.
 from typing import Any, Protocol
 
 from src.domain.entities import Track
+from src.domain.repositories import UnitOfWorkProtocol
 
 from .types import ProviderMatchResult
 
@@ -47,4 +48,26 @@ class MatchProvider(Protocol):
     @property
     def service_name(self) -> str:
         """Service identifier (e.g., 'spotify', 'lastfm')."""
+        ...
+
+
+class CrossDiscoveryProvider(Protocol):
+    """Contract for cross-service track discovery.
+
+    Allows one connector (e.g. Last.fm) to discover tracks in another
+    service (e.g. Spotify) without coupling to that service's concrete
+    implementation. The wiring happens at the composition root.
+    """
+
+    async def attempt_discovery(
+        self,
+        track: Track,
+        artist_name: str,
+        track_name: str,
+        uow: UnitOfWorkProtocol,
+    ) -> bool:
+        """Attempt to discover and map a track in another service.
+
+        Returns True if a mapping was successfully created.
+        """
         ...

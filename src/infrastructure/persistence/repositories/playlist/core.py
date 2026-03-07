@@ -872,7 +872,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         in track detail views.
         """
         stmt = (
-            self.select()
+            self
+            .select()
             .join(DBPlaylistTrack, DBPlaylistTrack.playlist_id == DBPlaylist.id)
             .where(DBPlaylistTrack.track_id == track_id)
             .distinct()

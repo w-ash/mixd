@@ -12,6 +12,7 @@ from typing import Any, cast, override
 
 from src.config import get_logger
 from src.domain.entities import Track
+from src.domain.matching.protocols import MatchProvider
 from src.domain.matching.types import (
     MatchResultsById,
     ProviderMatchResult,
@@ -22,7 +23,6 @@ from src.domain.repositories.interfaces import (
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
 )
-from src.infrastructure.connectors._shared.matching_provider import BaseMatchingProvider
 from src.infrastructure.connectors.lastfm import LastFMProvider
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.connectors.musicbrainz import MusicBrainzProvider
@@ -43,7 +43,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
     track_repo: TrackRepositoryProtocol
     connector_repo: ConnectorRepositoryProtocol
-    _provider_factories: dict[str, Callable[[object], BaseMatchingProvider]]
+    _provider_factories: dict[str, Callable[[object], MatchProvider]]
 
     def __init__(
         self,

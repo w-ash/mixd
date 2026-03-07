@@ -177,7 +177,6 @@ class TestSpotifyProviderCreateRawMatch:
             artists=[SpotifyArtist(name="Artist 1"), SpotifyArtist(name="Artist 2")],
             duration_ms=240_000,
             album=SpotifyAlbum(name="Test Album", release_date="2024-01-01"),
-            popularity=75,
             external_ids=SpotifyExternalIds(isrc="USRC11111111"),
         )
 
@@ -192,7 +191,6 @@ class TestSpotifyProviderCreateRawMatch:
         assert result["service_data"]["duration_ms"] == 240_000
         assert result["service_data"]["album"] == "Test Album"
         assert result["service_data"]["isrc"] == "USRC11111111"
-        assert result["service_data"]["popularity"] == 75
 
     def test_handles_missing_optional_fields(self):
         """Should handle missing optional fields gracefully."""

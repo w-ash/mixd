@@ -20,9 +20,9 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 50, 3: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 50, 3: 90}}},
         )
-        result = filter_by_metric_range("popularity", min_value=40, tracklist=tl)
+        result = filter_by_metric_range("play_count", min_value=40, tracklist=tl)
         assert {t.id for t in result.tracks} == {2, 3}
 
     def test_filter_max_bound(self):
@@ -30,9 +30,9 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 50, 3: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 50, 3: 90}}},
         )
-        result = filter_by_metric_range("popularity", max_value=60, tracklist=tl)
+        result = filter_by_metric_range("play_count", max_value=60, tracklist=tl)
         assert {t.id for t in result.tracks} == {1, 2}
 
     def test_filter_min_and_max_bounds(self):
@@ -40,10 +40,10 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 50, 3: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 50, 3: 90}}},
         )
         result = filter_by_metric_range(
-            "popularity", min_value=20, max_value=80, tracklist=tl
+            "play_count", min_value=20, max_value=80, tracklist=tl
         )
         assert {t.id for t in result.tracks} == {2}
 
@@ -52,10 +52,10 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 50}}},
+            metadata={"metrics": {"play_count": {1: 50}}},
         )
         result = filter_by_metric_range(
-            "popularity", min_value=40, include_missing=True, tracklist=tl
+            "play_count", min_value=40, include_missing=True, tracklist=tl
         )
         # Track 1 passes (50 >= 40), tracks 2,3 included (missing)
         assert {t.id for t in result.tracks} == {1, 2, 3}
@@ -65,22 +65,22 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 50}}},
+            metadata={"metrics": {"play_count": {1: 50}}},
         )
         result = filter_by_metric_range(
-            "popularity", min_value=40, include_missing=False, tracklist=tl
+            "play_count", min_value=40, include_missing=False, tracklist=tl
         )
         assert {t.id for t in result.tracks} == {1}
 
     def test_factory_mode_returns_callable(self):
         """Factory mode returns a callable transform."""
-        transform = filter_by_metric_range("popularity", min_value=40)
+        transform = filter_by_metric_range("play_count", min_value=40)
         assert callable(transform)
 
         tracks = make_tracks(count=2)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 50}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 50}}},
         )
         result = transform(tl)
         assert {t.id for t in result.tracks} == {2}
@@ -90,9 +90,9 @@ class TestFilterByMetricRange:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 50, 3: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 50, 3: 90}}},
         )
-        result = filter_by_metric_range("popularity", min_value=40, tracklist=tl)
+        result = filter_by_metric_range("play_count", min_value=40, tracklist=tl)
         assert "metrics" in result.metadata
         assert len(result.tracks) == 2
 
@@ -105,9 +105,9 @@ class TestSortByExternalMetrics:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 90, 3: 50}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 90, 3: 50}}},
         )
-        result = sort_by_external_metrics("popularity", reverse=True, tracklist=tl)
+        result = sort_by_external_metrics("play_count", reverse=True, tracklist=tl)
         assert [t.id for t in result.tracks] == [2, 3, 1]
 
     def test_sort_ascending(self):
@@ -115,9 +115,9 @@ class TestSortByExternalMetrics:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 90, 3: 50}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 90, 3: 50}}},
         )
-        result = sort_by_external_metrics("popularity", reverse=False, tracklist=tl)
+        result = sort_by_external_metrics("play_count", reverse=False, tracklist=tl)
         assert [t.id for t in result.tracks] == [1, 3, 2]
 
     def test_missing_metrics_sort_to_end_descending(self):
@@ -125,9 +125,9 @@ class TestSortByExternalMetrics:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 50}}},
+            metadata={"metrics": {"play_count": {1: 50}}},
         )
-        result = sort_by_external_metrics("popularity", reverse=True, tracklist=tl)
+        result = sort_by_external_metrics("play_count", reverse=True, tracklist=tl)
         assert result.tracks[0].id == 1
         # Tracks 2 and 3 are at the end (order between them is stable)
         assert {t.id for t in result.tracks[1:]} == {2, 3}
@@ -137,32 +137,32 @@ class TestSortByExternalMetrics:
         tracks = make_tracks(count=3)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 50}}},
+            metadata={"metrics": {"play_count": {1: 50}}},
         )
-        result = sort_by_external_metrics("popularity", reverse=False, tracklist=tl)
+        result = sort_by_external_metrics("play_count", reverse=False, tracklist=tl)
         assert result.tracks[0].id == 1
         assert {t.id for t in result.tracks[1:]} == {2, 3}
 
     def test_factory_mode_returns_callable(self):
         """Factory mode returns a callable transform."""
-        transform = sort_by_external_metrics("popularity", reverse=True)
+        transform = sort_by_external_metrics("play_count", reverse=True)
         assert callable(transform)
 
         tracks = make_tracks(count=2)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 90}}},
         )
         result = transform(tl)
         assert [t.id for t in result.tracks] == [2, 1]
 
     def test_default_reverse_is_true(self):
         """Default sorting is descending (reverse=True)."""
-        transform = sort_by_external_metrics("popularity")
+        transform = sort_by_external_metrics("play_count")
         tracks = make_tracks(count=2)
         tl = TrackList(
             tracks=tracks,
-            metadata={"metrics": {"popularity": {1: 10, 2: 90}}},
+            metadata={"metrics": {"play_count": {1: 10, 2: 90}}},
         )
         result = transform(tl)
         assert [t.id for t in result.tracks] == [2, 1]

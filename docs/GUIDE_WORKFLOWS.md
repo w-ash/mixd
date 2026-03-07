@@ -67,7 +67,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
 | `enricher.lastfm` | Resolves tracks to Last.fm and fetches play counts | `username`: Optional Last.fm username<br>`batch_size`: Optional batch size for requests<br>`concurrency`: Optional concurrency limit |
-| `enricher.spotify` | Enriches tracks with Spotify popularity and explicit flags | (Freshness controlled via `FreshnessConfig` in settings) |
+| `enricher.spotify` | Enriches tracks with Spotify explicit flag | (Freshness controlled via `FreshnessConfig` in settings) |
 | `enricher.play_history` | Enriches tracks with play counts and listening history from internal database | `metrics`: Array of metrics to include ["total_plays", "last_played_dates", "period_plays"]<br>`period_days`: Number of days back for period-based metrics |
 
 ### Filter Nodes
@@ -85,7 +85,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 
 | Node Type | Description | Configuration |
 |----------------|-------------|--------------|
-| `sorter.by_metric` | Sorts tracks by any metric specified in config | `metric_name`: Name of metric to sort by (e.g., "lastfm_user_playcount", "lastfm_global_playcount", "lastfm_listeners", "spotify_popularity")<br>`reverse`: Boolean to reverse sort order |
+| `sorter.by_metric` | Sorts tracks by any metric specified in config | `metric_name`: Name of metric to sort by (e.g., "lastfm_user_playcount", "lastfm_global_playcount", "lastfm_listeners", "lastfm_global_playcount")<br>`reverse`: Boolean to reverse sort order |
 | `sorter.by_play_history` | **Sorts tracks by play frequency within optional time windows** | `start_date`: Include tracks played after this ISO date (absolute mode)<br>`end_date`: Include tracks played before this ISO date (absolute mode)<br>`min_days_back`: Start of time window, days from today (relative mode)<br>`max_days_back`: End of time window, days from today (relative mode)<br>`reverse`: Sort order - true for most played first, false for least played first<br>**Note**: Three clear time window modes: None (all-time), Absolute (ISO dates), or Relative (integer days). |
 
 ### Selector Nodes
@@ -162,7 +162,7 @@ This pattern uses sophisticated differential operations to update existing playl
   "tasks": [
     { "id": "source", "type": "source.playlist", "config": {"playlist_id": "source_id", "connector": "spotify"} },
     { "id": "enrich", "type": "enricher.spotify", "upstream": ["source"] },
-    { "id": "filter", "type": "filter.by_metric", "config": {"metric_name": "popularity", "min_value": 60}, "upstream": ["enrich"] },
+    { "id": "filter", "type": "filter.by_metric", "config": {"metric_name": "lastfm_global_playcount", "min_value": 1000}, "upstream": ["enrich"] },
     { "id": "update", "type": "destination.update_playlist", 
       "config": {
         "playlist_id": "target_playlist_id",
@@ -433,7 +433,7 @@ This example demonstrates using the new generic metric filter and sorter nodes:
       "id": "filter_popular",
       "type": "filter.by_metric",
       "config": {
-        "metric_name": "spotify_popularity",
+        "metric_name": "lastfm_global_playcount",
         "min_value": 70,
         "include_missing": false
       },
@@ -516,8 +516,8 @@ This example demonstrates sophisticated playlist updates with differential opera
       "id": "filter_popular",
       "type": "filter.by_metric",
       "config": {
-        "metric_name": "popularity",
-        "min_value": 70,
+        "metric_name": "lastfm_global_playcount",
+        "min_value": 100000,
         "include_missing": false
       },
       "upstream": ["enrich_spotify"]
@@ -573,7 +573,7 @@ This example demonstrates sophisticated playlist updates with differential opera
 ```
 
 This workflow demonstrates:
-- **Multi-stage filtering**: Combines Spotify popularity with Last.fm play history
+- **Multi-stage filtering**: Combines Last.fm global play count with personal play history
 - **Sophisticated sorting**: Uses global play counts for discovery potential  
 - **Smart ID resolution**: Automatically resolves Spotify playlist IDs to canonical playlists
 - **Overwrite with preservation**: Uses differential algorithm to minimize changes and preserve metadata
@@ -603,7 +603,7 @@ This example shows how to preview playlist changes before applying them:
       "id": "transform",
       "type": "sorter.by_metric",
       "config": {
-        "metric_name": "popularity",
+        "metric_name": "lastfm_user_playcount",
         "reverse": true
       },
       "upstream": ["source"]
@@ -648,7 +648,7 @@ The new `source.playlist` node provides connector-agnostic playlist access with 
 1. **Fetch External**: Retrieves playlist and tracks from external service using bulk operations
 2. **Check Mapping**: Uses `ReadCanonicalPlaylistUseCase` to find existing canonical playlist
 3. **Smart Operation**: Either updates existing playlist or creates new one based on mapping
-4. **Metrics Extraction**: Automatically extracts and saves track metrics (popularity, etc.)
+4. **Metrics Extraction**: Automatically extracts and saves track metrics (explicit flag, etc.)
 5. **Clean Return**: Provides standardized result format for downstream nodes
 
 #### Performance Features

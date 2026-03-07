@@ -8,7 +8,7 @@ from typing import override
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities import Track
-from src.domain.matching.algorithms import calculate_title_similarity
+from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
     MatchFailure,
@@ -169,12 +169,26 @@ class SpotifyProvider(BaseMatchingProvider):
                     continue
 
                 # Rank candidates by title similarity, pick the best match
-                best = max(
+                best_result = select_best_by_title_similarity(
+                    track.title,
                     candidates,
-                    key=lambda c: calculate_title_similarity(
-                        track.title, c.name, self._matching_config
-                    ),
+                    lambda c: c.name,
+                    self._matching_config,
                 )
+
+                if best_result is None:
+                    failures.append(
+                        create_and_log_failure(
+                            track.id,
+                            MatchFailureReason.NO_RESULTS,
+                            self.service_name,
+                            "artist_title",
+                            f"No valid Spotify candidates for '{artist_name} - {track.title}'",
+                        )
+                    )
+                    continue
+
+                best = best_result.candidate
 
                 if best.id:
                     raw_match = self._create_raw_match(best, "artist_title")
@@ -237,7 +251,6 @@ class SpotifyProvider(BaseMatchingProvider):
                 "release_date": spotify_track.album.release_date
                 if spotify_track.album
                 else None,
-                "popularity": spotify_track.popularity,
                 "isrc": spotify_track.external_ids.isrc,
             }
 

@@ -63,12 +63,12 @@ class TestTrackListMetadataRoundTrip:
         """Enrichers write metrics as nested dict: metrics[metric_name][track_id] = value."""
         metrics = {
             "lastfm_user_playcount": {1: 100, 2: 50},
-            "spotify_popularity": {1: 85, 2: 42},
+            "explicit_flag": {1: True, 2: False},
         }
         tl = TrackList(tracks=make_tracks(2), metadata={"metrics": metrics})
 
         assert tl.metadata["metrics"]["lastfm_user_playcount"][1] == 100
-        assert tl.metadata["metrics"]["spotify_popularity"][2] == 42
+        assert tl.metadata["metrics"]["explicit_flag"][2] is False
 
     def test_metrics_via_with_metadata(self):
         """Enrichers use with_metadata("metrics", {...}) to attach metrics."""

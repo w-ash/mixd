@@ -82,13 +82,13 @@ async def main() -> None:
     if candidates:
         print(f"  ✅ Returned {len(candidates)} candidates")
         for i, c in enumerate(candidates[:5]):
-            name = c.get("name", "?")
-            artist = c.get("artists", [{}])[0].get("name", "?")
-            print(f"     [{i}] {name} — {artist} (id: {c.get('id')})")
+            name = c.name or "?"
+            artist = c.artists[0].name if c.artists else "?"
+            print(f"     [{i}] {name} — {artist} (id: {c.id})")
         track = candidates[0]
-        spotify_track_id = track.get("id")
-        isrc = track.get("external_ids", {}).get("isrc")
-        dump("first candidate", track)
+        spotify_track_id = track.id
+        isrc = track.external_ids.isrc if track.external_ids else None
+        dump("first candidate", track.model_dump())
         passed += 1
     else:
         print("  ❌ Track search returned no results")
@@ -100,9 +100,11 @@ async def main() -> None:
         print(f"\n── search_by_isrc ── GET /search (isrc:{isrc})")
         isrc_result = await client.search_by_isrc(isrc)
         if isrc_result:
-            isrc_back = isrc_result.get("external_ids", {}).get("isrc", "?")
-            print(f"  ✅ Found: {isrc_result.get('name')} (isrc: {isrc_back})")
-            dump("ISRC search result (first track)", isrc_result)
+            isrc_back = (
+                isrc_result.external_ids.isrc if isrc_result.external_ids else "?"
+            )
+            print(f"  ✅ Found: {isrc_result.name} (isrc: {isrc_back})")
+            dump("ISRC search result (first track)", isrc_result.model_dump())
             passed += 1
         else:
             print("  ❌ ISRC search returned no results")
@@ -110,19 +112,19 @@ async def main() -> None:
     else:
         print("\n── search_by_isrc ── SKIPPED (no ISRC from search_track)")
 
-    # ── 5. get_tracks_bulk ── GET /tracks?ids=...
+    # ── 5. get_track ── GET /tracks/{id}
     if spotify_track_id:
-        print(f"\n── get_tracks_bulk ── GET /tracks?ids={spotify_track_id}")
-        bulk = await client.get_tracks_bulk([spotify_track_id])
-        if bulk:
-            print(f"  ✅ Returned {len(bulk.get('tracks', []))} track(s)")
-            dump("bulk tracks response", bulk)
+        print(f"\n── get_track ── GET /tracks/{spotify_track_id}")
+        track_result = await client.get_track(spotify_track_id)
+        if track_result:
+            print(f"  ✅ Returned track: {track_result.name}")
+            dump("single track response", track_result.model_dump())
             passed += 1
         else:
-            print("  ❌ Bulk track fetch failed")
+            print("  ❌ Single track fetch failed")
             failed += 1
     else:
-        print("\n── get_tracks_bulk ── SKIPPED (no track ID from search)")
+        print("\n── get_track ── SKIPPED (no track ID from search)")
 
     # ── 6-8. Playlist endpoints ──
     # Discover a playlist from the user's saved tracks (avoids hardcoding IDs)
@@ -133,27 +135,21 @@ async def main() -> None:
         print(f"\n── get_playlist ── GET /playlists/{playlist_id}")
         playlist = await client.get_playlist(playlist_id)
         if playlist:
-            print(
-                f"  ✅ Playlist: {playlist.get('name', '?')} ({playlist.get('tracks', {}).get('total', '?')} tracks)"
-            )
-            dump("playlist metadata", playlist)
+            print(f"  ✅ Playlist: {playlist.name} ({playlist.items.total} tracks)")
+            dump("playlist metadata", playlist.model_dump())
             passed += 1
         else:
             print("  ❌ Playlist fetch failed")
             failed += 1
 
-        # ── 7. get_playlist_tracks ── GET /playlists/{id}/tracks
-        print(
-            f"\n── get_playlist_tracks ── GET /playlists/{playlist_id}/tracks?limit=2"
-        )
-        page1 = await client.get_playlist_tracks(playlist_id, limit=2)
+        # ── 7. get_playlist_items ── GET /playlists/{id}/items
+        print(f"\n── get_playlist_items ── GET /playlists/{playlist_id}/items?limit=2")
+        page1 = await client.get_playlist_items(playlist_id, limit=2)
         if page1:
-            print(
-                f"  ✅ Page 1: {len(page1.get('items', []))} items, total: {page1.get('total', '?')}"
-            )
-            has_next = bool(page1.get("next"))
-            print(f"     next: {page1.get('next')}")
-            dump("playlist tracks page", page1)
+            print(f"  ✅ Page 1: {len(page1.items)} items, total: {page1.total}")
+            has_next = bool(page1.next)
+            print(f"     next: {page1.next}")
+            dump("playlist items page", page1.model_dump())
             passed += 1
 
             # ── 8. get_next_page ── follow pagination cursor
@@ -161,8 +157,8 @@ async def main() -> None:
                 print("\n── get_next_page ── following 'next' URL")
                 page2 = await client.get_next_page(page1)
                 if page2:
-                    print(f"  ✅ Page 2: {len(page2.get('items', []))} items")
-                    dump("next page response", page2)
+                    print(f"  ✅ Page 2: {len(page2.items)} items")
+                    dump("next page response", page2.model_dump())
                     passed += 1
                 else:
                     print("  ❌ Pagination follow failed")
@@ -170,11 +166,11 @@ async def main() -> None:
             else:
                 print("\n── get_next_page ── SKIPPED (playlist has no next page)")
         else:
-            print("  ❌ Playlist tracks fetch failed")
+            print("  ❌ Playlist items fetch failed")
             failed += 1
     else:
         print(
-            "\n── get_playlist / get_playlist_tracks / get_next_page ── SKIPPED (no playlist found)"
+            "\n── get_playlist / get_playlist_items / get_next_page ── SKIPPED (no playlist found)"
         )
 
     # ── Summary ──

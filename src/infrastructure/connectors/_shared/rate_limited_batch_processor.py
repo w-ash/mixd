@@ -209,7 +209,15 @@ class RateLimitedBatchProcessor:
                 running_tasks_count=len(self.running_tasks),
             )
 
-            # Cancel background tasks
+            # Cancel all running work item tasks
+            for task in list(self.running_tasks):
+                if not task.done():
+                    task.cancel()
+            for task in list(self.running_tasks):
+                with contextlib.suppress(asyncio.CancelledError):
+                    _ = await task
+
+            # Cancel background rate limiter
             if not rate_limiter_task.done():
                 rate_limiter_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -377,8 +385,9 @@ class RateLimitedBatchProcessor:
                 _RESULT_POLLING_INTERVAL_MS / 1000.0
             )  # Convert ms to seconds
 
-            # Check for newly completed results
-            for item_id, result in self.completed_results.items():
+            # Check for newly completed results (snapshot to avoid RuntimeError
+            # from concurrent _execute_work_item tasks mutating the dict)
+            for item_id, result in list(self.completed_results.items()):
                 if item_id not in yielded_items:
                     yielded_items.add(item_id)
                     yield item_id, result

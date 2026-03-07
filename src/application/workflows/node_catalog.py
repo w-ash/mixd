@@ -60,14 +60,14 @@ _ = node(
 
 _ = node(
     "enricher.spotify",
-    description="Enriches tracks with Spotify popularity and explicit flags",
+    description="Enriches tracks with Spotify explicit flags",
     input_type="tracklist",
     output_type="tracklist",
 )(
     create_enricher_node(
         build_external_enrichment_config({
             "connector": "spotify",
-            "attributes": ["spotify_popularity", "explicit_flag"],
+            "attributes": ["explicit_flag"],
         }),
         enricher_label="spotify",
     ),

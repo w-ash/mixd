@@ -97,10 +97,10 @@ class TestTrackEntity:
         """Test connector metadata business logic."""
         track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
 
-        metadata = {"popularity": 85, "genres": ["rock", "alternative"]}
+        metadata = {"explicit": True, "genres": ["rock", "alternative"]}
         updated_track = track.with_connector_metadata("spotify", metadata)
 
-        assert updated_track.get_connector_attribute("spotify", "popularity") == 85
+        assert updated_track.get_connector_attribute("spotify", "explicit") is True
         assert updated_track.get_connector_attribute("spotify", "genres") == [
             "rock",
             "alternative",
@@ -116,12 +116,12 @@ class TestTrackEntity:
         track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
 
         # Add initial metadata
-        track = track.with_connector_metadata("spotify", {"popularity": 85})
+        track = track.with_connector_metadata("spotify", {"explicit": True})
 
         # Add more metadata - should merge, not replace
         track = track.with_connector_metadata("spotify", {"genres": ["rock"]})
 
-        assert track.get_connector_attribute("spotify", "popularity") == 85
+        assert track.get_connector_attribute("spotify", "explicit") is True
         assert track.get_connector_attribute("spotify", "genres") == ["rock"]
 
 

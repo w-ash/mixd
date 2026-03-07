@@ -3,6 +3,8 @@
 These tests verify the pure business logic of track matching and confidence scoring.
 """
 
+import operator
+
 import pytest
 
 from src.config import create_matching_config
@@ -10,6 +12,7 @@ from src.domain.matching import ConfidenceEvidence, MatchResult
 from src.domain.matching.algorithms import (
     calculate_confidence,
     calculate_title_similarity,
+    select_best_by_title_similarity,
 )
 
 config = create_matching_config()
@@ -248,3 +251,59 @@ class TestMatchResult:
 
         with pytest.raises(AttributeError):
             result.success = False  # Should not be allowed
+
+
+class TestSelectBestByTitleSimilarity:
+    """Tests for the shared best-candidate-by-title-similarity utility."""
+
+    def test_empty_candidates_returns_none(self):
+        result = select_best_by_title_similarity("Creep", [], lambda c: c, config)
+        assert result is None
+
+    def test_single_candidate_returned(self):
+        result = select_best_by_title_similarity(
+            "Creep", ["Creep"], lambda c: c, config
+        )
+        assert result is not None
+        assert result.candidate == "Creep"
+        assert result.similarity == config.identical_similarity_score
+
+    def test_best_candidate_selected(self):
+        candidates = ["Creep - Live", "Creep", "Totally Different"]
+        result = select_best_by_title_similarity(
+            "Creep", candidates, lambda c: c, config
+        )
+        assert result is not None
+        assert result.candidate == "Creep"
+
+    def test_threshold_rejection(self):
+        result = select_best_by_title_similarity(
+            "Paranoid Android",
+            ["Completely Different Song"],
+            lambda c: c,
+            config,
+            min_similarity=0.9,
+        )
+        assert result is None
+
+    def test_none_name_filtered(self):
+        """Candidates whose get_name returns None should be skipped."""
+        candidates = [{"name": None}, {"name": "Creep"}]
+        result = select_best_by_title_similarity(
+            "Creep",
+            candidates,
+            operator.itemgetter("name"),
+            config,
+        )
+        assert result is not None
+        assert result.candidate == {"name": "Creep"}
+
+    def test_all_none_names_returns_none(self):
+        candidates = [{"name": None}, {"name": None}]
+        result = select_best_by_title_similarity(
+            "Creep",
+            candidates,
+            operator.itemgetter("name"),
+            config,
+        )
+        assert result is None

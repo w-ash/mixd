@@ -247,8 +247,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             liked_stmt = (
                 select(DBTrackLike.track_id)
                 .where(
-                    DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked == True
-                )  # noqa: E712
+                    DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked.is_(True)
+                )
                 .distinct()
             )
             liked_result = await self.session.execute(liked_stmt)

@@ -1,6 +1,7 @@
 """Track repository for like operations."""
 
 from datetime import UTC, datetime
+from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             .group_by(self.model_class.service)
         )
         result = await self.session.execute(stmt)
-        return {str(row[0]): int(row[1]) for row in result.fetchall()}
+        return {cast(str, row[0]): cast(int, row[1]) for row in result.fetchall()}
 
     @db_operation("get_track_likes")
     async def get_track_likes(

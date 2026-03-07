@@ -221,7 +221,6 @@ class SpotifyMetricResolver(BaseMetricResolver):
 
     # Map metric names to connector metadata fields
     FIELD_MAP: ClassVar[dict[str, str]] = {
-        "spotify_popularity": "popularity",
         "explicit_flag": "explicit",
     }
 

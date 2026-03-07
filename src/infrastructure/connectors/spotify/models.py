@@ -7,14 +7,16 @@ Key design decisions:
 - extra='ignore': forward-compatible when Spotify adds new fields
 - Required fields (id, name on track) have no default — ValidationError if absent
 - Optional/nullable fields default to None
-- popularity, external_ids, linked_from are deprecated in the API but still returned;
-  we model them so existing logic continues working
+- external_ids: DEPRECATED (Feb 2026 migration guide lists as removed).
+  Still returned empirically as of March 2026. Guarded with defaults
+  so removal won't crash — ISRC will just be None.
+- popularity and linked_from removed in Feb 2026
 
 Endpoint coverage:
-- GET /tracks  → SpotifyTrack
-- GET /playlists/{id}  → SpotifyPlaylist (tracks node: SpotifyPaginatedPlaylistItems)
-- GET /playlists/{id}/tracks  → SpotifyPaginatedPlaylistItems (items: SpotifyPlaylistItem)
-- POST|DELETE|PUT /playlists/{id}/tracks  → SpotifySnapshotResponse
+- GET /tracks/{id}  → SpotifyTrack
+- GET /playlists/{id}  → SpotifyPlaylist (items node: SpotifyPaginatedPlaylistItems)
+- GET /playlists/{id}/items  → SpotifyPaginatedPlaylistItems (items: SpotifyPlaylistItem)
+- POST|DELETE|PUT /playlists/{id}/items  → SpotifySnapshotResponse
 - POST /me/playlists  → SpotifyPlaylist
 """
 
@@ -59,26 +61,16 @@ class SpotifyExternalIds(SpotifyBaseModel):
     upc: str | None = Field(default=None)
 
 
-class SpotifyLinkedFrom(SpotifyBaseModel):
-    """Track relinking metadata — deprecated in API but still returned."""
-
-    id: str
-
-
 class SpotifyTrack(SpotifyBaseModel):
-    """Full track object from GET /tracks and embedded in playlist items."""
+    """Full track object from GET /tracks/{id} and embedded in playlist items."""
 
     id: str
     name: str
     artists: list[SpotifyArtist] = Field(default_factory=list)
     album: SpotifyAlbum | None = Field(default=None)
     duration_ms: int = Field(default=0)
-    popularity: int = Field(default=0)  # deprecated but still returned
     explicit: bool = Field(default=False)
     external_ids: SpotifyExternalIds = Field(default_factory=SpotifyExternalIds)
-    linked_from: SpotifyLinkedFrom | None = Field(
-        default=None
-    )  # deprecated but still returned
 
 
 class SpotifyOwner(SpotifyBaseModel):
@@ -93,22 +85,19 @@ class SpotifyFollowers(SpotifyBaseModel):
 
 
 class SpotifyPlaylistItem(SpotifyBaseModel):
-    """Single entry from GET /playlists/{id}/tracks.
+    """Single entry from GET /playlists/{id}/items.
 
-    Uses `track` field (not `item`) — this is the /tracks endpoint response shape.
-    The newer /items endpoint uses `item` for generality (tracks + episodes),
-    but this codebase calls /tracks which keeps the original `track` field name.
+    Uses `item` field — the /items endpoint response shape (Feb 2026 API).
     """
 
-    track: SpotifyTrack | None = Field(default=None)
+    item: SpotifyTrack | None = Field(default=None)
     added_at: str | None = Field(default=None)
     added_by: SpotifyOwner = Field(default_factory=SpotifyOwner)
     is_local: bool = Field(default=False)
 
 
 class SpotifyPaginatedPlaylistItems(SpotifyBaseModel):
-    """Paginated tracks container — used as SpotifyPlaylist.tracks AND as the
-    standalone response from GET /playlists/{id}/tracks.
+    """Paginated items container for GET /playlists/{id}/items.
 
     Pagination uses a `next` URL cursor (absolute URL), not page numbers.
     """
@@ -134,7 +123,7 @@ class SpotifyPlaylist(SpotifyBaseModel):
     snapshot_id: str | None = Field(default=None)
     images: list[dict[str, Any]] = Field(default_factory=list)
     followers: SpotifyFollowers | None = Field(default=None)
-    tracks: SpotifyPaginatedPlaylistItems = Field(
+    items: SpotifyPaginatedPlaylistItems = Field(
         default_factory=SpotifyPaginatedPlaylistItems
     )
 

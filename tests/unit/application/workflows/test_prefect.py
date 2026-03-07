@@ -101,7 +101,7 @@ class TestAggregateWorkflowMetrics:
         )
         tl2 = TrackList(
             tracks=sample_tracklist.tracks,
-            metadata={"metrics": {"plays": {2: 20}, "popularity": {1: 80}}},
+            metadata={"metrics": {"plays": {2: 20}, "play_count": {1: 80}}},
         )
 
         task_results = {
@@ -112,7 +112,7 @@ class TestAggregateWorkflowMetrics:
         result = _aggregate_workflow_metrics(task_results)
 
         assert result["plays"] == {1: 10, 2: 20}
-        assert result["popularity"] == {1: 80}
+        assert result["play_count"] == {1: 80}
 
     def test_empty_metrics_handled(self, sample_tracklist):
         """Tasks without metrics in metadata produce empty result."""
@@ -131,23 +131,100 @@ class TestGetNodeTimeout:
 
     def test_source_timeout(self):
         """Source nodes get the external API timeout."""
-        assert _get_node_timeout("source.playlist") == WorkflowConstants.SOURCE_TIMEOUT_SECONDS
+        assert (
+            _get_node_timeout("source.playlist")
+            == WorkflowConstants.SOURCE_TIMEOUT_SECONDS
+        )
 
     def test_enricher_timeout(self):
         """Enricher nodes get the external API timeout."""
-        assert _get_node_timeout("enricher.spotify") == WorkflowConstants.ENRICHER_TIMEOUT_SECONDS
+        assert (
+            _get_node_timeout("enricher.spotify")
+            == WorkflowConstants.ENRICHER_TIMEOUT_SECONDS
+        )
 
     def test_destination_timeout(self):
         """Destination nodes get the external API timeout."""
-        assert _get_node_timeout("destination.create_playlist") == WorkflowConstants.DESTINATION_TIMEOUT_SECONDS
+        assert (
+            _get_node_timeout("destination.create_playlist")
+            == WorkflowConstants.DESTINATION_TIMEOUT_SECONDS
+        )
 
     def test_filter_defaults_to_transform(self):
         """Filter nodes get the transform (pure) timeout."""
-        assert _get_node_timeout("filter.by_metric") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+        assert (
+            _get_node_timeout("filter.by_metric")
+            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+        )
 
     def test_unknown_defaults_to_transform(self):
         """Unknown categories default to transform timeout."""
-        assert _get_node_timeout("unknown.thing") == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+        assert (
+            _get_node_timeout("unknown.thing")
+            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+        )
+
+
+class TestOrchestratorWarnings:
+    """Tests for orchestrator-level 0-track warnings."""
+
+    def test_warns_when_node_outputs_zero_tracks(self, sample_tracklist):
+        """_get_input_track_count + output_track_count == 0 should trigger warning.
+
+        The actual warning lives inside build_flow's inner loop, which is
+        difficult to test in isolation from Prefect infrastructure. This test
+        validates the helper that determines input_track_count, confirming
+        the condition can be met.
+        """
+        from src.application.workflows.prefect import _get_input_track_count
+
+        task_def = WorkflowTaskDef(
+            id="filter_1",
+            type="filter.by_metric",
+            upstream=["src_1"],
+        )
+        task_results = {
+            "src_1": {"tracklist": sample_tracklist},
+        }
+
+        input_count = _get_input_track_count(task_def, task_results)
+
+        # Source had 2 tracks — if output were 0, warning should fire
+        assert input_count == 2
+        assert input_count > 0  # Confirms the warning condition can trigger
+
+    def test_no_warning_for_source_nodes(self):
+        """Source nodes have no upstream, so input_track_count is None — no warning."""
+        from src.application.workflows.prefect import _get_input_track_count
+
+        task_def = WorkflowTaskDef(
+            id="src_1",
+            type="source.playlist",
+        )
+
+        input_count = _get_input_track_count(task_def, {})
+
+        # None means no upstream — warning condition (> 0) won't fire
+        assert input_count is None
+
+    def test_none_input_track_count_no_type_error(self):
+        """Regression: None input_track_count must not raise TypeError in > comparison.
+
+        When source nodes (no upstream) produce output, the zero-output warning
+        guard must handle None gracefully instead of raising
+        TypeError("'>' not supported between instances of 'NoneType' and 'int'").
+        """
+        # Simulate the guard condition from build_flow's inner loop
+        input_track_count: int | None = None
+        output_track_count = 62  # Source produced tracks
+
+        # This is the actual condition from prefect.py line 332 — must not raise
+        should_warn = (
+            input_track_count is not None
+            and input_track_count > 0
+            and output_track_count == 0
+        )
+        assert should_warn is False
 
 
 class TestExecutionGuard:

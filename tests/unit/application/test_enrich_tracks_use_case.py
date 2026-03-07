@@ -62,7 +62,7 @@ class TestEnrichTracksUseCase:
             enrichment_type="external_metadata",
             connector="spotify",
             connector_instance=Mock(),
-            track_metric_names=["spotify_popularity"],
+            track_metric_names=["explicit_flag"],
         )
 
     @pytest.fixture
@@ -85,8 +85,8 @@ class TestEnrichTracksUseCase:
     ):
         """Test successful external metadata enrichment."""
         # Arrange
-        expected_metrics = {"spotify_popularity": {1: 85, 2: 92}}
-        expected_fresh_ids = {"spotify_popularity": {1, 2}}
+        expected_metrics = {"explicit_flag": {1: 85, 2: 92}}
+        expected_fresh_ids = {"explicit_flag": {1, 2}}
 
         # Mock the MetricsApplicationService instance
         mock_metrics_service = AsyncMock()
@@ -114,7 +114,7 @@ class TestEnrichTracksUseCase:
         mock_metrics_service.get_external_track_metrics.assert_called_once_with(
             track_ids=[1, 2],  # Sample tracklist has tracks with IDs 1 and 2
             connector="spotify",
-            metric_names=["spotify_popularity"],  # From track_metric_names
+            metric_names=["explicit_flag"],  # From track_metric_names
             uow=mock_uow,
             connector_instance=external_metadata_config.connector_instance,
             progress_manager=None,
@@ -236,7 +236,7 @@ class TestEnrichTracksUseCase:
         # Mock the MetricsApplicationService instance
         mock_metrics_service = AsyncMock()
         mock_metrics_service.get_external_track_metrics.return_value = {
-            "spotify_popularity": {1: 85}
+            "explicit_flag": {1: 85}
         }
         mock_metrics_service_class.return_value = mock_metrics_service
 
@@ -250,7 +250,7 @@ class TestEnrichTracksUseCase:
         mock_metrics_service.get_external_track_metrics.assert_called_once_with(
             track_ids=[1],  # Only the track with ID 1
             connector="spotify",
-            metric_names=["spotify_popularity"],
+            metric_names=["explicit_flag"],
             uow=mock_uow,
             connector_instance=external_metadata_config.connector_instance,
             progress_manager=None,
@@ -316,7 +316,7 @@ class TestEnrichmentConfig:
             enrichment_type="external_metadata",
             connector="spotify",
             connector_instance=Mock(),
-            track_metric_names=["spotify_popularity"],
+            track_metric_names=["explicit_flag"],
         )
         # Should not raise any validation errors
         assert config.enrichment_type == "external_metadata"
@@ -328,7 +328,7 @@ class TestEnrichmentConfig:
                 enrichment_type="external_metadata",
                 connector=None,
                 connector_instance=Mock(),
-                track_metric_names=["spotify_popularity"],
+                track_metric_names=["explicit_flag"],
             )
 
     def test_external_metadata_config_missing_connector_instance(self):
@@ -338,7 +338,7 @@ class TestEnrichmentConfig:
                 enrichment_type="external_metadata",
                 connector="spotify",
                 connector_instance=None,
-                track_metric_names=["spotify_popularity"],
+                track_metric_names=["explicit_flag"],
             )
 
     def test_external_metadata_config_missing_track_metric_names(self):

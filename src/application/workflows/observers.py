@@ -2,16 +2,39 @@
 
 ProgressNodeObserver bridges the node lifecycle protocol to the existing
 AsyncProgressManager, emitting progress events for CLI Rich progress bars.
+
+NullNodeObserver is the null-object default — eliminates None checks in the
+orchestration loop when no observer is provided.
 """
 
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config.logging import get_logger
 from src.domain.entities.progress import ProgressStatus, create_progress_event
-from src.domain.entities.workflow import WorkflowTaskDef
+from src.domain.entities.workflow import NodeExecutionEvent
 
 from .protocols import NodeResult
 
 logger = get_logger(__name__)
+
+
+def _format_node_display_name(node_type: str) -> str:
+    """Convert dotted node type to human-readable title (e.g. 'enricher.spotify' → 'Enricher Spotify')."""
+    return node_type.replace("_", " ").replace(".", " ").title()
+
+
+class NullNodeObserver:
+    """No-op observer — eliminates None checks when no observer is provided."""
+
+    async def on_node_starting(self, event: NodeExecutionEvent) -> None:
+        pass
+
+    async def on_node_completed(
+        self, event: NodeExecutionEvent, result: NodeResult
+    ) -> None:
+        pass
+
+    async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
+        pass
 
 
 class ProgressNodeObserver:
@@ -31,51 +54,31 @@ class ProgressNodeObserver:
         self._progress_manager = progress_manager
         self._workflow_operation_id = workflow_operation_id
 
-    async def on_node_starting(
-        self,
-        task_def: WorkflowTaskDef,
-        execution_order: int,
-        total_nodes: int,
-        input_track_count: int | None,
-    ) -> None:
+    async def on_node_starting(self, event: NodeExecutionEvent) -> None:
         pass  # Progress bars show completion, not start
 
     async def on_node_completed(
-        self,
-        task_def: WorkflowTaskDef,
-        result: NodeResult,
-        execution_order: int,
-        total_nodes: int,
-        duration_ms: int,
-        input_track_count: int | None,
-        output_track_count: int,
+        self, event: NodeExecutionEvent, result: NodeResult
     ) -> None:
-        display_name = task_def.type.replace("_", " ").replace(".", " ").title()
+        display_name = _format_node_display_name(event.task_def.type)
 
-        event = create_progress_event(
+        progress_event = create_progress_event(
             operation_id=self._workflow_operation_id,
-            current=execution_order,
-            total=total_nodes,
+            current=event.execution_order,
+            total=event.total_nodes,
             message=f"Completed {display_name}",
             status=ProgressStatus.IN_PROGRESS,
         )
-        await self._progress_manager.emit_progress(event)
+        await self._progress_manager.emit_progress(progress_event)
 
-    async def on_node_failed(
-        self,
-        task_def: WorkflowTaskDef,
-        error: Exception,
-        execution_order: int,
-        total_nodes: int,
-        duration_ms: int,
-    ) -> None:
-        display_name = task_def.type.replace("_", " ").replace(".", " ").title()
+    async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
+        display_name = _format_node_display_name(event.task_def.type)
 
-        event = create_progress_event(
+        progress_event = create_progress_event(
             operation_id=self._workflow_operation_id,
-            current=execution_order,
-            total=total_nodes,
+            current=event.execution_order,
+            total=event.total_nodes,
             message=f"Failed {display_name}: {error}",
             status=ProgressStatus.FAILED,
         )
-        await self._progress_manager.emit_progress(event)
+        await self._progress_manager.emit_progress(progress_event)

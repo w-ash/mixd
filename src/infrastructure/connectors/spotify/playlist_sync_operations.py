@@ -364,7 +364,7 @@ class SpotifyPlaylistSyncOperations:
         # Get current playlist size for validation
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
-            current_track_count = playlist_info.tracks.total if playlist_info else None
+            current_track_count = playlist_info.items.total if playlist_info else None
         except Exception as e:
             logger.warning(f"Could not fetch playlist size: {e}")
             current_track_count = None

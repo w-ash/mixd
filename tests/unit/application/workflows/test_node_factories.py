@@ -101,6 +101,35 @@ class TestCombinerNodeFactory:
             await node_func({}, {})
 
 
+class TestTransformNodeWarnings:
+    """Test that transform nodes warn on concerning outputs."""
+
+    async def test_transform_warns_on_zero_output(self, sample_tracklist):
+        """When a transform drops all tracks, it should log at WARNING."""
+        from src.application.workflows.node_factories import make_node
+
+        # by_metric with include_missing=False drops tracks without the metric.
+        # sample_tracklist tracks have no metrics → all filtered out.
+        node_func = make_node("filter", "by_metric")
+
+        context = {
+            "upstream_task_id": "src_1",
+            "src_1": {"tracklist": sample_tracklist},
+        }
+        config = {
+            "metric_name": "nonexistent",
+            "min_value": 0,
+            "include_missing": False,
+        }
+
+        with patch("src.application.workflows.node_factories.logger") as mock_logger:
+            result = await node_func(context, config)
+
+            assert len(result["tracklist"].tracks) == 0
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            assert any("filtered out" in w for w in warning_calls)
+
+
 class TestEnricherNodeFactory:
     """Test enricher node creation."""
 
@@ -193,3 +222,32 @@ class TestEnricherNodeFactory:
         result = await node_func(context, config)
 
         assert result["tracklist"] == sample_tracklist
+
+    @patch("src.application.workflows.node_factories.NodeContext")
+    async def test_enricher_warns_on_total_failure(
+        self, mock_node_context_class, sample_tracklist
+    ):
+        """When enrichment has errors and 0 metrics, warn about total failure."""
+        from src.application.workflows.node_factories import create_enricher_node
+
+        mock_ctx = MagicMock()
+        mock_ctx.extract_tracklist.return_value = sample_tracklist
+        mock_ctx.extract_use_cases.return_value = MagicMock()
+        mock_node_context_class.return_value = mock_ctx
+
+        mock_workflow_context = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.enriched_tracklist = sample_tracklist
+        mock_result.metrics_added = {}  # No metrics at all
+        mock_result.errors = ["API timeout", "Rate limited"]
+        mock_workflow_context.execute_use_case.return_value = mock_result
+        mock_ctx.extract_workflow_context.return_value = mock_workflow_context
+
+        build_config = MagicMock(return_value=MagicMock())
+        node_func = create_enricher_node(build_config, enricher_label="lastfm")
+
+        with patch("src.application.workflows.node_factories.logger") as mock_logger:
+            await node_func({"test": "context"}, {})
+
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            assert any("failed completely" in w for w in warning_calls)

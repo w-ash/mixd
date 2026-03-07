@@ -20,7 +20,7 @@ class TestRouteMetricSorting:
     def test_external_metric_routes_to_external_sort(self):
         """External metrics route to sort_by_external_metrics."""
         result = route_metric_sorting({
-            "metric_name": "spotify_popularity",
+            "metric_name": "explicit_flag",
             "reverse": True,
         })
         assert callable(result)
@@ -55,7 +55,7 @@ class TestRouteMetricSorting:
     @pytest.mark.parametrize(
         "metric",
         [
-            "spotify_popularity",
+            "explicit_flag",
             "lastfm_user_playcount",
             "lastfm_listeners",
             "lastfm_global_playcount",

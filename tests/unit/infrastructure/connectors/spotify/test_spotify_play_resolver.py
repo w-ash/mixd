@@ -9,37 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.config.constants import MatchMethod
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
-from src.infrastructure.connectors.spotify.models import (
-    SpotifyAlbum,
-    SpotifyArtist,
-    SpotifyLinkedFrom,
-    SpotifyTrack,
-)
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
-from tests.fixtures.factories import make_track
-
-
-def _make_spotify_track(
-    spotify_id: str,
-    name: str = "Test Song",
-    artist_name: str = "Test Artist",
-    album_name: str = "Test Album",
-    duration_ms: int = 300000,
-    linked_from_id: str | None = None,
-) -> SpotifyTrack:
-    """Create a minimal SpotifyTrack Pydantic model for testing."""
-    return SpotifyTrack(
-        id=spotify_id,
-        name=name,
-        artists=[SpotifyArtist(name=artist_name)],
-        album=SpotifyAlbum(name=album_name),
-        duration_ms=duration_ms,
-        linked_from=SpotifyLinkedFrom(id=linked_from_id) if linked_from_id else None,
-    )
+from tests.fixtures.factories import make_spotify_track, make_track
 
 
 def _make_connector_play(
@@ -191,7 +167,7 @@ class TestResolverFiltering:
         assert context["shuffle"] is False
         assert context["track_name"] == "Test Song"
         assert context["artist_name"] == "Test Artist"
-        assert context["resolution_method"] == "spotify_connector_play_resolver"
+        assert context["resolution_method"] == MatchMethod.PLAY_RESOLVER
 
 
 class TestResolverTrackResolution:
@@ -222,7 +198,7 @@ class TestResolverTrackResolution:
         """Missing mappings should trigger Spotify API lookup + track creation."""
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
-            "4iV5W9uYEdYUVa79Axb7Rh": _make_spotify_track("4iV5W9uYEdYUVa79Axb7Rh"),
+            "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("4iV5W9uYEdYUVa79Axb7Rh"),
         }
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
@@ -278,18 +254,40 @@ class TestResolverTrackResolution:
         assert plays == []
 
 
-class TestResolverRelinking:
-    """Test Spotify relinking (track ID changes across markets)."""
+class TestFallbackHintsIntegration:
+    """Test that play resolver builds and passes fallback hints correctly."""
 
-    async def test_relinking_creates_both_mappings(self):
-        """When Spotify relinks a track, both old and new IDs should be mapped."""
+    async def test_fallback_hints_built_from_connector_plays(self):
+        """resolve_connector_plays should build FallbackHints from play metadata."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "oldTrackId123456789012": _make_spotify_track(
-                "newTrackId123456789012",
-                linked_from_id="oldTrackId123456789012",
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = []
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        play = _make_connector_play(
+            track_name="My Song", artist_name="My Artist", ms_played=300000
+        )
+        await resolver.resolve_connector_plays([play], uow)
+
+        # The inward resolver should have received fallback hints
+        # We verify indirectly by checking search was attempted for the dead ID
+        # (since get_tracks_by_ids returned empty, ID is dead, hint should trigger search)
+        connector.search_track.assert_called_once_with("My Artist", "My Song")
+
+    async def test_fallback_resolved_plays_tagged_in_context(self):
+        """Plays resolved via fallback should have resolution_method='search_fallback'."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        search_result = make_spotify_track(
+            "new_id", name="Test Song", artist_name="Test Artist"
+        )
+        connector.search_track.return_value = [search_result]
+
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
@@ -297,30 +295,71 @@ class TestResolverRelinking:
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
-        saved_track = make_track(id=55)
+        saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         uow.get_track_repository.return_value = track_repo
 
-        play = _make_connector_play(
-            track_uri="spotify:track:oldTrackId123456789012",
-            ms_played=300000,
-        )
-
+        play = _make_connector_play(ms_played=300000)
         plays, metrics = await resolver.resolve_connector_plays([play], uow)
 
-        # map_track_to_connector should be called twice: primary + non-primary
-        map_calls = uow.get_connector_repository.return_value.map_track_to_connector
-        assert map_calls.call_count == 2
+        assert len(plays) == 1
+        assert plays[0].context["resolution_method"] == MatchMethod.SEARCH_FALLBACK
+        assert metrics["fallback_resolved"] == 1
 
-        # First call: primary mapping (new ID from API response)
-        first_call = map_calls.call_args_list[0]
-        assert first_call.args[2] == "newTrackId123456789012"  # connector_id
-        assert first_call.kwargs["auto_set_primary"] is True
 
-        # Second call: non-primary mapping (old ID from linked_from)
-        second_call = map_calls.call_args_list[1]
-        assert second_call.args[2] == "oldTrackId123456789012"
-        assert second_call.kwargs["auto_set_primary"] is False
+class TestRedirectResolvedPlays:
+    """Test that redirect-resolved plays are correctly tagged and metricked."""
+
+    async def test_redirect_resolved_plays_tagged(self):
+        """Plays resolved via redirect should have resolution_method='spotify_redirect'."""
+        connector = AsyncMock()
+        # Return track with DIFFERENT id than requested (redirect)
+        redirected_track = make_spotify_track(
+            "new_canonical_id_000000", name="Test Song"
+        )
+        connector.get_tracks_by_ids.return_value = {
+            "4iV5W9uYEdYUVa79Axb7Rh": redirected_track,
+        }
+
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+        track_repo = AsyncMock()
+        saved_track = make_track(id=99)
+        track_repo.save_track.return_value = saved_track
+        uow.get_track_repository.return_value = track_repo
+
+        play = _make_connector_play(ms_played=300000)
+        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+
+        assert len(plays) == 1
+        assert plays[0].context["resolution_method"] == MatchMethod.SPOTIFY_REDIRECT
+        assert metrics["redirect_resolved"] == 1
+
+    async def test_redirect_resolved_metric(self):
+        """redirect_resolved metric should count redirected IDs."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("new_id_0000000000000000"),
+        }
+
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+        track_repo = AsyncMock()
+        track_repo.save_track.return_value = make_track(id=99)
+        uow.get_track_repository.return_value = track_repo
+
+        play = _make_connector_play(ms_played=300000)
+        _, metrics = await resolver.resolve_connector_plays([play], uow)
+
+        assert metrics["redirect_resolved"] == 1
 
 
 class TestResolverMetrics:
@@ -343,6 +382,8 @@ class TestResolverMetrics:
             "updated_tracks_count",
             "unique_tracks_processed",
             "tracks_resolved",
+            "fallback_resolved",
+            "redirect_resolved",
         }
         assert expected_keys == set(metrics.keys())
 

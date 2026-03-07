@@ -222,14 +222,9 @@ class ImportSpotifyLikesUseCase:
             repo = uow.get_connector_repository()
 
             # 1. Bulk-find existing tracks (1 query instead of N)
-            # Include linked_from alternate IDs so relinked tracks are found
             connections: list[tuple[str, str]] = [
                 ("spotify", ct.connector_track_identifier) for ct in tracks
             ]
-            for ct in tracks:
-                alt = ct.raw_metadata.get("linked_from_id")
-                if alt and alt != ct.connector_track_identifier:
-                    connections.append(("spotify", alt))
 
             try:
                 existing_map = await repo.find_tracks_by_connectors(connections)
@@ -248,11 +243,6 @@ class ImportSpotifyLikesUseCase:
             for ct in tracks:
                 key = ("spotify", ct.connector_track_identifier)
                 existing_track = existing_map.get(key)
-                # Fall back to linked_from alternate ID
-                if not existing_track:
-                    alt = ct.raw_metadata.get("linked_from_id")
-                    if alt:
-                        existing_track = existing_map.get(("spotify", alt))
                 if existing_track and existing_track.id:
                     existing_ids.append(existing_track.id)
                 else:

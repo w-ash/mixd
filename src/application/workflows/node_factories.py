@@ -56,7 +56,7 @@ def _get_connector_metric_names(
     Args:
         metric_config: Provider for metric configuration (from WorkflowContext DI)
         connector_name: Music service identifier ("lastfm", "spotify", etc.)
-        requested_attributes: Metadata fields requested ("user_playcount", "popularity", etc.)
+        requested_attributes: Metadata fields requested ("user_playcount", "explicit_flag", etc.)
 
     Returns:
         List of metric names that can be resolved for this connector
@@ -127,11 +127,16 @@ def make_node(
             logger.error(f"Error in node {operation}: {e}")
             raise
         else:
-            logger.debug(
-                operation,
-                input_count=len(tracklist.tracks),
-                output_count=len(result.tracks),
-            )
+            input_count = len(tracklist.tracks)
+            output_count = len(result.tracks)
+            if input_count > 0 and output_count == 0:
+                logger.warning(f"{operation}: all {input_count} tracks filtered out")
+            else:
+                logger.debug(
+                    operation,
+                    input_count=input_count,
+                    output_count=output_count,
+                )
             return {"tracklist": result}
 
     return node_impl
@@ -276,13 +281,23 @@ def create_enricher_node(
             ctx.extract_use_cases().get_enrich_tracks_use_case, command
         )
 
-        if result.errors:
-            logger.warning(f"{enricher_label} enrichment had errors: {result.errors}")
+        metrics_count = sum(len(v) for v in result.metrics_added.values())
 
-        logger.info(
-            f"{enricher_label}_enrichment complete",
-            metrics_count=sum(len(v) for v in result.metrics_added.values()),
-        )
+        if result.errors and metrics_count == 0:
+            logger.warning(
+                f"{enricher_label} enrichment failed completely — "
+                f"downstream will drop all tracks: {result.errors}"
+            )
+        elif result.errors:
+            logger.warning(
+                f"{enricher_label} enrichment had {len(result.errors)} errors "
+                f"({metrics_count} metrics still added): {result.errors}"
+            )
+        else:
+            logger.info(
+                f"{enricher_label}_enrichment complete",
+                metrics_count=metrics_count,
+            )
         return {"tracklist": result.enriched_tracklist}
 
     return node_impl

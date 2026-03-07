@@ -419,7 +419,7 @@ class FreshnessConfig(BaseModel):
     )
     spotify_hours: NonNegativeFloat = Field(
         default=24.0,
-        description="Hours before Spotify metadata is re-fetched. Higher than Last.fm because Spotify popularity updates less frequently.",
+        description="Hours before Spotify metadata is re-fetched.",
     )
 
 

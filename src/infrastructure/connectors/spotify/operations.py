@@ -80,48 +80,18 @@ class SpotifyOperations:
     # Bulk Track Operations
 
     async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
-        """Fetch multiple tracks from Spotify with simple bulk batching."""
+        """Fetch multiple tracks from Spotify using concurrent individual fetches.
+
+        Returns dict keyed by REQUESTED ID. When Spotify redirects an old ID
+        to a new one (track.id != requested_id), the result is still keyed by
+        the requested ID so callers can find their results.
+        """
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
 
-        results: dict[str, SpotifyTrack] = {}
+        logger.info(f"Fetching {len(track_ids)} tracks concurrently")
 
-        # Process in batches using Spotify's bulk API (50 tracks per call)
-        batch_size = settings.api.spotify.batch_size
-        total_batches = (len(track_ids) + batch_size - 1) // batch_size
-
-        logger.info(f"Fetching {len(track_ids)} tracks in {total_batches} batches")
-
-        for i in range(0, len(track_ids), batch_size):
-            batch_ids = track_ids[i : i + batch_size]
-
-            try:
-                # Use bulk tracks API - single call for up to 50 tracks
-                validated_tracks = await self.client.get_tracks_bulk(batch_ids)
-
-                if validated_tracks:
-                    for track in validated_tracks:
-                        current_id = track.id
-                        results[current_id] = track
-
-                        # Handle Spotify relinking: if track has linked_from,
-                        # also map the original track ID to this data
-                        if track.linked_from:
-                            original_id = track.linked_from.id
-                            results[original_id] = track
-                            logger.debug(
-                                f"Relinked track found: {original_id} -> {current_id}"
-                            )
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to fetch batch {i // batch_size + 1}/{total_batches}: {e}"
-                )
-                continue
-
-            # Brief delay between requests if configured
-            if settings.api.spotify.request_delay > 0:
-                await asyncio.sleep(settings.api.spotify.request_delay)
+        results = await self.client.get_tracks_concurrent(track_ids)
 
         logger.info(f"Retrieved {len(results)}/{len(track_ids)} tracks")
         return results
@@ -162,18 +132,29 @@ class SpotifyOperations:
         if playlist is None:
             raise TypeError(f"Invalid playlist response for ID {playlist_id}")
 
-        # Handle pagination to get all tracks
-        tracks_page = playlist.tracks
-        all_items = list(tracks_page.items)
+        # Ownership check — non-owned playlists may return empty items
+        current_user_id = await self.client.get_current_user_id()
+        if current_user_id and playlist.owner.id != current_user_id:
+            logger.warning(
+                f"Playlist '{playlist.name}' is not owned by current user — "
+                "items may be unavailable under Spotify's Feb 2026 API changes",
+                playlist_id=playlist_id,
+                owner_id=playlist.owner.id,
+                current_user_id=current_user_id,
+            )
 
-        # Paginate until we get all tracks
-        while tracks_page and tracks_page.next:
-            next_page = await self.client.get_next_page(tracks_page)
+        # Handle pagination to get all items
+        items_page = playlist.items
+        all_items = list(items_page.items)
+
+        # Paginate until we get all items
+        while items_page and items_page.next:
+            next_page = await self.client.get_next_page(items_page)
             if next_page is not None:
                 all_items.extend(next_page.items)
-                tracks_page = next_page
+                items_page = next_page
             else:
-                logger.warning("Received invalid tracks data during pagination")
+                logger.warning("Received invalid items data during pagination")
                 break
 
         # Convert basic playlist metadata (needs raw dict for conversion)
@@ -184,8 +165,8 @@ class SpotifyOperations:
         # Process each track item with its metadata
         playlist_items: list[ConnectorPlaylistItem] = []
         for idx, item in enumerate(all_items):
-            if item.track is not None:
-                track = item.track
+            if item.item is not None:
+                track = item.item
                 track_dict = track.model_dump()
 
                 # Create ConnectorPlaylistItem with track ID and metadata

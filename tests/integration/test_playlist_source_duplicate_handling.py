@@ -46,7 +46,6 @@ class TestPlaylistSourceDuplicateHandling:
                             "external_urls": {
                                 "spotify": "https://spotify.com/track/123"
                             },
-                            "popularity": 85,
                         }
                     },
                 ),
@@ -66,7 +65,6 @@ class TestPlaylistSourceDuplicateHandling:
                             "external_urls": {
                                 "spotify": "https://spotify.com/track/456"
                             },
-                            "popularity": 72,
                         }
                     },
                 ),
@@ -86,7 +84,6 @@ class TestPlaylistSourceDuplicateHandling:
                             "external_urls": {
                                 "spotify": "https://spotify.com/track/123"
                             },
-                            "popularity": 85,
                         }
                     },
                 ),

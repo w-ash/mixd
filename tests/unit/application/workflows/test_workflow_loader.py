@@ -8,7 +8,10 @@ import json
 
 import pytest
 
-from src.application.workflows.workflow_loader import list_workflow_defs, load_workflow_def
+from src.application.workflows.workflow_loader import (
+    list_workflow_defs,
+    load_workflow_def,
+)
 from src.domain.entities.workflow import WorkflowDef
 
 
@@ -23,8 +26,17 @@ class TestLoadWorkflowDef:
             "description": "A test",
             "version": "1.0",
             "tasks": [
-                {"id": "src_1", "type": "source.playlist", "config": {"playlist_id": "abc"}},
-                {"id": "dest_1", "type": "destination.create_playlist", "config": {"name": "Out"}, "upstream": ["src_1"]},
+                {
+                    "id": "src_1",
+                    "type": "source.playlist",
+                    "config": {"playlist_id": "abc"},
+                },
+                {
+                    "id": "dest_1",
+                    "type": "destination.create_playlist",
+                    "config": {"name": "Out"},
+                    "upstream": ["src_1"],
+                },
             ],
         }
         path = tmp_path / "test_wf.json"
@@ -65,7 +77,9 @@ class TestLoadWorkflowDef:
         """result_key field on tasks is correctly parsed."""
         data = {
             "name": "RK",
-            "tasks": [{"id": "t1", "type": "source.playlist", "result_key": "my_result"}],
+            "tasks": [
+                {"id": "t1", "type": "source.playlist", "result_key": "my_result"}
+            ],
         }
         path = tmp_path / "rk.json"
         path.write_text(json.dumps(data))
@@ -80,7 +94,10 @@ class TestListWorkflowDefs:
     def test_lists_all_json_files(self, tmp_path):
         """All valid .json files in directory are loaded."""
         for i in range(3):
-            data = {"name": f"WF {i}", "tasks": [{"id": "t1", "type": "source.liked_tracks"}]}
+            data = {
+                "name": f"WF {i}",
+                "tasks": [{"id": "t1", "type": "source.liked_tracks"}],
+            }
             (tmp_path / f"wf_{i}.json").write_text(json.dumps(data))
 
         result = list_workflow_defs(tmp_path)
@@ -90,7 +107,10 @@ class TestListWorkflowDefs:
     def test_skips_invalid_files(self, tmp_path):
         """Invalid JSON files are skipped, valid ones still loaded."""
         (tmp_path / "good.json").write_text(
-            json.dumps({"name": "Good", "tasks": [{"id": "t1", "type": "source.liked_tracks"}]})
+            json.dumps({
+                "name": "Good",
+                "tasks": [{"id": "t1", "type": "source.liked_tracks"}],
+            })
         )
         (tmp_path / "bad.json").write_text("not json")
 

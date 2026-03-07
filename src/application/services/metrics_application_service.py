@@ -74,7 +74,7 @@ class MetricsApplicationService:
         Args:
             track_ids: Internal track IDs to get metrics for.
             connector: External connector name ('spotify', 'lastfm', etc.).
-            metric_names: List of metric names to retrieve (e.g., ['spotify_popularity', 'lastfm_user_playcount']).
+            metric_names: List of metric names to retrieve (e.g., ['lastfm_global_playcount', 'lastfm_user_playcount']).
             uow: Unit of work for database transaction management.
             connector_instance: Optional connector instance for fresh metadata fetching.
             progress_manager: Optional progress manager for sub-operation tracking.
@@ -83,7 +83,7 @@ class MetricsApplicationService:
         Returns:
             Tuple of (metrics_dict, fresh_ids_dict) where:
             - metrics_dict: Dictionary mapping metric names to track_id -> value mappings.
-              Example: {'spotify_popularity': {1: 85, 2: 92}, 'lastfm_user_playcount': {1: 75, 2: 120}}
+              Example: {'lastfm_global_playcount': {1: 85, 2: 92}, 'lastfm_user_playcount': {1: 75, 2: 120}}
             - fresh_ids_dict: Dictionary mapping metric names to sets of track IDs that
               were freshly fetched (not from cache) in this session.
         """
@@ -221,6 +221,7 @@ class MetricsApplicationService:
                         logger.error(
                             f"Failed to fetch metrics from {connector} API: {e}"
                         )
+                        raise
 
             # Extract each metric's field from the shared metadata
             all_metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
@@ -277,13 +278,19 @@ class MetricsApplicationService:
                 result[metric_name] = metric_values
                 logger.debug(f"Retrieved {len(metric_values)} values for {metric_name}")
             else:
-                logger.debug(f"No values retrieved for {metric_name}")
+                logger.warning(f"No values retrieved for {metric_name}")
 
-        logger.info(
-            f"Successfully retrieved {len(result)} metric types with "
-            + f"{sum(len(values) for values in result.values())} total values "
-            + f"({sum(len(ids) for ids in fresh_ids_per_metric.values())} freshly fetched)"
+        total_values = sum(len(values) for values in result.values())
+        freshly_fetched = sum(len(ids) for ids in fresh_ids_per_metric.values())
+        summary = (
+            f"Retrieved {len(result)} metric types with "
+            f"{total_values} total values ({freshly_fetched} freshly fetched)"
         )
+
+        if track_ids and total_values == 0:
+            logger.warning(f"{summary} — downstream nodes may filter all tracks")
+        else:
+            logger.info(summary)
 
         return result, fresh_ids_per_metric
 

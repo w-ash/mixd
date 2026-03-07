@@ -4,8 +4,10 @@ These functions contain no external dependencies and implement the core business
 for determining how well tracks match across different music services.
 """
 
+from collections.abc import Callable, Sequence
 from typing import NotRequired, TypedDict
 
+from attrs import define
 from rapidfuzz import fuzz
 
 from .config import MatchingConfig
@@ -66,6 +68,57 @@ def calculate_title_similarity(
 
     # 3. Use token_set_ratio for better handling of word order and extra words
     return fuzz.token_set_ratio(title1, title2) / 100.0
+
+
+@define(frozen=True, slots=True)
+class SimilarityResult[T]:
+    """Result of selecting the best candidate by title similarity."""
+
+    candidate: T
+    similarity: float
+
+
+def select_best_by_title_similarity[T](
+    reference_title: str,
+    candidates: Sequence[T],
+    get_name: Callable[[T], str | None],
+    config: MatchingConfig,
+    *,
+    min_similarity: float = 0.0,
+) -> SimilarityResult[T] | None:
+    """Select the candidate with the highest title similarity to *reference_title*.
+
+    Generic over ``T`` so callers don't need to couple the domain to Pydantic
+    models (Spotify) or any other concrete type.
+
+    Args:
+        reference_title: The title to compare against.
+        candidates: Non-empty sequence of candidates to rank.
+        get_name: Extracts the comparable name from a candidate (may return None).
+        config: Matching configuration for similarity scoring.
+        min_similarity: Reject the best candidate if its similarity is below this.
+
+    Returns:
+        ``SimilarityResult`` for the best candidate, or ``None`` if *candidates*
+        is empty, all names are ``None``, or the best similarity is below
+        *min_similarity*.
+    """
+    best: T | None = None
+    best_sim = -1.0
+
+    for candidate in candidates:
+        name = get_name(candidate)
+        if name is None:
+            continue
+        sim = calculate_title_similarity(reference_title, name, config)
+        if sim > best_sim:
+            best_sim = sim
+            best = candidate
+
+    if best is None or best_sim < min_similarity:
+        return None
+
+    return SimilarityResult(candidate=best, similarity=best_sim)
 
 
 def calculate_confidence(

@@ -240,7 +240,7 @@ class DBTrackMapping(BaseEntity):
 class DBTrackMetric(BaseEntity):
     """Time-series metrics for tracks from external services.
 
-    Stores track performance metrics (play counts, popularity scores) for analytics and trends.
+    Stores track performance metrics (play counts, listener counts) for analytics and trends.
     """
 
     __tablename__: str = "track_metrics"

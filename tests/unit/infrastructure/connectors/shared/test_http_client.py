@@ -325,7 +325,7 @@ class TestClientSmokeViaRealHttpx:
         )
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
-        payload = {"tracks": [{"id": "abc123", "name": "Test Track"}]}
+        payload = {"id": "abc123", "name": "Test Track"}
         transport = _QueueTransport((200, payload))
 
         # Patch make_spotify_client to inject our mock transport (same event hooks)
@@ -349,14 +349,13 @@ class TestClientSmokeViaRealHttpx:
         ):
             client = SpotifyAPIClient()
             # Must not raise RuntimeError from the event hook
-            result = await client.get_tracks_bulk(["abc123"])
+            result = await client.get_track("abc123")
             await client.aclose()
 
-        # get_tracks_bulk now returns validated list[SpotifyTrack]
+        # get_track returns validated SpotifyTrack
         assert result is not None
-        assert len(result) == 1
-        assert result[0].id == "abc123"
-        assert result[0].name == "Test Track"
+        assert result.id == "abc123"
+        assert result.name == "Test Track"
 
     async def test_spotify_error_response_returns_none_via_hook(self, spotify_settings):
         """A 429 from Spotify must log the body in the hook and return None.
@@ -392,7 +391,7 @@ class TestClientSmokeViaRealHttpx:
             client = SpotifyAPIClient()
             client._retry_policy.wait = wait_none()
             # Must not raise — _api_call suppresses HTTPStatusError
-            result = await client.get_tracks_bulk(["abc123"])
+            result = await client.get_track("abc123")
             await client.aclose()
 
         assert result is None

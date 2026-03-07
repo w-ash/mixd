@@ -230,7 +230,7 @@ from tests.fixtures import make_track, make_connector_track, make_playlist, make
 
 # Domain entity factories (keyword overrides for any Track field)
 track = make_track(id=1, title="Test", isrc="US1234567890")
-ct = make_connector_track("sp_123", linked_from_id="sp_old")
+ct = make_connector_track("sp_123")
 playlist = make_playlist(id=1, name="Test Playlist")
 
 # Mock UoW with pre-wired repos (configure specific repos as needed)

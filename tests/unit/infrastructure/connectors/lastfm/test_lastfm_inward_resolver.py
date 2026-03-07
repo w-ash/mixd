@@ -2,7 +2,7 @@
 
 Validates that the Last.fm-specific inward resolver correctly creates skeletal
 tracks, enriches via track.getInfo, uses URL-based connector IDs, and attempts
-Spotify cross-discovery.
+cross-service discovery via the CrossDiscoveryProvider protocol.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -45,13 +45,13 @@ class TestCreatesSkeletalTrackAndEnriches:
             lastfm_album_name="Pablo Honey",
         )
 
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = []
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = False
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         uow = _make_uow(saved_track=saved_track)
@@ -70,10 +70,10 @@ class TestCreatesSkeletalTrackAndEnriches:
         assert lastfm_url in connector_ids
 
 
-class TestSpotifyCrossDiscovery:
-    """When Spotify match succeeds, a dual mapping should be created."""
+class TestCrossDiscovery:
+    """Cross-discovery provider should be called for each new track."""
 
-    async def test_successful_discovery_creates_spotify_mapping(self):
+    async def test_successful_discovery_calls_provider(self):
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
@@ -81,23 +81,13 @@ class TestSpotifyCrossDiscovery:
             lastfm_album_name="Pablo Honey",
         )
 
-        # Spotify returns a match with high similarity
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify123"
-        spotify_match.name = "Creep"
-        spotify_match.artists = [MagicMock(name="Radiohead")]
-        spotify_match.duration_ms = 238000
-        spotify_match.album = MagicMock(name="Pablo Honey")
-        spotify_match.external_ids = MagicMock(isrc="GBAYE9300106")
-        spotify_match.model_dump.return_value = {"id": "spotify123", "name": "Creep"}
-
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = [spotify_match]
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = True
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         uow = _make_uow(saved_track=saved_track)
@@ -105,20 +95,40 @@ class TestSpotifyCrossDiscovery:
             ["radiohead::creep"], uow
         )
 
-        # Should have called search_track for Spotify discovery
-        spotify_connector.search_track.assert_called_once()
+        # Should have called attempt_discovery
+        cross_discovery.attempt_discovery.assert_called_once()
+        call_args = cross_discovery.attempt_discovery.call_args
+        assert call_args.args[1] == "radiohead"  # artist_name
+        assert call_args.args[2] == "creep"  # track_name
 
-        # Check that a spotify mapping was attempted
-        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
-        spotify_calls = [c for c in map_calls if c.args[1] == "spotify"]
-        # May or may not have created the spotify mapping depending on confidence threshold
-        # (we just verify the search was attempted)
+    async def test_no_discovery_when_provider_is_none(self):
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
+            lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
+            lastfm_duration=238000,
+            lastfm_album_name="Pablo Honey",
+        )
+
+        saved_track = make_track(id=42)
+        resolver = LastfmInwardResolver(
+            lastfm_client=lastfm_client,
+            cross_discovery=None,
+        )
+
+        uow = _make_uow(saved_track=saved_track)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow
+        )
+
+        # Track should still be created
+        assert "radiohead::creep" in result
+        assert metrics.created == 1
 
 
-class TestSpotifyDiscoveryRejected:
-    """When Spotify match is below confidence threshold, no mapping is created."""
+class TestDiscoveryRejected:
+    """When cross-discovery returns False, track is still created."""
 
-    async def test_low_confidence_no_spotify_mapping(self):
+    async def test_failed_discovery_still_creates_track(self):
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
@@ -126,26 +136,13 @@ class TestSpotifyDiscoveryRejected:
             lastfm_album_name=None,
         )
 
-        # Spotify returns a match but with a totally different title
-        spotify_match = MagicMock()
-        spotify_match.id = "spotify456"
-        spotify_match.name = "Completely Different Song"
-        spotify_match.artists = [MagicMock(name="Someone Else")]
-        spotify_match.duration_ms = 120000
-        spotify_match.album = MagicMock(name="Other Album")
-        spotify_match.external_ids = None
-        spotify_match.model_dump.return_value = {
-            "id": "spotify456",
-            "name": "Completely Different Song",
-        }
-
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = [spotify_match]
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = False
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         uow = _make_uow(saved_track=saved_track)
@@ -156,11 +153,6 @@ class TestSpotifyDiscoveryRejected:
         # Track should still be created
         assert "radiohead::creep" in result
 
-        # Spotify mapping should NOT be created (low confidence)
-        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
-        spotify_calls = [c for c in map_calls if c.args[1] == "spotify"]
-        assert len(spotify_calls) == 0
-
 
 class TestTrackInfoFailure:
     """When track.getInfo fails, fallback artist::title connector ID is used."""
@@ -169,13 +161,13 @@ class TestTrackInfoFailure:
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = None  # Failure
 
-        spotify_connector = AsyncMock()
-        spotify_connector.search_track.return_value = []
+        cross_discovery = AsyncMock()
+        cross_discovery.attempt_discovery.return_value = False
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
+            cross_discovery=cross_discovery,
         )
 
         uow = _make_uow(saved_track=saved_track)
@@ -200,11 +192,9 @@ class TestDelegatesToBaseLookup:
         existing_track = make_track(id=10)
 
         lastfm_client = AsyncMock()
-        spotify_connector = MagicMock()
 
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
-            spotify_connector=spotify_connector,
         )
 
         uow = _make_uow(

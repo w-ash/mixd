@@ -9,7 +9,7 @@ Usage::
     from tests.fixtures.factories import make_track, make_connector_track
 
     track = make_track(id=1, title="Creep", artist="Radiohead")
-    ct = make_connector_track("sp_123", linked_from_id="sp_old")
+    ct = make_connector_track("sp_123")
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ from src.domain.entities.playlist import (
     PlaylistEntry,
 )
 from src.domain.entities.track import Artist, ConnectorTrack, Track
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyAlbum,
+    SpotifyArtist,
+    SpotifyTrack,
+)
 
 # ---------------------------------------------------------------------------
 # Track factories
@@ -53,6 +58,28 @@ def make_tracks(count: int = 3, **kwargs) -> list[Track]:
 
 
 # ---------------------------------------------------------------------------
+# SpotifyTrack factories (Pydantic model for API responses)
+# ---------------------------------------------------------------------------
+
+
+def make_spotify_track(
+    spotify_id: str = "test_spotify_id",
+    name: str = "Test Song",
+    artist_name: str = "Test Artist",
+    album_name: str = "Test Album",
+    duration_ms: int = 240000,
+    **kwargs,
+) -> SpotifyTrack:
+    """Build a :class:`SpotifyTrack` Pydantic model with sensible defaults.
+
+    Any extra ``kwargs`` are forwarded to the ``SpotifyTrack`` constructor.
+    """
+    kwargs.setdefault("artists", [SpotifyArtist(name=artist_name)])
+    kwargs.setdefault("album", SpotifyAlbum(name=album_name))
+    return SpotifyTrack(id=spotify_id, name=name, duration_ms=duration_ms, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # ConnectorTrack factories
 # ---------------------------------------------------------------------------
 
@@ -61,24 +88,16 @@ def make_connector_track(
     identifier: str,
     connector_name: str = "spotify",
     *,
-    linked_from_id: str | None = None,
     title: str | None = None,
     artist: str = "Test Artist",
     **kwargs,
 ) -> ConnectorTrack:
-    """Build a :class:`ConnectorTrack`.
-
-    If *linked_from_id* is given it is placed into ``raw_metadata``.
-    """
-    raw_metadata: dict[str, str] = dict(kwargs.pop("raw_metadata", {}))
-    if linked_from_id:
-        raw_metadata["linked_from_id"] = linked_from_id
+    """Build a :class:`ConnectorTrack`."""
     return ConnectorTrack(
         connector_name=connector_name,
         connector_track_identifier=identifier,
         title=title or f"Song {identifier}",
         artists=[Artist(name=artist)],
-        raw_metadata=raw_metadata,
         **kwargs,
     )
 

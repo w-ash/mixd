@@ -2,11 +2,17 @@
 
 This provider handles communication with the LastFM API and transforms
 LastFM track data into raw provider matches without business logic.
+
+Satisfies the ``MatchProvider`` protocol structurally (service_name +
+fetch_raw_matches_for_tracks). Does NOT inherit ``BaseMatchingProvider``
+because Last.fm's batch API doesn't partition by ISRC / artist-title —
+inheriting would violate LSP (the abstract template-method hooks would
+raise ``NotImplementedError``).
 """
 
 # pyright: reportAny=false, reportExplicitAny=false
 
-from typing import Any, override
+from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -21,20 +27,18 @@ from src.infrastructure.connectors._shared.failure_handling import (
     handle_track_processing_failure,
     log_failure_summary,
 )
-from src.infrastructure.connectors._shared.matching_provider import (
-    BaseMatchingProvider,
-)
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 
 logger = get_logger(__name__)
 
 
-class LastFMProvider(BaseMatchingProvider):
+class LastFMProvider:
     """LastFM track matching provider.
 
-    Note: LastFM uses a batch API that handles all tracks at once, so it overrides
-    fetch_raw_matches_for_tracks() instead of using the template method pattern.
+    Satisfies ``MatchProvider`` protocol structurally. Uses Last.fm's batch
+    API which processes all tracks at once, so there is no ISRC / artist-title
+    partitioning step.
     """
 
     connector_instance: LastFMConnector
@@ -48,38 +52,10 @@ class LastFMProvider(BaseMatchingProvider):
         self.connector_instance = connector_instance
 
     @property
-    @override
     def service_name(self) -> str:
         """Service identifier."""
         return "lastfm"
 
-    @override
-    async def _match_by_isrc(
-        self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
-        """Not used - LastFM uses batch API instead.
-
-        LastFM API processes all tracks in a single batch call regardless of
-        whether they have ISRC or not, so this method is not called.
-        """
-        raise NotImplementedError(
-            "LastFM uses batch API - this method should not be called"
-        )
-
-    @override
-    async def _match_by_artist_title(
-        self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
-        """Not used - LastFM uses batch API instead.
-
-        LastFM API processes all tracks in a single batch call regardless of
-        whether they have ISRC or not, so this method is not called.
-        """
-        raise NotImplementedError(
-            "LastFM uses batch API - this method should not be called"
-        )
-
-    @override
     async def fetch_raw_matches_for_tracks(
         self,
         tracks: list[Track],

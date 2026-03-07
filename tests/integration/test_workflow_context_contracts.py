@@ -205,7 +205,6 @@ class TestExtractorContracts:
 
             # Check for key metrics used by workflow (renamed from extractors)
             expected_metrics = [
-                "spotify_popularity",
                 "explicit_flag",
             ]
 

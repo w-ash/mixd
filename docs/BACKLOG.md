@@ -250,7 +250,7 @@ Extend workflow capabilities with sophisticated transformation and analysis feat
             - Connector mappings (connector_name, connector_id, is_primary, confidence, match_method)
             - Like status per connector
             - Play history summary (total plays, last played, first played)
-            - Connector metadata (Spotify popularity, Last.fm play counts, etc.)
+            - Connector metadata (Spotify explicit flag, Last.fm play counts, etc.)
         - Composes data from multiple repositories
 
 - [ ] **Track Connector Mappings Use Case**

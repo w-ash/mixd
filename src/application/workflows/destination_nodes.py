@@ -67,7 +67,9 @@ async def create_playlist(
     tracklist, config, workflow_context = _prepare_destination(context, config)
 
     if context.get("dry_run"):
-        logger.info("Dry-run mode: skipping playlist create", node="destination.create_playlist")
+        logger.info(
+            "Dry-run mode: skipping playlist create", node="destination.create_playlist"
+        )
         return {"tracklist": tracklist}
 
     playlist_name = config.get("name")
@@ -149,7 +151,9 @@ async def update_playlist(
     tracklist, config, workflow_context = _prepare_destination(context, config)
 
     if context.get("dry_run"):
-        logger.info("Dry-run mode: skipping playlist update", node="destination.update_playlist")
+        logger.info(
+            "Dry-run mode: skipping playlist update", node="destination.update_playlist"
+        )
         return {"tracklist": tracklist}
 
     playlist_id = config.get("playlist_id")

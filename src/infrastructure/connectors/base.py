@@ -5,7 +5,7 @@ Last.fm, MusicBrainz, etc. Child connectors inherit from these base classes to g
 standardized configuration loading and metric resolution.
 
 Classes:
-    BaseMetricResolver: Retrieves track metrics (popularity, play counts) from connector metadata
+    BaseMetricResolver: Retrieves track metrics (play counts, explicit flags) from connector metadata
     BaseAPIConnector: Abstract base for service-specific API clients (inherit for Spotify, Last.fm)
 
 Example:
@@ -93,7 +93,7 @@ class BaseAPIClient:
 class BaseMetricResolver:
     """Retrieves track metrics from connector metadata stored in database.
 
-    Looks up track metrics like Spotify popularity or Last.fm play counts by querying
+    Looks up track metrics like Last.fm play counts by querying
     the connector_metadata table. Child classes define which metadata fields map to
     which metric names via FIELD_MAP and CONNECTOR class variables.
 
@@ -123,7 +123,7 @@ class BaseMetricResolver:
 
         Args:
             track_ids: Internal track IDs to get metrics for
-            metric_name: Name of metric to retrieve (e.g., "spotify_popularity")
+            metric_name: Name of metric to retrieve (e.g., "lastfm_global_playcount")
             uow: Database unit of work for transaction management
             resolve_fn: Application-layer callback that handles cache lookup,
                 API fetching, and persistence of metric values.
@@ -261,7 +261,7 @@ def register_metrics(
     """Register metric resolver for all metrics defined in field_map.
 
     Connects metric names to resolver instances so the application layer can
-    look up track metrics like popularity or play counts.
+    look up track metrics like play counts or explicit flags.
 
     Args:
         metric_resolver: Resolver instance that can fetch metric values

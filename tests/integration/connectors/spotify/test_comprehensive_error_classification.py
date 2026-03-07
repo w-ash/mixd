@@ -88,9 +88,9 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(status_code, description)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
             start_time = time.time()
-            result = await spotify_client.get_tracks_bulk(["test_track_id"])
+            result = await spotify_client.get_track("test_track_id")
             duration = time.time() - start_time
 
         # Should return None gracefully (no exception raised)
@@ -110,9 +110,9 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(404, "Not Found - resource doesn't exist")
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
             start_time = time.time()
-            result = await spotify_client.get_tracks_bulk(["nonexistent_track_id"])
+            result = await spotify_client.get_track("nonexistent_track_id")
             duration = time.time() - start_time
 
         assert result is None
@@ -127,8 +127,8 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(429, "Too Many Requests - rate limit exceeded")
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+            result = await fast_retry_client.get_track("test_track_id")
 
         assert result is None
         assert mock_impl.call_count == 3, (
@@ -155,8 +155,8 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(status_code, description)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+            result = await fast_retry_client.get_track("test_track_id")
 
         assert result is None
         assert mock_impl.call_count == 3, (
@@ -185,8 +185,8 @@ class TestComprehensiveErrorClassification:
         error = httpx.ConnectError(error_message, request=req)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+            result = await fast_retry_client.get_track("test_track_id")
 
         # Network errors ARE retried (3 times) and then return None
         assert result is None
@@ -197,17 +197,16 @@ class TestComprehensiveErrorClassification:
     # SUCCESS AFTER RETRIES - Test resilience patterns
     async def test_success_after_temporary_failure(self, fast_retry_client):
         """Test successful recovery after temporary failures."""
-        success_data = {"tracks": [{"id": "test_track", "name": "Test Track"}]}
+        success_data = {"id": "test_track", "name": "Test Track"}
         error = make_httpx_error(503, "Service Unavailable")
 
         mock_impl = AsyncMock(side_effect=[error, error, success_data])
-        with patch.object(SpotifyAPIClient, "_get_tracks_bulk_impl", mock_impl):
-            result = await fast_retry_client.get_tracks_bulk(["test_track_id"])
+        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+            result = await fast_retry_client.get_track("test_track_id")
 
-        # Should succeed and return parsed models on 3rd attempt
+        # Should succeed and return parsed model on 3rd attempt
         assert result is not None
-        assert len(result) == 1
-        assert result[0].id == "test_track"
+        assert result.id == "test_track"
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for eventual success, got {mock_impl.call_count}"
         )
@@ -216,11 +215,11 @@ class TestComprehensiveErrorClassification:
     @pytest.mark.parametrize(
         ("method_name", "method_args", "impl_name"),
         [
-            ("get_tracks_bulk", (["test_id"],), "_get_tracks_bulk_impl"),
+            ("get_track", ("test_id",), "_get_track_impl"),
             ("search_by_isrc", ("USRC17607839",), "_search_by_isrc_impl"),
             ("search_track", ("Test Artist", "Test Track"), "_search_track_impl"),
             ("get_playlist", ("test_playlist_id",), "_get_playlist_impl"),
-            ("get_playlist_tracks", ("test_playlist_id",), "_get_playlist_tracks_impl"),
+            ("get_playlist_items", ("test_playlist_id",), "_get_playlist_items_impl"),
             ("create_playlist", ("Test Playlist",), "_create_playlist_impl"),
             ("get_saved_tracks", (), "_get_saved_tracks_impl"),
             ("get_current_user", (), "_get_current_user_impl"),

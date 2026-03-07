@@ -1,12 +1,16 @@
-"""Unit tests for MetricsApplicationService sub-operation progress integration.
+"""Unit tests for MetricsApplicationService.
 
-Verifies that get_external_track_metrics creates sub-operations when a progress
-manager is provided, and passes None callback when it is not.
+Verifies sub-operation progress wiring and exception propagation from
+connector API failures.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.application.services.metrics_application_service import MetricsApplicationService
+import pytest
+
+from src.application.services.metrics_application_service import (
+    MetricsApplicationService,
+)
 from tests.fixtures import make_mock_uow, make_track
 
 
@@ -69,11 +73,10 @@ class TestSubOperationProgressIntegration:
             # Connector should have received the callback
             mock_connector.get_external_track_data.assert_awaited_once()
             call_kwargs = mock_connector.get_external_track_data.call_args
-            assert call_kwargs.kwargs.get("progress_callback") is fake_callback or (
-                len(call_kwargs.args) > 1
-                and call_kwargs.args[1] is fake_callback
-            ) or (
-                call_kwargs[1].get("progress_callback") is fake_callback
+            assert (
+                call_kwargs.kwargs.get("progress_callback") is fake_callback
+                or (len(call_kwargs.args) > 1 and call_kwargs.args[1] is fake_callback)
+                or (call_kwargs[1].get("progress_callback") is fake_callback)
             )
 
     async def test_skips_sub_operation_when_no_progress_manager(self):
@@ -107,4 +110,70 @@ class TestSubOperationProgressIntegration:
             if len(call_kwargs.args) > 1:
                 assert call_kwargs.args[1] is None
             else:
-                assert "progress_callback" not in call_kwargs.kwargs or call_kwargs.kwargs["progress_callback"] is None
+                assert (
+                    "progress_callback" not in call_kwargs.kwargs
+                    or call_kwargs.kwargs["progress_callback"] is None
+                )
+
+
+class TestLogLevels:
+    """Tests that metric retrieval uses appropriate log levels."""
+
+    async def test_warns_when_zero_values_retrieved(self):
+        """When track_ids are provided but 0 values come back, log at WARNING."""
+        service = _make_service()
+        track = make_track(
+            id=1,
+            title="Test",
+            connector_track_identifiers={"lastfm": "ext-1"},
+        )
+        mock_uow = _make_uow_with_tracks({1: track})
+
+        mock_connector = AsyncMock()
+        # Return empty dict — no metadata retrieved
+        mock_connector.get_external_track_data = AsyncMock(return_value={})
+
+        with patch(
+            "src.application.services.metrics_application_service.logger"
+        ) as mock_logger:
+            await service.get_external_track_metrics(
+                track_ids=[1],
+                connector="lastfm",
+                metric_names=["lastfm_user_playcount"],
+                uow=mock_uow,
+                connector_instance=mock_connector,
+            )
+
+            # Should warn about 0 values for the metric
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            assert any("No values retrieved" in w for w in warning_calls)
+            # Should warn in summary about downstream impact
+            assert any("downstream nodes may filter" in w for w in warning_calls)
+
+
+class TestExceptionPropagation:
+    """Tests that connector API failures propagate instead of being swallowed."""
+
+    async def test_connector_api_error_propagates(self):
+        """RuntimeError from connector is re-raised, not silently swallowed."""
+        service = _make_service()
+        track = make_track(
+            id=1,
+            title="Test",
+            connector_track_identifiers={"lastfm": "ext-1"},
+        )
+        mock_uow = _make_uow_with_tracks({1: track})
+
+        mock_connector = AsyncMock()
+        mock_connector.get_external_track_data = AsyncMock(
+            side_effect=RuntimeError("dictionary changed size during iteration"),
+        )
+
+        with pytest.raises(RuntimeError, match="dictionary changed size"):
+            await service.get_external_track_metrics(
+                track_ids=[1],
+                connector="lastfm",
+                metric_names=["lastfm_user_playcount"],
+                uow=mock_uow,
+                connector_instance=mock_connector,
+            )

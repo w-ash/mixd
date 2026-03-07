@@ -82,7 +82,7 @@ Every track in Narada has a **canonical** record (our internal representation) t
 
 **TrackPlay** — immutable play event (track + service + played_at + ms_played). Users can have tens of thousands of these.
 
-**TrackMetric** — cached enrichment data (track + connector + metric_type + value + collected_at). Types include `play_count`, `popularity`, `explicit_flag`, etc.
+**TrackMetric** — cached enrichment data (track + connector + metric_type + value + collected_at). Types include `play_count`, `explicit_flag`, etc.
 
 **ConnectorTrack / ConnectorPlaylist** — cached copies of how tracks and playlists appear in each external service, with full raw metadata.
 
@@ -111,7 +111,7 @@ All upstream API details (auth, rate limits, pagination) are abstracted by the b
 
 | | Tracks | History | Likes | Playlists | Enrichment |
 |-|:------:|:-------:|:-----:|:---------:|:----------:|
-| **Spotify** | Read/search | File upload only | Import | Full CRUD | popularity, explicit |
+| **Spotify** | Read/search | File upload only | Import | Full CRUD | explicit |
 | **Last.fm** | Read | Live import | Export (love) | — | user/global playcount, listeners |
 | **Apple Music** | Read/search | — | Read/write favorites | Create, append | — |
 
@@ -132,7 +132,7 @@ Workflows are JSON DAGs. Each task has an ID, type, config, and upstream depende
 
 **Sources**: Load from a canonical or external playlist.
 
-**Enrichers**: Add metadata — Last.fm (play counts, listeners), Spotify (popularity, explicit flag), or internal play history (total plays, last played, plays in period).
+**Enrichers**: Add metadata — Last.fm (play counts, listeners), Spotify (explicit flag), or internal play history (total plays, last played, plays in period).
 
 **Filters**: By release date, duration, metric threshold, play history (count + time window), liked status, explicit content, artist exclusion, track exclusion, deduplication.
 

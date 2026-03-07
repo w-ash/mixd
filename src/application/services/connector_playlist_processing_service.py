@@ -129,16 +129,11 @@ class ConnectorPlaylistProcessingService:
         # Step 3: Efficiently persist unique tracks (reusing CreateConnectorPlaylistUseCase pattern)
         connector_repo = uow.get_connector_repository()
 
-        # Bulk lookup existing tracks, including linked_from alternates for Spotify
+        # Bulk lookup existing tracks
         connector_tuples: list[tuple[str, str]] = [
             (connector_name, track.connector_track_identifier)
             for track in unique_connector_tracks
         ]
-        if connector_name == "spotify":
-            for ct in unique_connector_tracks:
-                alt = ct.raw_metadata.get("linked_from_id")
-                if alt and alt != ct.connector_track_identifier:
-                    connector_tuples.append((connector_name, alt))
 
         existing_tracks_map = await connector_repo.find_tracks_by_connectors(
             connector_tuples
@@ -151,11 +146,6 @@ class ConnectorPlaylistProcessingService:
         for connector_track in unique_connector_tracks:
             lookup_key = (connector_name, connector_track.connector_track_identifier)
             domain_track = existing_tracks_map.get(lookup_key)
-            # Fall back to linked_from alternate ID for Spotify
-            if not domain_track and connector_name == "spotify":
-                alt = connector_track.raw_metadata.get("linked_from_id")
-                if alt:
-                    domain_track = existing_tracks_map.get((connector_name, alt))
             if domain_track:
                 track_id_to_domain_track[connector_track.connector_track_identifier] = (
                     domain_track

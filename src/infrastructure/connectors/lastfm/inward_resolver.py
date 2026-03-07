@@ -8,15 +8,17 @@ Flow per missing track:
 1. Create skeletal Track (title + artist only)
 2. Enrich via track.getInfo (duration, album, URL)
 3. Create connector mapping using URL (or artist::title fallback)
-4. Attempt Spotify cross-discovery for dual connector mapping
+4. Attempt cross-service discovery via ``CrossDiscoveryProvider`` protocol
 """
+
+from __future__ import annotations
 
 from typing import override
 
 from src.config import get_logger
 from src.domain.entities import Artist, Track
-from src.domain.matching.algorithms import calculate_title_similarity
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.protocols import CrossDiscoveryProvider
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -24,7 +26,6 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.identifiers import parse_lastfm_identifier
-from src.infrastructure.connectors.spotify import SpotifyConnector
 
 logger = get_logger(__name__)
 
@@ -33,21 +34,22 @@ class LastfmInwardResolver(InwardTrackResolver):
     """Resolves Last.fm artist::title identifiers → canonical tracks.
 
     Sequential per-track processing (inherent to Last.fm's API).
-    Also attempts Spotify cross-discovery for each new track.
+    Optionally attempts cross-service discovery (e.g. Spotify) for each
+    new track via the ``CrossDiscoveryProvider`` protocol.
     """
 
     _lastfm_client: LastFMAPIClient
-    _spotify_connector: SpotifyConnector
+    _cross_discovery: CrossDiscoveryProvider | None
     _match_evaluation_service: TrackMatchEvaluationService
 
     def __init__(
         self,
         lastfm_client: LastFMAPIClient,
-        spotify_connector: SpotifyConnector,
+        cross_discovery: CrossDiscoveryProvider | None = None,
         match_evaluation_service: TrackMatchEvaluationService | None = None,
     ):
         self._lastfm_client = lastfm_client
-        self._spotify_connector = spotify_connector
+        self._cross_discovery = cross_discovery
         if match_evaluation_service is None:
             from src.config import create_matching_config
 
@@ -108,10 +110,11 @@ class LastfmInwardResolver(InwardTrackResolver):
 
                 result[identifier] = track
 
-                # Step 4: Attempt Spotify cross-discovery
-                await self._attempt_spotify_discovery(
-                    track, artist_name, track_name, uow
-                )
+                # Step 4: Attempt cross-service discovery (e.g. Spotify)
+                if self._cross_discovery:
+                    await self._cross_discovery.attempt_discovery(
+                        track, artist_name, track_name, uow
+                    )
 
             except Exception as e:
                 logger.error(f"Failed to create canonical track for {identifier}: {e}")
@@ -210,91 +213,3 @@ class LastfmInwardResolver(InwardTrackResolver):
             if match_result.evidence
             else None,
         )
-
-    async def _attempt_spotify_discovery(
-        self,
-        track: Track,
-        artist_name: str,
-        track_name: str,
-        uow: UnitOfWorkProtocol,
-    ) -> bool:
-        """Attempt Spotify cross-discovery using domain matching."""
-        try:
-            candidates = await self._spotify_connector.search_track(
-                artist_name, track_name
-            )
-            if not candidates:
-                return False
-
-            matching_config = self._match_evaluation_service.config
-            best = max(
-                candidates,
-                key=lambda c: calculate_title_similarity(
-                    track_name, c.name, matching_config
-                ),
-            )
-
-            spotify_id = best.id
-            if not spotify_id:
-                return False
-
-            best_dict = best.model_dump()
-            primary_artist = best.artists[0].name if best.artists else ""
-
-            raw_match = RawProviderMatch(
-                connector_id=spotify_id,
-                match_method="artist_title",
-                service_data={
-                    "title": best.name,
-                    "artist": primary_artist,
-                    "duration_ms": best.duration_ms,
-                    "id": spotify_id,
-                    **best_dict,
-                },
-            )
-
-            match_result = self._match_evaluation_service.evaluate_single_match(
-                track, raw_match, "spotify"
-            )
-
-            if not match_result.success:
-                logger.debug(
-                    f"Spotify discovery rejected: {artist_name} - {track_name} (confidence: {match_result.confidence})"
-                )
-                return False
-
-            _ = await uow.get_connector_repository().map_track_to_connector(
-                track,
-                "spotify",
-                spotify_id,
-                "lastfm_discovery",
-                confidence=match_result.confidence,
-                metadata=best_dict,
-                confidence_evidence=match_result.evidence.as_dict()
-                if match_result.evidence
-                else None,
-            )
-
-            # Backfill canonical track with Spotify metadata if still skeletal
-            if not track.duration_ms or not track.isrc or not track.album:
-                enriched = Track(
-                    id=track.id,
-                    title=track.title,
-                    artists=track.artists,
-                    album=track.album or (best.album.name if best.album else None),
-                    duration_ms=track.duration_ms or best.duration_ms,
-                    isrc=track.isrc
-                    or (best.external_ids.isrc if best.external_ids else None),
-                )
-                await uow.get_track_repository().save_track(enriched)
-
-            logger.debug(
-                f"Spotify discovery success: {artist_name} - {track_name} -> {spotify_id} (confidence: {match_result.confidence})"
-            )
-        except Exception as e:
-            logger.debug(
-                f"Spotify discovery failed for {artist_name} - {track_name}: {e}"
-            )
-            return False
-        else:
-            return True

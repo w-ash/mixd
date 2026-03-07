@@ -85,7 +85,6 @@ class TestCreatePlaylist:
         result = await create_playlist(mock_context, config)
         assert "tracklist" in result
 
-
     async def test_create_dry_run_returns_tracklist_without_write(self, mock_context):
         """Dry-run mode skips external write and returns tracklist."""
         from src.application.workflows.destination_nodes import create_playlist

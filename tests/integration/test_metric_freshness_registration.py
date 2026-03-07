@@ -73,16 +73,6 @@ class TestLastFMFreshnessRegistration:
 class TestSpotifyFreshnessRegistration:
     """After importing spotify connector, freshness matches settings."""
 
-    def test_spotify_popularity_freshness(self):
-        from src.infrastructure.connectors.spotify.connector import (
-            SpotifyMetricResolver,  # noqa: F401
-        )
-
-        assert (
-            get_metric_freshness("spotify_popularity")
-            == settings.freshness.spotify_hours
-        )
-
     def test_explicit_flag_freshness(self):
         from src.infrastructure.connectors.spotify.connector import (
             SpotifyMetricResolver,  # noqa: F401
