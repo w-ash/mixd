@@ -7,9 +7,9 @@ import {
 } from "@/api/generated/workflows/workflows";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { NodeTypeBadge } from "@/components/shared/NodeTypeBadge";
+import { LastRunCard } from "@/components/shared/LastRunCard";
+import { PipelineStrip } from "@/components/shared/PipelineStrip";
 import { RunStatusBadge } from "@/components/shared/RunStatusBadge";
-import { WorkflowGraph } from "@/components/shared/WorkflowGraph";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +31,8 @@ function DetailSkeleton() {
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-4 w-96" />
       </div>
-      <Skeleton className="h-[700px] w-full rounded-lg" />
+      <Skeleton className="h-16 w-full rounded-lg" />
+      <Skeleton className="h-24 w-full rounded-lg" />
     </div>
   );
 }
@@ -129,9 +130,8 @@ export function WorkflowDetail() {
   if (!workflow) return null;
 
   const tasks = workflow.definition.tasks ?? [];
-  const nodeTypes = [...new Set(tasks.map((t) => t.type))];
-
   const runs = runsData?.status === 200 ? (runsData.data.data ?? []) : [];
+  const lastRun = workflow.last_run ?? null;
 
   return (
     <div>
@@ -168,41 +168,21 @@ export function WorkflowDetail() {
         }
       />
 
-      <div className="mb-6 flex items-center gap-3 text-sm text-text-muted">
-        <span>
-          {workflow.task_count} {workflow.task_count === 1 ? "task" : "tasks"}
-        </span>
-        {nodeTypes.length > 0 && (
-          <>
-            <span aria-hidden="true">&middot;</span>
-            <span className="flex items-center gap-1.5">
-              {nodeTypes.map((nt) => (
-                <NodeTypeBadge key={nt} nodeType={nt} />
-              ))}
-            </span>
-          </>
-        )}
-        {workflow.updated_at && (
-          <>
-            <span aria-hidden="true">&middot;</span>
-            <span>Updated {formatDate(workflow.updated_at)}</span>
-          </>
-        )}
-      </div>
-
-      {tasks.length > 0 ? (
-        <div className="h-[clamp(400px,60vh,900px)] rounded-lg border border-border-muted bg-surface-sunken">
-          <WorkflowGraph
-            tasks={tasks}
-            nodeStatuses={nodeStatuses.size > 0 ? nodeStatuses : undefined}
-          />
-        </div>
-      ) : (
-        <EmptyState
-          heading="No tasks defined"
-          description="This workflow has no tasks in its definition."
+      {/* Compact pipeline strip replaces full-height DAG */}
+      {tasks.length > 0 && (
+        <PipelineStrip
+          tasks={tasks}
+          nodeStatuses={nodeStatuses.size > 0 ? nodeStatuses : undefined}
+          className="mb-6"
         />
       )}
+
+      {/* Last run card */}
+      <LastRunCard
+        run={lastRun}
+        currentDefinitionVersion={workflow.definition_version ?? 1}
+        workflowId={workflowId}
+      />
 
       <RunHistoryTable runs={runs} workflowId={workflowId} />
     </div>

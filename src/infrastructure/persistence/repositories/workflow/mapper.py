@@ -31,6 +31,7 @@ class WorkflowMapper(BaseModelMapper[DBWorkflow, Workflow]):
             definition=definition,
             is_template=db_model.is_template,
             source_template=db_model.source_template,
+            definition_version=db_model.definition_version,
             created_at=db_model.created_at,
             updated_at=db_model.updated_at,
         )
@@ -45,4 +46,5 @@ class WorkflowMapper(BaseModelMapper[DBWorkflow, Workflow]):
             definition=definition_dict,
             is_template=domain_model.is_template,
             source_template=domain_model.source_template,
+            definition_version=domain_model.definition_version,
         )

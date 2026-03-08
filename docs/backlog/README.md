@@ -20,13 +20,15 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.3.3** | Dashboard + stats | ✅ Completed | [details](../completed/v0.3.x.md#v033-dashboard--stats-vertical-slice-4) |
 | **v0.4.0** | Workflows (persistence, visualization, CRUD) | ✅ Completed | [details](v0.4.x.md#v040-workflow-persistence--visualization-vertical-slice-5a) |
 | **v0.4.1** | Workflow execution + run history | ✅ Completed | [details](v0.4.x.md#v041-workflow-execution--run-history-vertical-slice-5b) |
-| **v0.4.2** | Visual workflow editor + preview | 🔜 Not Started | [details](v0.4.x.md#v042-visual-workflow-editor--preview-vertical-slice-5c) |
-| **v0.4.3** | Connector playlist linking | 🔜 Not Started | [details](v0.4.x.md#v043-connector-playlist-linking-vertical-slice-6) |
-| **v0.4.4** | CI/CD + quality hardening | 🔜 Not Started | [details](v0.4.x.md#v044-cicd--quality-hardening) |
+| **v0.4.2** | Run-first workflow UX | 🔜 Not Started | [details](v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
+| **v0.4.3** | Visual workflow editor + versioning | 🔜 Not Started | [details](v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
+| **v0.4.4** | Connector playlist linking | 🔜 Not Started | [details](v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
+| **v0.4.5** | CI/CD + quality hardening | 🔜 Not Started | [details](v0.4.x.md#v045-cicd--quality-hardening) |
 | **v0.5.0** | PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
 | **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |
 | **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.8.x.md#v080-llm-assisted-workflow-creation) |
+| **v0.9.0** | First-class artists | 🔜 Not Started | [details](v0.9.x.md#v090-first-class-artists) |
 | **v1.0.0** | Production-ready multi-user platform | 🔜 Not Started | [details](v1.0.x.md#v100-production-ready-multi-user-platform) |
 
 ---

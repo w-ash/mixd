@@ -170,11 +170,19 @@ async def validate_workflow(
 @router.get("/{workflow_id}")
 async def get_workflow(workflow_id: int) -> WorkflowDetailSchema:
     """Get a workflow by ID with full definition."""
-    command = GetWorkflowCommand(workflow_id=workflow_id)
-    result = await execute_use_case(
-        lambda uow: GetWorkflowUseCase().execute(command, uow)
-    )
-    return to_workflow_detail(result.workflow)
+
+    async def _fetch(uow: UnitOfWorkProtocol) -> WorkflowDetailSchema:
+        result = await GetWorkflowUseCase().execute(
+            GetWorkflowCommand(workflow_id=workflow_id), uow
+        )
+        workflow = result.workflow
+        latest_result = await GetLatestWorkflowRunsUseCase().execute(
+            GetLatestWorkflowRunsCommand(workflow_ids=[workflow.id or 0]), uow
+        )
+        last_run = latest_result.latest_runs.get(workflow.id or 0)
+        return to_workflow_detail(workflow, last_run=last_run)
+
+    return await execute_use_case(_fetch)
 
 
 @router.patch("/{workflow_id}")
@@ -308,6 +316,7 @@ async def _update_node_status(
     input_track_count: int | None = None,
     output_track_count: int | None = None,
     error_message: str | None = None,
+    node_details: dict[str, Any] | None = None,
 ) -> None:
     """Concrete implementation of NodeStatusUpdater."""
     async with _run_repo_session() as repo:
@@ -321,6 +330,7 @@ async def _update_node_status(
             input_track_count=input_track_count,
             output_track_count=output_track_count,
             error_message=error_message,
+            node_details=node_details,
         )
 
 
@@ -336,7 +346,12 @@ def _terminal_sse_event(
     return {
         "id": event_id,
         "event": event_type,
-        "data": {"operation_id": operation_id, "run_id": run_id, "final_status": status, **extra},
+        "data": {
+            "operation_id": operation_id,
+            "run_id": run_id,
+            "final_status": status,
+            **extra,
+        },
     }
 
 
@@ -361,29 +376,44 @@ async def _execute_workflow_background(
 
         # Push terminal SSE event based on use case result
         if run_result.status == WorkflowConstants.RUN_STATUS_COMPLETED:
-            await sse_queue.put(_terminal_sse_event(
-                "evt_final", WorkflowConstants.SSE_EVENT_COMPLETE,
-                operation_id, run_id, WorkflowConstants.RUN_STATUS_COMPLETED,
-                output_track_count=run_result.output_track_count,
-                duration_ms=run_result.duration_ms,
-            ))
+            await sse_queue.put(
+                _terminal_sse_event(
+                    "evt_final",
+                    WorkflowConstants.SSE_EVENT_COMPLETE,
+                    operation_id,
+                    run_id,
+                    WorkflowConstants.RUN_STATUS_COMPLETED,
+                    output_track_count=run_result.output_track_count,
+                    duration_ms=run_result.duration_ms,
+                )
+            )
         else:
-            await sse_queue.put(_terminal_sse_event(
-                "evt_error", WorkflowConstants.SSE_EVENT_ERROR,
-                operation_id, run_id, WorkflowConstants.RUN_STATUS_FAILED,
-                error_message=(run_result.error_message or "Unknown error")[
-                    : WorkflowConstants.SSE_ERROR_MAX_LENGTH
-                ],
-            ))
+            await sse_queue.put(
+                _terminal_sse_event(
+                    "evt_error",
+                    WorkflowConstants.SSE_EVENT_ERROR,
+                    operation_id,
+                    run_id,
+                    WorkflowConstants.RUN_STATUS_FAILED,
+                    error_message=(run_result.error_message or "Unknown error")[
+                        : WorkflowConstants.SSE_ERROR_MAX_LENGTH
+                    ],
+                )
+            )
 
     except CancelledError:
         # Best-effort push of error SSE event on cancellation
         with contextlib.suppress(CancelledError, Exception):
-            await sse_queue.put(_terminal_sse_event(
-                "evt_error", WorkflowConstants.SSE_EVENT_ERROR,
-                operation_id, run_id, WorkflowConstants.RUN_STATUS_FAILED,
-                error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
-            ))
+            await sse_queue.put(
+                _terminal_sse_event(
+                    "evt_error",
+                    WorkflowConstants.SSE_EVENT_ERROR,
+                    operation_id,
+                    run_id,
+                    WorkflowConstants.RUN_STATUS_FAILED,
+                    error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
+                )
+            )
 
     finally:
         await finalize_sse_operation(operation_id)

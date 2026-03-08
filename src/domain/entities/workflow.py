@@ -14,6 +14,26 @@ from attrs import define, field
 
 NodeExecutionStatus = Literal["completed", "failed", "skipped"]
 RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+TrackDecisionType = Literal["kept", "removed", "added"]
+
+
+@define(frozen=True, slots=True)
+class TrackDecision:
+    """Per-track audit record explaining why a node kept, removed, or added a track.
+
+    Generated at the node factory level (not in pure domain transforms) by diffing
+    input vs output tracklists. Persisted as JSON in ``workflow_run_nodes.node_details``.
+    """
+
+    track_id: int
+    title: str
+    artists: str  # comma-joined
+    decision: TrackDecisionType
+    reason: str
+    metric_name: str | None = None
+    metric_value: float | None = None
+    threshold: float | None = None
+    rank: int | None = None
 
 
 @define(frozen=True, slots=True)
@@ -145,6 +165,7 @@ class Workflow:
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
     is_template: bool = False
     source_template: str | None = None
+    definition_version: int = 1
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -169,6 +190,7 @@ class WorkflowRunNode:
     output_track_count: int | None = None
     error_message: str | None = None
     execution_order: int = 0
+    node_details: dict[str, Any] | None = None
 
 
 @define(frozen=True, slots=True)
@@ -188,11 +210,13 @@ class WorkflowRun:
     definition_snapshot: WorkflowDef = field(
         factory=lambda: WorkflowDef(id="", name="")
     )
+    definition_version: int = 1
     started_at: datetime | None = None
     completed_at: datetime | None = None
     duration_ms: int | None = None
     output_track_count: int | None = None
     output_playlist_id: int | None = None
+    output_tracks: list[dict[str, Any]] = field(factory=list)
     error_message: str | None = None
     nodes: list[WorkflowRunNode] = field(factory=list)
     created_at: datetime | None = None

@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.domain.entities.track import Artist, Track, TrackList
+
 
 class TestNodeFactories:
     """Test node factory functions."""
@@ -251,3 +253,80 @@ class TestEnricherNodeFactory:
 
             warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
             assert any("failed completely" in w for w in warning_calls)
+
+
+class TestTrackDecisionGeneration:
+    """Test per-track decision generation helpers."""
+
+    def _make_tracks(self, ids: list[int]) -> TrackList:
+        return TrackList(
+            tracks=[
+                Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+                for i in ids
+            ]
+        )
+
+    def test_filter_decisions_marks_removed_tracks(self) -> None:
+        from src.application.workflows.node_factories import _generate_filter_decisions
+
+        input_tl = self._make_tracks([1, 2, 3])
+        output_tl = self._make_tracks([1, 3])  # Track 2 filtered out
+        config = {"metric_name": "play_count", "min_value": 5}
+
+        decisions = _generate_filter_decisions(input_tl, output_tl, config)
+
+        assert len(decisions) == 3
+        kept = [d for d in decisions if d.decision == "kept"]
+        removed = [d for d in decisions if d.decision == "removed"]
+        assert len(kept) == 2
+        assert len(removed) == 1
+        assert removed[0].track_id == 2
+        assert removed[0].metric_name == "play_count"
+        assert removed[0].threshold == 5.0
+
+    def test_sorter_decisions_include_rank(self) -> None:
+        from src.application.workflows.node_factories import _generate_sorter_decisions
+
+        output_tl = self._make_tracks([3, 1, 2])
+        config = {"metric_name": "play_count"}
+
+        decisions = _generate_sorter_decisions(output_tl, config)
+
+        assert len(decisions) == 3
+        assert all(d.decision == "kept" for d in decisions)
+        assert decisions[0].rank == 1
+        assert decisions[0].track_id == 3
+        assert decisions[2].rank == 3
+
+    def test_selector_decisions_marks_trimmed_tracks(self) -> None:
+        from src.application.workflows.node_factories import (
+            _generate_selector_decisions,
+        )
+
+        input_tl = self._make_tracks([1, 2, 3, 4, 5])
+        output_tl = self._make_tracks([1, 2, 3])
+        config = {"count": 3}
+
+        decisions = _generate_selector_decisions(input_tl, output_tl, config)
+
+        assert len(decisions) == 5
+        kept = [d for d in decisions if d.decision == "kept"]
+        removed = [d for d in decisions if d.decision == "removed"]
+        assert len(kept) == 3
+        assert len(removed) == 2
+
+    async def test_make_node_returns_track_decisions(self, sample_tracklist) -> None:
+        """Transform nodes include track_decisions in their result."""
+        from src.application.workflows.node_factories import make_node
+
+        # Deduplicate is a filter that keeps all (no dupes in sample)
+        node_func = make_node("filter", "deduplicate")
+        context = {
+            "upstream_task_id": "src_1",
+            "src_1": {"tracklist": sample_tracklist},
+        }
+
+        result = await node_func(context, {})
+
+        assert "track_decisions" in result
+        assert len(result["track_decisions"]) == 2  # Both tracks kept

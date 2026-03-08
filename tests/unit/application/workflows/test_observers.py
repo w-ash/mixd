@@ -17,7 +17,11 @@ from src.application.workflows.observers import (
 )
 from src.domain.entities.progress import ProgressStatus
 from src.domain.entities.track import Artist, Track, TrackList
-from src.domain.entities.workflow import NodeExecutionEvent, WorkflowTaskDef
+from src.domain.entities.workflow import (
+    NodeExecutionEvent,
+    TrackDecision,
+    WorkflowTaskDef,
+)
 
 
 @pytest.fixture
@@ -98,9 +102,7 @@ class TestRunHistoryObserver:
         observer = RunHistoryObserver(
             run_id=10, update_node_status=mock_updater, sse_queue=queue
         )
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=2, total_nodes=5
-        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=2, total_nodes=5)
 
         await observer.on_node_starting(event)
 
@@ -118,6 +120,50 @@ class TestRunHistoryObserver:
         assert sse["data"]["run_id"] == 10
         assert sse["data"]["node_id"] == "enrich_1"
         assert sse["data"]["status"] == "running"
+
+    async def test_on_node_completed_persists_node_details(
+        self, task_def, sample_result
+    ):
+        """Track decisions from the result are serialized as node_details."""
+        mock_updater = AsyncMock()
+        observer = RunHistoryObserver(run_id=10, update_node_status=mock_updater)
+        decisions = [
+            TrackDecision(
+                track_id=1,
+                title="Track A",
+                artists="Artist 1",
+                decision="kept",
+                reason="Passed filter",
+            ),
+            TrackDecision(
+                track_id=2,
+                title="Track B",
+                artists="Artist 2",
+                decision="removed",
+                reason="Below threshold",
+                metric_name="play_count",
+                threshold=5.0,
+            ),
+        ]
+        result_with_decisions = {
+            "tracklist": sample_result["tracklist"],
+            "track_decisions": decisions,
+        }
+        event = NodeExecutionEvent(
+            task_def=task_def,
+            execution_order=1,
+            total_nodes=3,
+            duration_ms=100,
+            output_track_count=1,
+        )
+
+        await observer.on_node_completed(event, result_with_decisions)
+
+        call_kwargs = mock_updater.call_args[1]
+        assert call_kwargs["node_details"] is not None
+        assert len(call_kwargs["node_details"]["track_decisions"]) == 2
+        assert call_kwargs["node_details"]["track_decisions"][0]["decision"] == "kept"
+        assert call_kwargs["node_details"]["track_decisions"][1]["threshold"] == 5.0
 
     async def test_on_node_completed_pushes_sse_with_counts(
         self, task_def, sample_result
@@ -153,9 +199,7 @@ class TestRunHistoryObserver:
         observer = RunHistoryObserver(
             run_id=10, update_node_status=mock_updater, sse_queue=queue
         )
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=1, total_nodes=3
-        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=3)
 
         await observer.on_node_failed(event, RuntimeError("API timeout"))
 
@@ -170,9 +214,7 @@ class TestRunHistoryObserver:
         observer = RunHistoryObserver(
             run_id=10, update_node_status=mock_updater, sse_queue=None
         )
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=1, total_nodes=1
-        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
         # Should not raise
         await observer.on_node_completed(event, sample_result)
 
@@ -184,9 +226,7 @@ class TestRunHistoryObserver:
         observer = RunHistoryObserver(
             run_id=10, update_node_status=mock_updater, sse_queue=queue
         )
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=1, total_nodes=1
-        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
 
         # Should NOT raise even though DB updater fails
         await observer.on_node_completed(event, sample_result)
@@ -205,9 +245,7 @@ class TestRunHistoryObserver:
         """Each DB failure increments persist_failure_count."""
         mock_updater = AsyncMock(side_effect=RuntimeError("DB gone"))
         observer = RunHistoryObserver(run_id=10, update_node_status=mock_updater)
-        event = NodeExecutionEvent(
-            task_def=task_def, execution_order=1, total_nodes=3
-        )
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=3)
 
         # Three lifecycle calls that each hit the updater
         await observer.on_node_starting(event)

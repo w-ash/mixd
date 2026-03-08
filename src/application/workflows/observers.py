@@ -19,6 +19,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+import attrs
+
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
@@ -142,6 +144,15 @@ class RunHistoryObserver:
         self, event: NodeExecutionEvent, result: NodeResult
     ) -> None:
         now = datetime.now(UTC)
+
+        # Serialize track_decisions to JSON-safe dict for node_details
+        node_details: dict[str, Any] | None = None
+        decisions = result.get("track_decisions")
+        if decisions:
+            node_details = {
+                "track_decisions": [attrs.asdict(d, recurse=False) for d in decisions],
+            }
+
         await self._persist_node_status(
             event,
             status=WorkflowConstants.RUN_STATUS_COMPLETED,
@@ -149,6 +160,7 @@ class RunHistoryObserver:
             duration_ms=event.duration_ms,
             input_track_count=event.input_track_count,
             output_track_count=event.output_track_count,
+            node_details=node_details,
         )
         await self._push_sse(event, WorkflowConstants.RUN_STATUS_COMPLETED)
 
@@ -178,6 +190,7 @@ class RunHistoryObserver:
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
+        node_details: dict[str, Any] | None = None,
     ) -> None:
         """Delegate node status write to the injected updater."""
         try:
@@ -191,6 +204,7 @@ class RunHistoryObserver:
                 input_track_count=input_track_count,
                 output_track_count=output_track_count,
                 error_message=error_message,
+                node_details=node_details,
             )
         except Exception:
             self._persist_failure_count += 1

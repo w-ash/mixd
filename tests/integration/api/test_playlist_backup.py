@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, patch
 
 import httpx
-import pytest
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
@@ -14,9 +13,7 @@ from tests.fixtures import make_playlist
 class TestPlaylistBackupEndpoint:
     async def test_backup_returns_201_with_playlist(self, client: httpx.AsyncClient):
         playlist = make_playlist(id=1, name="Test Playlist")
-        mock_result = CreateCanonicalPlaylistResult(
-            playlist=playlist, tracks_created=5
-        )
+        mock_result = CreateCanonicalPlaylistResult(playlist=playlist, tracks_created=5)
 
         with patch(
             "src.application.services.playlist_backup_service.run_playlist_backup",

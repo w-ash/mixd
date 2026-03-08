@@ -584,6 +584,7 @@ class DBWorkflow(BaseEntity):
     definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
     source_template: Mapped[str | None] = mapped_column(String(100))
+    definition_version: Mapped[int] = mapped_column(default=1)
 
     __table_args__: tuple[Any, ...] = (
         UniqueConstraint("source_template", name="uq_workflows_source_template"),
@@ -605,12 +606,14 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    definition_version: Mapped[int] = mapped_column(default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None]
     output_track_count: Mapped[int | None]
     output_playlist_id: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
+    output_tracks: Mapped[Any] = mapped_column(JSON, nullable=True)
 
     # Relationships
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
@@ -643,6 +646,7 @@ class DBWorkflowRunNode(DatabaseModel):
     output_track_count: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
+    node_details: Mapped[Any] = mapped_column(JSON, nullable=True)
 
     # Relationships
     run: Mapped[DBWorkflowRun] = relationship(

@@ -29,7 +29,9 @@ class TestGetTrackPlaylistsUseCase:
         playlist_repo.get_playlists_for_track.return_value = playlists
         uow = make_mock_uow(track_repo=track_repo, playlist_repo=playlist_repo)
 
-        result = await GetTrackPlaylistsUseCase().execute(GetTrackPlaylistsCommand(track_id=42), uow)
+        result = await GetTrackPlaylistsUseCase().execute(
+            GetTrackPlaylistsCommand(track_id=42), uow
+        )
 
         assert len(result.playlists) == 2
         assert result.playlists[0].name == "My Mix"
@@ -42,7 +44,9 @@ class TestGetTrackPlaylistsUseCase:
         playlist_repo.get_playlists_for_track.return_value = []
         uow = make_mock_uow(track_repo=track_repo, playlist_repo=playlist_repo)
 
-        result = await GetTrackPlaylistsUseCase().execute(GetTrackPlaylistsCommand(track_id=42), uow)
+        result = await GetTrackPlaylistsUseCase().execute(
+            GetTrackPlaylistsCommand(track_id=42), uow
+        )
 
         assert result.playlists == []
 
@@ -52,4 +56,6 @@ class TestGetTrackPlaylistsUseCase:
         uow = make_mock_uow(track_repo=track_repo)
 
         with pytest.raises(NotFoundError, match="999"):
-            await GetTrackPlaylistsUseCase().execute(GetTrackPlaylistsCommand(track_id=999), uow)
+            await GetTrackPlaylistsUseCase().execute(
+                GetTrackPlaylistsCommand(track_id=999), uow
+            )

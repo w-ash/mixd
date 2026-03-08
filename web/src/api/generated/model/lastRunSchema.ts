@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.1
+ * OpenAPI spec version: 0.4.2
  */
 import type { LastRunSchemaStatus } from './lastRunSchemaStatus';
 
@@ -13,6 +13,7 @@ import type { LastRunSchemaStatus } from './lastRunSchemaStatus';
 export interface LastRunSchema {
   id: number;
   status: LastRunSchemaStatus;
+  definition_version?: number;
   completed_at?: string | null;
   output_track_count?: number | null;
 }

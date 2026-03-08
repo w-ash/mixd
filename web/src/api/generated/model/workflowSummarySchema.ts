@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.1
+ * OpenAPI spec version: 0.4.2
  */
 import type { LastRunSchema } from './lastRunSchema';
 
@@ -13,6 +13,7 @@ export interface WorkflowSummarySchema {
   description?: string | null;
   is_template: boolean;
   source_template?: string | null;
+  definition_version?: number;
   task_count: number;
   node_types: string[];
   created_at?: string | null;

@@ -532,14 +532,58 @@ GET    /workflows/{id}/runs/{run_id}
 - **Status**: ✅ Implemented (v0.4.1)
 - **Notes**: Includes `definition_snapshot` (the exact workflow definition at execution time) and per-node execution details.
 
-### Workflow Preview (v0.4.2)
+### Workflow Version & Run Output (v0.4.2)
+
+No new endpoints — existing endpoints gain new fields for version tracking and run output persistence.
+
+**Schema additions to existing types**:
+
+| Schema | New Field | Type | Description |
+|--------|-----------|------|-------------|
+| `WorkflowSummarySchema` | `definition_version` | `int` | Current definition version counter (auto-incremented on definition changes) |
+| `WorkflowRunSummarySchema` | `definition_version` | `int` | Version at execution time (enables "changed since this run" indicator) |
+| `WorkflowRunDetailSchema` | `output_tracks` | `OutputTrackSchema[]` | Denormalized snapshot of final output tracks |
+| `WorkflowRunNodeSchema` | `node_details` | `object \| null` | Per-node structured output (filter removal reasons, sort rankings, destination diff) |
+
+**New types**:
+
+```json
+// OutputTrackSchema (run output)
+{
+  "track_id": 42,
+  "title": "Midnight City",
+  "artists": ["M83"],
+  "metrics": {"play_count": 15, "lastfm_play_count": 23},
+  "rank": 1
+}
+
+// TrackDecision (within node_details JSON)
+{
+  "track_id": 42,
+  "title": "Midnight City",
+  "artists": ["M83"],
+  "decision": "kept | removed | added",
+  "reason": "play_count=15 >= threshold=5",
+  "metric_name": "play_count",
+  "metric_value": 15.0,
+  "threshold": 5.0
+}
+```
+
+**`node_details` structure by node category**:
+
+- **Filter nodes**: `{ removed: [TrackDecision], summary: "Removed 15 tracks with play_count < 5" }`
+- **Sorter nodes**: `{ sort_key: str, direction: str, top_tracks: [{ track_id, title, sort_value, rank }] }`
+- **Destination nodes**: `{ playlist_name: str, tracks_added: [{ track_id, title, artists }], tracks_removed: [{ track_id, title, artists, reason }] }`
+
+### Workflow Preview (v0.4.3)
 
 ```
 POST   /workflows/{id}/preview
        -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
 ```
 - **Use case**: `PreviewWorkflowUseCase` (dry-run: destination nodes become no-ops)
-- **Status**: Needs implementation (v0.4.2)
+- **Status**: Needs implementation (v0.4.3)
 - **Notes**: Enricher nodes still call external APIs for realistic output. Only destination writes are skipped. Streams SSE progress during execution.
 
 ```
@@ -548,7 +592,7 @@ POST   /workflows/preview
        -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
 ```
 - **Use case**: `PreviewWorkflowUseCase` (for unsaved workflows)
-- **Status**: Needs implementation (v0.4.2)
+- **Status**: Needs implementation (v0.4.3)
 
 ### Workflow SSE Events (v0.4.1)
 
@@ -592,6 +636,7 @@ data: {
   "description": "Heavy rotation tracks from the last 30 days",
   "is_template": false,
   "source_template": "current_obsessions",
+  "definition_version": 3,
   "task_count": 6,
   "node_types": ["source", "enricher", "filter", "sorter", "selector", "destination"],
   "last_run": {
@@ -622,6 +667,7 @@ data: {
 {
   "id": 3,
   "status": "COMPLETED",
+  "definition_version": 2,
   "started_at": "2026-03-01T10:00:00Z",
   "completed_at": "2026-03-01T10:00:45Z",
   "duration_ms": 45000,
@@ -634,6 +680,10 @@ data: {
   ...WorkflowRunSummary,
   "definition_snapshot": { /* full WorkflowDef JSON as it was at execution time */ },
   "output_playlist_id": 5,
+  "output_tracks": [
+    { "track_id": 42, "title": "Midnight City", "artists": ["M83"], "metrics": {"play_count": 15}, "rank": 1 },
+    { "track_id": 87, "title": "Sprawl II", "artists": ["Arcade Fire"], "metrics": {"play_count": 12}, "rank": 2 }
+  ],
   "nodes": [
     {
       "node_id": "src",
@@ -645,7 +695,8 @@ data: {
       "input_track_count": null,
       "output_track_count": 120,
       "error_message": null,
-      "execution_order": 1
+      "execution_order": 1,
+      "node_details": null
     },
     {
       "node_id": "filter_step",
@@ -657,7 +708,13 @@ data: {
       "input_track_count": 120,
       "output_track_count": 42,
       "error_message": null,
-      "execution_order": 3
+      "execution_order": 3,
+      "node_details": {
+        "removed": [
+          { "track_id": 99, "title": "Faded", "artists": ["Alan Walker"], "decision": "removed", "reason": "play_count=2 < threshold=5", "metric_value": 2.0 }
+        ],
+        "summary": "Removed 78 tracks with play_count < 5"
+      }
     }
   ]
 }
@@ -976,8 +1033,8 @@ Fields:
 | Use Case | API Endpoints | Milestone |
 |----------|--------------|-----------|
 | `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.2+ |
-| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.3 |
-| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.3 |
+| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.4 |
+| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.4 |
 | `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` | v0.3.2 |
 | `EnrichTracksUseCase` | Internal (used by workflows) | — |
 
@@ -992,6 +1049,6 @@ Fields:
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | Workflow CRUD | ✅ v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
 | Workflow execution | ✅ v0.4.1 | `POST /workflows/{id}/run`, `GET .../runs` |
-| Connector playlist browse | v0.4.3 | `GET /connectors/{connector}/playlists` |
+| Connector playlist browse | v0.4.4 | `GET /connectors/{connector}/playlists` |
 | Connector OAuth flows | v0.5.0 | `/auth/*`, `/connectors/*/auth-url` |
 | `GetUnmappedTracksUseCase` | v0.6.0 | `GET /tracks?unmapped_for=...` |

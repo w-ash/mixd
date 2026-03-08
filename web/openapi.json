@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.1"
+    "version": "0.4.2"
   },
   "paths": {
     "/api/v1/health": {
@@ -1723,6 +1723,11 @@
             ],
             "title": "Status"
           },
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -2586,6 +2591,11 @@
             ],
             "title": "Source Template"
           },
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
+          },
           "task_count": {
             "type": "integer",
             "title": "Task Count"
@@ -2666,6 +2676,11 @@
               "cancelled"
             ],
             "title": "Status"
+          },
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
           },
           "started_at": {
             "anyOf": [
@@ -2749,6 +2764,15 @@
           },
           "definition_snapshot": {
             "$ref": "#/components/schemas/WorkflowDefSchema"
+          },
+          "output_tracks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Output Tracks",
+            "default": []
           },
           "nodes": {
             "items": {
@@ -2859,6 +2883,18 @@
             "type": "integer",
             "title": "Execution Order",
             "default": 0
+          },
+          "node_details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Details"
           }
         },
         "type": "object",
@@ -2908,6 +2944,11 @@
               "cancelled"
             ],
             "title": "Status"
+          },
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
           },
           "started_at": {
             "anyOf": [
@@ -3033,6 +3074,11 @@
               }
             ],
             "title": "Source Template"
+          },
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
           },
           "task_count": {
             "type": "integer",

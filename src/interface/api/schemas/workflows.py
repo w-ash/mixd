@@ -51,6 +51,7 @@ class LastRunSchema(BaseModel):
 
     id: int
     status: RunStatus
+    definition_version: int = 1
     completed_at: datetime | None = None
     output_track_count: int | None = None
 
@@ -63,6 +64,7 @@ class WorkflowSummarySchema(BaseModel):
     description: str | None = None
     is_template: bool
     source_template: str | None = None
+    definition_version: int = 1
     task_count: int
     node_types: list[str]
     created_at: datetime | None = None
@@ -131,6 +133,7 @@ class WorkflowRunNodeSchema(BaseModel):
     output_track_count: int | None = None
     error_message: str | None = None
     execution_order: int = 0
+    node_details: dict[str, Any] | None = None
 
 
 class WorkflowRunSummarySchema(BaseModel):
@@ -139,6 +142,7 @@ class WorkflowRunSummarySchema(BaseModel):
     id: int
     workflow_id: int
     status: RunStatus
+    definition_version: int = 1
     started_at: datetime | None = None
     completed_at: datetime | None = None
     duration_ms: int | None = None
@@ -150,6 +154,7 @@ class WorkflowRunSummarySchema(BaseModel):
 
 class WorkflowRunDetailSchema(WorkflowRunSummarySchema):
     definition_snapshot: WorkflowDefSchema
+    output_tracks: list[dict[str, Any]] = []
     nodes: list[WorkflowRunNodeSchema] = []
 
 
@@ -201,6 +206,7 @@ def to_workflow_summary(
         last_run_schema = LastRunSchema(
             id=last_run.id,
             status=last_run.status,
+            definition_version=last_run.definition_version,
             completed_at=last_run.completed_at,
             output_track_count=last_run.output_track_count,
         )
@@ -210,6 +216,7 @@ def to_workflow_summary(
         description=workflow.definition.description or None,
         is_template=workflow.is_template,
         source_template=workflow.source_template,
+        definition_version=workflow.definition_version,
         task_count=len(workflow.definition.tasks),
         node_types=_extract_node_types(workflow.definition),
         created_at=workflow.created_at,
@@ -218,17 +225,12 @@ def to_workflow_summary(
     )
 
 
-def to_workflow_detail(workflow: Workflow) -> WorkflowDetailSchema:
+def to_workflow_detail(
+    workflow: Workflow, last_run: WorkflowRun | None = None
+) -> WorkflowDetailSchema:
+    summary = to_workflow_summary(workflow, last_run=last_run)
     return WorkflowDetailSchema(
-        id=workflow.id or 0,
-        name=workflow.definition.name,
-        description=workflow.definition.description or None,
-        is_template=workflow.is_template,
-        source_template=workflow.source_template,
-        task_count=len(workflow.definition.tasks),
-        node_types=_extract_node_types(workflow.definition),
-        created_at=workflow.created_at,
-        updated_at=workflow.updated_at,
+        **summary.model_dump(),
         definition=_def_to_schema(workflow.definition),
     )
 
@@ -258,6 +260,7 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
         id=run.id or 0,
         workflow_id=run.workflow_id,
         status=run.status,
+        definition_version=run.definition_version,
         started_at=run.started_at,
         completed_at=run.completed_at,
         duration_ms=run.duration_ms,
@@ -273,6 +276,7 @@ def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
     return WorkflowRunDetailSchema(
         **summary.model_dump(),
         definition_snapshot=_def_to_schema(run.definition_snapshot),
+        output_tracks=run.output_tracks,
         nodes=[
             WorkflowRunNodeSchema(
                 id=n.id or 0,
@@ -286,6 +290,7 @@ def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
                 output_track_count=n.output_track_count,
                 error_message=n.error_message,
                 execution_order=n.execution_order,
+                node_details=n.node_details,
             )
             for n in run.nodes
         ],

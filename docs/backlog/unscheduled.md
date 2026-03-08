@@ -7,10 +7,7 @@ For the planning overview, see [README.md](README.md).
 
 ## Quality of Life Improvements
 
-- **Background Sync Capabilities** (M) - Scheduled synchronization of play history and likes
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution
-- **Advanced Node Palette** (M) - Enhanced node selection with categories, search, and favorites
-- **Discovery Workflow Templates** (S) - Pre-built templates ("Hidden Gems", "Seasonal Favorites", "Rediscovery")
 - **Workflow Debugging Tools** (L) - Interactive debugging for workflow testing
 - **Playlist Diffing and Merging** (L) - Visualize differences between local and remote playlists
 - **Canonical Genre Support** (L) - Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
@@ -35,6 +32,33 @@ For the planning overview, see [README.md](README.md).
         - Freshness: ~1 year TTL (genres are very stable), checked via `genres_updated_at`, separate from metric freshness registry
         - Pure domain `filter_by_genre` transform (genres live on Track, no metadata lookup needed)
         - Full plan available at `.claude/plans/cached-booping-sedgewick.md`
+
+## Enrichment Sources
+
+- **Discogs Enrichment Provider** (M) - Release metadata enrichment via free Discogs API (OAuth 1.0a). 15M+ releases with label, credits, catalog number, format, and release country data. Complements MusicBrainz with stronger vinyl/physical release coverage. [API docs](https://www.discogs.com/developers/).
+- **ListenBrainz Integration** (M) - Open-source listening statistics and recommendations via ListenBrainz API. Listen history import/export, user statistics, collaborative filtering recommendations. Could serve as an open alternative to Last.fm for scrobble data. [Docs](https://listenbrainz.readthedocs.io/).
+- **Audio Analysis Provider — BPM, Key, Energy** (M) - Track-level audio features (BPM, musical key, time signature, danceability, energy) now that Spotify's Audio Features API is deprecated (403 for new apps since late 2024). Candidate sources:
+    - [GetSongBPM](https://getsongbpm.com/api) — free API, attribution required. BPM, key, time signature, danceability, acousticness.
+    - [Tunebat](https://tunebat.com/API) — paid API. BPM, key, energy, danceability, popularity. More comprehensive but has costs.
+    - Architecture: new `MetadataProvider` implementation, stores results in `TrackMetric` (BPM, energy, danceability are floats) or new columns for key/time signature.
+
+## DJ & Purchase Links
+
+- **DJ Purchase Link-Out** (S) - "Buy this track" links on track detail pages and track list context menus. Links to external DJ download stores using search URL templates (no API integration needed). Platforms:
+    - [Beatport](https://www.beatport.com/) — electronic/dance music (partner-only API, use search URLs)
+    - [Traxsource](https://www.traxsource.com/) — house/underground
+    - [Juno Download](https://www.junodownload.com/) — dance music, WAV/FLAC/AIFF formats
+    - [Bandcamp](https://bandcamp.com/) — indie/artist-direct
+    - Apple Music / iTunes — via existing Apple Music connector (v0.6.x)
+    - Amazon Music — general catalog
+    - URL template pattern: `https://www.beatport.com/search?q={artist}+{title}`
+    - User-configurable: toggle which stores appear, reorder preferences
+
+## Additional Connector Support
+
+- **Tidal Connector** (L) - Full Tidal integration via official developer API (OAuth 2.1). Library access, playlists, catalog, favorites. Follows `BaseAPIConnector` pattern established by Spotify/Last.fm. [Developer portal](https://developer.tidal.com/), `tidalapi` Python library available on PyPI.
+- **Deezer Connector** (L) - Deezer integration via free public API (OAuth 2.0). Library, playlists, catalog (73M+ tracks). No API key costs. [Developer portal](https://developers.deezer.com/).
+- **SoundCloud Connector** (M) - SoundCloud integration via public API (OAuth 2.0). More creator-oriented than library-focused, but supports playlists and liked tracks. Lower priority — less aligned with Narada's library management use case. [Developer docs](https://developers.soundcloud.com/docs).
 
 ## Lower Priority Ideas
 

@@ -49,7 +49,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         track_c = Track(title="Track C", artists=[Artist(name="Artist C")])
 
         uow = get_unit_of_work(db_session)
-        create_use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        create_use_case = CreateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
 
         create_command = CreateCanonicalPlaylistCommand(
             name="Test Playlist",
@@ -111,7 +113,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
             current_playlist.tracks[0],  # Track A: pos 0→2
         ]
 
-        update_use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        update_use_case = UpdateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
         update_command = UpdateCanonicalPlaylistCommand(
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=reordered_tracks),
@@ -197,7 +201,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         track_b = Track(title="Track B", artists=[Artist(name="Artist B")])
 
         uow = get_unit_of_work(db_session)
-        create_use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        create_use_case = CreateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
 
         create_command = CreateCanonicalPlaylistCommand(
             name="Playlist with Duplicates",
@@ -249,7 +255,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
             UpdateCanonicalPlaylistUseCase,
         )
 
-        update_use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        update_use_case = UpdateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
         update_command = UpdateCanonicalPlaylistCommand(
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=updated_tracks),
@@ -327,7 +335,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         track_c = Track(title="Track C", artists=[Artist(name="Artist C")])
 
         uow = get_unit_of_work(db_session)
-        create_use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        create_use_case = CreateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
 
         create_command = CreateCanonicalPlaylistCommand(
             name="Test Removal",
@@ -378,7 +388,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
             current_playlist.tracks[2],  # Track C
         ]
 
-        update_use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+        update_use_case = UpdateCanonicalPlaylistUseCase(
+            metric_config=_MOCK_METRIC_CONFIG
+        )
         update_command = UpdateCanonicalPlaylistCommand(
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=tracks_after_removal),

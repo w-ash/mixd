@@ -11,6 +11,12 @@ from src.domain.entities.workflow import Workflow, WorkflowDef
 from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
+
+def _tasks_changed(old_def: WorkflowDef, new_def: WorkflowDef) -> bool:
+    """Compare task lists to detect definition changes requiring a version bump."""
+    return old_def.tasks != new_def.tasks
+
+
 # ---------------------------------------------------------------------------
 # List
 # ---------------------------------------------------------------------------
@@ -140,11 +146,17 @@ class UpdateWorkflowUseCase:
 
             validate_workflow_def(command.definition)
 
+            # Bump version when task pipeline changes; preserve on name/description-only edits
+            new_version = existing.definition_version
+            if _tasks_changed(existing.definition, command.definition):
+                new_version = existing.definition_version + 1
+
             updated = Workflow(
                 id=existing.id,
                 definition=command.definition,
                 is_template=existing.is_template,
                 source_template=existing.source_template,
+                definition_version=new_version,
                 created_at=existing.created_at,
             )
             saved = await repo.save_workflow(updated)

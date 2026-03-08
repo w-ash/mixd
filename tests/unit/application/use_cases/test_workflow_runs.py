@@ -21,12 +21,13 @@ from src.application.use_cases.workflow_runs import (
     ListWorkflowRunsUseCase,
     RunWorkflowCommand,
     RunWorkflowUseCase,
+    _serialize_output_tracks,
 )
 from src.application.workflows.prefect import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError
-from tests.fixtures import make_mock_uow, make_workflow, make_workflow_def
+from tests.fixtures import make_mock_uow, make_tracks, make_workflow, make_workflow_def
 
 
 @contextmanager
@@ -101,6 +102,35 @@ class TestRunWorkflowUseCase:
         assert created_run.status == "pending"
         assert created_run.workflow_id == 1
         assert len(created_run.nodes) == len(workflow.definition.tasks)
+
+    async def test_copies_definition_version_to_run(self) -> None:
+        """Run record captures the workflow's current definition_version."""
+        workflow = make_workflow(id=1, definition_version=7)
+        run_repo = AsyncMock()
+        run_repo.create_run.side_effect = lambda r: WorkflowRun(
+            id=42,
+            workflow_id=r.workflow_id,
+            status=r.status,
+            definition_snapshot=r.definition_snapshot,
+            definition_version=r.definition_version,
+            nodes=r.nodes,
+        )
+        wf_repo = AsyncMock()
+        wf_repo.get_workflow_by_id.return_value = workflow
+        uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
+
+        with patch(
+            "src.application.use_cases.workflow_runs.is_workflow_running",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            result = await RunWorkflowUseCase().execute(
+                RunWorkflowCommand(workflow_id=1), uow
+            )
+
+        assert result.run_id == 42
+        created_run = run_repo.create_run.call_args[0][0]
+        assert created_run.definition_version == 7
 
     async def test_rejects_already_running(self, workflow) -> None:
         wf_repo = AsyncMock()
@@ -237,19 +267,38 @@ class TestGetLatestWorkflowRunsUseCase:
         assert result.latest_runs == {}
 
 
+class TestSerializeOutputTracks:
+    """_serialize_output_tracks produces lightweight dicts for the run record."""
+
+    def test_serializes_tracks_with_rank(self) -> None:
+        tracks = make_tracks(count=3)
+        result = _serialize_output_tracks(tracks)
+
+        assert len(result) == 3
+        assert result[0]["rank"] == 1
+        assert result[1]["rank"] == 2
+        assert result[2]["rank"] == 3
+        assert result[0]["track_id"] == tracks[0].id
+        assert result[0]["title"] == tracks[0].title
+        assert isinstance(result[0]["artists"], str)
+
+    def test_empty_list(self) -> None:
+        assert _serialize_output_tracks([]) == []
+
+
 class TestExecuteWorkflowRunUseCase:
     """ExecuteWorkflowRunUseCase lifecycle, exception handling, and diagnostics."""
 
     async def test_execute_updates_status_to_running_then_completed(self) -> None:
-        """Happy path: RUNNING → COMPLETED with duration_ms + output_track_count."""
+        """Happy path: RUNNING → COMPLETED with duration_ms + output_track_count + output_tracks."""
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
             update_run_status=mock_updater, update_node_status=AsyncMock()
         )
 
-        mock_tracks = [MagicMock(), MagicMock(), MagicMock()]
-        with _patch_execute_deps(mock_run_return=MagicMock(tracks=mock_tracks)):
+        tracks = make_tracks(count=3)
+        with _patch_execute_deps(mock_run_return=MagicMock(tracks=tracks)):
             result = await use_case.execute(workflow_def, run_id=7)
 
         # First call: RUNNING with started_at
@@ -262,12 +311,14 @@ class TestExecuteWorkflowRunUseCase:
         )
         assert running_call.kwargs["started_at"] is not None
 
-        # Second call: COMPLETED with completed_at, duration_ms, output_track_count
+        # Second call: COMPLETED with completed_at, duration_ms, output_track_count, output_tracks
         completed_call = mock_updater.call_args_list[1]
         assert completed_call.args[1] == WorkflowConstants.RUN_STATUS_COMPLETED
         assert completed_call.kwargs["completed_at"] is not None
         assert completed_call.kwargs["duration_ms"] >= 0
         assert completed_call.kwargs["output_track_count"] == 3
+        assert len(completed_call.kwargs["output_tracks"]) == 3
+        assert completed_call.kwargs["output_tracks"][0]["rank"] == 1
 
         # Result object
         assert result.status == WorkflowConstants.RUN_STATUS_COMPLETED

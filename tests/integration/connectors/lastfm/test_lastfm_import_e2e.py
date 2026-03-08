@@ -282,4 +282,7 @@ class TestLastfmImportE2E:
                 incremental_result = await use_case.execute(
                     incremental_command, unit_of_work
                 )
-                assert incremental_result.operation_result.summary_metrics.get("errors") == 0
+                assert (
+                    incremental_result.operation_result.summary_metrics.get("errors")
+                    == 0
+                )

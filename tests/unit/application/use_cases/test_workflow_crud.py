@@ -115,6 +115,48 @@ class TestUpdateWorkflow:
 
         repo.save_workflow.assert_called_once()
 
+    async def test_version_increments_when_tasks_change(self) -> None:
+        """definition_version bumps when the task pipeline is modified."""
+        from src.domain.entities.workflow import WorkflowTaskDef
+
+        existing = make_workflow(id=1, definition_version=3)
+        new_tasks = [
+            WorkflowTaskDef(
+                id="source", type="source.liked_tracks", config={"service": "spotify"}
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_metric",
+                config={"metric_name": "play_count", "min_value": 1},
+                upstream=["source"],
+            ),
+        ]
+        new_def = make_workflow_def(tasks=new_tasks)
+        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
+        uow = make_mock_uow(workflow_repo=repo)
+
+        await UpdateWorkflowUseCase().execute(
+            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+        )
+
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.definition_version == 4
+
+    async def test_version_preserved_when_only_name_changes(self) -> None:
+        """definition_version stays the same when only name/description changes."""
+        existing = make_workflow(id=1, definition_version=5)
+        # Same tasks, different name
+        new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
+        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
+        uow = make_mock_uow(workflow_repo=repo)
+
+        await UpdateWorkflowUseCase().execute(
+            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+        )
+
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.definition_version == 5
+
     async def test_template_rejection(self) -> None:
         template = make_workflow(id=1, is_template=True)
         repo = make_mock_workflow_repo(get_workflow_by_id=template)

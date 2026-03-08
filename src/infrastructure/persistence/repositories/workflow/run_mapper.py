@@ -40,6 +40,7 @@ class WorkflowRunMapper:
             output_track_count=db.output_track_count,
             error_message=db.error_message,
             execution_order=db.execution_order,
+            node_details=db.node_details,
         )
 
     @staticmethod
@@ -55,6 +56,7 @@ class WorkflowRunMapper:
             output_track_count=node.output_track_count,
             error_message=node.error_message,
             execution_order=node.execution_order,
+            node_details=node.node_details,
             run_id=run_id,
         )
 
@@ -79,11 +81,13 @@ class WorkflowRunMapper:
             workflow_id=db.workflow_id,
             status=cast(RunStatus, db.status),
             definition_snapshot=definition,
+            definition_version=db.definition_version,
             started_at=db.started_at,
             completed_at=db.completed_at,
             duration_ms=db.duration_ms,
             output_track_count=db.output_track_count,
             output_playlist_id=db.output_playlist_id,
+            output_tracks=db.output_tracks or [],
             error_message=db.error_message,
             nodes=nodes,
             created_at=db.created_at,
@@ -96,10 +100,12 @@ class WorkflowRunMapper:
             workflow_id=run.workflow_id,
             status=run.status,
             definition_snapshot=definition_dict,
+            definition_version=run.definition_version,
             started_at=run.started_at,
             completed_at=run.completed_at,
             duration_ms=run.duration_ms,
             output_track_count=run.output_track_count,
             output_playlist_id=run.output_playlist_id,
+            output_tracks=run.output_tracks or None,
             error_message=run.error_message,
         )

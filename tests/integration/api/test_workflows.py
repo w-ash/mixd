@@ -4,6 +4,9 @@ Tests the full request -> route -> use case -> database -> response cycle.
 """
 
 import httpx
+import pytest
+
+import src.interface.api.routes.workflows as _workflows_mod
 
 
 def _valid_definition() -> dict:
@@ -92,6 +95,32 @@ class TestGetWorkflow:
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "NOT_FOUND"
 
+    async def test_detail_includes_last_run(
+        self, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GET /workflows/{id} should include last_run when runs exist."""
+        monkeypatch.setattr(
+            _workflows_mod, "launch_background", lambda *a, **kw: None
+        )
+
+        create_resp = await client.post(
+            "/api/v1/workflows", json={"definition": _valid_definition()}
+        )
+        wf_id = create_resp.json()["id"]
+
+        # Trigger a run (background execution is stubbed)
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        assert run_resp.status_code == 202
+        run_id = run_resp.json()["run_id"]
+
+        # GET detail should include last_run
+        detail_resp = await client.get(f"/api/v1/workflows/{wf_id}")
+        assert detail_resp.status_code == 200
+        body = detail_resp.json()
+        assert body["last_run"] is not None
+        assert body["last_run"]["id"] == run_id
+        assert body["last_run"]["status"] == "pending"
+
 
 class TestUpdateWorkflow:
     async def test_update_user_workflow(self, client: httpx.AsyncClient) -> None:
@@ -164,6 +193,35 @@ class TestValidateWorkflow:
         body = response.json()
         assert body["valid"] is False
         assert len(body["errors"]) >= 1
+
+
+class TestDefinitionVersion:
+    """definition_version exposed in workflow and run API responses."""
+
+    async def test_new_workflow_has_version_1(self, client: httpx.AsyncClient) -> None:
+        resp = await client.post(
+            "/api/v1/workflows", json={"definition": _valid_definition()}
+        )
+
+        assert resp.status_code == 201
+        assert resp.json()["definition_version"] == 1
+
+    async def test_version_in_get_detail(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post(
+            "/api/v1/workflows", json={"definition": _valid_definition()}
+        )
+        wf_id = create_resp.json()["id"]
+
+        resp = await client.get(f"/api/v1/workflows/{wf_id}")
+        assert resp.json()["definition_version"] == 1
+
+    async def test_version_in_list(self, client: httpx.AsyncClient) -> None:
+        await client.post("/api/v1/workflows", json={"definition": _valid_definition()})
+
+        resp = await client.get("/api/v1/workflows")
+        workflows = resp.json()["data"]
+        # At least one workflow has definition_version
+        assert any(w.get("definition_version") is not None for w in workflows)
 
 
 class TestListNodeTypes:

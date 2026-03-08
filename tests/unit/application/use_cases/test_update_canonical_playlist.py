@@ -12,7 +12,11 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_mock_metric_config, make_playlist_with_entries, make_track
+from tests.fixtures import (
+    make_mock_metric_config,
+    make_playlist_with_entries,
+    make_track,
+)
 from tests.fixtures.mocks import make_mock_uow
 
 _MOCK_METRIC_CONFIG = make_mock_metric_config()

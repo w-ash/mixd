@@ -83,7 +83,6 @@ class TestRunWorkflowEndpoint:
         assert body["id"] == run_id
         assert body["status"] == "pending"
 
-
     async def test_run_returns_409_when_already_running(
         self, client: httpx.AsyncClient, monkeypatch
     ) -> None:
@@ -191,6 +190,34 @@ class TestGetWorkflowRun:
         response = await client.get(f"/api/v1/workflows/{wf_id_b}/runs/{run_id}")
 
         assert response.status_code == 404
+
+
+class TestRunDefinitionVersion:
+    """definition_version in run API responses."""
+
+    async def test_run_detail_has_definition_version(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        wf_id = await _create_workflow(client)
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        run_id = run_resp.json()["run_id"]
+
+        response = await client.get(f"/api/v1/workflows/{wf_id}/runs/{run_id}")
+
+        assert response.status_code == 200
+        assert response.json()["definition_version"] == 1
+
+    async def test_run_list_has_definition_version(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        wf_id = await _create_workflow(client)
+        await client.post(f"/api/v1/workflows/{wf_id}/run")
+
+        response = await client.get(f"/api/v1/workflows/{wf_id}/runs")
+
+        body = response.json()
+        assert body["total"] >= 1
+        assert body["data"][0]["definition_version"] == 1
 
 
 class TestWorkflowListIncludesLastRun:

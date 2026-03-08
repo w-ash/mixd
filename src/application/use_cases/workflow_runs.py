@@ -27,6 +27,7 @@ from src.application.workflows.prefect import (
 from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
 from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
+from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -38,6 +39,26 @@ from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__).bind(service="workflow_runs")
+
+
+def _serialize_output_tracks(tracks: list[Track]) -> list[dict[str, object]]:
+    """Serialize result tracks into lightweight dicts for the run record.
+
+    Shape matches what the frontend OutputTracksTable expects:
+    track_id, title, artists, rank.
+    """
+    return [
+        {
+            "track_id": track.id or 0,
+            "title": track.title or "Unknown",
+            "artists": ", ".join(a.name for a in track.artists)
+            if track.artists
+            else "Unknown",
+            "rank": rank,
+        }
+        for rank, track in enumerate(tracks, 1)
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Run (create pending run)
@@ -90,6 +111,7 @@ class RunWorkflowUseCase:
                 workflow_id=workflow.id or 0,
                 status=WorkflowConstants.RUN_STATUS_PENDING,
                 definition_snapshot=definition_snapshot,
+                definition_version=workflow.definition_version,
                 nodes=pending_nodes,
             )
 
@@ -210,8 +232,6 @@ class GetLatestWorkflowRunsUseCase:
 # ---------------------------------------------------------------------------
 
 
-
-
 @define(frozen=True, slots=True)
 class ExecuteWorkflowRunResult:
     """Result of a workflow run execution."""
@@ -283,6 +303,7 @@ class ExecuteWorkflowRunUseCase:
                 # 4. Update run → COMPLETED
                 duration_ms = timer.stop()
                 output_track_count = len(result.tracks) if result.tracks else None
+                output_tracks = _serialize_output_tracks(result.tracks)
 
                 await self.update_run_status(
                     run_id,
@@ -290,6 +311,7 @@ class ExecuteWorkflowRunUseCase:
                     completed_at=datetime.now(UTC),
                     duration_ms=duration_ms,
                     output_track_count=output_track_count,
+                    output_tracks=output_tracks,
                 )
 
                 return ExecuteWorkflowRunResult(

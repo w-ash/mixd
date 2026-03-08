@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.1
+ * OpenAPI spec version: 0.4.2
  */
 
 export * from './artistSchema';
@@ -55,8 +55,10 @@ export * from './validationErrorCtx';
 export * from './workflowDefSchema';
 export * from './workflowDetailSchema';
 export * from './workflowRunDetailSchema';
+export * from './workflowRunDetailSchemaOutputTracksItem';
 export * from './workflowRunDetailSchemaStatus';
 export * from './workflowRunNodeSchema';
+export * from './workflowRunNodeSchemaNodeDetails';
 export * from './workflowRunNodeSchemaStatus';
 export * from './workflowRunStartedResponse';
 export * from './workflowRunSummarySchema';

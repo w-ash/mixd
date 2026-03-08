@@ -27,7 +27,8 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksCommand,
 )
 from src.config import get_logger
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
+from src.domain.entities.workflow import TrackDecision
 
 from .node_context import NodeContext
 from .node_registry import NodeFn
@@ -86,6 +87,124 @@ def _get_connector_metric_names(
     return metric_names
 
 
+# === TRACK DECISION GENERATION ===
+
+
+def _track_summary(track: Track) -> tuple[str, str]:
+    """Extract (title, comma-joined artists) for decision records."""
+    title = track.title or "Unknown"
+    artists = ", ".join(a.name for a in track.artists) if track.artists else "Unknown"
+    return title, artists
+
+
+def _generate_filter_decisions(
+    input_tracks: TrackList,
+    output_tracks: TrackList,
+    config: dict[str, Any],
+) -> list[TrackDecision]:
+    """Generate decisions for filter nodes — removed tracks get a reason from config."""
+    output_ids = {t.id for t in output_tracks.tracks}
+    metric_name = config.get("metric_name")
+    min_val = config.get("min_value")
+    max_val = config.get("max_value")
+
+    # Build threshold description
+    threshold: float | None = None
+    if min_val is not None:
+        threshold = float(min_val)
+        reason = f"Below minimum {metric_name or 'threshold'}: {min_val}"
+    elif max_val is not None:
+        threshold = float(max_val)
+        reason = f"Above maximum {metric_name or 'threshold'}: {max_val}"
+    else:
+        reason = "Did not pass filter criteria"
+
+    decisions: list[TrackDecision] = []
+    for track in input_tracks.tracks:
+        title, artists = _track_summary(track)
+        if track.id in output_ids:
+            decisions.append(
+                TrackDecision(
+                    track_id=track.id or 0,
+                    title=title,
+                    artists=artists,
+                    decision="kept",
+                    reason="Passed filter",
+                    metric_name=metric_name,
+                )
+            )
+        else:
+            decisions.append(
+                TrackDecision(
+                    track_id=track.id or 0,
+                    title=title,
+                    artists=artists,
+                    decision="removed",
+                    reason=reason,
+                    metric_name=metric_name,
+                    threshold=threshold,
+                )
+            )
+    return decisions
+
+
+def _generate_sorter_decisions(
+    output_tracks: TrackList,
+    config: dict[str, Any],
+) -> list[TrackDecision]:
+    """Generate decisions for sorter nodes — all kept with rank + sort info."""
+    metric_name = config.get("metric_name") or config.get("sort_key")
+    decisions: list[TrackDecision] = []
+    for rank, track in enumerate(output_tracks.tracks, 1):
+        title, artists = _track_summary(track)
+        decisions.append(
+            TrackDecision(
+                track_id=track.id or 0,
+                title=title,
+                artists=artists,
+                decision="kept",
+                reason=f"Ranked #{rank}",
+                metric_name=metric_name,
+                rank=rank,
+            )
+        )
+    return decisions
+
+
+def _generate_selector_decisions(
+    input_tracks: TrackList,
+    output_tracks: TrackList,
+    config: dict[str, Any],
+) -> list[TrackDecision]:
+    """Generate decisions for selector nodes — removed tracks trimmed by limit."""
+    limit = config.get("count") or config.get("percentage")
+    output_ids = {t.id for t in output_tracks.tracks}
+    decisions: list[TrackDecision] = []
+    for track in input_tracks.tracks:
+        title, artists = _track_summary(track)
+        if track.id in output_ids:
+            decisions.append(
+                TrackDecision(
+                    track_id=track.id or 0,
+                    title=title,
+                    artists=artists,
+                    decision="kept",
+                    reason="Within selection limit",
+                )
+            )
+        else:
+            decisions.append(
+                TrackDecision(
+                    track_id=track.id or 0,
+                    title=title,
+                    artists=artists,
+                    decision="removed",
+                    reason=f"Exceeded selection limit ({limit})",
+                )
+            )
+    return decisions
+
+
 # === SHARED NODE IMPLEMENTATION ===
 
 
@@ -137,7 +256,17 @@ def make_node(
                     input_count=input_count,
                     output_count=output_count,
                 )
-            return {"tracklist": result}
+
+            # Generate per-track decisions based on node category
+            decisions: list[TrackDecision] = []
+            if category == "filter":
+                decisions = _generate_filter_decisions(tracklist, result, config)
+            elif category == "sorter":
+                decisions = _generate_sorter_decisions(result, config)
+            elif category == "selector":
+                decisions = _generate_selector_decisions(tracklist, result, config)
+
+            return {"tracklist": result, "track_decisions": decisions}
 
     return node_impl
 

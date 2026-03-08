@@ -13,18 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { Edge, Node } from "@xyflow/react";
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowUpDown,
-  Database,
-  Filter,
-  Maximize2,
-  Merge,
-  Minimize2,
-  Send,
-  Sparkles,
-  Target,
-} from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
 import {
@@ -32,48 +21,12 @@ import {
   type WorkflowNodeData,
 } from "@/components/workflow/BaseWorkflowNode";
 import type { NodeStatus } from "@/hooks/useWorkflowExecution";
+import { NODE_CONFIG } from "@/lib/workflow-config";
 import {
   createInitialNodes,
   layoutWorkflow,
   type NodeDimension,
 } from "@/lib/workflow-layout";
-
-const NODE_CONFIG: Record<
-  string,
-  { Icon: LucideIcon; accentColor: string; label: string }
-> = {
-  source: {
-    Icon: Database,
-    accentColor: "oklch(0.7 0.12 250)",
-    label: "Source",
-  },
-  enricher: {
-    Icon: Sparkles,
-    accentColor: "oklch(0.7 0.14 300)",
-    label: "Enricher",
-  },
-  filter: { Icon: Filter, accentColor: "oklch(0.75 0.14 55)", label: "Filter" },
-  sorter: {
-    Icon: ArrowUpDown,
-    accentColor: "oklch(0.8 0.14 85)",
-    label: "Sorter",
-  },
-  selector: {
-    Icon: Target,
-    accentColor: "oklch(0.7 0.1 185)",
-    label: "Selector",
-  },
-  combiner: {
-    Icon: Merge,
-    accentColor: "oklch(0.7 0.14 350)",
-    label: "Combiner",
-  },
-  destination: {
-    Icon: Send,
-    accentColor: "oklch(0.7 0.14 155)",
-    label: "Destination",
-  },
-};
 
 function createNodeComponent(category: string) {
   const config = NODE_CONFIG[category] ?? NODE_CONFIG.source;

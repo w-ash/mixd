@@ -3,9 +3,10 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.1
+ * OpenAPI spec version: 0.4.2
  */
 import type { WorkflowDefSchema } from './workflowDefSchema';
+import type { WorkflowRunDetailSchemaOutputTracksItem } from './workflowRunDetailSchemaOutputTracksItem';
 import type { WorkflowRunDetailSchemaStatus } from './workflowRunDetailSchemaStatus';
 import type { WorkflowRunNodeSchema } from './workflowRunNodeSchema';
 
@@ -13,6 +14,7 @@ export interface WorkflowRunDetailSchema {
   id: number;
   workflow_id: number;
   status: WorkflowRunDetailSchemaStatus;
+  definition_version?: number;
   started_at?: string | null;
   completed_at?: string | null;
   duration_ms?: number | null;
@@ -21,5 +23,6 @@ export interface WorkflowRunDetailSchema {
   error_message?: string | null;
   created_at?: string | null;
   definition_snapshot: WorkflowDefSchema;
+  output_tracks?: WorkflowRunDetailSchemaOutputTracksItem[];
   nodes?: WorkflowRunNodeSchema[];
 }

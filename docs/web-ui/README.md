@@ -21,9 +21,10 @@ Documentation for the Narada web interface, organized by concern.
 | v0.3.3 -- Dashboard & Stats | Aggregate statistics, connector health, data quality signals |
 | v0.4.0 -- Workflow Persistence & Visualization | Workflow database table, CRUD API, template system, React Flow DAG (read-only) |
 | v0.4.1 -- Workflow Execution & Run History | One-click execution, live per-node DAG status, run history with node inspection |
-| v0.4.2 -- Visual Workflow Editor & Preview | Drag-and-drop node palette, config panel, undo/redo, dry-run preview |
-| v0.4.3 -- Connector Playlist Linking | Link canonical playlists to Spotify/Apple Music, push/pull sync |
-| v0.4.4 -- CI/CD & Quality | GitHub Actions, E2E tests, accessibility audit |
+| v0.4.2 -- Run-First Workflow UX | Run-focused detail page, pipeline strip, inline execution, per-track run output, version tracking |
+| v0.4.3 -- Visual Workflow Editor & Preview | Drag-and-drop node palette, config panel, undo/redo, dry-run preview |
+| v0.4.4 -- Connector Playlist Linking | Link canonical playlists to Spotify/Apple Music, push/pull sync |
+| v0.4.5 -- CI/CD & Quality | GitHub Actions, E2E tests, accessibility audit |
 | v0.5.0 -- PostgreSQL, Deployment & OAuth | Production infrastructure, Docker, Fly.io, Spotify OAuth |
 | v0.6.0 -- Apple Music & Data Quality | Unmapped track filters in Library, manual mapping UI on Track Detail, DQ alerts on Dashboard |
 | v0.7.0 -- Advanced Workflow Features | Sub-flows, workflow versioning & diff, import/export |

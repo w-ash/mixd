@@ -16,7 +16,7 @@ into WorkflowContext, which provides unified access to all workflow dependencies
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Protocol, TypedDict
+from typing import Any, NotRequired, Protocol, TypedDict
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
@@ -37,7 +37,7 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
+from src.domain.entities.workflow import NodeExecutionEvent, RunStatus, TrackDecision
 from src.domain.repositories import UnitOfWorkProtocol
 
 
@@ -230,6 +230,7 @@ class NodeStatusUpdater(Protocol):
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
+        node_details: dict[str, Any] | None = None,
     ) -> None: ...
 
 
@@ -239,9 +240,11 @@ class NodeResult(TypedDict):
     Every node (source, transform, destination) returns at least a tracklist.
     Destination nodes also return operation-specific keys; structural typing
     allows those extra keys while enforcing the tracklist contract.
+    ``track_decisions`` is optional — only transform/destination nodes produce it.
     """
 
     tracklist: TrackList
+    track_decisions: NotRequired[list[TrackDecision]]
 
 
 class NodeExecutionObserver(Protocol):

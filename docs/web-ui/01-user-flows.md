@@ -620,7 +620,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 5. Managing Connector Links
 
-> **Available starting v0.4.3.** Requires connector playlist linking use cases and playlist links API routes.
+> **Available starting v0.4.4.** Requires connector playlist linking use cases and playlist links API routes.
 
 ### 5.1 Viewing Linked External Playlists
 
@@ -749,7 +749,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 6. Workflows
 
-> **Available starting v0.4.0** (persistence + visualization), **v0.4.1** (execution + run history), **v0.4.2** (visual editor + preview). Requires workflow persistence (`workflows` table), CRUD use cases, workflow API routes, and React Flow integration.
+> **Available starting v0.4.0** (persistence + visualization), **v0.4.1** (execution + run history), **v0.4.2** (run-first UX + run output), **v0.4.3** (visual editor + preview). Requires workflow persistence (`workflows` table), CRUD use cases, workflow API routes, and React Flow integration.
 
 ### 6.1 Workflow List
 
@@ -773,8 +773,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 4. **Action buttons** per row:
    - **Run** (v0.4.1+): Execute the workflow (with confirmation dialog)
+   - **Inline Run status** (v0.4.2+): Per-row `[▶]` Run button. During execution: row shows "Running..." with spinner replacing Run button. On completion: last-run column live-updates via query invalidation. Only one workflow runs at a time — other Run buttons disabled while executing. Each row uses its own `useWorkflowExecution(workflowId)` hook instance.
    - **View**: Navigate to workflow detail
-   - **Edit** (v0.4.2+): Open visual editor
+   - **Edit** (v0.4.3+): Open visual editor
    - **Delete** (danger, with confirmation -- not available for templates)
    - **Use Template** (templates only): Clone into new user workflow
 
@@ -813,16 +814,15 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - Returns `{ operation_id, run_id }`.
 
 4. **Per-node live status visualization** (the "live pipeline" experience):
-   - The workflow detail page shows the DAG with per-node execution status.
-   - Each node in the DAG animates through states:
-     - **Pending** (grey, dashed border): not yet started
-     - **Running** (blue, pulsing border animation): currently executing
-     - **Completed** (green, solid border, track count badge): finished successfully
-     - **Failed** (red, solid border, error icon): error occurred
-   - ~~Edges animate on completion: flowing particle animation shows data flow direction~~ *(deferred to v0.4.4 polish)*
-   - Current running node has a glow effect (using the `--shadow-glow` design token)
-   - Progress bar below the DAG shows overall completion percentage
-   - Message area: "Enriching tracks with Last.fm data... (45/120 tracks)"
+   - **From detail page (v0.4.2+)**: PipelineStrip animates inline — no page navigation on Run.
+     - Each node dot transitions through states: **Pending** (grey) → **Running** (blue pulse + track count annotation) → **Completed** (green checkmark) → **Failed** (red X)
+     - Progress bar below strip shows overall completion percentage
+     - Current step description: "Running: Filter by metric (120 → 24 tracks)"
+   - **From list page (v0.4.2+)**: Row shows "Running..." state, Run button becomes spinner. On completion, last-run column live-updates.
+   - **From WorkflowRunDetail (historical inspection)**: Full React Flow DAG with per-node execution overlay (existing behavior from v0.4.1).
+     - Each node in the DAG animates through states: **Pending** (grey, dashed border) → **Running** (blue, pulsing border) → **Completed** (green, solid border, track count badge) → **Failed** (red, solid border, error icon)
+     - Current running node has a glow effect (using the `--shadow-glow` design token)
+   - ~~Edges animate on completion: flowing particle animation shows data flow direction~~ *(deferred to v0.4.5 polish)*
 
 5. SSE stream (`GET /operations/{id}/progress`) delivers two event types:
    - `progress` events (existing): overall operation progress
@@ -840,6 +840,10 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - **Result summary**: "Pipeline complete. 42 tracks output to 'Weekly Obsessions - 2026-03-01' on Spotify."
    - Link to the output playlist (if destination created/updated one).
 
+7. **Inline completion (v0.4.2+)**:
+   - **From detail page**: Last Run card updates with new run data. Summary card shows output track count + link to full run detail. Tanstack Query invalidation refreshes Recent Runs table.
+   - **From list page**: Row's last-run column live-updates. Run button re-enables.
+
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
@@ -853,40 +857,50 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ---
 
-### 6.3 Workflow Detail (React Flow Visualization)
+### 6.3 Workflow Detail (Run-First Layout — v0.4.2)
 
 **Trigger**: User clicks **View** on a workflow, or navigates to `/workflows/{id}`.
 
 **Steps**:
 
-1. Workflow detail page shows:
-   - **Header**: Name, description, template badge (if template), created/modified dates
-   - **DAG Visualization** (React Flow, v0.4.0):
-     - Nodes arranged left-to-right using ELKjs layered auto-layout
-     - Node types color-coded: Source (blue), Enricher (purple), Filter (orange), Sorter (gold), Selector (teal), Combiner (pink), Destination (green)
-     - Each node shows: category icon, type label (human-readable), key config summary (e.g., "limit: 20", "metric: lastfm_play_count")
-     - Edges show data flow between nodes with directional arrows
-     - Pan, zoom, and minimap for navigation
-   - **Execution History** table below DAG (v0.4.1):
+1. Workflow detail page shows a **run-first layout** (v0.4.2 restructure — full DAG moved to editor and run inspection):
+   - **Header**: Name, description, template badge (if template), created/modified dates, `[Edit]` button → `/workflows/:id/edit` (v0.4.3), `[▶ Run]` button
+   - **Pipeline Strip** (v0.4.2, replaces full DAG as the default view on this page — all DAG components are preserved for `WorkflowRunDetail` and the v0.4.3 editor):
+     - Compact horizontal visualization — category-colored dots with human-readable labels connected by arrows, left-to-right
+     - Labels derived from task config (e.g., `source.playlist` → playlist name, `filter.by_metric` → metric + threshold)
+     - Branching workflows: show primary chain with `+N branches` indicator
+     - Animates during inline execution: pending (grey) → running (blue pulse + track count) → completed (green checkmark) → failed (red X)
+   - **Last Run Card** (v0.4.2):
+     - Status badge, duration, track count, output playlist link
+     - "⚠ Definition changed since this run" indicator when `run.definition_version < workflow.definition_version`
+     - Standalone reusable component (designed for future scheduling UI integration)
+   - **Recent Runs** table (v0.4.1):
      | Run | Started | Duration | Status | Output | Actions |
      |-----|---------|----------|--------|--------|---------|
-     | #3 | Mar 1, 10:00 | 45s | Completed | 42 tracks | View Details |
-     | #2 | Feb 22, 10:00 | 38s | Completed | 39 tracks | View Details |
-     | #1 | Feb 15, 10:00 | 1m 12s | Failed | - | View Details |
+     | #3 | Mar 1, 10:00 | 45s | Completed | 42 tracks | View |
+     | #2 | Feb 22, 10:00 | 38s | Completed | 39 tracks | View |
+     | #1 | Feb 15, 10:00 | 1m 12s | Failed | - | View |
+     - "View" navigates to `WorkflowRunDetail` page (`/workflows/:id/runs/:runId`) which retains the full DAG
 
-2. **Run Details** (v0.4.1) -- expand from history table or click "View Details":
-   - DAG re-renders from `definition_snapshot` (not current definition) with execution overlay
+2. **Run Detail page** (`/workflows/:id/runs/:runId`) — the deep inspection view:
+   - **Header**: Run # and workflow name, "Run Again" button (runs current definition, not snapshot), back link "← Hidden Gems" (workflow name)
+   - "⚠ Definition changed since this run" indicator when `run.definition_version < workflow.definition_version`
+   - **Full DAG** re-renders from `definition_snapshot` (not current definition) with per-node execution overlay
    - Per-node execution overlay: input/output track counts, execution time, status color
    - **Per-node inspection** (click a node): side panel shows:
      - Track count delta: "Filter removed 78 of 120 tracks" or "Source loaded 120 tracks"
      - Execution time: "3.4s"
      - Sample output tracks: first 10 track titles with artist names
      - Error details for failed nodes (error message, stack trace preview)
-   - **Execution timeline**: ~~horizontal bar chart showing duration per node (Temporal-inspired)~~ *(deferred to v0.4.4 polish)*
+   - **Run output display** (v0.4.2):
+     - **Output tracks table** below the DAG: rank, title, artist, relevant metric values (e.g., play_count column if sorted by play count)
+     - **Per-node details**: expand a node in the execution details list to see removed/kept tracks with reasons. E.g., "Filter by metric: removed 78 of 120 tracks" → expand → table of removed tracks with metric values
+     - **Destination node details**: shows playlist diff — "Added 5 tracks, Removed 3 tracks" → expand → lists with per-track reasons ("not in source playlists", "filtered by play_count < 5")
+   - **Execution timeline**: ~~horizontal bar chart showing duration per node (Temporal-inspired)~~ *(deferred to v0.4.5 polish)*
      - ~~Color-coded bars matching node category colors~~
      - ~~Total duration annotation~~
 
-3. **Action buttons**: Run (v0.4.1), Edit (v0.4.2), Delete
+3. **Action buttons**: Run (v0.4.1), Edit (v0.4.3), Delete
    - For templates: "Use Template" instead of Edit, no Delete
 
 **Backend calls**:
@@ -898,7 +912,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ---
 
-### 6.4 Creating/Editing a Workflow (Visual Editor -- v0.4.2)
+### 6.4 Creating/Editing a Workflow (Visual Editor -- v0.4.3)
+
+> **DAG reuse**: The editor canvas reuses the existing v0.4.0 React Flow infrastructure — same 7 custom node components, `BaseWorkflowNode`, ELKjs layout, and `WorkflowCanvas` — upgraded from read-only to interactive mode (drag, connect, delete, undo/redo). This is not a rebuild.
 
 **Trigger**: User clicks **Create Workflow**, **Edit** on an existing workflow, or **Use Template** on a template.
 
@@ -955,7 +971,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - On validation error: toast with error details, problematic nodes highlighted red on canvas.
    - Unsaved changes indicator: dot on Save button, browser `beforeunload` warning on navigation.
 
-8. **Preview/Dry-run** (v0.4.2):
+8. **Preview/Dry-run** (v0.4.3):
    - User clicks **Preview** in the toolbar.
    - Calls `POST /workflows/{id}/preview` (saved) or `POST /workflows/preview` (unsaved).
    - Backend executes the workflow but skips destination writes.
@@ -972,7 +988,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Create | `POST /workflows` | `CreateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
 | Update | `PATCH /workflows/{id}` | `UpdateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
 | Validate | `POST /workflows/validate` | Validate definition | ✅ Implemented (v0.4.0) |
-| Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation (v0.4.2) |
+| Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation (v0.4.3) |
 
 **Edge cases**:
 - Dropped node on invalid position (off canvas): Node snaps to nearest valid position.

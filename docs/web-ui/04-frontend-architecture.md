@@ -227,9 +227,11 @@ web/
 │   │       ├── FileUpload.test.tsx
 │   │       ├── OperationProgress.tsx  Progress bar + metrics for running operations
 │   │       ├── OperationProgress.test.tsx
+│   │       ├── PipelineStrip.tsx   Compact horizontal workflow visualization (v0.4.2)
+│   │       ├── LastRunCard.tsx     Last run summary with version indicator (v0.4.2)
 │   │       ├── TablePagination.tsx  Page controls for paginated list views
 │   │       └── TablePagination.test.tsx
-│   │   └── workflow/                Workflow editor components (v0.4.0+)
+│   │   └── workflow/                Workflow DAG components (v0.4.0+, used in 3 contexts below)
 │   │       ├── nodes/              Custom React Flow node components per category
 │   │       │   ├── SourceNode.tsx
 │   │       │   ├── EnricherNode.tsx
@@ -240,10 +242,16 @@ web/
 │   │       │   └── DestinationNode.tsx
 │   │       ├── BaseWorkflowNode.tsx Shared node shell: category color, icon, label, config summary, execution status (v0.4.1)
 │   │       ├── WorkflowCanvas.tsx   React Flow wrapper with viewer/editor modes
-│   │       ├── NodePalette.tsx      Draggable node type sidebar (v0.4.2)
-│   │       ├── NodeConfigPanel.tsx  Dynamic config form for selected node (v0.4.2)
-│   │       ├── EditorToolbar.tsx    Save, preview, run, undo/redo actions (v0.4.2)
+│   │       ├── NodePalette.tsx      Draggable node type sidebar (v0.4.3)
+│   │       ├── NodeConfigPanel.tsx  Dynamic config form for selected node (v0.4.3)
+│   │       ├── EditorToolbar.tsx    Save, preview, run, undo/redo actions (v0.4.3)
 │   │       └── ExecutionOverlay.tsx Per-node status overlay during execution (v0.4.1)
+│   │       # Component reuse: nodes/, BaseWorkflowNode, WorkflowCanvas, ExecutionOverlay
+│   │       # serve three contexts — NOT rebuilt per milestone:
+│   │       #   1. WorkflowRunDetail (v0.4.1+): read-only DAG from definition_snapshot + execution overlay
+│   │       #   2. WorkflowDetail (v0.4.0→v0.4.1): read-only DAG (replaced by PipelineStrip in v0.4.2,
+│   │       #      but components retained for contexts 1 and 3)
+│   │       #   3. WorkflowEditor (v0.4.3): interactive mode — same components with drag/connect/delete
 │   ├── stores/
 │   │   └── useWorkflowStore.ts     Zustand store for React Flow canvas state
 │   ├── hooks/
@@ -286,7 +294,7 @@ web/
 
 > **Test coverage**: 18 test files, ~152 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
-> **Future pages** (not yet implemented): `WorkflowEditor.tsx` (v0.4.2), `PlaylistLinks.tsx` (v0.4.3). All other pages (Dashboard, Library, TrackDetail, Playlists, Workflows, WorkflowDetail, WorkflowRunDetail, Imports, Settings) are implemented.
+> **Future pages** (not yet implemented): `WorkflowEditor.tsx` (v0.4.3), `PlaylistLinks.tsx` (v0.4.4). All other pages (Dashboard, Library, TrackDetail, Playlists, Workflows, WorkflowDetail, WorkflowRunDetail, Imports, Settings) are implemented.
 >
 > **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
 >
@@ -404,6 +412,8 @@ Dark mode is the default — CSS variables are the single source of truth. Light
 | URL state (filters, pagination, search) | React Router search params |
 | Local UI state (modal open, form values) | React `useState` / `useReducer` |
 | Operation progress | `useOperationProgress` hook + SSE via `connectToSSE` transport |
+| Workflow execution | `useWorkflowExecution` hook — used on detail page (inline execution) and list page (per-row instances) (v0.4.2) |
+| Workflow canvas (editor) | Zustand `useWorkflowStore` — React Flow nodes, edges, viewport, undo/redo (v0.4.3) |
 
 No global state store. If cross-page state emerges, evaluate React Context before reaching for a library.
 

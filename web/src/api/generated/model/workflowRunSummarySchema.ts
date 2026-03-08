@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.1
+ * OpenAPI spec version: 0.4.2
  */
 import type { WorkflowRunSummarySchemaStatus } from './workflowRunSummarySchemaStatus';
 
@@ -11,6 +11,7 @@ export interface WorkflowRunSummarySchema {
   id: number;
   workflow_id: number;
   status: WorkflowRunSummarySchemaStatus;
+  definition_version?: number;
   started_at?: string | null;
   completed_at?: string | null;
   duration_ms?: number | null;

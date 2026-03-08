@@ -6,7 +6,9 @@ and status determination to the connector_status application service.
 
 from fastapi import APIRouter
 
-from src.infrastructure.connectors._shared.connector_status import get_all_connector_statuses
+from src.infrastructure.connectors._shared.connector_status import (
+    get_all_connector_statuses,
+)
 from src.interface.api.schemas.connectors import ConnectorStatusSchema
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])

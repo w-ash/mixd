@@ -58,6 +58,7 @@ class WorkflowRunRepository:
         duration_ms: int | None = None,
         output_track_count: int | None = None,
         output_playlist_id: int | None = None,
+        output_tracks: list[dict[str, object]] | None = None,
         error_message: str | None = None,
     ) -> None:
         """Update run status and optional completion fields."""
@@ -75,6 +76,8 @@ class WorkflowRunRepository:
             values["output_track_count"] = output_track_count
         if output_playlist_id is not None:
             values["output_playlist_id"] = output_playlist_id
+        if output_tracks is not None:
+            values["output_tracks"] = output_tracks
         if error_message is not None:
             values["error_message"] = error_message
 
@@ -108,6 +111,7 @@ class WorkflowRunRepository:
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
+        node_details: dict[str, object] | None = None,
     ) -> None:
         """Update a node's status and execution metrics."""
         values: dict[str, object] = {"status": status}
@@ -123,6 +127,8 @@ class WorkflowRunRepository:
             values["output_track_count"] = output_track_count
         if error_message is not None:
             values["error_message"] = error_message
+        if node_details is not None:
+            values["node_details"] = node_details
 
         result = await self.session.execute(
             update(DBWorkflowRunNode)
