@@ -63,8 +63,3 @@ export function NodeTypeBadge({ nodeType, className }: NodeTypeBadgeProps) {
     </span>
   );
 }
-
-/** Get the category display name from a node type string */
-export function getCategoryFromNodeType(nodeType: string): string {
-  return getCategory(nodeType);
-}

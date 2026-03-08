@@ -233,6 +233,11 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
             "workflow_run_repo", make_mock_workflow_run_repo()
         )
     )
+    default_version_repo = AsyncMock()
+    default_version_repo.get_max_version_number.return_value = 0
+    uow.get_workflow_version_repository = MagicMock(
+        return_value=repo_overrides.get("workflow_version_repo", default_version_repo)
+    )
 
     # Connector provider (optional override)
     uow.get_service_connector_provider = MagicMock(

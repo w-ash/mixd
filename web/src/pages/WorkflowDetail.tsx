@@ -1,4 +1,4 @@
-import { ArrowLeft, HelpCircle, Lock, Play } from "lucide-react";
+import { ArrowLeft, HelpCircle, Lock, Pencil, Play } from "lucide-react";
 import { Link, useParams } from "react-router";
 import type { WorkflowRunSummarySchema } from "@/api/generated/model";
 import {
@@ -154,6 +154,14 @@ export function WorkflowDetail() {
                 <Lock size={12} aria-hidden="true" />
                 Template
               </Badge>
+            )}
+            {!workflow.is_template && (
+              <Button variant="outline" size="sm" asChild className="gap-1.5">
+                <Link to={`/workflows/${workflowId}/edit`}>
+                  <Pencil size={14} />
+                  Edit
+                </Link>
+              </Button>
             )}
             <Button
               size="sm"

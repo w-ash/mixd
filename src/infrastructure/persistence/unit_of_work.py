@@ -26,6 +26,7 @@ from src.domain.repositories.interfaces import (
     TrackRepositoryProtocol,
     WorkflowRepositoryProtocol,
     WorkflowRunRepositoryProtocol,
+    WorkflowVersionRepositoryProtocol,
 )
 from src.infrastructure.persistence.repositories.play.connector import (
     ConnectorTrackPlayRepository,
@@ -189,6 +190,14 @@ class DatabaseUnitOfWork:
         )
 
         return WorkflowRunRepository(self._session)
+
+    def get_workflow_version_repository(self) -> WorkflowVersionRepositoryProtocol:
+        """Get workflow version repository using this unit of work's transaction."""
+        from src.infrastructure.persistence.repositories.workflow.versions import (
+            WorkflowVersionRepository,
+        )
+
+        return WorkflowVersionRepository(self._session)
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

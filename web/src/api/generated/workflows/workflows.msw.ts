@@ -21,10 +21,12 @@ import type {
   NodeTypeInfoSchema,
   PaginatedResponseWorkflowRunSummarySchema,
   PaginatedResponseWorkflowSummarySchema,
+  PreviewStartedResponse,
   WorkflowDetailSchema,
   WorkflowRunDetailSchema,
   WorkflowRunStartedResponse,
-  WorkflowValidationResponse
+  WorkflowValidationResponse,
+  WorkflowVersionSchema
 } from '../model';
 
 
@@ -36,6 +38,10 @@ export const getListNodeTypesApiV1WorkflowsNodesGetResponseMock = (): NodeTypeIn
 
 export const getValidateWorkflowApiV1WorkflowsValidatePostResponseMock = (overrideResponse: Partial<Extract<WorkflowValidationResponse, object>> = {}): WorkflowValidationResponse => ({valid: faker.datatype.boolean(), errors: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({task_id: faker.string.alpha({length: {min: 10, max: 20}}), field: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
+export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseMock = (overrideResponse: Partial<Extract<PreviewStartedResponse, object>> = {}): PreviewStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseMock = (overrideResponse: Partial<Extract<PreviewStartedResponse, object>> = {}): PreviewStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
 export const getGetWorkflowApiV1WorkflowsWorkflowIdGetResponseMock = (overrideResponse: Partial<Extract<WorkflowDetailSchema, object>> = {}): WorkflowDetailSchema => ({id: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), is_template: faker.datatype.boolean(), source_template: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), definition_version: faker.number.int(), task_count: faker.number.int(), node_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_run: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), definition_version: faker.number.int(), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])},null,]), undefined]), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, ...overrideResponse})
 
 export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchResponseMock = (overrideResponse: Partial<Extract<WorkflowDetailSchema, object>> = {}): WorkflowDetailSchema => ({id: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), is_template: faker.datatype.boolean(), source_template: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), definition_version: faker.number.int(), task_count: faker.number.int(), node_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_run: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), definition_version: faker.number.int(), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])},null,]), undefined]), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, ...overrideResponse})
@@ -45,6 +51,12 @@ export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponseMock =
 export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponseMock = (overrideResponse: Partial<Extract<PaginatedResponseWorkflowRunSummarySchema, object>> = {}): PaginatedResponseWorkflowRunSummarySchema => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), workflow_id: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), definition_version: faker.number.int(), started_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_playlist_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), error_message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])})), total: faker.number.int(), limit: faker.number.int(), offset: faker.number.int(), ...overrideResponse})
 
 export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponseMock = (overrideResponse: Partial<Extract<WorkflowRunDetailSchema, object>> = {}): WorkflowRunDetailSchema => ({id: faker.number.int(), workflow_id: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), definition_version: faker.number.int(), started_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_playlist_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), error_message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), definition_snapshot: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, output_tracks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({})), nodes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), node_id: faker.string.alpha({length: {min: 10, max: 20}}), node_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), started_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), duration_ms: faker.number.int(), input_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), error_message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), execution_order: faker.number.int(), node_details: faker.helpers.arrayElement([faker.helpers.arrayElement([null,]), undefined])})), ...overrideResponse})
+
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseMock = (): WorkflowVersionSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), workflow_id: faker.number.int(), version: faker.number.int(), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), change_summary: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})))
+
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseMock = (overrideResponse: Partial<Extract<WorkflowVersionSchema, object>> = {}): WorkflowVersionSchema => ({id: faker.number.int(), workflow_id: faker.number.int(), version: faker.number.int(), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), change_summary: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
+
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseMock = (overrideResponse: Partial<Extract<WorkflowDetailSchema, object>> = {}): WorkflowDetailSchema => ({id: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), is_template: faker.datatype.boolean(), source_template: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), definition_version: faker.number.int(), task_count: faker.number.int(), node_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_run: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.number.int(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), definition_version: faker.number.int(), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])},null,]), undefined]), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {}, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, ...overrideResponse})
 
 
 export const getListWorkflowsApiV1WorkflowsGetMockHandler = (overrideResponse?: PaginatedResponseWorkflowSummarySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponseWorkflowSummarySchema> | PaginatedResponseWorkflowSummarySchema), options?: RequestHandlerOptions) => {
@@ -91,6 +103,30 @@ export const getValidateWorkflowApiV1WorkflowsValidatePostMockHandler = (overrid
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getValidateWorkflowApiV1WorkflowsValidatePostResponseMock(),
       { status: 200
+      })
+  }, options)
+}
+
+export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMockHandler = (overrideResponse?: PreviewStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PreviewStartedResponse> | PreviewStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/workflows/preview', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMockHandler = (overrideResponse?: PreviewStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PreviewStartedResponse> | PreviewStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/workflows/:workflowId/preview', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseMock(),
+      { status: 202
       })
   }, options)
 }
@@ -164,15 +200,56 @@ export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler = 
       })
   }, options)
 }
+
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetMockHandler = (overrideResponse?: WorkflowVersionSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowVersionSchema[]> | WorkflowVersionSchema[]), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/workflows/:workflowId/versions', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetMockHandler = (overrideResponse?: WorkflowVersionSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowVersionSchema> | WorkflowVersionSchema), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/workflows/:workflowId/versions/:version', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMockHandler = (overrideResponse?: WorkflowDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowDetailSchema> | WorkflowDetailSchema), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/workflows/:workflowId/versions/:version/revert', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 export const getWorkflowsMock = () => [
   getListWorkflowsApiV1WorkflowsGetMockHandler(),
   getCreateWorkflowApiV1WorkflowsPostMockHandler(),
   getListNodeTypesApiV1WorkflowsNodesGetMockHandler(),
   getValidateWorkflowApiV1WorkflowsValidatePostMockHandler(),
+  getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMockHandler(),
+  getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMockHandler(),
   getGetWorkflowApiV1WorkflowsWorkflowIdGetMockHandler(),
   getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMockHandler(),
   getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMockHandler(),
   getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMockHandler(),
   getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetMockHandler(),
-  getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler()
+  getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler(),
+  getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetMockHandler(),
+  getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetMockHandler(),
+  getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMockHandler()
 ]

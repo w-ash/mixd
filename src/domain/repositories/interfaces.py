@@ -28,6 +28,7 @@ from src.domain.entities.workflow import (
     Workflow,
     WorkflowRun,
     WorkflowRunNode,
+    WorkflowVersion,
 )
 from src.domain.matching.types import MatchResultsById, RawProviderMatch
 
@@ -804,6 +805,32 @@ class WorkflowRunRepositoryProtocol(Protocol):
         ...
 
 
+class WorkflowVersionRepositoryProtocol(Protocol):
+    """Repository interface for workflow version history."""
+
+    def create_version(self, version: WorkflowVersion) -> Awaitable[WorkflowVersion]:
+        """Persist a new version snapshot."""
+        ...
+
+    def list_versions(self, workflow_id: int) -> Awaitable[list[WorkflowVersion]]:
+        """List all versions for a workflow, ordered by version desc."""
+        ...
+
+    def get_version(
+        self, workflow_id: int, version: int
+    ) -> Awaitable[WorkflowVersion]:
+        """Get a specific version. Raises NotFoundError if not found."""
+        ...
+
+    def get_max_version_number(self, workflow_id: int) -> Awaitable[int]:
+        """Return the highest version number for a workflow, or 0 if none exist."""
+        ...
+
+    def delete_versions_for_workflow(self, workflow_id: int) -> Awaitable[None]:
+        """Delete all versions for a workflow (cascade cleanup)."""
+        ...
+
+
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
@@ -886,6 +913,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_workflow_run_repository(self) -> WorkflowRunRepositoryProtocol:
         """Get workflow run repository using this unit of work's transaction."""
+        ...
+
+    def get_workflow_version_repository(self) -> WorkflowVersionRepositoryProtocol:
+        """Get workflow version repository using this unit of work's transaction."""
         ...
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:

@@ -2,7 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import { getCategoryFromNodeType } from "@/components/shared/NodeTypeBadge";
+import { getNodeCategoryName } from "@/lib/workflow-config";
 
 const elk = new ELK();
 
@@ -20,12 +20,20 @@ export interface NodeDimension {
   height: number;
 }
 
+export function generateNodeId(type: string, existingIds: string[]): string {
+  const base = type.replace(/\./g, "_");
+  const existing = new Set(existingIds);
+  let counter = 1;
+  while (existing.has(`${base}_${counter}`)) counter++;
+  return `${base}_${counter}`;
+}
+
 /**
  * Builds both React Flow edges and ELK edges in a single pass.
  * Validates upstream references against known task IDs to guard
  * against malformed workflow definitions.
  */
-function buildEdges(tasks: WorkflowTaskDefSchema[]): {
+export function buildEdges(tasks: WorkflowTaskDefSchema[]): {
   flowEdges: Edge[];
   elkEdges: { id: string; sources: string[]; targets: string[] }[];
 } {
@@ -54,7 +62,7 @@ export function createInitialNodes(tasks: WorkflowTaskDefSchema[]): {
   edges: Edge[];
 } {
   const nodes: Node[] = tasks.map((task) => {
-    const category = getCategoryFromNodeType(task.type);
+    const category = getNodeCategoryName(task.type);
     return {
       id: task.id,
       type: category,
@@ -128,7 +136,7 @@ export async function layoutWorkflow(
 
   const flowNodes: Node[] = layoutChildren.map((child, i) => {
     const task = taskMap.get(child.id);
-    const category = task ? getCategoryFromNodeType(task.type) : "source";
+    const category = task ? getNodeCategoryName(task.type) : "source";
     const measured = nodeDimensions?.get(child.id);
     const w = measured?.width ?? DEFAULT_NODE_WIDTH;
     const h = measured?.height ?? DEFAULT_NODE_HEIGHT;

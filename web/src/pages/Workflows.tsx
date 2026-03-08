@@ -1,4 +1,12 @@
-import { AlertTriangle, GitBranch, Lock, Play } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  GitBranch,
+  Lock,
+  Pencil,
+  Play,
+  Plus,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
@@ -129,11 +137,38 @@ function WorkflowRow({
         {formatDate(wf.updated_at)}
       </TableCell>
       <TableCell className="text-right">
-        <WorkflowRunButton
-          workflowId={wf.id}
-          disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
-          onExecutionStart={onExecutionStart}
-        />
+        <div className="flex items-center justify-end gap-1">
+          {wf.is_template ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              title="Use template"
+              asChild
+            >
+              <Link to={`/workflows/new?from=${wf.id}`}>
+                <Copy size={13} className="text-text-muted" />
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              title="Edit workflow"
+              asChild
+            >
+              <Link to={`/workflows/${wf.id}/edit`}>
+                <Pencil size={13} className="text-text-muted" />
+              </Link>
+            </Button>
+          )}
+          <WorkflowRunButton
+            workflowId={wf.id}
+            disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
+            onExecutionStart={onExecutionStart}
+          />
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -169,6 +204,14 @@ export function Workflows() {
       <PageHeader
         title="Workflows"
         description="Declarative pipelines that compose your music criteria into playlists."
+        action={
+          <Button size="sm" asChild className="gap-1.5">
+            <Link to="/workflows/new">
+              <Plus size={14} />
+              New Workflow
+            </Link>
+          </Button>
+        }
       />
 
       {isLoading && <WorkflowTableSkeleton />}

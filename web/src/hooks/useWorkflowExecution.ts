@@ -6,7 +6,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
   getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
@@ -14,25 +14,10 @@ import {
   getListWorkflowsApiV1WorkflowsGetQueryKey,
   useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost,
 } from "@/api/generated/workflows/workflows";
-import { connectToSSE, type SSEEvent } from "@/api/sse-client";
 
-export type NodeExecutionStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed";
-
-export interface NodeStatus {
-  nodeId: string;
-  nodeType: string;
-  status: NodeExecutionStatus;
-  executionOrder: number;
-  totalNodes: number;
-  durationMs?: number;
-  inputTrackCount?: number;
-  outputTrackCount?: number;
-  errorMessage?: string;
-}
+import { useNodeStatuses } from "@/hooks/useNodeStatuses";
+import { useSSEConnection } from "@/hooks/useSSEConnection";
+import type { NodeStatus } from "@/lib/sse-types";
 
 export interface UseWorkflowExecutionReturn {
   isExecuting: boolean;
@@ -49,22 +34,12 @@ export function useWorkflowExecution(
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [nodeStatuses, setNodeStatuses] = useState<Map<string, NodeStatus>>(
-    new Map(),
-  );
-  const [error, setError] = useState<Error | null>(null);
+  const [domainError, setDomainError] = useState<Error | null>(null);
 
-  const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
-
   const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost();
-
-  const cleanup = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-  }, []);
+  const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
+    useNodeStatuses();
 
   const invalidateWorkflowQueries = useCallback(() => {
     queryClient.invalidateQueries({
@@ -79,80 +54,36 @@ export function useWorkflowExecution(
     });
   }, [queryClient, workflowId]);
 
-  // SSE event processing — connects when operationId is set
-  useEffect(() => {
-    if (!operationId) return;
+  const { error: sseError, disconnect } = useSSEConnection(operationId, {
+    onEvent(eventType, data) {
+      switch (eventType) {
+        case "node_status":
+          handleNodeStatusEvent(data);
+          break;
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+        case "complete":
+          setIsExecuting(false);
+          invalidateWorkflowQueries();
+          disconnect();
+          break;
 
-    const processEvent = (event: SSEEvent) => {
-      if (!event.data) return;
-
-      try {
-        const data = JSON.parse(event.data);
-
-        switch (event.event) {
-          case "node_status":
-            setNodeStatuses((prev) => {
-              const next = new Map(prev);
-              next.set(data.node_id, {
-                nodeId: data.node_id,
-                nodeType: data.node_type ?? "",
-                status: data.status,
-                executionOrder: data.execution_order ?? 0,
-                totalNodes: data.total_nodes ?? 0,
-                durationMs: data.duration_ms,
-                inputTrackCount: data.input_track_count,
-                outputTrackCount: data.output_track_count,
-                errorMessage: data.error_message,
-              });
-              return next;
-            });
-            break;
-
-          case "complete":
-            setIsExecuting(false);
-            invalidateWorkflowQueries();
-            cleanup();
-            break;
-
-          case "error":
-            setIsExecuting(false);
-            setError(new Error(data.error_message ?? "Workflow failed"));
-            invalidateWorkflowQueries();
-            cleanup();
-            break;
+        case "error": {
+          const d = data as Record<string, unknown>;
+          setIsExecuting(false);
+          setDomainError(
+            new Error((d.error_message as string) ?? "Workflow failed"),
+          );
+          invalidateWorkflowQueries();
+          disconnect();
+          break;
         }
-      } catch {
-        // Ignore malformed events
       }
-    };
-
-    (async () => {
-      try {
-        const events = await connectToSSE(
-          `/api/v1/operations/${operationId}/progress`,
-          ctrl.signal,
-        );
-        for await (const event of events) {
-          processEvent(event);
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(
-          err instanceof Error ? err : new Error("SSE connection error"),
-        );
-        setIsExecuting(false);
-      }
-    })();
-
-    return cleanup;
-  }, [operationId, invalidateWorkflowQueries, cleanup]);
+    },
+  });
 
   const execute = useCallback(() => {
-    setError(null);
-    setNodeStatuses(new Map());
+    setDomainError(null);
+    resetNodeStatuses();
 
     mutation.mutate(
       { workflowId },
@@ -171,7 +102,7 @@ export function useWorkflowExecution(
           }
         },
         onError: (err) => {
-          setError(
+          setDomainError(
             err instanceof Error ? err : new Error("Failed to start workflow"),
           );
           toast.error("Failed to start workflow", {
@@ -181,14 +112,14 @@ export function useWorkflowExecution(
         },
       },
     );
-  }, [mutation, workflowId]);
+  }, [mutation, workflowId, resetNodeStatuses]);
 
   return {
     isExecuting,
     operationId,
     runId,
     nodeStatuses,
-    error,
+    error: domainError ?? sseError,
     execute,
   };
 }

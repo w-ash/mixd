@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { connectToSSE, type SSEEvent } from "@/api/sse-client";
+import { useSSEConnection } from "@/hooks/useSSEConnection";
 
 export type OperationStatus =
   | "pending"
@@ -66,9 +66,6 @@ export function useOperationProgress(
   options?: UseOperationProgressOptions,
 ): UseOperationProgressResult {
   const [progress, setProgress] = useState<OperationProgress | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
 
   // Stabilize invalidateKeys via ref to prevent infinite effect loops
@@ -76,168 +73,124 @@ export function useOperationProgress(
   const invalidateKeysRef = useRef(options?.invalidateKeys);
   invalidateKeysRef.current = options?.invalidateKeys;
 
-  const cleanup = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
+  const invalidateQueries = () => {
+    const keys = invalidateKeysRef.current;
+    if (keys) {
+      for (const key of keys) {
+        queryClient.invalidateQueries({ queryKey: key as unknown[] });
+      }
     }
-    setIsConnected(false);
-  }, []);
+  };
 
+  const { isConnected, error, disconnect } = useSSEConnection(operationId, {
+    onEvent(eventType, data) {
+      const d = data as Record<string, unknown>;
+
+      switch (eventType) {
+        case "started":
+          setProgress({
+            ...DEFAULT_PROGRESS,
+            status: "running",
+            total: (d.total as number) ?? null,
+            message: (d.description as string) ?? "Starting...",
+            description: (d.description as string) ?? null,
+          });
+          break;
+
+        case "progress":
+          setProgress({
+            ...DEFAULT_PROGRESS,
+            status: "running",
+            current: (d.current as number) ?? 0,
+            total: (d.total as number) ?? null,
+            message: (d.message as string) ?? "Processing...",
+            completionPercentage: (d.completion_percentage as number) ?? null,
+            itemsPerSecond: (d.items_per_second as number) ?? null,
+            etaSeconds: (d.eta_seconds as number) ?? null,
+          });
+          break;
+
+        case "complete":
+          setProgress((prev) => ({
+            ...DEFAULT_PROGRESS,
+            ...prev,
+            status: "completed" as const,
+            message: "Complete",
+          }));
+          invalidateQueries();
+          disconnect();
+          break;
+
+        case "error":
+          setProgress((prev) => ({
+            ...DEFAULT_PROGRESS,
+            ...prev,
+            status: "failed" as const,
+            message: (d.message as string) ?? "Operation failed",
+            subOperation: null,
+          }));
+          invalidateQueries();
+          disconnect();
+          break;
+
+        case "sub_operation_started":
+          setProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  subOperation: {
+                    operationId: (d.operation_id as string) ?? "",
+                    description: (d.description as string) ?? "",
+                    current: 0,
+                    total: (d.total as number) ?? null,
+                    message: (d.description as string) ?? "",
+                    phase: (d.phase as string) ?? null,
+                    completionPercentage: null,
+                  },
+                }
+              : prev,
+          );
+          break;
+
+        case "sub_progress":
+          setProgress((prev) =>
+            prev?.subOperation
+              ? {
+                  ...prev,
+                  subOperation: {
+                    ...prev.subOperation,
+                    current: (d.current as number) ?? prev.subOperation.current,
+                    total: (d.total as number) ?? prev.subOperation.total,
+                    message: (d.message as string) ?? prev.subOperation.message,
+                    completionPercentage:
+                      (d.completion_percentage as number) ?? null,
+                  },
+                }
+              : prev,
+          );
+          break;
+
+        case "sub_operation_completed":
+          setProgress((prev) =>
+            prev ? { ...prev, subOperation: null } : prev,
+          );
+          break;
+      }
+    },
+  });
+
+  // Domain-specific init: set pending state when operationId arrives, clear on null
   useEffect(() => {
-    if (!operationId) {
+    if (operationId) {
+      setProgress({
+        ...DEFAULT_PROGRESS,
+        status: "pending",
+        message: "Connecting...",
+      });
+    } else {
       setProgress(null);
-      setError(null);
-      cleanup();
-      return;
     }
-
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
-    setProgress({
-      ...DEFAULT_PROGRESS,
-      status: "pending",
-      message: "Connecting...",
-    });
-    setError(null);
-
-    const invalidateQueries = () => {
-      const keys = invalidateKeysRef.current;
-      if (keys) {
-        for (const key of keys) {
-          queryClient.invalidateQueries({ queryKey: key as unknown[] });
-        }
-      }
-    };
-
-    const processEvent = (event: SSEEvent) => {
-      if (!event.data) return;
-
-      try {
-        const data = JSON.parse(event.data);
-
-        switch (event.event) {
-          case "started":
-            setProgress({
-              ...DEFAULT_PROGRESS,
-              status: "running",
-              total: data.total ?? null,
-              message: data.description ?? "Starting...",
-              description: data.description ?? null,
-            });
-            break;
-
-          case "progress":
-            setProgress({
-              ...DEFAULT_PROGRESS,
-              status: "running",
-              current: data.current ?? 0,
-              total: data.total ?? null,
-              message: data.message ?? "Processing...",
-              completionPercentage: data.completion_percentage ?? null,
-              itemsPerSecond: data.items_per_second ?? null,
-              etaSeconds: data.eta_seconds ?? null,
-            });
-            break;
-
-          case "complete":
-            setProgress((prev) => ({
-              ...DEFAULT_PROGRESS,
-              ...prev,
-              status: "completed" as const,
-              message: "Complete",
-            }));
-            invalidateQueries();
-            cleanup();
-            break;
-
-          case "error":
-            setProgress((prev) => ({
-              ...DEFAULT_PROGRESS,
-              ...prev,
-              status: "failed" as const,
-              message: data.message ?? "Operation failed",
-              subOperation: null,
-            }));
-            invalidateQueries();
-            cleanup();
-            break;
-
-          case "sub_operation_started":
-            setProgress((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    subOperation: {
-                      operationId: data.operation_id ?? "",
-                      description: data.description ?? "",
-                      current: 0,
-                      total: data.total ?? null,
-                      message: data.description ?? "",
-                      phase: data.phase ?? null,
-                      completionPercentage: null,
-                    },
-                  }
-                : prev,
-            );
-            break;
-
-          case "sub_progress":
-            setProgress((prev) =>
-              prev?.subOperation
-                ? {
-                    ...prev,
-                    subOperation: {
-                      ...prev.subOperation,
-                      current: data.current ?? prev.subOperation.current,
-                      total: data.total ?? prev.subOperation.total,
-                      message: data.message ?? prev.subOperation.message,
-                      completionPercentage: data.completion_percentage ?? null,
-                    },
-                  }
-                : prev,
-            );
-            break;
-
-          case "sub_operation_completed":
-            setProgress((prev) =>
-              prev ? { ...prev, subOperation: null } : prev,
-            );
-            break;
-        }
-      } catch {
-        // Ignore malformed events
-      }
-    };
-
-    (async () => {
-      try {
-        const events = await connectToSSE(
-          `/api/v1/operations/${operationId}/progress`,
-          ctrl.signal,
-        );
-        setIsConnected(true);
-        setError(null);
-
-        for await (const event of events) {
-          processEvent(event);
-        }
-      } catch (err) {
-        // AbortError is expected during cleanup — don't surface it
-        if (err instanceof DOMException && err.name === "AbortError") return;
-
-        setError(
-          err instanceof Error ? err : new Error("SSE connection error"),
-        );
-        setIsConnected(false);
-      }
-    })();
-
-    return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- invalidateKeys
-    // is read via ref to prevent infinite loops from unstable references.
-  }, [operationId, queryClient, cleanup]);
+  }, [operationId]);
 
   return { progress, isConnected, error };
 }

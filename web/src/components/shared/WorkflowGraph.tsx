@@ -20,7 +20,7 @@ import {
   BaseWorkflowNode,
   type WorkflowNodeData,
 } from "@/components/workflow/BaseWorkflowNode";
-import type { NodeStatus } from "@/hooks/useWorkflowExecution";
+import type { NodeStatus } from "@/lib/sse-types";
 import { NODE_CONFIG } from "@/lib/workflow-config";
 import {
   createInitialNodes,
@@ -55,9 +55,13 @@ type LayoutPhase = "measuring" | "layouting" | "done";
 
 const MEASUREMENT_TIMEOUT_MS = 2000;
 
+import type { DiffStatus } from "@/lib/workflow-diff";
+
 interface WorkflowGraphProps {
   tasks: WorkflowTaskDefSchema[];
   nodeStatuses?: Map<string, NodeStatus>;
+  /** Optional diff highlight map: node ID → diff status for coloring */
+  highlightMap?: Map<string, DiffStatus>;
 }
 
 export function WorkflowGraph(props: WorkflowGraphProps) {
@@ -68,7 +72,11 @@ export function WorkflowGraph(props: WorkflowGraphProps) {
   );
 }
 
-function WorkflowGraphInner({ tasks, nodeStatuses }: WorkflowGraphProps) {
+function WorkflowGraphInner({
+  tasks,
+  nodeStatuses,
+  highlightMap,
+}: WorkflowGraphProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [phase, setPhase] = useState<LayoutPhase>("measuring");
@@ -162,24 +170,28 @@ function WorkflowGraphInner({ tasks, nodeStatuses }: WorkflowGraphProps) {
     return () => clearTimeout(timer);
   }, [phase, tasks.length, runLayout]);
 
-  // Merge execution status into node data when statuses change
+  // Merge execution status and diff highlights into node data
   const displayNodes = useMemo(() => {
-    if (!nodeStatuses?.size) return nodes;
+    if (!nodeStatuses?.size && !highlightMap?.size) return nodes;
     return nodes.map((node) => {
-      const status = nodeStatuses.get(node.id);
-      if (!status) return node;
+      const status = nodeStatuses?.get(node.id);
+      const diff = highlightMap?.get(node.id);
+      if (!status && !diff) return node;
       return {
         ...node,
         data: {
           ...node.data,
-          executionStatus: status.status,
-          inputTrackCount: status.inputTrackCount,
-          outputTrackCount: status.outputTrackCount,
-          errorMessage: status.errorMessage,
+          ...(status && {
+            executionStatus: status.status,
+            inputTrackCount: status.inputTrackCount,
+            outputTrackCount: status.outputTrackCount,
+            errorMessage: status.errorMessage,
+          }),
+          ...(diff && { diffStatus: diff }),
         },
       };
     });
-  }, [nodes, nodeStatuses]);
+  }, [nodes, nodeStatuses, highlightMap]);
 
   return (
     <div

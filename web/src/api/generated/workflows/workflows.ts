@@ -32,12 +32,14 @@ import type {
   NodeTypeInfoSchema,
   PaginatedResponseWorkflowRunSummarySchema,
   PaginatedResponseWorkflowSummarySchema,
+  PreviewStartedResponse,
   UpdateWorkflowRequest,
   WorkflowDetailSchema,
   WorkflowRunDetailSchema,
   WorkflowRunStartedResponse,
   WorkflowValidationRequest,
-  WorkflowValidationResponse
+  WorkflowValidationResponse,
+  WorkflowVersionSchema
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -462,6 +464,185 @@ export const useValidateWorkflowApiV1WorkflowsValidatePost = <TError = HTTPValid
         TContext
       > => {
       return useMutation(getValidateWorkflowApiV1WorkflowsValidatePostMutationOptions(options), queryClient);
+    }
+    /**
+ * Preview an unsaved workflow definition (dry-run). Returns operation_id for SSE.
+ * @summary Preview Unsaved Workflow
+ */
+export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse202 = {
+  data: PreviewStartedResponse
+  status: 202
+}
+
+export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseSuccess = (previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse202) & {
+  headers: Headers;
+};
+export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseError = (previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse422) & {
+  headers: Headers;
+};
+
+export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse = (previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseSuccess | previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseError)
+
+export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl = () => {
+
+
+  
+
+  return `/api/v1/workflows/preview`
+}
+
+export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: RequestInit): Promise<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse> => {
+  
+  return customFetch<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse>(getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createWorkflowRequest,)
+  }
+);}
+  
+
+
+
+export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext> => {
+
+const mutationKey = ['previewUnsavedWorkflowApiV1WorkflowsPreviewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, {data: CreateWorkflowRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewUnsavedWorkflowApiV1WorkflowsPreviewPost(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>>
+    export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationBody = CreateWorkflowRequest
+    export type PreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Preview Unsaved Workflow
+ */
+export const usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, TError,{data: CreateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>,
+        TError,
+        {data: CreateWorkflowRequest},
+        TContext
+      > => {
+      return useMutation(getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMutationOptions(options), queryClient);
+    }
+    /**
+ * Preview a saved workflow (dry-run). Returns operation_id for SSE.
+ * @summary Preview Saved Workflow
+ */
+export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse202 = {
+  data: PreviewStartedResponse
+  status: 202
+}
+
+export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseSuccess = (previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse202) & {
+  headers: Headers;
+};
+export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseError = (previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse422) & {
+  headers: Headers;
+};
+
+export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse = (previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseSuccess | previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseError)
+
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (workflowId: number,) => {
+
+
+  
+
+  return `/api/v1/workflows/${workflowId}/preview`
+}
+
+export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (workflowId: number, options?: RequestInit): Promise<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse> => {
+  
+  return customFetch<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse>(getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl(workflowId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+  
+
+
+
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext> => {
+
+const mutationKey = ['previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, {workflowId: number}> = (props) => {
+          const {workflowId} = props ?? {};
+
+          return  previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost(workflowId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>>
+    
+    export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Preview Saved Workflow
+ */
+export const usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>,
+        TError,
+        {workflowId: number},
+        TContext
+      > => {
+      return useMutation(getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions(options), queryClient);
     }
     /**
  * Get a workflow by ID with full definition.
@@ -1109,3 +1290,339 @@ export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Aw
 
 
 
+/**
+ * List version history for a workflow.
+ * @summary List Workflow Versions
+ */
+export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse200 = {
+  data: WorkflowVersionSchema[]
+  status: 200
+}
+
+export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseSuccess = (listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse200) & {
+  headers: Headers;
+};
+export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseError = (listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse422) & {
+  headers: Headers;
+};
+
+export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse = (listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseSuccess | listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseError)
+
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl = (workflowId: number,) => {
+
+
+  
+
+  return `/api/v1/workflows/${workflowId}/versions`
+}
+
+export const listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet = async (workflowId: number, options?: RequestInit): Promise<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse> => {
+  
+  return customFetch<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse>(getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl(workflowId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+  
+
+
+
+
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey = (workflowId: number,) => {
+    return [
+    `/api/v1/workflows/${workflowId}/versions`
+    ] as const;
+    }
+
+    
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey(workflowId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>> = ({ signal }) => listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet(workflowId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(workflowId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>>
+export type ListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryError = HTTPValidationError
+
+
+export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
+ workflowId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
+ workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
+ workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Workflow Versions
+ */
+
+export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
+ workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions(workflowId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
+ * Get a specific version with full definition.
+ * @summary Get Workflow Version
+ */
+export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse200 = {
+  data: WorkflowVersionSchema
+  status: 200
+}
+
+export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseSuccess = (getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse200) & {
+  headers: Headers;
+};
+export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseError = (getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse422) & {
+  headers: Headers;
+};
+
+export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse = (getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseSuccess | getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseError)
+
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl = (workflowId: number,
+    version: number,) => {
+
+
+  
+
+  return `/api/v1/workflows/${workflowId}/versions/${version}`
+}
+
+export const getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet = async (workflowId: number,
+    version: number, options?: RequestInit): Promise<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse> => {
+  
+  return customFetch<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse>(getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl(workflowId,version),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+  
+
+
+
+
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryKey = (workflowId: number,
+    version: number,) => {
+    return [
+    `/api/v1/workflows/${workflowId}/versions/${version}`
+    ] as const;
+    }
+
+    
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(workflowId: number,
+    version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryKey(workflowId,version);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>> = ({ signal }) => getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet(workflowId,version, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(workflowId && version), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>>
+export type GetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryError = HTTPValidationError
+
+
+export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
+ workflowId: number,
+    version: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
+ workflowId: number,
+    version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
+ workflowId: number,
+    version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Workflow Version
+ */
+
+export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
+ workflowId: number,
+    version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions(workflowId,version,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
+ * Revert a workflow to a previous version. Creates a new version record.
+ * @summary Revert Workflow Version
+ */
+export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse200 = {
+  data: WorkflowDetailSchema
+  status: 200
+}
+
+export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseSuccess = (revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse200) & {
+  headers: Headers;
+};
+export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseError = (revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse422) & {
+  headers: Headers;
+};
+
+export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse = (revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseSuccess | revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseError)
+
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl = (workflowId: number,
+    version: number,) => {
+
+
+  
+
+  return `/api/v1/workflows/${workflowId}/versions/${version}/revert`
+}
+
+export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = async (workflowId: number,
+    version: number, options?: RequestInit): Promise<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse> => {
+  
+  return customFetch<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse>(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl(workflowId,version),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+  
+
+
+
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext> => {
+
+const mutationKey = ['revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, {workflowId: number;version: number}> = (props) => {
+          const {workflowId,version} = props ?? {};
+
+          return  revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost(workflowId,version,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationResult = NonNullable<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>>
+    
+    export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Revert Workflow Version
+ */
+export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>,
+        TError,
+        {workflowId: number;version: number},
+        TContext
+      > => {
+      return useMutation(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions(options), queryClient);
+    }
+    

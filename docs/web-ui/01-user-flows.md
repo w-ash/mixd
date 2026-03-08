@@ -37,7 +37,7 @@ The web UI reads existing credentials established by the CLI (`narada` commands 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Check status | `GET /connectors` | Read `.spotify_cache` + validate | Needs implementation |
+| Check status | `GET /connectors` | Read `.spotify_cache` + validate | ✅ Implemented (v0.3.0) |
 | Manual input | `POST /connectors/spotify/token` | Store token to `.spotify_cache` | Needs implementation |
 
 **Edge cases**:
@@ -69,7 +69,7 @@ With `DatabaseTokenStorage` and a hosted callback URL, the Settings page handles
 |------|----------|----------|--------|
 | 2 | `GET /connectors/spotify/auth-url` | Generate OAuth URL | Needs implementation (v0.5.0) |
 | 3 | `GET /auth/spotify/callback` | Exchange code, store via `DatabaseTokenStorage` | Needs implementation (v0.5.0) |
-| 4 | `GET /connectors` | List connector status | Needs implementation |
+| 4 | `GET /connectors` | List connector status | ✅ Implemented (v0.3.0) |
 
 **Edge cases**:
 - User denies OAuth consent: callback receives `error=access_denied`. Redirect to `/settings` with error toast: "Spotify connection cancelled."
@@ -98,7 +98,7 @@ Last.fm uses API key + username + password from environment variables. The sessi
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Check status | `GET /connectors` | Validate env credentials | Needs implementation |
+| Check status | `GET /connectors` | Validate env credentials | ✅ Implemented (v0.3.0) |
 | Manual input | `POST /connectors/lastfm/credentials` | Validate + store credentials | Needs implementation |
 
 **Edge cases**:
@@ -172,10 +172,10 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load page | `GET /tracks?limit=50&offset=0` | `ListTracksUseCase` | Needs implementation (v0.3.2) |
-| Search | `GET /tracks?q=...&limit=50` | `SearchTracksUseCase` | Needs implementation (v0.3.2) |
-| Filter by connector | `GET /tracks?connector=spotify` | `ListTracksUseCase` (with filter param) | Needs implementation |
-| Sort | `GET /tracks?sort=title&order=asc` | `ListTracksUseCase` (with sort param) | Needs implementation |
+| Load page | `GET /tracks?limit=50&offset=0` | `ListTracksUseCase` | ✅ Implemented (v0.3.2) |
+| Search | `GET /tracks?q=...&limit=50` | `ListTracksUseCase` (merged search+list) | ✅ Implemented (v0.3.2) |
+| Filter by connector | `GET /tracks?connector=spotify` | `ListTracksUseCase` (with filter param) | ✅ Implemented (v0.3.2) |
+| Sort | `GET /tracks?sort=title&order=asc` | `ListTracksUseCase` (with sort param) | ✅ Implemented (v0.3.2) |
 
 **Edge cases**:
 - Very large libraries (>50,000 tracks): Offset pagination remains functional. Consider adding "jump to page" input for deep navigation.
@@ -212,11 +212,11 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load detail | `GET /tracks/{id}` | `GetTrackDetailsUseCase` | Needs implementation (v0.3.2) |
+| Load detail | `GET /tracks/{id}` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
 | Like track | `POST /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Unlike track | `DELETE /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Add to playlist | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| Which playlists | `GET /tracks/{id}/playlists` | Needs new query | Needs implementation |
+| Which playlists | `GET /tracks/{id}/playlists` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
 
 **Edge cases**:
 - Track has no connector mappings: Show "Not mapped to any services. This track exists only in your Narada library."
@@ -281,7 +281,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load list | `GET /playlists?limit=50&offset=0` | `ListPlaylistsUseCase` | Exists |
+| Load list | `GET /playlists?limit=50&offset=0` | `ListPlaylistsUseCase` | ✅ Implemented (v0.3.0) |
 
 **Edge cases**:
 - User has many playlists (>100): Paginate. Add search/filter bar.
@@ -314,12 +314,12 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load detail | `GET /playlists/{id}` | `ReadCanonicalPlaylistUseCase` | Exists |
-| Load tracks | `GET /playlists/{id}/tracks?limit=50&offset=0` | `ReadCanonicalPlaylistUseCase` | Exists |
+| Load detail | `GET /playlists/{id}` | `ReadCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
+| Load tracks | `GET /playlists/{id}/tracks?limit=50&offset=0` | `ReadCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 | Remove track | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
 | Reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| Edit details | `PATCH /playlists/{id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| Delete | `DELETE /playlists/{id}` | `DeleteCanonicalPlaylistUseCase` | Exists |
+| Edit details | `PATCH /playlists/{id}` | `UpdateCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
+| Delete | `DELETE /playlists/{id}` | `DeleteCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 
 **Edge cases**:
 - Very large playlist (>1,000 tracks): Paginate the track table. Drag-and-drop reorder only works within visible page; full reorder uses a "Move to position" input.
@@ -346,7 +346,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /playlists` | `CreateCanonicalPlaylistUseCase` | Exists |
+| 2 | `POST /playlists` | `CreateCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 
 **Edge cases**:
 - Duplicate name: Backend allows it (playlists identified by ID, not name). No conflict.
@@ -378,7 +378,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `GET /tracks?q=...` | `SearchTracksUseCase` | Needs implementation (v0.3.2) |
+| 2 | `GET /tracks?q=...` | `ListTracksUseCase` (merged search+list) | ✅ Implemented (v0.3.2) |
 | 3 | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
 
 **Edge cases**:
@@ -474,8 +474,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List checkpoints | `GET /imports/checkpoints` | Checkpoint query | Needs implementation |
-| Recent operations | `GET /operations?limit=20` | Operation history query | Needs implementation |
+| List checkpoints | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
+| Recent operations | `GET /operations?limit=20` | Operation history query | ✅ Implemented (v0.3.1) |
 
 ---
 
@@ -516,9 +516,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /imports/lastfm/history` | `ImportPlayHistoryUseCase` | Exists |
-| 4 | `GET /operations/{id}/progress` | SSE stream | Needs implementation |
-| 5 | `GET /imports/checkpoints` | Checkpoint query | Needs implementation |
+| 2 | `POST /imports/lastfm/history` | `ImportPlayHistoryUseCase` | ✅ Implemented (v0.3.1) |
+| 4 | `GET /operations/{id}/progress` | SSE stream | ✅ Implemented (v0.3.1) |
+| 5 | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
 - Last.fm API rate limited (429): Backend handles retries transparently. Progress message shows "Rate limited, waiting..." SSE events continue.
@@ -552,7 +552,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /imports/spotify/history` | `ImportPlayHistoryUseCase` (file variant) | Exists |
+| 2 | `POST /imports/spotify/history` | `ImportPlayHistoryUseCase` (file variant) | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
 - Wrong file format: Backend validates JSON structure. Returns `400` with "Invalid file format. Expected Spotify streaming history JSON."
@@ -584,7 +584,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 1 | `GET /imports/lastfm/export-likes/preview` | Preview count | Needs implementation |
-| 2 | `POST /imports/lastfm/export-likes` | `SyncLikesUseCase` | Exists |
+| 2 | `POST /imports/lastfm/likes` | `SyncLikesUseCase` (Last.fm export) | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
 - Last.fm rate limiting: Backend retries with exponential backoff. Progress shows "Rate limited, retrying..."
@@ -614,7 +614,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load checkpoints | `GET /imports/checkpoints` | Checkpoint query | Needs implementation |
+| Load checkpoints | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
 
 ---
 
@@ -739,7 +739,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 2 | `POST /playlists/{id}/links/{link_id}/sync` | `UpdateConnectorPlaylistUseCase` | Exists |
-| 3 | `GET /operations/{id}/progress` | SSE stream | Needs implementation |
+| 3 | `GET /operations/{id}/progress` | SSE stream | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
 - Sync conflicts (tracks modified on both sides since last sync): Backend resolves based on sync direction. Narada Master = Narada wins. Connector Master = connector wins. Summary shows conflict count.
@@ -988,7 +988,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Create | `POST /workflows` | `CreateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
 | Update | `PATCH /workflows/{id}` | `UpdateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
 | Validate | `POST /workflows/validate` | Validate definition | ✅ Implemented (v0.4.0) |
-| Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation (v0.4.3) |
+| Preview | `POST /workflows/{id}/preview` | `PreviewWorkflowUseCase` (dry-run) | ✅ Implemented (v0.4.3) |
 
 **Edge cases**:
 - Dropped node on invalid position (off canvas): Node snaps to nearest valid position.
@@ -1047,9 +1047,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Section | Endpoint | Use Case | Status |
 |---------|----------|----------|--------|
 | Stats | `GET /stats/dashboard` | `GetTrackStatsUseCase` | Needs implementation (v0.3.3) |
-| Connector health | `GET /connectors` | Connector status | Needs implementation |
-| Freshness | `GET /imports/checkpoints` | Checkpoint query | Needs implementation |
-| Recent activity | `GET /operations?limit=10` | Operation history | Needs implementation |
+| Connector health | `GET /connectors` | Connector status | ✅ Implemented (v0.3.0) |
+| Freshness | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
+| Recent activity | `GET /operations?limit=10` | Operation history | ✅ Implemented (v0.3.1) |
 
 ---
 

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { NodeStatus } from "@/hooks/useWorkflowExecution";
+import type { NodeStatus } from "@/lib/sse-types";
 import { PipelineStrip } from "./PipelineStrip";
 
 const mockTasks = [

@@ -69,6 +69,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         db_model.name = workflow.definition.name
         db_model.description = workflow.definition.description or None
         db_model.definition = definition_dict
+        db_model.definition_version = workflow.definition_version
         db_model.is_template = workflow.is_template
         db_model.source_template = workflow.source_template
         db_model.updated_at = datetime.now(UTC)

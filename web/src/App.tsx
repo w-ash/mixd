@@ -51,6 +51,7 @@ const WorkflowRunDetail = lazy(() =>
     default: m.WorkflowRunDetail,
   })),
 );
+const WorkflowEditor = lazy(() => import("./pages/WorkflowEditor"));
 
 export function App() {
   return (
@@ -94,6 +95,22 @@ export function App() {
             element={
               <Suspense fallback={<PageSkeleton />}>
                 <Workflows />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workflows/new"
+            element={
+              <Suspense fallback={<PageSkeleton />}>
+                <WorkflowEditor />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workflows/:id/edit"
+            element={
+              <Suspense fallback={<PageSkeleton />}>
+                <WorkflowEditor />
               </Suspense>
             }
           />

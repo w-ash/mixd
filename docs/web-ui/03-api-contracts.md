@@ -580,19 +580,19 @@ No new endpoints — existing endpoints gain new fields for version tracking and
 
 ```
 POST   /workflows/{id}/preview
-       -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
+       -> { operation_id: str } (status 202)
 ```
 - **Use case**: `PreviewWorkflowUseCase` (dry-run: destination nodes become no-ops)
-- **Status**: Needs implementation (v0.4.3)
-- **Notes**: Enricher nodes still call external APIs for realistic output. Only destination writes are skipped. Streams SSE progress during execution.
+- **Status**: ✅ Implemented (v0.4.3)
+- **Notes**: Enricher nodes still call external APIs for realistic output. Only destination writes are skipped. Streams SSE `node_status` + `preview_complete` events via the operation's SSE queue.
 
 ```
 POST   /workflows/preview
        body: { definition: object }
-       -> { tracks: TrackSummary[], node_results: NodePreviewSummary[] }
+       -> { operation_id: str } (status 202)
 ```
 - **Use case**: `PreviewWorkflowUseCase` (for unsaved workflows)
-- **Status**: Needs implementation (v0.4.3)
+- **Status**: ✅ Implemented (v0.4.3)
 
 ### Workflow SSE Events (v0.4.1)
 
@@ -1027,6 +1027,7 @@ Fields:
 | `GetTrackDetailsUseCase` | `GET /tracks/{id}`, `GET /tracks/{id}/playlists` | `routes/tracks.py` | v0.3.2 |
 | `RunWorkflowUseCase` | `POST /workflows/{id}/run` | `routes/workflows.py` | v0.4.1 |
 | `GetWorkflowRunsUseCase` | `GET /workflows/{id}/runs`, `GET /workflows/{id}/runs/{run_id}` | `routes/workflows.py` | v0.4.1 |
+| `PreviewWorkflowUseCase` | `POST /workflows/{id}/preview`, `POST /workflows/preview` | `routes/workflows.py` | v0.4.3 |
 
 ### Use Cases With Existing Logic (Need API Routes)
 
@@ -1049,6 +1050,8 @@ Fields:
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | Workflow CRUD | ✅ v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
 | Workflow execution | ✅ v0.4.1 | `POST /workflows/{id}/run`, `GET .../runs` |
+| Version tracking + run output | ✅ v0.4.2 | Schema additions to existing endpoints |
+| Workflow preview (dry-run) | ✅ v0.4.3 | `POST /workflows/{id}/preview`, `POST /workflows/preview` |
 | Connector playlist browse | v0.4.4 | `GET /connectors/{connector}/playlists` |
 | Connector OAuth flows | v0.5.0 | `/auth/*`, `/connectors/*/auth-url` |
 | `GetUnmappedTracksUseCase` | v0.6.0 | `GET /tracks?unmapped_for=...` |

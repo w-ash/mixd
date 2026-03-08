@@ -21,7 +21,7 @@ from src.application.use_cases.workflow_runs import (
     ListWorkflowRunsUseCase,
     RunWorkflowCommand,
     RunWorkflowUseCase,
-    _serialize_output_tracks,
+    serialize_output_tracks,
 )
 from src.application.workflows.prefect import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
@@ -268,11 +268,11 @@ class TestGetLatestWorkflowRunsUseCase:
 
 
 class TestSerializeOutputTracks:
-    """_serialize_output_tracks produces lightweight dicts for the run record."""
+    """serialize_output_tracks produces lightweight dicts for the run record."""
 
     def test_serializes_tracks_with_rank(self) -> None:
         tracks = make_tracks(count=3)
-        result = _serialize_output_tracks(tracks)
+        result = serialize_output_tracks(tracks)
 
         assert len(result) == 3
         assert result[0]["rank"] == 1
@@ -283,7 +283,7 @@ class TestSerializeOutputTracks:
         assert isinstance(result[0]["artists"], str)
 
     def test_empty_list(self) -> None:
-        assert _serialize_output_tracks([]) == []
+        assert serialize_output_tracks([]) == []
 
 
 class TestExecuteWorkflowRunUseCase:

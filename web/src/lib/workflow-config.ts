@@ -59,10 +59,19 @@ export const NODE_CONFIG: Record<string, NodeCategoryConfig> = {
   },
 };
 
+/** Extract category name from a dotted node type like "filter.by_metric" → "filter". */
+export function getNodeCategoryName(nodeType: string): string {
+  return nodeType.split(".")[0];
+}
+
 /** Get category config for a dotted node type like "filter.by_metric". */
 export function getNodeCategory(nodeType: string): NodeCategoryConfig {
-  const category = nodeType.split(".")[0];
-  return NODE_CONFIG[category] ?? NODE_CONFIG.source;
+  return NODE_CONFIG[getNodeCategoryName(nodeType)] ?? NODE_CONFIG.source;
+}
+
+/** Format a dotted node type into a human-readable display name (e.g. "by_metric" → "by metric"). */
+export function formatNodeTypeName(nodeType: string): string {
+  return nodeType.split(".").pop()?.replace(/_/g, " ") ?? nodeType;
 }
 
 /** Per-track audit record from backend TrackDecision. */

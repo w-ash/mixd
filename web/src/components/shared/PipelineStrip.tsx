@@ -8,7 +8,7 @@
 
 import { Check, Loader2, X } from "lucide-react";
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import type { NodeStatus } from "@/hooks/useWorkflowExecution";
+import type { NodeStatus } from "@/lib/sse-types";
 import { cn } from "@/lib/utils";
 import { getNodeCategory } from "@/lib/workflow-config";
 

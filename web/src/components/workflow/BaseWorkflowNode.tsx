@@ -1,8 +1,9 @@
 import { Handle, Position } from "@xyflow/react";
 import type { LucideIcon } from "lucide-react";
 
-import type { NodeExecutionStatus } from "@/hooks/useWorkflowExecution";
+import type { NodeExecutionStatus } from "@/lib/sse-types";
 import { cn } from "@/lib/utils";
+import type { DiffStatus } from "@/lib/workflow-diff";
 
 export interface WorkflowNodeData {
   taskId: string;
@@ -12,6 +13,9 @@ export interface WorkflowNodeData {
   outputTrackCount?: number;
   inputTrackCount?: number;
   errorMessage?: string;
+  mode?: "view" | "edit";
+  selected?: boolean;
+  diffStatus?: DiffStatus;
 }
 
 interface BaseWorkflowNodeProps {
@@ -58,14 +62,31 @@ export function BaseWorkflowNode({
   const statusStyle = status ? STATUS_STYLES[status] : undefined;
   const resolvedAccent = statusStyle?.accent ?? accentColor;
 
+  const diffBorder =
+    data.diffStatus === "added"
+      ? "ring-2 ring-status-connected/60"
+      : data.diffStatus === "removed"
+        ? "ring-2 ring-destructive/60 opacity-50 line-through"
+        : data.diffStatus === "modified"
+          ? "ring-2 ring-[oklch(0.8_0.14_85)]/60"
+          : undefined;
+
+  const isEditMode = data.mode === "edit";
+  const hideTarget = isEditMode && data.nodeType.startsWith("source");
+  const hideSource = isEditMode && data.nodeType.startsWith("destination");
+
   return (
     <>
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      {!hideTarget && (
+        <Handle type="target" position={Position.Left} className="!bg-border" />
+      )}
       <div
         className={cn(
           "relative flex min-w-[180px] max-w-[280px] items-start gap-3 rounded-lg border bg-surface-elevated px-3 py-2.5 shadow-elevated transition-all duration-300",
           statusStyle?.border ?? "border-border",
           statusStyle?.glow,
+          data.selected && "ring-2 ring-primary",
+          diffBorder,
         )}
       >
         <div
@@ -122,7 +143,13 @@ export function BaseWorkflowNode({
           ) : null}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} className="!bg-border" />
+      {!hideSource && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!bg-border"
+        />
+      )}
     </>
   );
 }

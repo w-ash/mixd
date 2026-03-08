@@ -41,6 +41,14 @@ from src.application.use_cases.workflow_runs import (
     RunWorkflowCommand,
     RunWorkflowUseCase,
 )
+from src.application.use_cases.workflow_versions import (
+    GetWorkflowVersionCommand,
+    GetWorkflowVersionUseCase,
+    ListWorkflowVersionsCommand,
+    ListWorkflowVersionsUseCase,
+    RevertWorkflowVersionCommand,
+    RevertWorkflowVersionUseCase,
+)
 import src.application.workflows.node_catalog as _node_catalog  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers nodes
 from src.application.workflows.node_registry import list_nodes
 from src.application.workflows.validation import (
@@ -55,6 +63,7 @@ from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.workflows import (
     CreateWorkflowRequest,
     NodeTypeInfoSchema,
+    PreviewStartedResponse,
     UpdateWorkflowRequest,
     WorkflowDetailSchema,
     WorkflowRunDetailSchema,
@@ -64,9 +73,11 @@ from src.interface.api.schemas.workflows import (
     WorkflowValidationErrorSchema,
     WorkflowValidationRequest,
     WorkflowValidationResponse,
+    WorkflowVersionSchema,
     schema_to_workflow_def,
     to_run_detail,
     to_run_summary,
+    to_version_schema,
     to_workflow_detail,
     to_workflow_summary,
 )
@@ -165,6 +176,46 @@ async def validate_workflow(
         valid=len(errors) == 0,
         errors=[WorkflowValidationErrorSchema(**e) for e in errors],
     )
+
+
+# ---------------------------------------------------------------------------
+# Preview endpoints (dry-run execution)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/preview", status_code=202)
+async def preview_unsaved_workflow(
+    body: CreateWorkflowRequest,
+) -> PreviewStartedResponse:
+    """Preview an unsaved workflow definition (dry-run). Returns operation_id for SSE."""
+    definition = schema_to_workflow_def(body.definition)
+    return await _start_preview(definition)
+
+
+@router.post("/{workflow_id}/preview", status_code=202)
+async def preview_saved_workflow(
+    workflow_id: int,
+) -> PreviewStartedResponse:
+    """Preview a saved workflow (dry-run). Returns operation_id for SSE."""
+    command = GetWorkflowCommand(workflow_id=workflow_id)
+    result = await execute_use_case(
+        lambda uow: GetWorkflowUseCase().execute(command, uow)
+    )
+    return await _start_preview(result.workflow.definition)
+
+
+async def _start_preview(workflow_def: WorkflowDef) -> PreviewStartedResponse:
+    """Shared logic: register SSE queue, launch background preview."""
+    operation_id = str(uuid4())
+    registry = get_operation_registry()
+    sse_queue = await registry.register(operation_id)
+
+    launch_background(
+        f"workflow_preview_{operation_id}",
+        lambda: _execute_preview_background(operation_id, workflow_def, sse_queue),
+    )
+
+    return PreviewStartedResponse(operation_id=operation_id)
 
 
 @router.get("/{workflow_id}")
@@ -274,6 +325,47 @@ async def get_workflow_run(workflow_id: int, run_id: int) -> WorkflowRunDetailSc
 
 
 # ---------------------------------------------------------------------------
+# Version endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{workflow_id}/versions")
+async def list_workflow_versions(
+    workflow_id: int,
+) -> list[WorkflowVersionSchema]:
+    """List version history for a workflow."""
+    command = ListWorkflowVersionsCommand(workflow_id=workflow_id)
+    result = await execute_use_case(
+        lambda uow: ListWorkflowVersionsUseCase().execute(command, uow)
+    )
+    return [to_version_schema(v) for v in result.versions]
+
+
+@router.get("/{workflow_id}/versions/{version}")
+async def get_workflow_version(
+    workflow_id: int, version: int
+) -> WorkflowVersionSchema:
+    """Get a specific version with full definition."""
+    command = GetWorkflowVersionCommand(workflow_id=workflow_id, version=version)
+    result = await execute_use_case(
+        lambda uow: GetWorkflowVersionUseCase().execute(command, uow)
+    )
+    return to_version_schema(result.version)
+
+
+@router.post("/{workflow_id}/versions/{version}/revert")
+async def revert_workflow_version(
+    workflow_id: int, version: int
+) -> WorkflowDetailSchema:
+    """Revert a workflow to a previous version. Creates a new version record."""
+    command = RevertWorkflowVersionCommand(workflow_id=workflow_id, version=version)
+    result = await execute_use_case(
+        lambda uow: RevertWorkflowVersionUseCase().execute(command, uow)
+    )
+    return to_workflow_detail(result.workflow)
+
+
+# ---------------------------------------------------------------------------
 # Background execution (SSE lifecycle only — business logic in use case)
 # ---------------------------------------------------------------------------
 
@@ -338,20 +430,23 @@ def _terminal_sse_event(
     event_id: str,
     event_type: str,
     operation_id: str,
-    run_id: int,
     status: RunStatus,
+    *,
+    run_id: int | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build a terminal SSE event dict with shared structure."""
+    data: dict[str, Any] = {
+        "operation_id": operation_id,
+        "final_status": status,
+        **extra,
+    }
+    if run_id is not None:
+        data["run_id"] = run_id
     return {
         "id": event_id,
         "event": event_type,
-        "data": {
-            "operation_id": operation_id,
-            "run_id": run_id,
-            "final_status": status,
-            **extra,
-        },
+        "data": data,
     }
 
 
@@ -381,8 +476,8 @@ async def _execute_workflow_background(
                     "evt_final",
                     WorkflowConstants.SSE_EVENT_COMPLETE,
                     operation_id,
-                    run_id,
                     WorkflowConstants.RUN_STATUS_COMPLETED,
+                    run_id=run_id,
                     output_track_count=run_result.output_track_count,
                     duration_ms=run_result.duration_ms,
                 )
@@ -393,8 +488,8 @@ async def _execute_workflow_background(
                     "evt_error",
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,
-                    run_id,
                     WorkflowConstants.RUN_STATUS_FAILED,
+                    run_id=run_id,
                     error_message=(run_result.error_message or "Unknown error")[
                         : WorkflowConstants.SSE_ERROR_MAX_LENGTH
                     ],
@@ -409,9 +504,66 @@ async def _execute_workflow_background(
                     "evt_error",
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,
-                    run_id,
                     WorkflowConstants.RUN_STATUS_FAILED,
+                    run_id=run_id,
                     error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
+                )
+            )
+
+    finally:
+        await finalize_sse_operation(operation_id)
+
+
+async def _execute_preview_background(
+    operation_id: str,
+    workflow_def: WorkflowDef,
+    sse_queue: asyncio.Queue[Any],
+) -> None:
+    """Execute workflow preview in background, pushing SSE events.
+
+    Delegates to ``PreviewWorkflowUseCase`` which runs with ``dry_run=True``.
+    No run records are created — previews are ephemeral.
+    """
+    from src.application.use_cases.workflow_preview import PreviewWorkflowUseCase
+
+    try:
+        use_case = PreviewWorkflowUseCase()
+        preview_result = await use_case.execute(workflow_def, sse_queue=sse_queue)
+
+        await sse_queue.put(
+            _terminal_sse_event(
+                "evt_final",
+                WorkflowConstants.SSE_EVENT_PREVIEW_COMPLETE,
+                operation_id,
+                WorkflowConstants.RUN_STATUS_COMPLETED,
+                output_tracks=preview_result.output_tracks,
+                node_summaries=[
+                    {
+                        "node_id": s.node_id,
+                        "node_type": s.node_type,
+                        "track_count": s.track_count,
+                        "sample_titles": s.sample_titles,
+                    }
+                    for s in preview_result.node_summaries
+                ],
+                duration_ms=preview_result.duration_ms,
+            )
+        )
+
+    except (CancelledError, Exception) as exc:
+        error_msg = (
+            WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
+            if isinstance(exc, CancelledError)
+            else str(exc)[: WorkflowConstants.SSE_ERROR_MAX_LENGTH]
+        )
+        with contextlib.suppress(CancelledError, Exception):
+            await sse_queue.put(
+                _terminal_sse_event(
+                    "evt_error",
+                    WorkflowConstants.SSE_EVENT_ERROR,
+                    operation_id,
+                    WorkflowConstants.RUN_STATUS_FAILED,
+                    error_message=error_msg,
                 )
             )
 

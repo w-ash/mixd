@@ -153,6 +153,23 @@ def parse_workflow_def(raw: dict[str, Any]) -> WorkflowDef:
 
 
 @define(frozen=True, slots=True)
+class WorkflowVersion:
+    """Snapshot of a workflow definition at a point in time.
+
+    Created automatically when ``UpdateWorkflowUseCase`` modifies a workflow's
+    tasks. Each version captures the *previous* definition before the change
+    and a human-readable change summary.
+    """
+
+    id: int | None = None
+    workflow_id: int = 0
+    version: int = 1
+    definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
+    created_at: datetime | None = None
+    change_summary: str | None = None
+
+
+@define(frozen=True, slots=True)
 class Workflow:
     """Persisted workflow wrapping a WorkflowDef with database identity.
 

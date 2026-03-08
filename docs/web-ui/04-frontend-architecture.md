@@ -1,7 +1,7 @@
 # Frontend Architecture
 
 > Architecture decisions and project structure for the React web UI.
-> Stack choices, component catalog, and project layout reflect v0.4.1 implementation.
+> Stack choices, component catalog, and project layout reflect v0.4.2 implementation.
 > Future components and hooks are noted where planned.
 
 ---
@@ -228,7 +228,9 @@ web/
 │   │       ├── OperationProgress.tsx  Progress bar + metrics for running operations
 │   │       ├── OperationProgress.test.tsx
 │   │       ├── PipelineStrip.tsx   Compact horizontal workflow visualization (v0.4.2)
+│   │       ├── PipelineStrip.test.tsx
 │   │       ├── LastRunCard.tsx     Last run summary with version indicator (v0.4.2)
+│   │       ├── LastRunCard.test.tsx
 │   │       ├── TablePagination.tsx  Page controls for paginated list views
 │   │       └── TablePagination.test.tsx
 │   │   └── workflow/                Workflow DAG components (v0.4.0+, used in 3 contexts below)
@@ -253,28 +255,49 @@ web/
 │   │       #      but components retained for contexts 1 and 3)
 │   │       #   3. WorkflowEditor (v0.4.3): interactive mode — same components with drag/connect/delete
 │   ├── stores/
-│   │   └── useWorkflowStore.ts     Zustand store for React Flow canvas state
+│   │   ├── useWorkflowStore.ts     Zustand store for React Flow canvas state
+│   │   └── editor-store.ts        Zustand store for workflow editor state (v0.4.3)
 │   ├── hooks/
 │   │   ├── usePagination.ts         URL-state pagination (page param ↔ offset/limit)
 │   │   ├── usePagination.test.tsx
+│   │   ├── useSSEConnection.ts      Shared SSE lifecycle hook (transport layer)
+│   │   ├── useSSEConnection.test.ts
+│   │   ├── useNodeStatuses.ts       Shared node status Map with snake→camel mapping
+│   │   ├── useNodeStatuses.test.ts
 │   │   ├── useOperationProgress.ts  SSE subscription for real-time operation progress
 │   │   ├── useOperationProgress.test.ts
 │   │   ├── useWorkflowExecution.ts  Workflow execution lifecycle (run trigger, SSE node status, state)
-│   │   └── useWorkflowExecution.test.ts
+│   │   ├── useWorkflowExecution.test.ts
+│   │   ├── useWorkflowPreview.ts    Workflow preview/dry-run lifecycle (v0.4.3)
+│   │   └── useWorkflowPreview.test.ts
 │   ├── lib/
-│   │   └── utils.ts                 shadcn cn() utility
+│   │   ├── utils.ts                 shadcn cn() utility
+│   │   ├── sse-types.ts             Shared SSE types (NodeStatus, NodeExecutionStatus)
+│   │   ├── workflow-config.ts       Workflow node config metadata
+│   │   ├── workflow-layout.ts       ELKjs auto-layout utilities
+│   │   ├── workflow-diff.ts         Workflow definition diffing utilities
+│   │   └── workflow-diff.test.ts
 │   ├── pages/                       Route-level page components
 │   │   ├── Dashboard.tsx            Landing page (stats overview)
 │   │   ├── Dashboard.test.tsx
 │   │   ├── Imports.tsx              Import operations with real-time progress
 │   │   ├── Imports.test.tsx
+│   │   ├── Library.tsx              Track browsing, search, pagination (v0.3.2)
+│   │   ├── Library.test.tsx
+│   │   ├── TrackDetail.tsx          Track metadata, mappings, likes, play history (v0.3.2)
+│   │   ├── TrackDetail.test.tsx
 │   │   ├── Playlists.tsx            List view with table + pagination
 │   │   ├── Playlists.test.tsx
 │   │   ├── PlaylistDetail.tsx       Track table + edit/delete dialogs
 │   │   ├── PlaylistDetail.test.tsx
 │   │   ├── Settings.tsx             Connector cards grid
-│   │   ├── WorkflowRunDetail.tsx     Historical run view with DAG from definition_snapshot (v0.4.1)
-│   │   └── Settings.test.tsx
+│   │   ├── Settings.test.tsx
+│   │   ├── Workflows.tsx            Workflow list with per-row run buttons (v0.4.0, v0.4.2)
+│   │   ├── Workflows.test.tsx
+│   │   ├── WorkflowDetail.tsx       Run-first layout: pipeline strip + last run card (v0.4.2)
+│   │   ├── WorkflowDetail.test.tsx
+│   │   ├── WorkflowRunDetail.tsx    Historical run view with DAG from definition_snapshot (v0.4.1)
+│   │   └── WorkflowRunDetail.test.tsx
 │   ├── test/                        Test infrastructure
 │   │   ├── setup.ts                 MSW server bootstrap + jest-dom matchers
 │   │   └── test-utils.tsx           renderWithProviders + re-exports
@@ -292,13 +315,11 @@ web/
 └── package.json
 ```
 
-> **Test coverage**: 18 test files, ~152 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
+> **Test coverage**: 28 test files, ~213 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
 > **Future pages** (not yet implemented): `WorkflowEditor.tsx` (v0.4.3), `PlaylistLinks.tsx` (v0.4.4). All other pages (Dashboard, Library, TrackDetail, Playlists, Workflows, WorkflowDetail, WorkflowRunDetail, Imports, Settings) are implemented.
 >
 > **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
->
-> **Future hooks**: `useDebounce.ts` (for search, v0.3.2).
 
 ---
 
@@ -336,12 +357,16 @@ The `customFetch` mutator **must** return `{ data: body, status, headers }` — 
 - Returns `AsyncIterable<SSEEvent>` — consumers use `for await...of` with no custom abort plumbing
 - Separated from React hooks so tests can mock the module without fighting jsdom's incomplete Web Streams API
 
-**React hook** (`hooks/useOperationProgress.ts`):
-- `useOperationProgress(operationId, { invalidateKeys })` — connects to SSE, parses typed events, manages lifecycle
-- Handles event types: `started`, `progress`, `complete`, `error`
-- Invalidates specified Tanstack Query keys on `complete` or `error` events
-- Suppresses `AbortError` from `fetch()` during cleanup — expected lifecycle, not a real error
-- `DEFAULT_PROGRESS` constant eliminates repeated zero-state object literals across handlers
+**Shared SSE hook infrastructure** (`hooks/useSSEConnection.ts`, `hooks/useNodeStatuses.ts`, `lib/sse-types.ts`):
+- `useSSEConnection(operationId, { onEvent, onStreamEnd })` — owns the full SSE lifecycle (AbortController, `connectToSSE`, `for await` loop, AbortError suppression, malformed-JSON skip). Consumer hooks only handle event semantics via callback.
+- `onEvent` stored in a ref so the effect only depends on `operationId` — callers don't need to memoize callbacks
+- `useNodeStatuses()` — encapsulates the `node_status` Map update logic and snake_case→camelCase mapping shared by execution and preview hooks
+- `NodeStatus` and `NodeExecutionStatus` types live in `lib/sse-types.ts`, re-exported from `useWorkflowExecution.ts` to preserve import paths
+
+**Consumer hooks** (compose the shared infrastructure):
+- `useOperationProgress(operationId, { invalidateKeys })` — composes `useSSEConnection`, handles `started`/`progress`/`complete`/`error`/`sub_operation_*` events, invalidates Tanstack Query keys on completion
+- `useWorkflowExecution(workflowId)` — composes `useSSEConnection` + `useNodeStatuses`, manages execution lifecycle (mutation → SSE → node status → query invalidation)
+- `useWorkflowPreview()` — composes `useSSEConnection` + `useNodeStatuses`, manages preview lifecycle for saved and unsaved workflows (v0.4.3)
 
 ### Component Strategy
 
@@ -411,8 +436,9 @@ Dark mode is the default — CSS variables are the single source of truth. Light
 | Server state (tracks, playlists, etc.) | Tanstack Query (cache, refetch, optimistic updates) |
 | URL state (filters, pagination, search) | React Router search params |
 | Local UI state (modal open, form values) | React `useState` / `useReducer` |
-| Operation progress | `useOperationProgress` hook + SSE via `connectToSSE` transport |
-| Workflow execution | `useWorkflowExecution` hook — used on detail page (inline execution) and list page (per-row instances) (v0.4.2) |
+| Operation progress | `useOperationProgress` hook (composes `useSSEConnection`) |
+| Workflow execution | `useWorkflowExecution` hook (composes `useSSEConnection` + `useNodeStatuses`) — used on detail page (inline execution) and list page (per-row instances) (v0.4.2) |
+| Workflow preview | `useWorkflowPreview` hook (composes `useSSEConnection` + `useNodeStatuses`) — dry-run execution for editor (v0.4.3) |
 | Workflow canvas (editor) | Zustand `useWorkflowStore` — React Flow nodes, edges, viewport, undo/redo (v0.4.3) |
 
 No global state store. If cross-page state emerges, evaluate React Context before reaching for a library.

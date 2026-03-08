@@ -18,6 +18,7 @@ from src.domain.entities.workflow import (
     WorkflowDef,
     WorkflowRun,
     WorkflowTaskDef,
+    WorkflowVersion,
 )
 
 # --- Definition schemas (mirror domain entities) ---
@@ -163,6 +164,40 @@ class WorkflowRunStartedResponse(BaseModel):
     run_id: int
 
 
+# --- Preview schemas ---
+
+
+class NodePreviewSummarySchema(BaseModel):
+    node_id: str
+    node_type: str
+    track_count: int
+    sample_titles: list[str] = []
+
+
+# --- Version schemas ---
+
+
+class WorkflowVersionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workflow_id: int
+    version: int
+    definition: WorkflowDefSchema
+    created_at: datetime | None = None
+    change_summary: str | None = None
+
+
+class PreviewStartedResponse(BaseModel):
+    operation_id: str
+
+
+class PreviewResultSchema(BaseModel):
+    output_tracks: list[dict[str, Any]] = []
+    node_summaries: list[NodePreviewSummarySchema] = []
+    duration_ms: int
+
+
 # --- Converters ---
 
 
@@ -252,6 +287,18 @@ def schema_to_workflow_def(schema: WorkflowDefSchema) -> WorkflowDef:
             )
             for t in schema.tasks
         ],
+    )
+
+
+def to_version_schema(v: WorkflowVersion) -> WorkflowVersionSchema:
+    """Convert a domain WorkflowVersion to its API schema."""
+    return WorkflowVersionSchema(
+        id=v.id or 0,
+        workflow_id=v.workflow_id,
+        version=v.version,
+        definition=_def_to_schema(v.definition),
+        created_at=v.created_at,
+        change_summary=v.change_summary,
     )
 
 

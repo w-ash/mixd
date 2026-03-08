@@ -592,6 +592,31 @@ class DBWorkflow(BaseEntity):
     )
 
 
+class DBWorkflowVersion(DatabaseModel, TimestampMixin):
+    """Snapshot of a workflow definition at a point in time.
+
+    Created automatically when UpdateWorkflowUseCase modifies a workflow's
+    task pipeline. Stores the *previous* definition before the change.
+    """
+
+    __tablename__: str = "workflow_versions"
+
+    workflow_id: Mapped[int] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+    )
+    version: Mapped[int] = mapped_column(nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    change_summary: Mapped[str | None] = mapped_column(String(1000))
+
+    # Relationships
+    workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
+
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_workflow_version"),
+        Index("ix_workflow_versions_workflow_id", "workflow_id"),
+    )
+
+
 class DBWorkflowRun(DatabaseModel, TimestampMixin):
     """Persisted record of a single workflow execution.
 

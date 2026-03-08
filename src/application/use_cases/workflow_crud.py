@@ -7,7 +7,7 @@ transaction boundaries.
 
 from attrs import define
 
-from src.domain.entities.workflow import Workflow, WorkflowDef
+from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowVersion
 from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
@@ -15,6 +15,30 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 def _tasks_changed(old_def: WorkflowDef, new_def: WorkflowDef) -> bool:
     """Compare task lists to detect definition changes requiring a version bump."""
     return old_def.tasks != new_def.tasks
+
+
+def _generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
+    """Generate a human-readable summary of changes between two definitions."""
+    old_by_id = {t.id: t for t in old_def.tasks}
+    new_by_id = {t.id: t for t in new_def.tasks}
+
+    added = new_by_id.keys() - old_by_id.keys()
+    removed = old_by_id.keys() - new_by_id.keys()
+    common = old_by_id.keys() & new_by_id.keys()
+    modified = {tid for tid in common if old_by_id[tid] != new_by_id[tid]}
+
+    parts: list[str] = []
+    if added:
+        parts.append(f"Added {len(added)} node{'s' if len(added) != 1 else ''}")
+    if removed:
+        parts.append(f"Removed {len(removed)} node{'s' if len(removed) != 1 else ''}")
+    if modified:
+        parts.append(f"Modified {len(modified)} node{'s' if len(modified) != 1 else ''}")
+
+    if old_def.name != new_def.name:
+        parts.append(f"Renamed to '{new_def.name}'")
+
+    return ", ".join(parts) if parts else "Definition updated"
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +172,24 @@ class UpdateWorkflowUseCase:
 
             # Bump version when task pipeline changes; preserve on name/description-only edits
             new_version = existing.definition_version
-            if _tasks_changed(existing.definition, command.definition):
+            tasks_differ = _tasks_changed(existing.definition, command.definition)
+            if tasks_differ:
                 new_version = existing.definition_version + 1
+
+            # Snapshot the current definition as a version record before overwriting
+            if tasks_differ and existing.id is not None:
+                version_repo = uow.get_workflow_version_repository()
+                next_ver = await version_repo.get_max_version_number(existing.id) + 1
+                change_summary = _generate_change_summary(
+                    existing.definition, command.definition
+                )
+                snapshot = WorkflowVersion(
+                    workflow_id=existing.id,
+                    version=next_ver,
+                    definition=existing.definition,
+                    change_summary=change_summary,
+                )
+                await version_repo.create_version(snapshot)
 
             updated = Workflow(
                 id=existing.id,

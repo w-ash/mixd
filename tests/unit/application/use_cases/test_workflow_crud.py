@@ -1,7 +1,10 @@
 """Unit tests for workflow CRUD use cases.
 
 Tests list, get, create, update, and delete operations using mock UoW.
+Also verifies that UpdateWorkflowUseCase creates version records.
 """
+
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,6 +19,7 @@ from src.application.use_cases.workflow_crud import (
     ListWorkflowsUseCase,
     UpdateWorkflowCommand,
     UpdateWorkflowUseCase,
+    _generate_change_summary,
 )
 from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 from tests.fixtures import (
@@ -133,7 +137,10 @@ class TestUpdateWorkflow:
         ]
         new_def = make_workflow_def(tasks=new_tasks)
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
-        uow = make_mock_uow(workflow_repo=repo)
+        version_repo = AsyncMock()
+        version_repo.get_max_version_number.return_value = 0
+        version_repo.create_version.side_effect = lambda v: v
+        uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
             UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
@@ -178,6 +185,76 @@ class TestUpdateWorkflow:
                 UpdateWorkflowCommand(workflow_id=999, definition=make_workflow_def()),
                 uow,
             )
+
+    async def test_creates_version_on_task_change(self) -> None:
+        """When tasks change, a version snapshot is created before saving."""
+        from src.domain.entities.workflow import WorkflowTaskDef
+
+        existing = make_workflow(id=1, definition_version=3)
+        new_tasks = [
+            WorkflowTaskDef(
+                id="source", type="source.liked_tracks", config={"service": "spotify"}
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_metric",
+                config={"metric_name": "play_count", "min_value": 1},
+                upstream=["source"],
+            ),
+        ]
+        new_def = make_workflow_def(tasks=new_tasks)
+        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
+        version_repo = AsyncMock()
+        version_repo.get_max_version_number.return_value = 0
+        version_repo.create_version.side_effect = lambda v: v
+        uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
+
+        await UpdateWorkflowUseCase().execute(
+            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+        )
+
+        version_repo.create_version.assert_called_once()
+        snapshot = version_repo.create_version.call_args[0][0]
+        assert snapshot.version == 1
+        assert snapshot.workflow_id == 1
+        assert snapshot.definition == existing.definition
+
+    async def test_no_version_on_name_only_change(self) -> None:
+        """No version is created when only name/description changes."""
+        existing = make_workflow(id=1, definition_version=5)
+        new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
+        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
+        version_repo = AsyncMock()
+        uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
+
+        await UpdateWorkflowUseCase().execute(
+            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+        )
+
+        version_repo.create_version.assert_not_called()
+
+
+class TestGenerateChangeSummary:
+    def test_added_nodes(self) -> None:
+        from src.domain.entities.workflow import WorkflowTaskDef
+
+        old = make_workflow_def()
+        new_tasks = list(old.tasks) + [
+            WorkflowTaskDef(id="filter", type="filter.by_metric", config={"metric_name": "play_count"}, upstream=["source"]),
+        ]
+        new = make_workflow_def(tasks=new_tasks)
+        assert "Added 1 node" in _generate_change_summary(old, new)
+
+    def test_removed_nodes(self) -> None:
+        from src.domain.entities.workflow import WorkflowTaskDef
+
+        old_tasks = [
+            WorkflowTaskDef(id="a", type="source.liked_tracks", config={"service": "spotify"}),
+            WorkflowTaskDef(id="b", type="filter.by_metric", config={"metric_name": "play_count"}, upstream=["a"]),
+        ]
+        old = make_workflow_def(tasks=old_tasks)
+        new = make_workflow_def(tasks=[old_tasks[0]])
+        assert "Removed 1 node" in _generate_change_summary(old, new)
 
 
 class TestDeleteWorkflow:

@@ -113,10 +113,14 @@ class WorkflowConstants:
     # Cancellation diagnostic message (DB + SSE)
     CANCELLED_BY_SERVER_MESSAGE: Final = "Cancelled by server (possible reload)"
 
+    # Preview
+    PREVIEW_OUTPUT_LIMIT: Final = 20
+
     # SSE event type names
     SSE_EVENT_NODE_STATUS: Final = "node_status"
     SSE_EVENT_COMPLETE: Final = "complete"
     SSE_EVENT_ERROR: Final = "error"
+    SSE_EVENT_PREVIEW_COMPLETE: Final = "preview_complete"
 
 
 class MatchMethod:

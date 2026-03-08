@@ -41,12 +41,15 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 logger = get_logger(__name__).bind(service="workflow_runs")
 
 
-def _serialize_output_tracks(tracks: list[Track]) -> list[dict[str, object]]:
+def serialize_output_tracks(
+    tracks: list[Track], limit: int | None = None
+) -> list[dict[str, object]]:
     """Serialize result tracks into lightweight dicts for the run record.
 
     Shape matches what the frontend OutputTracksTable expects:
     track_id, title, artists, rank.
     """
+    subset = tracks[:limit] if limit is not None else tracks
     return [
         {
             "track_id": track.id or 0,
@@ -56,7 +59,7 @@ def _serialize_output_tracks(tracks: list[Track]) -> list[dict[str, object]]:
             else "Unknown",
             "rank": rank,
         }
-        for rank, track in enumerate(tracks, 1)
+        for rank, track in enumerate(subset, 1)
     ]
 
 
@@ -303,7 +306,7 @@ class ExecuteWorkflowRunUseCase:
                 # 4. Update run → COMPLETED
                 duration_ms = timer.stop()
                 output_track_count = len(result.tracks) if result.tracks else None
-                output_tracks = _serialize_output_tracks(result.tracks)
+                output_tracks = serialize_output_tracks(result.tracks)
 
                 await self.update_run_status(
                     run_id,

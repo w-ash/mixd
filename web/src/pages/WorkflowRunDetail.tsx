@@ -31,9 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { NodeStatus } from "@/hooks/useWorkflowExecution";
 import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
 import { formatDate, formatDuration } from "@/lib/format";
+import type { NodeStatus } from "@/lib/sse-types";
 import { cn } from "@/lib/utils";
 import { getNodeCategory, type TrackDecision } from "@/lib/workflow-config";
 
