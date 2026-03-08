@@ -1,10 +1,11 @@
-"""Tests for LastFM client initialization with the httpx-based implementation."""
+"""Tests for LastFM client initialization and Last.fm double-decode workaround."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
-from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+from src.infrastructure.connectors.lastfm.client import LastFMAPIClient, _sign_params
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
 
@@ -101,3 +102,112 @@ class TestLastFMAPIError:
         """Test that details attribute stores the message."""
         error = LastFMAPIError(4, "Authentication Failed")
         assert error.details == "Authentication Failed"
+
+
+def _make_ok_response(json_body: dict | None = None) -> httpx.Response:
+    """Create a fake 200 OK response with optional JSON body."""
+    return httpx.Response(
+        200,
+        json=json_body or {"track": {}},
+        request=httpx.Request("GET", "https://ws.audioscrobbler.com/2.0/"),
+    )
+
+
+def _make_client() -> LastFMAPIClient:
+    """Create a LastFMAPIClient with mocked settings and httpx client."""
+    with patch("src.infrastructure.connectors.lastfm.client.settings") as s:
+        s.credentials.lastfm_key = "test_key"
+        s.credentials.lastfm_secret.get_secret_value.return_value = "test_secret"
+        s.credentials.lastfm_username = "test_user"
+        s.credentials.lastfm_password = None
+        return LastFMAPIClient()
+
+
+class TestDoubleDecodeWorkaround:
+    """Tests for Last.fm double URL decoding workaround.
+
+    Last.fm's PHP stack double-decodes URL parameters. We pre-encode param
+    values with urllib.parse.quote() so httpx sends double-encoded values
+    that Last.fm correctly resolves back to the originals.
+    """
+
+    async def test_get_params_pre_encoded_for_special_chars(self):
+        """GET params containing + are pre-encoded so httpx double-encodes them."""
+        client = _make_client()
+        mock_get = AsyncMock(return_value=_make_ok_response())
+        client._client.get = mock_get  # type: ignore[assignment]
+
+        await client._api_request("track.getInfo", {"track": "+1", "artist": "B.Miles"})
+
+        _, kwargs = mock_get.call_args
+        params = kwargs["params"]
+        # + should be pre-encoded as %2B (httpx will then encode % → %25 on the wire)
+        assert params["track"] == "%2B1"
+        assert params["artist"] == "B.Miles"  # No special chars → unchanged
+
+    async def test_post_data_pre_encoded_for_special_chars(self):
+        """POST data containing special chars is pre-encoded."""
+        client = _make_client()
+        client.api_secret = "test_secret"
+        # Pre-set session key to skip auth flow
+        client._session_key = "fake_sk"
+
+        mock_post = AsyncMock(return_value=_make_ok_response())
+        client._client.post = mock_post  # type: ignore[assignment]
+
+        await client._api_request(
+            "track.love",
+            {"track": "+1", "artist": "B.Miles"},
+            authenticated=True,
+        )
+
+        _, kwargs = mock_post.call_args
+        data = kwargs["data"]
+        assert data["track"] == "%2B1"
+        assert data["artist"] == "B.Miles"
+
+    async def test_signature_uses_original_values(self):
+        """api_sig is computed from original (un-encoded) values, not pre-encoded."""
+        client = _make_client()
+        client.api_secret = "test_secret"
+        client._session_key = "fake_sk"
+
+        mock_post = AsyncMock(return_value=_make_ok_response())
+        client._client.post = mock_post  # type: ignore[assignment]
+
+        await client._api_request(
+            "track.love",
+            {"track": "+1", "artist": "B.Miles"},
+            authenticated=True,
+        )
+
+        _, kwargs = mock_post.call_args
+        data = kwargs["data"]
+
+        # Recompute expected signature from original (un-encoded) values
+        sig_params = {
+            "method": "track.love",
+            "api_key": "test_key",
+            "track": "+1",  # Original, NOT %2B1
+            "artist": "B.Miles",
+            "sk": "fake_sk",
+        }
+        expected_sig = _sign_params(sig_params, "test_secret")
+        # The sent api_sig should match (quote won't change a hex MD5 string)
+        assert data["api_sig"] == expected_sig
+
+    async def test_unicode_chars_pre_encoded(self):
+        """Unicode characters (é, ó) are pre-encoded for the double-decode workaround."""
+        client = _make_client()
+        mock_get = AsyncMock(return_value=_make_ok_response())
+        client._client.get = mock_get  # type: ignore[assignment]
+
+        await client._api_request(
+            "track.getInfo", {"artist": "Beyoncé", "track": "Halo"}
+        )
+
+        _, kwargs = mock_get.call_args
+        params = kwargs["params"]
+        # é → %C3%A9 (pre-encoded; httpx will double-encode the % signs)
+        assert params["artist"] == "Beyonc%C3%A9"
+        assert params["track"] == "Halo"  # Plain ASCII unchanged

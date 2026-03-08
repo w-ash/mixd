@@ -12,8 +12,10 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_track
+from tests.fixtures import make_mock_metric_config, make_track
 from tests.fixtures.mocks import make_mock_uow
+
+_MOCK_METRIC_CONFIG = make_mock_metric_config()
 
 
 @pytest.fixture
@@ -86,7 +88,7 @@ class TestCreateCanonicalPlaylistUseCase:
             tracklist=tracklist,
             description="A test playlist",
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -104,7 +106,7 @@ class TestCreateCanonicalPlaylistUseCase:
             name="Playlist With New Tracks",
             tracklist=tracklist,
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         await use_case.execute(command, mock_uow)
 
@@ -121,7 +123,7 @@ class TestCreateCanonicalPlaylistUseCase:
             name="Playlist With Existing Tracks",
             tracklist=tracklist,
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         await use_case.execute(command, mock_uow)
 
@@ -139,7 +141,7 @@ class TestCreateCanonicalPlaylistUseCase:
             connector_name="spotify",
             connector_id="sp_playlist_123",
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -160,7 +162,7 @@ class TestCreateCanonicalPlaylistUseCase:
             tracklist=tracklist,
             metadata={"source": "workflow", "version": "1.0"},
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -181,7 +183,7 @@ class TestCreateCanonicalPlaylistUseCase:
             name="Failing Playlist",
             tracklist=tracklist,
         )
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         with pytest.raises(RuntimeError, match="DB error"):
             await use_case.execute(command, mock_uow)
@@ -192,7 +194,7 @@ class TestCreateCanonicalPlaylistUseCase:
         """Test that result includes non-negative execution time."""
         tracklist = TrackList(tracks=[make_track(1)])
         command = CreateCanonicalPlaylistCommand(name="Timed", tracklist=tracklist)
-        use_case = CreateCanonicalPlaylistUseCase()
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 

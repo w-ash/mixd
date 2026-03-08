@@ -13,6 +13,7 @@ from typing import Any, Literal
 from attrs import define, field
 
 NodeExecutionStatus = Literal["completed", "failed", "skipped"]
+RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 
 
 @define(frozen=True, slots=True)
@@ -146,3 +147,52 @@ class Workflow:
     source_template: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+@define(frozen=True, slots=True)
+class WorkflowRunNode:
+    """Per-node execution result within a workflow run.
+
+    Each node in a run gets a record tracking its lifecycle from pending
+    through running to completed/failed. Maps to ``workflow_run_nodes`` rows.
+    """
+
+    id: int | None = None
+    run_id: int | None = None
+    node_id: str = ""
+    node_type: str = ""
+    status: RunStatus = "pending"
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int = 0
+    input_track_count: int | None = None
+    output_track_count: int | None = None
+    error_message: str | None = None
+    execution_order: int = 0
+
+
+@define(frozen=True, slots=True)
+class WorkflowRun:
+    """Persisted record of a single workflow execution.
+
+    Created as PENDING before execution begins so the client has a ``run_id``
+    immediately. The background task updates status through RUNNING to
+    COMPLETED or FAILED. ``definition_snapshot`` freezes the workflow
+    definition at execution time — edits to the workflow after launch
+    don't affect an in-progress run.
+    """
+
+    id: int | None = None
+    workflow_id: int = 0
+    status: RunStatus = "pending"
+    definition_snapshot: WorkflowDef = field(
+        factory=lambda: WorkflowDef(id="", name="")
+    )
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
+    output_track_count: int | None = None
+    output_playlist_id: int | None = None
+    error_message: str | None = None
+    nodes: list[WorkflowRunNode] = field(factory=list)
+    created_at: datetime | None = None

@@ -263,7 +263,9 @@ class TestPlaylistSourceConnector:
             )
 
         mock_sync.assert_awaited_once_with("spotify", "sp-abc", uow)
-        mock_upsert.assert_awaited_once_with(cp, "spotify", "sp-abc", uow)
+        mock_upsert.assert_awaited_once()
+        call_args = mock_upsert.call_args
+        assert call_args.args[:4] == (cp, "spotify", "sp-abc", uow)
 
         tl = result["tracklist"]
         assert isinstance(tl, TrackList)

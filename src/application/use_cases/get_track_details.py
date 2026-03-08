@@ -15,6 +15,11 @@ from src.domain.repositories.interfaces import PlayAggregationResult, UnitOfWork
 
 
 @define(frozen=True, slots=True)
+class GetTrackDetailsCommand:
+    track_id: int
+
+
+@define(frozen=True, slots=True)
 class ConnectorMappingInfo:
     """Connector mapping details for display."""
 
@@ -101,21 +106,23 @@ class GetTrackDetailsUseCase:
     """Assemble full track details from multiple repositories."""
 
     async def execute(
-        self, track_id: int, uow: UnitOfWorkProtocol
+        self, command: GetTrackDetailsCommand, uow: UnitOfWorkProtocol
     ) -> TrackDetailsResult:
         """Fetch track with likes, play stats, and playlist memberships.
 
         Args:
-            track_id: Internal track ID.
+            command: Contains track_id to look up.
             uow: Unit of work for repository access.
 
         Returns:
             TrackDetailsResult with assembled metadata from 4 repositories.
         """
+        track_id = command.track_id
         async with uow:
-            track_repo = uow.get_track_repository()
-            track = await track_repo.get_by_id(track_id)
+            track = await uow.get_track_repository().get_by_id(track_id)
 
+            # Sequential: these are independent queries but SQLite serializes
+            # all operations. Parallelize with TaskGroup after PostgreSQL migration.
             like_repo = uow.get_like_repository()
             plays_repo = uow.get_plays_repository()
             playlist_repo = uow.get_playlist_repository()

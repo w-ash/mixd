@@ -11,6 +11,11 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)
+class ListPlaylistsCommand:
+    """Parameterless — exists for API uniformity."""
+
+
+@define(frozen=True, slots=True)
 class ListPlaylistsResult:
     """Result of listing playlists operation."""
 
@@ -27,10 +32,13 @@ class ListPlaylistsResult:
 class ListPlaylistsUseCase:
     """Use case for retrieving all stored playlists."""
 
-    async def execute(self, uow: UnitOfWorkProtocol) -> ListPlaylistsResult:
+    async def execute(
+        self, command: ListPlaylistsCommand, uow: UnitOfWorkProtocol
+    ) -> ListPlaylistsResult:
         """Execute the playlist listing operation.
 
         Args:
+            command: Parameterless command for API uniformity.
             uow: Unit of work for repository access.
 
         Returns:

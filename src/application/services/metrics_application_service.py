@@ -10,7 +10,7 @@ formats, and persisting results for future use.
 
 from typing import TYPE_CHECKING, Any
 
-from attrs import define, field
+from attrs import define
 
 from src.application.services.sub_operation_progress import (
     complete_sub_operation,
@@ -34,15 +34,6 @@ type _MetricsTuple = tuple[int, str, str, float | int | bool]
 logger = get_logger(__name__)
 
 
-def _default_metric_config() -> MetricConfigProvider:
-    """Provide default MetricConfigProvider from infrastructure."""
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
-
-    return MetricConfigProviderImpl()
-
-
 @define(slots=True)
 class MetricsApplicationService:
     """Coordinates metric resolution with intelligent caching and batch processing.
@@ -52,7 +43,39 @@ class MetricsApplicationService:
     through freshness-based caching and batch operations for large datasets.
     """
 
-    _metric_config: MetricConfigProvider = field(factory=_default_metric_config)
+    metric_config: MetricConfigProvider
+
+    @staticmethod
+    def _extract_metrics_from_metadata(
+        fresh_metadata: dict[int, dict[str, Any]],
+        metric_names: list[str],
+        field_map: dict[str, str],
+        connector: str,
+    ) -> list[_MetricsTuple]:
+        """Extract typed metric tuples from raw connector metadata.
+
+        Consolidates the value extraction + type conversion logic used by both
+        get_external_track_metrics() and batch_process_fresh_metadata().
+        Preserves bool/int types instead of coercing everything to float.
+        """
+        results: list[_MetricsTuple] = []
+        for track_id, track_metadata in fresh_metadata.items():
+            for metric_name in metric_names:
+                field_name = field_map.get(metric_name)
+                if not field_name:
+                    continue
+                value = track_metadata.get(field_name)
+                if value is None:
+                    continue
+                try:
+                    if isinstance(value, (bool, int, float)):
+                        converted = value
+                    else:
+                        converted = float(value)
+                    results.append((track_id, connector, metric_name, converted))
+                except ValueError, TypeError:
+                    logger.warning(f"Cannot convert {value} for {metric_name}")
+        return results
 
     async def get_external_track_metrics(
         self,
@@ -98,7 +121,7 @@ class MetricsApplicationService:
         )
 
         # Validate that all requested metrics are supported by this connector
-        available_metrics = self._metric_config.get_connector_metrics(connector)
+        available_metrics = self.metric_config.get_connector_metrics(connector)
         unsupported_metrics = [m for m in metric_names if m not in available_metrics]
         if unsupported_metrics:
             logger.warning(
@@ -115,7 +138,7 @@ class MetricsApplicationService:
         # Build field map from registered metric configurations
         field_map: dict[str, str] = {}
         for metric_name in metric_names:
-            field_name = self._metric_config.get_field_name(metric_name)
+            field_name = self.metric_config.get_field_name(metric_name)
             if field_name:
                 field_map[metric_name] = field_name
             else:
@@ -135,7 +158,7 @@ class MetricsApplicationService:
         async with uow:
             for metric_name in field_map:
                 # Check cache for fresh metrics
-                max_age_hours = self._metric_config.get_metric_freshness(metric_name)
+                max_age_hours = self.metric_config.get_metric_freshness(metric_name)
                 metrics_repo = uow.get_metrics_repository()
 
                 cached_values = await metrics_repo.get_track_metrics(
@@ -223,43 +246,30 @@ class MetricsApplicationService:
                         )
                         raise
 
-            # Extract each metric's field from the shared metadata
-            all_metrics_to_save: list[tuple[int, str, str, float | int | bool]] = []
-            for metric_name, field_name in field_map.items():
-                if metric_name not in missing_tracks_per_metric:
-                    continue
-                for track_id in missing_tracks_per_metric[metric_name]:
-                    metadata = fresh_metadata.get(track_id)
-                    if not metadata:
-                        continue
-                    value = metadata.get(field_name)
-                    if value is None:
-                        continue
-                    try:
-                        if isinstance(value, (bool, int, float)):
-                            converted_value = value
-                        else:
-                            converted_value = float(value)
+            # Extract metrics from fresh metadata (only for missing track/metric pairs)
+            missing_metric_names = [
+                m for m in field_map if m in missing_tracks_per_metric
+            ]
+            all_extracted = self._extract_metrics_from_metadata(
+                fresh_metadata, missing_metric_names, field_map, connector
+            )
 
-                        all_metrics_to_save.append((
-                            track_id,
-                            connector,
-                            metric_name,
-                            converted_value,
-                        ))
+            # Filter to only track/metric pairs that were actually missing
+            missing_sets = {
+                name: set(ids) for name, ids in missing_tracks_per_metric.items()
+            }
+            all_metrics_to_save = [
+                t for t in all_extracted if t[0] in missing_sets.get(t[2], set())
+            ]
 
-                        # Update cached values
-                        if metric_name not in cached_values_per_metric:
-                            cached_values_per_metric[metric_name] = {}
-                        cached_values_per_metric[metric_name][track_id] = value
-
-                        # Track as freshly fetched
-                        if metric_name not in fresh_ids_per_metric:
-                            fresh_ids_per_metric[metric_name] = set()
-                        fresh_ids_per_metric[metric_name].add(track_id)
-
-                    except ValueError, TypeError:
-                        logger.warning(f"Cannot convert {value} for {metric_name}")
+            # Update caches from extracted metrics
+            for track_id, _, metric_name, converted_value in all_metrics_to_save:
+                if metric_name not in cached_values_per_metric:
+                    cached_values_per_metric[metric_name] = {}
+                cached_values_per_metric[metric_name][track_id] = converted_value
+                if metric_name not in fresh_ids_per_metric:
+                    fresh_ids_per_metric[metric_name] = set()
+                fresh_ids_per_metric[metric_name].add(track_id)
 
             # Phase 3: Single database transaction to bulk save
             if all_metrics_to_save:
@@ -312,7 +322,7 @@ class MetricsApplicationService:
         for (
             connector,
             available_metrics,
-        ) in self._metric_config.get_all_connectors_metrics().items():
+        ) in self.metric_config.get_all_connectors_metrics().items():
             tracks_with_metadata: list[Track] = []
             fresh_metadata: dict[int, dict[str, Any]] = {}
 
@@ -337,7 +347,7 @@ class MetricsApplicationService:
                     fresh_metadata=fresh_metadata,
                     connector=connector,
                     available_metrics=available_metrics,
-                    field_map=self._metric_config.get_all_field_mappings(),
+                    field_map=self.metric_config.get_all_field_mappings(),
                     uow=uow,
                 )
 
@@ -374,30 +384,9 @@ class MetricsApplicationService:
             track_count=len(fresh_metadata),
         )
 
-        all_metrics_batch: list[tuple[int, str, str, float]] = []
-
-        # Extract all metrics for all tracks
-        for track_id, track_metadata in fresh_metadata.items():
-            for metric_name in available_metrics:
-                field_name = field_map.get(metric_name)
-                if not field_name:
-                    continue
-
-                # Extract and convert value
-                value = track_metadata.get(field_name)
-                if value is None:
-                    continue
-
-                try:
-                    float_value = float(value)
-                    all_metrics_batch.append((
-                        track_id,
-                        connector,
-                        metric_name,
-                        float_value,
-                    ))
-                except ValueError, TypeError:
-                    logger.warning(f"Cannot convert {value} to float for {metric_name}")
+        all_metrics_batch = self._extract_metrics_from_metadata(
+            fresh_metadata, available_metrics, field_map, connector
+        )
 
         # Batch save all metrics using unified BatchProcessor
         if all_metrics_batch:

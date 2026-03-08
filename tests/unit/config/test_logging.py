@@ -4,12 +4,15 @@ This module provides comprehensive tests for the logging system to ensure
 backward compatibility during refactoring and verify all logging features work correctly.
 """
 
+import logging
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.config.logging import (
+    PrefectToLoguruHandler,
     get_logger,
+    intercept_prefect_loggers,
     setup_loguru_logger,
 )
 from src.config.settings import LoggingConfig
@@ -287,6 +290,99 @@ class TestConsoleOutputCoordination:
 
         # Should be a no-op, not an error
         restore_standard_console_output()
+
+
+class TestPrefectToLoguruHandler:
+    """Tests for the extracted PrefectToLoguruHandler bridge."""
+
+    def test_prefect_handler_forwards_exception_traceback(self):
+        """Verify record.exc_info reaches logger.opt(exception=...)."""
+        handler = PrefectToLoguruHandler()
+
+        # Create a LogRecord with exc_info
+        try:
+            raise RuntimeError("test traceback")
+        except RuntimeError:
+            import sys
+
+            exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name="prefect.flow_runs",
+            level=logging.ERROR,
+            pathname="",
+            lineno=0,
+            msg="Flow run failed",
+            args=(),
+            exc_info=exc_info,
+        )
+
+        with patch("src.config.logging.logger") as mock_logger:
+            mock_bound = MagicMock()
+            mock_logger.bind.return_value = mock_bound
+            mock_opt = MagicMock()
+            mock_bound.opt.return_value = mock_opt
+
+            handler.emit(record)
+
+            # Should have called .opt(exception=exc_info).log(...)
+            mock_bound.opt.assert_called_once_with(exception=exc_info)
+            mock_opt.log.assert_called_once_with("ERROR", "Flow run failed")
+
+    def test_prefect_handler_without_exception(self):
+        """Verify normal records (no exc_info) go through .log() directly."""
+        handler = PrefectToLoguruHandler()
+
+        record = logging.LogRecord(
+            name="prefect.tasks",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Task completed",
+            args=(),
+            exc_info=None,
+        )
+
+        with patch("src.config.logging.logger") as mock_logger:
+            mock_bound = MagicMock()
+            mock_logger.bind.return_value = mock_bound
+
+            handler.emit(record)
+
+            # Should call .log() directly, NOT .opt()
+            mock_bound.log.assert_called_once_with("INFO", "Task completed")
+            mock_bound.opt.assert_not_called()
+
+
+class TestInterceptPrefectLoggers:
+    """Tests for the intercept_prefect_loggers() function."""
+
+    def test_intercept_prefect_loggers_attaches_bridge_handler(self):
+        """Verify prefect logger gets the PrefectToLoguruHandler."""
+        prefect_logger = logging.getLogger("prefect")
+        # Clear any handlers from previous tests
+        prefect_logger.handlers.clear()
+
+        intercept_prefect_loggers()
+
+        bridge_handlers = [
+            h for h in prefect_logger.handlers if isinstance(h, PrefectToLoguruHandler)
+        ]
+        assert len(bridge_handlers) == 1
+
+        # Propagation should be disabled to prevent duplicate output
+        assert prefect_logger.propagate is False
+
+    def test_intercept_prefect_loggers_covers_subsystems(self):
+        """Verify all key Prefect subsystem loggers are intercepted."""
+        intercept_prefect_loggers()
+
+        for name in ["prefect.flow_runs", "prefect.task_runs", "prefect.engine"]:
+            sub_logger = logging.getLogger(name)
+            bridge_handlers = [
+                h for h in sub_logger.handlers if isinstance(h, PrefectToLoguruHandler)
+            ]
+            assert len(bridge_handlers) >= 1, f"{name} missing bridge handler"
 
 
 class TestEnhancedLoggingFeatures:

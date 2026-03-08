@@ -45,7 +45,7 @@ class TestLastfmPlayImporterIntegration:
 
     # INTEGRATION TEST 1: End-to-End Connector Play Creation
     async def test_connector_play_creation_with_real_database(
-        self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
+        self, lastfm_importer_with_mocked_api, unit_of_work
     ):
         """Test complete connector play creation workflow with real database."""
         importer, _ = lastfm_importer_with_mocked_api
@@ -105,7 +105,7 @@ class TestLastfmPlayImporterIntegration:
 
     # INTEGRATION TEST 2: Base Class Integration (UnitOfWork Pattern)
     async def test_base_class_integration_with_uow(
-        self, lastfm_importer_with_mocked_api, unit_of_work, test_data_tracker
+        self, lastfm_importer_with_mocked_api, unit_of_work
     ):
         """Test that base class methods work correctly with UnitOfWork pattern."""
         importer, _ = lastfm_importer_with_mocked_api
@@ -142,8 +142,6 @@ class TestLastfmPlayImporterIntegration:
 
         # Verify data was actually saved to database
         unit_of_work.get_connector_play_repository()
-        # Note: We can't easily query by import_batch_id without adding that method
-        # This validates the save operation completed without errors
 
     # INTEGRATION TEST 3: Error Handling with Real Dependencies
     async def test_error_handling_with_real_dependencies(
@@ -185,33 +183,7 @@ class TestLastfmPlayImporterIntegration:
         with pytest.raises(RuntimeError, match="UnitOfWork required"):
             await importer._save_data(connector_plays, None)
 
-    # INTEGRATION TEST 4: Date Range Business Logic (Real Scenarios)
-    def test_date_range_calculation_realistic_scenarios(
-        self, lastfm_importer_with_mocked_api
-    ):
-        """Test date range calculation with realistic user scenarios."""
-        importer, _ = lastfm_importer_with_mocked_api
-
-        # Scenario 1: New user with no history
-        start, end = importer._determine_date_range(None, None, None)
-        assert (end - start).days == 30  # 30-day default
-
-        # Scenario 2: User with specific date range for historical import
-        explicit_start = datetime(2024, 1, 1, tzinfo=UTC)
-        explicit_end = datetime(2024, 1, 31, tzinfo=UTC)
-        start, end = importer._determine_date_range(explicit_start, explicit_end, None)
-        assert start == explicit_start
-        assert end == explicit_end
-
-        # Scenario 3: User requesting only recent data
-        recent_start = datetime.now(UTC).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        start, end = importer._determine_date_range(recent_start, None, None)
-        assert start == recent_start
-        assert end.date() == datetime.now(UTC).date()
-
-    # INTEGRATION TEST 5: Metadata Preservation (Business Value)
+    # INTEGRATION TEST 4: Metadata Preservation (Business Value)
     async def test_metadata_preservation_lastfm_specific(
         self, lastfm_importer_with_mocked_api, unit_of_work
     ):

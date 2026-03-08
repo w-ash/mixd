@@ -12,6 +12,7 @@ from src.application.use_cases.workflow_crud import (
     DeleteWorkflowUseCase,
     GetWorkflowCommand,
     GetWorkflowUseCase,
+    ListWorkflowsCommand,
     ListWorkflowsUseCase,
     UpdateWorkflowCommand,
     UpdateWorkflowUseCase,
@@ -31,7 +32,7 @@ class TestListWorkflows:
         repo = make_mock_workflow_repo(list_workflows=workflows)
         uow = make_mock_uow(workflow_repo=repo)
 
-        result = await ListWorkflowsUseCase().execute(uow)
+        result = await ListWorkflowsUseCase().execute(ListWorkflowsCommand(), uow)
 
         assert result.total_count == 2
         assert len(result.workflows) == 2
@@ -39,7 +40,7 @@ class TestListWorkflows:
     async def test_empty_list(self) -> None:
         uow = make_mock_uow()
 
-        result = await ListWorkflowsUseCase().execute(uow)
+        result = await ListWorkflowsUseCase().execute(ListWorkflowsCommand(), uow)
 
         assert result.total_count == 0
         assert result.workflows == []
@@ -48,7 +49,9 @@ class TestListWorkflows:
         repo = make_mock_workflow_repo()
         uow = make_mock_uow(workflow_repo=repo)
 
-        await ListWorkflowsUseCase().execute(uow, include_templates=False)
+        await ListWorkflowsUseCase().execute(
+            ListWorkflowsCommand(include_templates=False), uow
+        )
 
         repo.list_workflows.assert_called_once_with(include_templates=False)
 
@@ -141,9 +144,12 @@ class TestDeleteWorkflow:
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
-        await DeleteWorkflowUseCase().execute(DeleteWorkflowCommand(workflow_id=1), uow)
+        result = await DeleteWorkflowUseCase().execute(
+            DeleteWorkflowCommand(workflow_id=1), uow
+        )
 
         repo.delete_workflow.assert_called_once_with(1)
+        assert result.workflow_id == 1
 
     async def test_template_rejection(self) -> None:
         template = make_workflow(id=1, is_template=True)

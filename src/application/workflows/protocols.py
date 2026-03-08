@@ -11,8 +11,12 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: RunStatusUpdater **kwargs pass-through
+
 from collections.abc import Awaitable, Callable
-from typing import Protocol, TypedDict
+from datetime import datetime
+from typing import Any, Protocol, TypedDict
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
@@ -33,7 +37,7 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from src.domain.entities.workflow import NodeExecutionEvent
+from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
 from src.domain.repositories import UnitOfWorkProtocol
 
 
@@ -197,6 +201,36 @@ class MetricConfigProvider(Protocol):
     def get_all_field_mappings(self) -> dict[str, str]:
         """Return mapping of all metric names to their field names."""
         ...
+
+
+class RunStatusUpdater(Protocol):
+    """Typed contract for run-level status updates.
+
+    Concrete impls live in the interface layer, injected at the call site.
+    """
+
+    async def __call__(self, run_id: int, status: RunStatus, **kwargs: Any) -> None: ...
+
+
+class NodeStatusUpdater(Protocol):
+    """Typed contract for node-level status updates.
+
+    Concrete impls live in the interface layer, injected at the call site.
+    """
+
+    async def __call__(
+        self,
+        run_id: int,
+        node_id: str,
+        status: RunStatus,
+        *,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        duration_ms: int | None = None,
+        input_track_count: int | None = None,
+        output_track_count: int | None = None,
+        error_message: str | None = None,
+    ) -> None: ...
 
 
 class NodeResult(TypedDict):

@@ -114,7 +114,7 @@ class TestPlaylistSourceDuplicateHandling:
                 )
 
                 # Create canonical playlist using real use case
-                use_case = CreateCanonicalPlaylistUseCase()
+                use_case = CreateCanonicalPlaylistUseCase(metric_config=MagicMock())
                 command = CreateCanonicalPlaylistCommand(
                     name="Test Integration Playlist",
                     tracklist=processed_tracklist.to_tracklist(),

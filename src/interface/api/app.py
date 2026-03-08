@@ -18,8 +18,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src import __version__
+from src.config import get_logger
 from src.interface.api.middleware import register_exception_handlers
 from src.interface.api.routes.health import router as health_router
+
+logger = get_logger(__name__)
 
 # Resolve web/dist/ relative to project root (3 levels up from this file)
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
@@ -28,6 +31,12 @@ _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
+    from src.config import setup_loguru_logger
+    from src.config.logging import intercept_prefect_loggers
+
+    setup_loguru_logger()
+    intercept_prefect_loggers()
+
     from src.application.services.progress_manager import get_progress_manager
     from src.interface.api.services.progress import (
         SSEProgressSubscriber,
@@ -59,6 +68,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         get_logger(__name__).warning("Failed to seed workflow templates", error=str(e))
 
     yield
+    logger.info("API server shutting down — cancelling background tasks")
     await manager.unsubscribe(sub_id)
 
 
@@ -163,4 +173,6 @@ def run_server() -> None:
         host="0.0.0.0",  # noqa: S104
         port=8000,
         reload=True,
+        reload_dirs=["src"],
+        reload_includes=["*.py"],
     )

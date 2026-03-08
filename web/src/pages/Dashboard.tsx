@@ -137,6 +137,7 @@ export function Dashboard() {
 
   return (
     <div>
+      <title>Dashboard — Narada</title>
       <PageHeader
         title="Dashboard"
         description="Your music library at a glance"

@@ -14,6 +14,7 @@ import typer
 
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
+from src.interface.cli.cli_helpers import handle_cli_error
 from src.interface.cli.console import get_console, get_error_console
 
 console = get_console()
@@ -57,6 +58,49 @@ def backup(
 
 
 @app.command()
+def create(
+    name: Annotated[str, typer.Option("--name", "-n", help="Playlist name")],
+    description: Annotated[
+        str | None,
+        typer.Option("--description", "-d", help="Playlist description"),
+    ] = None,
+) -> None:
+    """Create a new empty playlist in your local database.
+
+    Examples:
+        narada playlist create --name "My Playlist"
+        narada playlist create --name "Favorites" --description "Best tracks"
+    """
+    run_async(_create_playlist_async(name, description))
+
+
+@app.command()
+def update(
+    playlist_id: Annotated[int, typer.Argument(help="Playlist ID to update")],
+    name: Annotated[
+        str | None,
+        typer.Option("--name", "-n", help="New playlist name"),
+    ] = None,
+    description: Annotated[
+        str | None,
+        typer.Option("--description", "-d", help="New playlist description"),
+    ] = None,
+) -> None:
+    """Update a playlist's name and/or description.
+
+    Examples:
+        narada playlist update 5 --name "New Name"
+        narada playlist update 3 --description "Updated description"
+    """
+    if name is None and description is None:
+        console.print(
+            "[yellow]Nothing to update. Provide --name and/or --description.[/yellow]"
+        )
+        raise typer.Exit(0)
+    run_async(_update_playlist_async(playlist_id, name, description))
+
+
+@app.command()
 def delete(
     playlist_id: Annotated[int, typer.Argument(help="Playlist ID to delete")],
     force: Annotated[bool, typer.Option("--force", "-f")] = False,
@@ -77,9 +121,14 @@ async def _list_stored_playlists() -> None:
     """List all stored playlists with metadata following DDD principles."""
     try:
         from src.application.runner import execute_use_case
-        from src.application.use_cases.list_playlists import ListPlaylistsUseCase
+        from src.application.use_cases.list_playlists import (
+            ListPlaylistsCommand,
+            ListPlaylistsUseCase,
+        )
 
-        result = await execute_use_case(lambda uow: ListPlaylistsUseCase().execute(uow))
+        result = await execute_use_case(
+            lambda uow: ListPlaylistsUseCase().execute(ListPlaylistsCommand(), uow)
+        )
 
         if not result.has_playlists:
             console.print("[yellow]No playlists found in your database.[/yellow]")
@@ -89,8 +138,7 @@ async def _list_stored_playlists() -> None:
         _display_playlists_table(result.playlists)
 
     except Exception as e:
-        err_console.print(f"[red]Error: Failed to list playlists: {e}[/red]")
-        raise typer.Exit(1) from e
+        handle_cli_error(e, "Failed to list playlists")
 
 
 def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
@@ -210,8 +258,7 @@ async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
     except typer.Exit:
         raise
     except Exception as e:
-        err_console.print(f"[red]Error: Failed to delete playlist: {e}[/red]")
-        raise typer.Exit(1) from e
+        handle_cli_error(e, "Failed to delete playlist")
 
 
 async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
@@ -234,41 +281,113 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
                 connector_name=connector_name, playlist_id=playlist_id
             )
 
-        # Display results based on result type
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistResult,
         )
 
+        # Both result types share .playlist — isinstance narrows for type-safe access
+        playlist = result.playlist
+        detail_lines = [
+            f"[cyan]Name:[/cyan] {playlist.name}",
+            f"[cyan]Tracks:[/cyan] {len(playlist.tracks)}",
+        ]
+
         if isinstance(result, UpdateCanonicalPlaylistResult):
-            # Updated existing playlist
-            console.print(
-                Panel.fit(
-                    "[bold green]✓ Playlist Updated[/bold green]\n"
-                    + f"[cyan]Name:[/cyan] {result.playlist.name}\n"
-                    + f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
-                    + f"[cyan]Operations:[/cyan] {result.operations_performed} changes\n"
-                    + f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
-                    title="[bold green]🎵 Backup Complete[/bold green]",
-                    border_style="green",
-                )
-            )
+            detail_lines.extend([
+                f"[cyan]Operations:[/cyan] {result.operations_performed} changes",
+                f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
+            ])
+            action = "Updated"
         else:
-            # Created new playlist
-            console.print(
-                Panel.fit(
-                    "[bold green]✓ Playlist Created[/bold green]\n"
-                    + f"[cyan]Name:[/cyan] {result.playlist.name}\n"
-                    + f"[cyan]ID:[/cyan] {result.playlist.id}\n"
-                    + f"[cyan]Tracks:[/cyan] {len(result.playlist.tracks)}\n"
-                    + f"[cyan]New tracks saved:[/cyan] {result.tracks_created}",
-                    title="[bold green]🎵 Backup Complete[/bold green]",
-                    border_style="green",
-                )
+            detail_lines.append(
+                f"[cyan]New tracks saved:[/cyan] {result.tracks_created}"
             )
+            action = "Created"
+
+        console.print(
+            Panel.fit(
+                f"[bold green]✓ Playlist {action}[/bold green]\n"
+                + "\n".join(detail_lines),
+                title="[bold green]🎵 Backup Complete[/bold green]",
+                border_style="green",
+            )
+        )
 
     except ValueError as e:
-        err_console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1) from e
+        handle_cli_error(e, str(e))
     except Exception as e:
-        err_console.print(f"[red]Error: Backup failed: {e}[/red]")
-        raise typer.Exit(1) from e
+        handle_cli_error(e, "Backup failed")
+
+
+async def _create_playlist_async(name: str, description: str | None) -> None:
+    """Create a new empty playlist via use case."""
+    try:
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.create_canonical_playlist import (
+            CreateCanonicalPlaylistCommand,
+            CreateCanonicalPlaylistUseCase,
+        )
+        from src.infrastructure.connectors._shared.metric_registry import (
+            MetricConfigProviderImpl,
+        )
+
+        command = CreateCanonicalPlaylistCommand(name=name, description=description)
+        result = await execute_use_case(
+            lambda uow: CreateCanonicalPlaylistUseCase(
+                metric_config=MetricConfigProviderImpl()
+            ).execute(command, uow)
+        )
+
+        console.print(
+            Panel.fit(
+                f"[bold green]Playlist Created[/bold green]\n"
+                f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+                f"[cyan]Name:[/cyan] {result.playlist.name}",
+                title="[bold green]Playlist Created[/bold green]",
+                border_style="green",
+            )
+        )
+
+    except Exception as e:
+        handle_cli_error(e, "Failed to create playlist")
+
+
+async def _update_playlist_async(
+    playlist_id: int, name: str | None, description: str | None
+) -> None:
+    """Update playlist metadata via use case."""
+    try:
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.update_canonical_playlist import (
+            UpdateCanonicalPlaylistCommand,
+            UpdateCanonicalPlaylistUseCase,
+        )
+        from src.domain.entities.track import TrackList
+        from src.infrastructure.connectors._shared.metric_registry import (
+            MetricConfigProviderImpl,
+        )
+
+        command = UpdateCanonicalPlaylistCommand(
+            playlist_id=str(playlist_id),
+            new_tracklist=TrackList(),
+            playlist_name=name,
+            playlist_description=description,
+        )
+        result = await execute_use_case(
+            lambda uow: UpdateCanonicalPlaylistUseCase(
+                metric_config=MetricConfigProviderImpl()
+            ).execute(command, uow)
+        )
+
+        console.print(
+            Panel.fit(
+                f"[bold green]Playlist Updated[/bold green]\n"
+                f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+                f"[cyan]Name:[/cyan] {result.playlist.name}",
+                title="[bold green]Playlist Updated[/bold green]",
+                border_style="green",
+            )
+        )
+
+    except Exception as e:
+        handle_cli_error(e, "Failed to update playlist")

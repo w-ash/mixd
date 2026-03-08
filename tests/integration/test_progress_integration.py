@@ -5,7 +5,8 @@ interface providers, ensuring all components work together correctly.
 """
 
 import asyncio
-from unittest.mock import Mock
+from asyncio import CancelledError
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -244,6 +245,68 @@ class TestProgressIntegration:
             operation_id
         )
         assert final_operation.status == OperationStatus.COMPLETED
+
+    async def test_subscriber_cancelled_error_does_not_propagate(
+        self, progress_manager
+    ):
+        """CancelledError from a subscriber must not crash the publishing operation.
+
+        Regression: TaskGroup propagates BaseException (including CancelledError
+        injected by Prefect's cancel scope), violating subscriber isolation.
+        With gather(return_exceptions=True) the error is captured, not propagated.
+        """
+        # Create a subscriber that raises CancelledError (simulates Prefect timeout)
+        cancelling_subscriber = AsyncMock()
+        cancelling_subscriber.on_progress_event.side_effect = CancelledError()
+        cancelling_subscriber.on_operation_started = AsyncMock()
+        cancelling_subscriber.on_operation_completed = AsyncMock()
+
+        await progress_manager.subscribe(cancelling_subscriber)
+
+        # Operation lifecycle should succeed despite CancelledError in subscriber
+        operation = create_progress_operation(
+            description="Test with cancelling subscriber"
+        )
+        operation_id = await progress_manager.start_operation(operation)
+
+        # This must NOT raise CancelledError
+        await progress_manager.emit_progress(
+            create_progress_event(operation_id, 50, 100, "Progress")
+        )
+        await progress_manager.complete_operation(
+            operation_id, OperationStatus.COMPLETED
+        )
+
+        final_operation = await progress_manager._coordinator.get_operation(
+            operation_id
+        )
+        assert final_operation.status == OperationStatus.COMPLETED
+
+    async def test_external_cancellation_of_gather_is_absorbed(self, progress_manager):
+        """External CancelledError at `await gather()` must NOT kill the workflow.
+
+        Prefect cancel scopes inject CancelledError at the gather() call site
+        (parent level), not inside child coroutines. return_exceptions=True
+        only captures child exceptions, so the external CancelledError would
+        propagate and kill the workflow. _broadcast catches it and calls
+        task.uncancel() to clear the pending cancel request.
+        """
+        subscriber = AsyncMock()
+        await progress_manager.subscribe(subscriber)
+
+        operation = create_progress_operation(description="Test external cancellation")
+        operation_id = await progress_manager.start_operation(operation)
+
+        # Patch asyncio.gather to raise CancelledError (simulating Prefect
+        # cancel scope injected at the await point)
+        with patch(
+            "src.application.services.progress_manager.asyncio.gather",
+            side_effect=CancelledError(),
+        ):
+            # Should NOT raise — _broadcast absorbs the CancelledError
+            await progress_manager.emit_progress(
+                create_progress_event(operation_id, 50, 100, "Progress")
+            )
 
 
 class TestRichProgressProvider:

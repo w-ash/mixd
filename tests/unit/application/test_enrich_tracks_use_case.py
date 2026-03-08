@@ -42,9 +42,14 @@ class TestEnrichTracksUseCase:
         return mock
 
     @pytest.fixture
-    def use_case(self):
-        """Create EnrichTracksUseCase instance (no constructor dependencies)."""
-        return EnrichTracksUseCase()
+    def mock_metric_config(self):
+        """Mock metric config provider."""
+        return Mock()
+
+    @pytest.fixture
+    def use_case(self, mock_metric_config):
+        """Create EnrichTracksUseCase instance."""
+        return EnrichTracksUseCase(metric_config=mock_metric_config)
 
     @pytest.fixture
     def sample_tracklist(self):
@@ -74,10 +79,8 @@ class TestEnrichTracksUseCase:
             period_days=30,
         )
 
-    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_external_metadata_enrichment_success(
         self,
-        mock_metrics_service_class,
         use_case,
         sample_tracklist,
         external_metadata_config,
@@ -88,20 +91,19 @@ class TestEnrichTracksUseCase:
         expected_metrics = {"explicit_flag": {1: 85, 2: 92}}
         expected_fresh_ids = {"explicit_flag": {1, 2}}
 
-        # Mock the MetricsApplicationService instance
         mock_metrics_service = AsyncMock()
         mock_metrics_service.get_external_track_metrics.return_value = (
             expected_metrics,
             expected_fresh_ids,
         )
-        mock_metrics_service_class.return_value = mock_metrics_service
 
         command = EnrichTracksCommand(
             tracklist=sample_tracklist, enrichment_config=external_metadata_config
         )
 
-        # Act
-        result = await use_case.execute(command, mock_uow)
+        # Act — patch the stored attribute on the class (slots=True prevents instance patch)
+        with patch.object(EnrichTracksUseCase, "metrics_service", mock_metrics_service):
+            result = await use_case.execute(command, mock_uow)
 
         # Assert
         assert isinstance(result, EnrichTracksResult)
@@ -160,7 +162,7 @@ class TestEnrichTracksUseCase:
         mock_uow.__aexit__ = AsyncMock(return_value=None)
         mock_uow.get_plays_repository.return_value = mock_play_repo
 
-        use_case = EnrichTracksUseCase()
+        use_case = EnrichTracksUseCase(metric_config=Mock())
 
         # Arrange
         config = EnrichmentConfig(
@@ -214,10 +216,8 @@ class TestEnrichTracksUseCase:
         assert len(result.errors) == 1
         assert "No tracks with database IDs" in result.errors[0]
 
-    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_tracks_without_ids_filtered(
         self,
-        mock_metrics_service_class,
         use_case,
         external_metadata_config,
         mock_uow,
@@ -233,15 +233,15 @@ class TestEnrichTracksUseCase:
             tracklist=tracklist, enrichment_config=external_metadata_config
         )
 
-        # Mock the MetricsApplicationService instance
         mock_metrics_service = AsyncMock()
-        mock_metrics_service.get_external_track_metrics.return_value = {
-            "explicit_flag": {1: 85}
-        }
-        mock_metrics_service_class.return_value = mock_metrics_service
+        mock_metrics_service.get_external_track_metrics.return_value = (
+            {"explicit_flag": {1: 85}},
+            {"explicit_flag": {1}},
+        )
 
-        # Act
-        result = await use_case.execute(command, mock_uow)
+        # Act — patch the stored attribute on the class (slots=True prevents instance patch)
+        with patch.object(EnrichTracksUseCase, "metrics_service", mock_metrics_service):
+            result = await use_case.execute(command, mock_uow)
 
         # Assert
         # Should process only the track with ID
@@ -257,10 +257,8 @@ class TestEnrichTracksUseCase:
             parent_operation_id=None,
         )
 
-    @patch("src.application.use_cases.enrich_tracks.MetricsApplicationService")
     async def test_enrichment_error_handling(
         self,
-        mock_metrics_service_class,
         use_case,
         sample_tracklist,
         external_metadata_config,
@@ -272,14 +270,14 @@ class TestEnrichTracksUseCase:
         mock_metrics_service.get_external_track_metrics.side_effect = Exception(
             "API Error"
         )
-        mock_metrics_service_class.return_value = mock_metrics_service
 
         command = EnrichTracksCommand(
             tracklist=sample_tracklist, enrichment_config=external_metadata_config
         )
 
-        # Act
-        result = await use_case.execute(command, mock_uow)
+        # Act — patch the stored attribute on the class (slots=True prevents instance patch)
+        with patch.object(EnrichTracksUseCase, "metrics_service", mock_metrics_service):
+            result = await use_case.execute(command, mock_uow)
 
         # Assert
         # Should return original tracklist with empty metrics when error occurs

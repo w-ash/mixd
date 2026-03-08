@@ -83,6 +83,7 @@ export function Settings() {
 
   return (
     <div>
+      <title>Settings — Narada</title>
       <PageHeader
         title="Settings"
         description="Connected services and application preferences."

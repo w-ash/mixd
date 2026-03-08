@@ -51,6 +51,98 @@ if TYPE_CHECKING:
 from .settings import settings
 
 # =============================================================================
+# PREFECT → LOGURU BRIDGE
+# =============================================================================
+
+
+class PrefectToLoguruHandler(logging.Handler):
+    """Routes Python logging (including Prefect) through Loguru for unified formatting.
+
+    Extracted to top-level so it can be used by both `enable_unified_console_output()`
+    (CLI progress coordination) and `intercept_prefect_loggers()` (API server).
+    """
+
+    _LEVEL_MAPPING: dict[int, str] = {
+        logging.DEBUG: "DEBUG",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARNING",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "CRITICAL",
+    }
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            loguru_level = self._LEVEL_MAPPING.get(record.levelno, "INFO")
+            bound = logger.bind(module=record.name, service="narada")
+
+            # Forward exception tracebacks so they appear in loguru output
+            if record.exc_info and record.exc_info[0] is not None:
+                bound.opt(exception=record.exc_info).log(
+                    loguru_level, record.getMessage()
+                )
+            else:
+                bound.log(loguru_level, record.getMessage())
+
+        except Exception:
+            self.handleError(record)
+
+
+# Prefect logger names to intercept — covers Prefect 3.0 subsystems
+_PREFECT_LOGGERS = [
+    "prefect",
+    "prefect.flow_runs",
+    "prefect.task_runs",
+    "prefect.logging",
+    "prefect.engine",
+    "prefect.client",
+    "prefect.worker",
+    "prefect.workers",
+    "prefect.server",
+    "prefect.api",
+    "prefect.flows",
+    "prefect.tasks",
+    "prefect.infrastructure",
+    "prefect.deployments",
+    "prefect.blocks",
+    "prefect.runtime",
+    "prefect.settings",
+    "prefect.orchestration",
+]
+
+
+def intercept_prefect_loggers() -> None:
+    """Attach PrefectToLoguruHandler to all Prefect loggers.
+
+    Safe to call multiple times — clears existing bridge handlers before
+    re-attaching. Used by both CLI (via enable_unified_console_output) and
+    API server (via lifespan).
+    """
+    bridge_handler = PrefectToLoguruHandler()
+    bridge_handler.setLevel(getattr(logging, settings.logging.prefect_bridge_level))
+
+    original_handlers: dict[str, list[logging.Handler]] = {}
+    for logger_name in _PREFECT_LOGGERS:
+        target_logger = logging.getLogger(logger_name)
+        original_handlers[logger_name] = target_logger.handlers.copy()
+
+        # Remove existing console handlers to prevent duplication
+        target_logger.handlers = [
+            h
+            for h in target_logger.handlers
+            if not isinstance(h, logging.StreamHandler)
+        ]
+
+        target_logger.addHandler(bridge_handler)
+        target_logger.setLevel(getattr(logging, settings.logging.prefect_logger_level))
+        target_logger.propagate = False
+
+    global _original_handlers_by_logger, _bridge_handler
+    _original_handlers_by_logger = original_handlers
+    _bridge_handler = bridge_handler
+
+
+# =============================================================================
 # MODULE-LEVEL STATE FOR CONSOLE OUTPUT COORDINATION
 # =============================================================================
 
@@ -205,7 +297,6 @@ def enable_unified_console_output(progress_console: Console) -> None:
     Args:
         progress_console: Rich Console instance from Progress (progress.console)
     """
-    import logging
 
     from loguru import logger as loguru_logger
 
@@ -278,85 +369,7 @@ def enable_unified_console_output(progress_console: Console) -> None:
 
         # Route Prefect logs through Loguru for unified formatting
         # This creates: Prefect → Loguru → Progress.console pipeline
-
-        # Create simple handler that forwards Prefect logs to Loguru
-        class PrefectToLoguruHandler(logging.Handler):
-            """Routes Python logging (including Prefect) through Loguru for unified formatting."""
-
-            @override
-            def emit(self, record: logging.LogRecord) -> None:
-                try:
-                    # Map Python logging levels to Loguru levels
-                    level_mapping = {
-                        logging.DEBUG: "DEBUG",
-                        logging.INFO: "INFO",
-                        logging.WARNING: "WARNING",
-                        logging.ERROR: "ERROR",
-                        logging.CRITICAL: "CRITICAL",
-                    }
-
-                    loguru_level = level_mapping.get(record.levelno, "INFO")
-
-                    # Forward to Loguru with module context preserved
-                    loguru_logger.bind(module=record.name, service="narada").log(
-                        loguru_level, record.getMessage()
-                    )
-
-                except Exception:
-                    self.handleError(record)
-
-        # Create the bridge handler
-        bridge_handler = PrefectToLoguruHandler()
-        bridge_handler.setLevel(getattr(logging, settings.logging.prefect_bridge_level))
-
-        # Target specific loggers that might bypass the root logger
-        # Expanded list based on Prefect 3.0 documentation to capture startup activity
-        loggers_to_intercept = [
-            "prefect",
-            "prefect.flow_runs",
-            "prefect.task_runs",
-            "prefect.logging",
-            "prefect.engine",
-            "prefect.client",
-            "prefect.worker",  # Worker logger mentioned in docs
-            "prefect.workers",  # Potential plural form
-            "prefect.server",  # Server-side operations
-            "prefect.api",  # API operations
-            "prefect.flows",  # Flow operations
-            "prefect.tasks",  # Task operations
-            "prefect.infrastructure",  # Infrastructure management
-            "prefect.deployments",  # Deployment operations
-            "prefect.blocks",  # Blocks system
-            "prefect.runtime",  # Runtime operations
-            "prefect.settings",  # Settings/configuration
-            "prefect.orchestration",  # Orchestration engine
-        ]
-
-        # Store original handlers for restoration
-        original_handlers_by_logger = {}
-        for logger_name in loggers_to_intercept:
-            target_logger = logging.getLogger(logger_name)
-            original_handlers_by_logger[logger_name] = target_logger.handlers.copy()
-
-            # Remove existing console handlers to prevent duplication
-            target_logger.handlers = [
-                h
-                for h in target_logger.handlers
-                if not isinstance(h, logging.StreamHandler)
-            ]
-
-            # Add our Loguru bridge handler
-            target_logger.addHandler(bridge_handler)
-            target_logger.setLevel(
-                getattr(logging, settings.logging.prefect_logger_level)
-            )
-            # Prevent propagation to root logger to avoid duplicates
-            target_logger.propagate = False
-
-        # Store handlers for cleanup
-        global _original_handlers_by_logger, _bridge_handler
-        _original_handlers_by_logger = original_handlers_by_logger
-        _bridge_handler = bridge_handler
+        intercept_prefect_loggers()
 
     except Exception as e:
         # Fallback error reporting through progress console

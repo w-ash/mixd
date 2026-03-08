@@ -1,10 +1,14 @@
 import {
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   MiniMap,
   type NodeTypes,
   ReactFlow,
+  ReactFlowProvider,
+  useNodesInitialized,
+  useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -14,18 +18,25 @@ import {
   ArrowUpDown,
   Database,
   Filter,
+  Maximize2,
   Merge,
+  Minimize2,
   Send,
   Sparkles,
   Target,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
 import {
   BaseWorkflowNode,
   type WorkflowNodeData,
 } from "@/components/workflow/BaseWorkflowNode";
-import { layoutWorkflow } from "@/lib/workflow-layout";
+import type { NodeStatus } from "@/hooks/useWorkflowExecution";
+import {
+  createInitialNodes,
+  layoutWorkflow,
+  type NodeDimension,
+} from "@/lib/workflow-layout";
 
 const NODE_CONFIG: Record<
   string,
@@ -80,65 +91,191 @@ const nodeTypes: NodeTypes = Object.fromEntries(
   Object.keys(NODE_CONFIG).map((k) => [k, createNodeComponent(k)]),
 );
 
-interface WorkflowGraphProps {
-  tasks: WorkflowTaskDefSchema[];
+function miniMapNodeColor(node: { type?: string }) {
+  const accent = NODE_CONFIG[node.type ?? ""]?.accentColor;
+  return accent
+    ? `color-mix(in oklch, ${accent} 35%, oklch(0.15 0.01 60))`
+    : "oklch(0.25 0.01 60)";
 }
 
-export function WorkflowGraph({ tasks }: WorkflowGraphProps) {
+type LayoutPhase = "measuring" | "layouting" | "done";
+
+const MEASUREMENT_TIMEOUT_MS = 2000;
+
+interface WorkflowGraphProps {
+  tasks: WorkflowTaskDefSchema[];
+  nodeStatuses?: Map<string, NodeStatus>;
+}
+
+export function WorkflowGraph(props: WorkflowGraphProps) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowGraphInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function WorkflowGraphInner({ tasks, nodeStatuses }: WorkflowGraphProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [isLayouting, setIsLayouting] = useState(true);
+  const [phase, setPhase] = useState<LayoutPhase>("measuring");
+  const { getNodes, fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+
+  // Track current task set and phase via refs to avoid stale closures
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+
+  // Fullscreen toggle
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    setIsLayouting(true);
-
-    layoutWorkflow(tasks).then((result) => {
-      if (!cancelled) {
-        setNodes(result.nodes);
-        setEdges(result.edges);
-        setIsLayouting(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
+    if (!expanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
     };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((v) => !v);
+    // Re-center after the container resizes from the toggle
+    requestAnimationFrame(() => fitView({ duration: 200 }));
+  }, [fitView]);
+
+  // Phase 1: Tasks change → create invisible measurement nodes
+  useEffect(() => {
+    if (tasks.length === 0) {
+      setNodes([]);
+      setEdges([]);
+      setPhase("done");
+      return;
+    }
+    const { nodes, edges } = createInitialNodes(tasks);
+    setNodes(nodes);
+    setEdges(edges);
+    setPhase("measuring");
   }, [tasks]);
 
-  if (isLayouting) {
-    return (
-      <div className="flex h-full items-center justify-center text-text-muted">
-        <span className="font-display text-sm">Computing layout...</span>
-      </div>
-    );
-  }
+  // Phase 2: Nodes measured → run ELK with real dimensions
+  const runLayout = useCallback(
+    (useFallback: boolean) => {
+      if (phaseRef.current !== "measuring") return;
+      setPhase("layouting");
+
+      const dimensions = new Map<string, NodeDimension>();
+      if (!useFallback) {
+        for (const node of getNodes()) {
+          if (node.measured?.width && node.measured?.height) {
+            dimensions.set(node.id, {
+              width: node.measured.width,
+              height: node.measured.height,
+            });
+          }
+        }
+      }
+
+      const currentTasks = tasksRef.current;
+      layoutWorkflow(currentTasks, dimensions)
+        .then((result) => {
+          // Guard against stale results if tasks changed while layouting
+          if (tasksRef.current !== currentTasks) return;
+          setNodes(result.nodes);
+          setEdges(result.edges);
+          setPhase("done");
+          fitView({ duration: 200 });
+        })
+        .catch(() => {
+          setPhase("done");
+        });
+    },
+    [getNodes, fitView],
+  );
+
+  // Trigger layout when measurement completes
+  useEffect(() => {
+    if (phase === "measuring" && nodesInitialized && tasks.length > 0) {
+      runLayout(false);
+    }
+  }, [phase, nodesInitialized, tasks.length, runLayout]);
+
+  // Fallback: if measurement doesn't complete within timeout, use defaults
+  useEffect(() => {
+    if (phase !== "measuring" || tasks.length === 0) return;
+    const timer = setTimeout(() => runLayout(true), MEASUREMENT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [phase, tasks.length, runLayout]);
+
+  // Merge execution status into node data when statuses change
+  const displayNodes = useMemo(() => {
+    if (!nodeStatuses?.size) return nodes;
+    return nodes.map((node) => {
+      const status = nodeStatuses.get(node.id);
+      if (!status) return node;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          executionStatus: status.status,
+          inputTrackCount: status.inputTrackCount,
+          outputTrackCount: status.outputTrackCount,
+          errorMessage: status.errorMessage,
+        },
+      };
+    });
+  }, [nodes, nodeStatuses]);
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      elementsSelectable={true}
-      deleteKeyCode={null}
-      fitView
-      proOptions={{ hideAttribution: true }}
+    <div
+      className={
+        expanded
+          ? "fixed inset-0 z-50 h-screen w-screen bg-surface-sunken"
+          : "relative h-full w-full"
+      }
     >
-      <Controls showInteractive={false} />
-      <MiniMap
-        zoomable
-        pannable
-        style={{ backgroundColor: "oklch(0.1 0.01 60)" }}
-        maskColor="oklch(0.08 0.01 60 / 0.7)"
-      />
-      <Background
-        variant={BackgroundVariant.Dots}
-        gap={20}
-        size={1}
-        color="oklch(0.25 0.01 60)"
-      />
-    </ReactFlow>
+      {phase !== "done" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface-sunken/80">
+          <span className="font-display text-sm text-text-muted">
+            Computing layout...
+          </span>
+        </div>
+      )}
+      <ReactFlow
+        nodes={displayNodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={true}
+        deleteKeyCode={null}
+        fitView
+        proOptions={{ hideAttribution: true }}
+      >
+        <Controls showInteractive={false}>
+          <ControlButton
+            onClick={toggleExpanded}
+            title={expanded ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </ControlButton>
+        </Controls>
+        <MiniMap
+          zoomable
+          pannable
+          bgColor="oklch(0.1 0.01 60)"
+          maskColor="oklch(0.08 0.01 60 / 0.7)"
+          nodeColor={miniMapNodeColor}
+        />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={20}
+          size={1}
+          color="oklch(0.25 0.01 60)"
+        />
+      </ReactFlow>
+    </div>
   );
 }

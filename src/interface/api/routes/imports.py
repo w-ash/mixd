@@ -8,8 +8,7 @@ operation_id so the client can subscribe to progress via SSE.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: Coroutine type params in background task helper
 
-import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 import os
 from pathlib import Path
 import tempfile
@@ -28,6 +27,10 @@ from src.interface.api.schemas.imports import (
     ImportSpotifyLikesRequest,
     OperationStartedResponse,
 )
+from src.interface.api.services.background import (
+    finalize_sse_operation,
+    launch_background,
+)
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     OperationBoundEmitter,
@@ -37,9 +40,6 @@ from src.interface.api.services.progress import (
 logger = get_logger(__name__).bind(service="imports_api")
 
 router = APIRouter(prefix="/imports", tags=["imports"])
-
-# Strong references prevent background tasks from being garbage-collected
-_background_tasks: set[asyncio.Task[None]] = set()
 
 # Tracks logically active operations (cleared before SSE grace period).
 # Used for the 429 concurrency limit so finished-but-draining tasks don't
@@ -56,21 +56,6 @@ def _make_emitter(operation_id: str) -> OperationBoundEmitter:
     return OperationBoundEmitter(
         delegate=get_progress_manager(), operation_id=operation_id
     )
-
-
-def _launch_background(
-    operation_id: str,
-    coro_factory: Callable[[], Coroutine[Any, Any, None]],
-) -> None:
-    """Launch a background coroutine and prevent GC of the task handle.
-
-    Accepts a *factory* (zero-arg callable returning a coroutine) rather than
-    a pre-created coroutine so tests can stub this without leaking unawaited
-    coroutine objects.
-    """
-    task = asyncio.create_task(coro_factory(), name=f"import_{operation_id}")
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 async def _run_operation(
@@ -100,9 +85,8 @@ async def _run_operation(
         # Mark operation as no longer active before the grace period so new
         # imports aren't blocked by the 429 limit during SSE drain.
         _active_operations.discard(operation_id)
-        # Give SSE clients time to read final events before cleanup
-        await asyncio.sleep(SSEConstants.GRACE_PERIOD_SECONDS)
-        await registry.unregister(operation_id)
+        # Shared cleanup: sentinel + grace period + unregister
+        await finalize_sse_operation(operation_id)
 
 
 async def _prepare_operation() -> tuple[str, OperationBoundEmitter]:
@@ -148,7 +132,9 @@ async def import_lastfm_history(
             progress_emitter=emitter,
         )
 
-    _launch_background(operation_id, lambda: _run_operation(operation_id, _import()))
+    launch_background(
+        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+    )
     return OperationStartedResponse(operation_id=operation_id)
 
 
@@ -169,7 +155,9 @@ async def import_spotify_likes(
             progress_emitter=emitter,
         )
 
-    _launch_background(operation_id, lambda: _run_operation(operation_id, _import()))
+    launch_background(
+        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+    )
     return OperationStartedResponse(operation_id=operation_id)
 
 
@@ -190,7 +178,9 @@ async def export_lastfm_likes(
             progress_emitter=emitter,
         )
 
-    _launch_background(operation_id, lambda: _run_operation(operation_id, _import()))
+    launch_background(
+        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+    )
     return OperationStartedResponse(operation_id=operation_id)
 
 
@@ -231,7 +221,9 @@ async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
         finally:
             os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
 
-    _launch_background(operation_id, lambda: _run_operation(operation_id, _import()))
+    launch_background(
+        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+    )
     return OperationStartedResponse(operation_id=operation_id)
 
 

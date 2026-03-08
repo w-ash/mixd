@@ -1,7 +1,7 @@
 # 🎯 Active Work Tracker - Tenacity Refactoring (DRY & Modernization)
 
 > [!info] Purpose
-> This file tracks active development work on the current epic. For strategic roadmap and completed milestones, see [[ROADMAP.md]].
+> This file tracks active development work on the current epic. For strategic roadmap and completed milestones, see [[docs/backlog/README.md]].
 
 **Current Initiative**: Tenacity Retry Policies - DRY & Modernization
 **Status**: `#ready-to-commit` `#infrastructure` `#v0.3.0`

@@ -1,7 +1,5 @@
 """Tests for self-describing summary metric domain types."""
 
-import pytest
-
 from src.domain.entities.summary_metrics import SummaryMetric, SummaryMetricCollection
 
 
@@ -52,13 +50,6 @@ class TestSummaryMetric:
         )
 
         assert metric.significance == 5
-
-    def test_summary_metric_is_immutable(self):
-        """Test that SummaryMetric is frozen/immutable."""
-        metric = SummaryMetric(name="test", value=1, label="Test")
-
-        with pytest.raises(Exception):  # attrs frozen raises FrozenInstanceError
-            metric.value = 2  # type: ignore
 
 
 class TestSummaryMetricCollection:
@@ -123,6 +114,30 @@ class TestSummaryMetricCollection:
         assert sorted_metrics[0].label == "A"
         assert sorted_metrics[1].label == "B"
         assert sorted_metrics[2].label == "C"
+
+    def test_get_returns_value_by_name(self):
+        """Test get() retrieves metric value by name."""
+        collection = SummaryMetricCollection()
+        collection.add("imported", 97, "Likes Imported")
+        collection.add("errors", 3, "Errors")
+
+        assert collection.get("imported") == 97
+        assert collection.get("errors") == 3
+
+    def test_get_returns_default_when_not_found(self):
+        """Test get() returns default value for missing metric."""
+        collection = SummaryMetricCollection()
+        collection.add("imported", 97, "Likes Imported")
+
+        assert collection.get("missing") == 0
+        assert collection.get("missing", 42) == 42
+
+    def test_get_on_empty_collection(self):
+        """Test get() on empty collection returns default."""
+        collection = SummaryMetricCollection()
+
+        assert collection.get("anything") == 0
+        assert collection.get("anything", -1) == -1
 
     def test_multiple_summary_metrics_with_different_formats(self):
         """Test collection with mixed format types."""

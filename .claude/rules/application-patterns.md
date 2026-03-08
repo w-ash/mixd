@@ -14,3 +14,4 @@ paths:
 - **Prefect workflows**: use `SharedSessionProvider` for dependency injection; pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see docs/workflow_guide.md)
 - **Database-first workflows**: all workflow operations work on database tracks (`track.id is not None`), never on raw connector data. Source nodes MUST persist via `SavePlaylistUseCase` before returning.
 - **Intentional pattern repetition** (not duplication): each use case owns its own Command/Result types, transaction boundaries, and context-specific error handling — don't extract these.
+- **All use cases follow Command/Result**: every `execute()` takes `(command, uow) -> Result`. Even parameterless queries use an empty Command for API uniformity — the signature never changes when params are added later.

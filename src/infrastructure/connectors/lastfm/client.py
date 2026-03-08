@@ -17,6 +17,7 @@ import asyncio
 from datetime import datetime
 import hashlib
 from typing import Any, ClassVar, override
+from urllib.parse import quote as _percent_encode
 
 from attrs import define, field
 import httpx
@@ -180,12 +181,22 @@ class LastFMAPIClient(BaseAPIClient):
             # api_sig excludes "format" per Last.fm API spec
             sig_params = {k: v for k, v in base_params.items() if k != "format"}
             base_params["api_sig"] = _sign_params(sig_params, self.api_secret or "")
-            response = await self._client.post("/", data=base_params)
+
+        # Work around Last.fm's double URL decoding (see
+        # https://support.last.fm/t/api-and-website-are-decoding-url-parameters-twice/116278).
+        # Pre-encode values so httpx sends double-encoded params (%252B etc.)
+        # that Last.fm correctly double-decodes back to the original characters.
+        encoded_params = {
+            k: _percent_encode(v, safe="") for k, v in base_params.items()
+        }
+
+        if authenticated:
+            response = await self._client.post("/", data=encoded_params)
             _ = response.raise_for_status()
         else:
             # Read-only methods: GET with params in query string
             # Last.fm API documentation specifies GET for all read operations
-            response = await self._client.get("/", params=base_params)
+            response = await self._client.get("/", params=encoded_params)
             _ = response.raise_for_status()
 
         # Last.fm returns errors as HTTP 200 with {"error": N, "message": "..."}

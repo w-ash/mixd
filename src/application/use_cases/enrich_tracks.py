@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, Never, cast
 
 if TYPE_CHECKING:
     from src.application.services.progress_manager import AsyncProgressManager
+    from src.application.workflows.protocols import MetricConfigProvider
 
 from attrs import define, field
 
@@ -125,6 +126,14 @@ class EnrichTracksUseCase:
 
     Used by workflow enrichment nodes and play history workflows.
     """
+
+    metric_config: MetricConfigProvider
+    metrics_service: MetricsApplicationService = field(init=False)
+
+    def __attrs_post_init__(self) -> None:
+        self.metrics_service = MetricsApplicationService(
+            metric_config=self.metric_config
+        )
 
     async def execute(
         self, command: EnrichTracksCommand, uow: UnitOfWorkProtocol
@@ -290,9 +299,7 @@ class EnrichTracksUseCase:
         )
 
         # Step 2: Use MetricsApplicationService for cache-first metric resolution
-        metrics_service = MetricsApplicationService()
-
-        metrics, fresh_ids = await metrics_service.get_external_track_metrics(
+        metrics, fresh_ids = await self.metrics_service.get_external_track_metrics(
             track_ids=track_ids,
             connector=config.connector,
             metric_names=metric_names,

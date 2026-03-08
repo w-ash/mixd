@@ -9,6 +9,7 @@ Spotify API → ConnectorPlaylistItem → Track.connector_metadata → DBPlaylis
 """
 
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
@@ -111,7 +112,7 @@ class TestSpotifyAddedAtPreservation:
 
         uow = get_unit_of_work(db_session)
 
-        create_use_case = CreateCanonicalPlaylistUseCase()
+        create_use_case = CreateCanonicalPlaylistUseCase(metric_config=MagicMock())
         create_command = CreateCanonicalPlaylistCommand(
             name="Canonical Test Playlist",
             tracklist=TrackList(),

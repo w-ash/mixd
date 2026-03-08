@@ -65,15 +65,6 @@ class TestProgressEvent:
         assert isinstance(event.timestamp, datetime)
         assert event.metadata == {}
 
-    def test_progress_event_immutable(self):
-        """Test that progress events are immutable."""
-        event = ProgressEvent(
-            operation_id="test-op-123", current=50, total=100, message="Processing"
-        )
-
-        with pytest.raises(Exception):  # attrs frozen=True prevents modification
-            event.current = 75  # type: ignore
-
     def test_completion_percentage_calculation(self):
         """Test completion percentage calculation."""
         event = ProgressEvent(

@@ -46,8 +46,11 @@ Exception-to-HTTP mapping is handled by `src/interface/api/middleware.py`:
 | Exception | HTTP Status | Error Code | Notes |
 |-----------|-------------|------------|-------|
 | `NotFoundError` | `404` | `NOT_FOUND` | Domain exception from `src/domain/exceptions.py` |
+| `TemplateReadOnlyError` | `403` | `FORBIDDEN` | Cannot edit/delete template workflows (v0.4.0) |
 | `ValueError` | `400` | `VALIDATION_ERROR` | Input validation failures |
 | `RequestValidationError` | `422` | (FastAPI default) | Pydantic schema violations (automatic) |
+| `WorkflowAlreadyRunningError` | `409` | `CONFLICT` | Workflow is already executing (v0.4.1) |
+| `ConnectorNotAvailableError` | `503` | `SERVICE_UNAVAILABLE` | Required connector not connected (v0.4.1) |
 | Unhandled `Exception` | `500` | `INTERNAL_ERROR` | Generic message, details logged server-side |
 
 Implemented status codes:
@@ -57,12 +60,8 @@ Implemented status codes:
 | `413` | Payload too large (file upload exceeds 100 MB limit) | v0.3.1 |
 | `429` | Too many concurrent operations (max 3 simultaneous imports) | v0.3.1 |
 
-Future status codes (not yet implemented):
-
-| HTTP Status | Meaning | Milestone |
-|-------------|---------|-----------|
-| `409` | Conflict (operation already running, duplicate resource) | v0.3.2+ |
-| `503` | Service unavailable (connector not connected) | v0.4.0 |
+| `409` | Conflict (workflow already running) | v0.4.1 |
+| `503` | Service unavailable (connector not connected) | v0.4.1 |
 
 ### Pagination
 
@@ -454,7 +453,7 @@ GET    /workflows
        -> { data: WorkflowSummary[], total, limit, offset }
 ```
 - **Use case**: `ListWorkflowsUseCase`
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: `include_templates` defaults to `true`. Templates have `is_template: true` and cannot be edited/deleted.
 
 ```
@@ -463,7 +462,7 @@ POST   /workflows
        -> WorkflowDetail (201)
 ```
 - **Use case**: `CreateWorkflowUseCase`
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Validates definition via `validate_workflow_def()` before persisting. Returns `422` with structured `ValidationError[]` on invalid definition.
 
 ```
@@ -471,7 +470,7 @@ GET    /workflows/{id}
        -> WorkflowDetail
 ```
 - **Use case**: `GetWorkflowUseCase`
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 
 ```
 PATCH  /workflows/{id}
@@ -479,7 +478,7 @@ PATCH  /workflows/{id}
        -> WorkflowDetail
 ```
 - **Use case**: `UpdateWorkflowUseCase`
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Templates (`is_template=true`) return `403 Forbidden`. Validates definition if provided.
 
 ```
@@ -487,7 +486,7 @@ DELETE /workflows/{id}
        -> 204
 ```
 - **Use case**: `DeleteWorkflowUseCase`
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Templates return `403 Forbidden`.
 
 ```
@@ -496,7 +495,7 @@ POST   /workflows/validate
        -> { valid: bool, errors: ValidationError[] }
 ```
 - **Use case**: Validate workflow definition (structural only, no execution)
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Checks: valid JSON, known node types, valid DAG (no cycles), required config fields present, config value types correct.
 
 ```
@@ -504,7 +503,7 @@ GET    /workflows/nodes
        -> { data: NodeTypeInfo[] }
 ```
 - **Use case**: Node registry introspection (for editor node palette and reference)
-- **Status**: Needs implementation (v0.4.0)
+- **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Returns all registered node types with category, description, and config schema. Sourced from `list_nodes()` in `node_registry.py`.
 
 ### Workflow Execution (v0.4.1)
@@ -514,7 +513,7 @@ POST   /workflows/{id}/run
        -> { operation_id: str, run_id: int }
 ```
 - **Use case**: `RunWorkflowUseCase` (delegates to `run_workflow()` in `prefect.py`)
-- **Status**: Needs implementation (v0.4.1)
+- **Status**: ✅ Implemented (v0.4.1)
 - **Notes**: Pre-flight validation checks required connectors. Returns `503` with `{ required_connectors: ["spotify"] }` if unmet. Returns `409 Conflict` if workflow is already running. Emits `node_status` SSE events during execution.
 
 ```
@@ -523,14 +522,14 @@ GET    /workflows/{id}/runs
        -> { data: WorkflowRunSummary[], total, limit, offset }
 ```
 - **Use case**: `GetWorkflowRunsUseCase`
-- **Status**: Needs implementation (v0.4.1)
+- **Status**: ✅ Implemented (v0.4.1)
 
 ```
 GET    /workflows/{id}/runs/{run_id}
        -> WorkflowRunDetail
 ```
 - **Use case**: `GetWorkflowRunsUseCase`
-- **Status**: Needs implementation (v0.4.1)
+- **Status**: ✅ Implemented (v0.4.1)
 - **Notes**: Includes `definition_snapshot` (the exact workflow definition at execution time) and per-node execution details.
 
 ### Workflow Preview (v0.4.2)
@@ -969,14 +968,16 @@ Fields:
 | Active operations list | `GET /operations` | `routes/operations.py` | v0.3.1 |
 | `ListTracksUseCase` | `GET /tracks` | `routes/tracks.py` | v0.3.2 |
 | `GetTrackDetailsUseCase` | `GET /tracks/{id}`, `GET /tracks/{id}/playlists` | `routes/tracks.py` | v0.3.2 |
+| `RunWorkflowUseCase` | `POST /workflows/{id}/run` | `routes/workflows.py` | v0.4.1 |
+| `GetWorkflowRunsUseCase` | `GET /workflows/{id}/runs`, `GET /workflows/{id}/runs/{run_id}` | `routes/workflows.py` | v0.4.1 |
 
 ### Use Cases With Existing Logic (Need API Routes)
 
 | Use Case | API Endpoints | Milestone |
 |----------|--------------|-----------|
 | `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.2+ |
-| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.0 |
-| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.0 |
+| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.3 |
+| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.3 |
 | `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` | v0.3.2 |
 | `EnrichTracksUseCase` | Internal (used by workflows) | — |
 
@@ -989,8 +990,8 @@ Fields:
 | `GetTrackStatsUseCase` | v0.3.3 | `GET /stats/dashboard` |
 | `GetConnectorMappingStatsUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
 | `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
-| Workflow CRUD | v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
-| Workflow execution | v0.4.0 | `POST /workflows/{id}/run` |
-| Connector playlist browse | v0.4.0 | `GET /connectors/{connector}/playlists` |
+| Workflow CRUD | ✅ v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
+| Workflow execution | ✅ v0.4.1 | `POST /workflows/{id}/run`, `GET .../runs` |
+| Connector playlist browse | v0.4.3 | `GET /connectors/{connector}/playlists` |
 | Connector OAuth flows | v0.5.0 | `/auth/*`, `/connectors/*/auth-url` |
 | `GetUnmappedTracksUseCase` | v0.6.0 | `GET /tracks?unmapped_for=...` |

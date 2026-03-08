@@ -116,6 +116,7 @@ export function TrackDetail() {
 
   return (
     <div>
+      <title>{track.title} — Narada</title>
       <div className="mb-2">
         <Link
           to="/library"

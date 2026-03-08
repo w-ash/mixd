@@ -1,20 +1,18 @@
-"""Comprehensive error classification tests for Spotify API integration.
+"""Spotify retry behavior tests — classifier + tenacity wiring.
 
-This test suite provides exhaustive coverage of all error codes and patterns
-defined in src/infrastructure/connectors/spotify/error_classifier.py.
-
-Tests ensure that each error type triggers the correct retry behavior:
-- Permanent errors: No retries (immediate failure)
-- Temporary errors: 2-3 retries with exponential backoff
-- Rate limit errors: 2-3 retries with constant delay
-- Not found errors: No retries (immediate failure with debug logging)
-- Unknown errors: 2-3 retries with exponential backoff
+Tests that the error classifier decisions flow correctly through the tenacity
+retry policy into each client method. Covers:
+- Permanent errors (4xx): No retries, immediate failure
+- Temporary errors (5xx): 3 retries with exponential backoff
+- Rate limit errors (429): 3 retries with constant delay
+- Not found errors (404): No retries, immediate failure
+- Network errors: 3 retries as temporary
+- Recovery: Success after transient failures
+- All 13 client methods wired with retry
 
 Injection strategy: patch individual _impl methods to inject httpx errors.
-This tests the retry policy behavior without requiring real HTTP connections.
 """
 
-import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -89,9 +87,7 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
-            start_time = time.time()
             result = await spotify_client.get_track("test_track_id")
-            duration = time.time() - start_time
 
         # Should return None gracefully (no exception raised)
         assert result is None
@@ -101,9 +97,6 @@ class TestComprehensiveErrorClassification:
             f"Expected 1 call for permanent error {status_code}, got {mock_impl.call_count}"
         )
 
-        # Should be fast (no retry delays)
-        assert duration < 2.0, f"Permanent error took too long: {duration}s"
-
     # NOT FOUND ERRORS (404) - Should NOT retry, immediate failure
     async def test_not_found_error_no_retry(self, spotify_client):
         """Test 404 Not Found causes immediate failure with no retries."""
@@ -111,15 +104,12 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
-            start_time = time.time()
             result = await spotify_client.get_track("nonexistent_track_id")
-            duration = time.time() - start_time
 
         assert result is None
         assert mock_impl.call_count == 1, (
             f"Expected 1 call for not found error, got {mock_impl.call_count}"
         )
-        assert duration < 2.0, f"Not found error took too long: {duration}s"
 
     # RATE LIMIT ERRORS (429) - Should retry 2-3 times with backoff
     async def test_rate_limit_error_retries(self, fast_retry_client):

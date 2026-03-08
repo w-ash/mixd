@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { useListWorkflowsApiV1WorkflowsGet } from "@/api/generated/workflows/workflows";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { getStatusConfig } from "@/components/shared/RunStatusBadge";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { usePagination } from "@/hooks/usePagination";
 import { formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 function WorkflowTableSkeleton() {
   return (
@@ -26,8 +28,8 @@ function WorkflowTableSkeleton() {
         <div key={i} className="flex items-center gap-4">
           <Skeleton className="h-5 w-52" />
           <Skeleton className="h-5 w-10" />
+          <Skeleton className="h-5 w-20" />
           <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-5 w-28" />
         </div>
       ))}
     </div>
@@ -48,6 +50,7 @@ export function Workflows() {
 
   return (
     <div>
+      <title>Workflows — Narada</title>
       <PageHeader
         title="Workflows"
         description="Declarative pipelines that compose your music criteria into playlists."
@@ -82,41 +85,67 @@ export function Workflows() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead className="w-20 text-right">Tasks</TableHead>
+                <TableHead className="w-28">Last Run</TableHead>
                 <TableHead className="w-36 text-right">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {workflows.map((wf) => (
-                <TableRow key={wf.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to={`/workflows/${wf.id}`}
-                        className="font-medium text-text hover:text-primary transition-colors"
-                      >
-                        {wf.name}
-                      </Link>
-                      {wf.is_template && (
-                        <Badge variant="outline" className="gap-1 text-[10px]">
-                          <Lock size={10} aria-hidden="true" />
-                          Template
-                        </Badge>
+              {workflows.map((wf) => {
+                const lastRun = wf.last_run;
+                const runConf = lastRun
+                  ? getStatusConfig(lastRun.status)
+                  : null;
+
+                return (
+                  <TableRow key={wf.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/workflows/${wf.id}`}
+                          className="font-medium text-text hover:text-primary transition-colors"
+                        >
+                          {wf.name}
+                        </Link>
+                        {wf.is_template && (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 text-[10px]"
+                          >
+                            <Lock size={10} aria-hidden="true" />
+                            Template
+                          </Badge>
+                        )}
+                      </div>
+                      {wf.description && (
+                        <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
+                          {wf.description}
+                        </p>
                       )}
-                    </div>
-                    {wf.description && (
-                      <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
-                        {wf.description}
-                      </p>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {wf.task_count}
-                  </TableCell>
-                  <TableCell className="text-right text-text-muted text-sm">
-                    {formatDate(wf.updated_at)}
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {wf.task_count}
+                    </TableCell>
+                    <TableCell>
+                      {runConf ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 text-xs font-display",
+                            runConf.className,
+                          )}
+                        >
+                          {runConf.icon}
+                          {runConf.label}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-text-faint">&mdash;</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-text-muted text-sm">
+                      {formatDate(wf.updated_at)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
 

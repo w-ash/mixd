@@ -62,6 +62,13 @@ class PlaylistDetailSchema(PlaylistSummarySchema):
     entries: list[PlaylistEntrySchema]
 
 
+class BackupPlaylistRequest(BaseModel):
+    """Request body for POST /playlists/backup."""
+
+    connector: str
+    playlist_id: str
+
+
 class CreatePlaylistRequest(BaseModel):
     """Request body for POST /playlists."""
 

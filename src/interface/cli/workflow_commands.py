@@ -18,6 +18,7 @@ import typer
 from src.application.workflows.workflow_loader import list_workflow_defs
 from src.domain.entities.workflow import WorkflowDef
 from src.interface.cli.async_runner import run_async
+from src.interface.cli.cli_helpers import handle_cli_error
 from src.interface.cli.console import (
     get_console,
     get_error_console,
@@ -236,7 +237,7 @@ def _execute_workflow(
 
     except Exception as e:
         if not quiet:
-            err_console.print(f"[red]Error: Workflow execution failed: {e}[/red]")
+            handle_cli_error(e, "Workflow execution failed")
         raise typer.Exit(1) from e
 
 

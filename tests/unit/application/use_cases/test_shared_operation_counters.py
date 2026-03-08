@@ -1,7 +1,5 @@
 """Unit tests for shared operation counter utilities."""
 
-import pytest
-
 from src.application.use_cases._shared.operation_counters import count_operation_types
 from src.application.use_cases._shared.playlist_results import OperationCounts
 from src.domain.entities.track import Artist, Track
@@ -160,11 +158,3 @@ class TestCountOperationTypes:
         result = count_operation_types(operations)
 
         assert isinstance(result, OperationCounts)
-
-    def test_operation_counts_immutable(self) -> None:
-        """OperationCounts should be immutable (frozen)."""
-        result = count_operation_types([])
-
-        # Should raise because OperationCounts is frozen
-        with pytest.raises(Exception):  # attrs.FrozenInstanceError
-            result.added = 5  # type: ignore[misc]

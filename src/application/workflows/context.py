@@ -103,12 +103,15 @@ class UseCaseProviderImpl:
     types through ``execute_use_case`` generics.
     """
 
+    def __init__(self, metric_config: MetricConfigProvider) -> None:
+        self._metric_config = metric_config
+
     async def get_create_canonical_playlist_use_case(self):
         from src.application.use_cases.create_canonical_playlist import (
             CreateCanonicalPlaylistUseCase,
         )
 
-        return CreateCanonicalPlaylistUseCase()
+        return CreateCanonicalPlaylistUseCase(metric_config=self._metric_config)
 
     async def get_create_connector_playlist_use_case(self):
         from src.application.use_cases.create_connector_playlist import (
@@ -120,7 +123,7 @@ class UseCaseProviderImpl:
     async def get_enrich_tracks_use_case(self):
         from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
 
-        return EnrichTracksUseCase()
+        return EnrichTracksUseCase(metric_config=self._metric_config)
 
     async def get_liked_tracks_use_case(self):
         from src.application.use_cases.get_liked_tracks import (
@@ -141,7 +144,7 @@ class UseCaseProviderImpl:
             UpdateCanonicalPlaylistUseCase,
         )
 
-        return UpdateCanonicalPlaylistUseCase()
+        return UpdateCanonicalPlaylistUseCase(metric_config=self._metric_config)
 
     async def get_update_connector_playlist_use_case(self):
         from src.application.use_cases.update_connector_playlist import (
@@ -254,8 +257,8 @@ def create_workflow_context(
     )
 
     connectors = ConnectorRegistryImpl()
-    use_cases = UseCaseProviderImpl()
     metric_config = MetricConfigProviderImpl()
+    use_cases = UseCaseProviderImpl(metric_config=metric_config)
 
     return ConcreteWorkflowContext(
         connectors=connectors,

@@ -6,14 +6,21 @@ paths:
   - "src/interface/api/routes/health.py"
   - "web/openapi.json"
   - "scripts/export_openapi.py"
-  - "ROADMAP.md"
+  - "docs/backlog/README.md"
 ---
 # Version Management
 
 Version lives in `pyproject.toml` only — single source of truth.
 
-`src.__version__` reads it via `importlib.metadata`. FastAPI `app.version`, the health endpoint, and the OpenAPI schema all derive from `__version__`. Never hardcode version strings.
+`src.__version__` reads it via `importlib.metadata.version("narada")`. FastAPI `app.version`, the health endpoint, and the OpenAPI schema all derive from `__version__`. Never hardcode version strings.
+
+**Critical**: `importlib.metadata` reads from the *installed* package metadata, not directly from `pyproject.toml`. After changing the version in `pyproject.toml`, you **must** run `poetry install` to update the installed metadata before the new version appears at runtime.
 
 **After bumping `pyproject.toml`:**
-1. `pnpm --prefix web sync-api` — exports OpenAPI schema + runs Orval codegen
-2. Update `ROADMAP.md` manually (semantic content, not auto-derivable)
+1. `poetry install` — updates installed package metadata so `importlib.metadata.version()` returns the new version
+2. `pnpm --prefix web sync-api` — exports OpenAPI schema (picks up new version) + runs Orval codegen
+3. Verify: `poetry run python -c "from src import __version__; print(__version__)"` and `head -7 web/openapi.json`
+4. Update docs manually (semantic content, not auto-derivable):
+   - `docs/backlog/README.md` — current version + milestone status
+   - `docs/backlog/v0.4.x.md` (or relevant) — check off completed items with implementation notes
+   - `docs/web-ui/` — update implementation status markers on endpoints, user flows, architecture

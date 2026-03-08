@@ -12,8 +12,10 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_playlist_with_entries, make_track
+from tests.fixtures import make_mock_metric_config, make_playlist_with_entries, make_track
 from tests.fixtures.mocks import make_mock_uow
+
+_MOCK_METRIC_CONFIG = make_mock_metric_config()
 
 
 @pytest.fixture
@@ -104,7 +106,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             new_tracklist=tracklist,
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -128,7 +130,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             new_tracklist=tracklist,
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -150,7 +152,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             new_tracklist=tracklist,
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -170,7 +172,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             append_mode=True,
             dry_run=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -191,7 +193,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             playlist_name="New Name",
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         await use_case.execute(command, mock_uow)
 
@@ -214,7 +216,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             playlist_id="not_a_number",
             new_tracklist=tracklist,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         with pytest.raises(NotFoundError):
             await use_case.execute(command, mock_uow)
@@ -232,7 +234,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             new_tracklist=tracklist,
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -249,7 +251,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             new_tracklist=tracklist,
             append_mode=True,
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -264,7 +266,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             playlist_id="1",
             playlist_name="New Name",
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)
 
@@ -284,7 +286,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             playlist_id="1",
             playlist_description="",
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         await use_case.execute(command, mock_uow)
 
@@ -304,7 +306,7 @@ class TestUpdateCanonicalPlaylistUseCase:
             playlist_name="New Name",
             # playlist_description deliberately omitted (defaults to None)
         )
-        use_case = UpdateCanonicalPlaylistUseCase()
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         await use_case.execute(command, mock_uow)
 

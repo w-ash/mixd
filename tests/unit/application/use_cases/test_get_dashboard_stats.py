@@ -6,7 +6,10 @@ verifying correct delegation and result construction.
 
 import pytest
 
-from src.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
+from src.application.use_cases.get_dashboard_stats import (
+    GetDashboardStatsCommand,
+    GetDashboardStatsUseCase,
+)
 from tests.fixtures import make_mock_uow
 
 
@@ -33,7 +36,7 @@ class TestGetDashboardStatsUseCase:
             "lastfm": 30,
         }
 
-        result = await GetDashboardStatsUseCase().execute(mock_uow)
+        result = await GetDashboardStatsUseCase().execute(GetDashboardStatsCommand(), mock_uow)
 
         assert result.total_tracks == 150
         assert result.total_plays == 4200
@@ -51,7 +54,7 @@ class TestGetDashboardStatsUseCase:
         mock_uow.get_connector_repository().count_tracks_by_connector.return_value = {}
         mock_uow.get_like_repository().count_liked_by_service.return_value = {}
 
-        result = await GetDashboardStatsUseCase().execute(mock_uow)
+        result = await GetDashboardStatsUseCase().execute(GetDashboardStatsCommand(), mock_uow)
 
         assert result.total_tracks == 0
         assert result.total_plays == 0
@@ -76,7 +79,7 @@ class TestGetDashboardStatsUseCase:
             "musicbrainz": 3,
         }
 
-        result = await GetDashboardStatsUseCase().execute(mock_uow)
+        result = await GetDashboardStatsUseCase().execute(GetDashboardStatsCommand(), mock_uow)
 
         like_repo = mock_uow.get_like_repository()
         like_repo.count_liked_by_service.assert_called_once()

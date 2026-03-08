@@ -1,7 +1,7 @@
 # Frontend Architecture
 
 > Architecture decisions and project structure for the React web UI.
-> Stack choices, component catalog, and project layout reflect v0.3.1 implementation.
+> Stack choices, component catalog, and project layout reflect v0.4.1 implementation.
 > Future components and hooks are noted where planned.
 
 ---
@@ -214,6 +214,7 @@ web/
 │   │   │   ├── PageLayout.tsx       Sidebar + ErrorBoundary-wrapped Outlet
 │   │   │   └── Sidebar.tsx          Nav links with active state
 │   │   └── shared/                  Reusable composite components
+│   │       ├── RunStatusBadge.tsx   Workflow run status badge (PENDING/RUNNING/COMPLETED/FAILED)
 │   │       ├── ConnectorCard.tsx    Settings page connector status card
 │   │       ├── ConnectorCard.test.tsx
 │   │       ├── ConnectorIcon.tsx    Colored dot + label per service
@@ -237,7 +238,7 @@ web/
 │   │       │   ├── SelectorNode.tsx
 │   │       │   ├── CombinerNode.tsx
 │   │       │   └── DestinationNode.tsx
-│   │       ├── BaseWorkflowNode.tsx Shared node shell: category color, icon, label, config summary
+│   │       ├── BaseWorkflowNode.tsx Shared node shell: category color, icon, label, config summary, execution status (v0.4.1)
 │   │       ├── WorkflowCanvas.tsx   React Flow wrapper with viewer/editor modes
 │   │       ├── NodePalette.tsx      Draggable node type sidebar (v0.4.2)
 │   │       ├── NodeConfigPanel.tsx  Dynamic config form for selected node (v0.4.2)
@@ -249,11 +250,13 @@ web/
 │   │   ├── usePagination.ts         URL-state pagination (page param ↔ offset/limit)
 │   │   ├── usePagination.test.tsx
 │   │   ├── useOperationProgress.ts  SSE subscription for real-time operation progress
-│   │   └── useOperationProgress.test.ts
+│   │   ├── useOperationProgress.test.ts
+│   │   ├── useWorkflowExecution.ts  Workflow execution lifecycle (run trigger, SSE node status, state)
+│   │   └── useWorkflowExecution.test.ts
 │   ├── lib/
 │   │   └── utils.ts                 shadcn cn() utility
 │   ├── pages/                       Route-level page components
-│   │   ├── Dashboard.tsx            Landing page (stats placeholder)
+│   │   ├── Dashboard.tsx            Landing page (stats overview)
 │   │   ├── Dashboard.test.tsx
 │   │   ├── Imports.tsx              Import operations with real-time progress
 │   │   ├── Imports.test.tsx
@@ -262,6 +265,7 @@ web/
 │   │   ├── PlaylistDetail.tsx       Track table + edit/delete dialogs
 │   │   ├── PlaylistDetail.test.tsx
 │   │   ├── Settings.tsx             Connector cards grid
+│   │   ├── WorkflowRunDetail.tsx     Historical run view with DAG from definition_snapshot (v0.4.1)
 │   │   └── Settings.test.tsx
 │   ├── test/                        Test infrastructure
 │   │   ├── setup.ts                 MSW server bootstrap + jest-dom matchers
@@ -280,9 +284,9 @@ web/
 └── package.json
 ```
 
-> **Test coverage**: 16 test files, ~105 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
+> **Test coverage**: 18 test files, ~152 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
-> **Future pages** (not yet implemented): `Library.tsx` (v0.3.2), `TrackDetail.tsx` (v0.3.2), `Workflows.tsx` / `WorkflowDetail.tsx` (v0.4.0), `WorkflowEditor.tsx` (v0.4.2), `PlaylistLinks.tsx` (v0.4.0). Dashboard exists as a placeholder; it will gain stats when the stats API is implemented (v0.3.3).
+> **Future pages** (not yet implemented): `WorkflowEditor.tsx` (v0.4.2), `PlaylistLinks.tsx` (v0.4.3). All other pages (Dashboard, Library, TrackDetail, Playlists, Workflows, WorkflowDetail, WorkflowRunDetail, Imports, Settings) are implemented.
 >
 > **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
 >

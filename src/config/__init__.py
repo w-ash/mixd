@@ -32,6 +32,7 @@ logger.info("Starting operation")
 # Import everything from the submodules
 from .logging import (
     get_logger,
+    intercept_prefect_loggers,
     setup_loguru_logger,
     setup_script_logger,
 )
@@ -41,6 +42,7 @@ from .settings import create_matching_config, settings
 __all__ = [
     "create_matching_config",
     "get_logger",
+    "intercept_prefect_loggers",
     "settings",
     "setup_loguru_logger",
     "setup_script_logger",

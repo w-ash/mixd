@@ -620,7 +620,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 5. Managing Connector Links
 
-> **Available starting v0.4.0.** Requires connector playlist linking use cases and playlist links API routes.
+> **Available starting v0.4.3.** Requires connector playlist linking use cases and playlist links API routes.
 
 ### 5.1 Viewing Linked External Playlists
 
@@ -783,8 +783,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load list | `GET /workflows?include_templates=true` | `ListWorkflowsUseCase` | Needs implementation (v0.4.0) |
-| Clone template | `POST /workflows` (with template's definition) | `CreateWorkflowUseCase` | Needs implementation (v0.4.0) |
+| Load list | `GET /workflows?include_templates=true` | `ListWorkflowsUseCase` | ✅ Implemented (v0.4.0) |
+| Clone template | `POST /workflows` (with template's definition) | `CreateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
 
 **Edge cases**:
 - No workflows and no templates: "No workflows yet. Create your first workflow." [Create Workflow]
@@ -819,7 +819,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
      - **Running** (blue, pulsing border animation): currently executing
      - **Completed** (green, solid border, track count badge): finished successfully
      - **Failed** (red, solid border, error icon): error occurred
-   - Edges animate on completion: flowing particle animation shows data flow direction
+   - ~~Edges animate on completion: flowing particle animation shows data flow direction~~ *(deferred to v0.4.4 polish)*
    - Current running node has a glow effect (using the `--shadow-glow` design token)
    - Progress bar below the DAG shows overall completion percentage
    - Message area: "Enriching tracks with Last.fm data... (45/120 tracks)"
@@ -843,8 +843,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 1 | `POST /workflows/{id}/run` | Pre-flight + execution | Needs implementation (v0.4.1) |
-| 4-5 | `GET /operations/{id}/progress` | SSE with `node_status` events | Needs implementation (v0.4.1) |
+| 1 | `POST /workflows/{id}/run` | Pre-flight + execution | ✅ Implemented (v0.4.1) |
+| 4-5 | `GET /operations/{id}/progress` | SSE with `node_status` events | ✅ Implemented (v0.4.1) |
 
 **Edge cases**:
 - Workflow already running: Backend returns `409 Conflict`. Toast: "This workflow is already running."
@@ -882,9 +882,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
      - Execution time: "3.4s"
      - Sample output tracks: first 10 track titles with artist names
      - Error details for failed nodes (error message, stack trace preview)
-   - **Execution timeline**: horizontal bar chart showing duration per node (Temporal-inspired)
-     - Color-coded bars matching node category colors
-     - Total duration annotation
+   - **Execution timeline**: ~~horizontal bar chart showing duration per node (Temporal-inspired)~~ *(deferred to v0.4.4 polish)*
+     - ~~Color-coded bars matching node category colors~~
+     - ~~Total duration annotation~~
 
 3. **Action buttons**: Run (v0.4.1), Edit (v0.4.2), Delete
    - For templates: "Use Template" instead of Edit, no Delete
@@ -892,9 +892,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load workflow | `GET /workflows/{id}` | `GetWorkflowUseCase` | Needs implementation (v0.4.0) |
-| Load history | `GET /workflows/{id}/runs` | `GetWorkflowRunsUseCase` | Needs implementation (v0.4.1) |
-| Load run detail | `GET /workflows/{id}/runs/{run_id}` | `GetWorkflowRunsUseCase` | Needs implementation (v0.4.1) |
+| Load workflow | `GET /workflows/{id}` | `GetWorkflowUseCase` | ✅ Implemented (v0.4.0) |
+| Load history | `GET /workflows/{id}/runs` | `GetWorkflowRunsUseCase` | ✅ Implemented (v0.4.1) |
+| Load run detail | `GET /workflows/{id}/runs/{run_id}` | `GetWorkflowRunsUseCase` | ✅ Implemented (v0.4.1) |
 
 ---
 
@@ -968,10 +968,10 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load node types | `GET /workflows/nodes` | Node registry introspection | Needs implementation (v0.4.0) |
-| Create | `POST /workflows` | `CreateWorkflowUseCase` | Needs implementation (v0.4.0) |
-| Update | `PATCH /workflows/{id}` | `UpdateWorkflowUseCase` | Needs implementation (v0.4.0) |
-| Validate | `POST /workflows/validate` | Validate definition | Needs implementation (v0.4.0) |
+| Load node types | `GET /workflows/nodes` | Node registry introspection | ✅ Implemented (v0.4.0) |
+| Create | `POST /workflows` | `CreateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
+| Update | `PATCH /workflows/{id}` | `UpdateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
+| Validate | `POST /workflows/validate` | Validate definition | ✅ Implemented (v0.4.0) |
 | Preview | `POST /workflows/{id}/preview` | Dry-run execution | Needs implementation (v0.4.2) |
 
 **Edge cases**:

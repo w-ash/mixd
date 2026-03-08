@@ -10,6 +10,11 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)
+class GetDashboardStatsCommand:
+    """Parameterless — exists for API uniformity."""
+
+
+@define(frozen=True, slots=True)
 class DashboardStatsResult:
     """Aggregate statistics for the dashboard."""
 
@@ -25,10 +30,13 @@ class DashboardStatsResult:
 class GetDashboardStatsUseCase:
     """Use case for retrieving dashboard statistics."""
 
-    async def execute(self, uow: UnitOfWorkProtocol) -> DashboardStatsResult:
+    async def execute(
+        self, command: GetDashboardStatsCommand, uow: UnitOfWorkProtocol
+    ) -> DashboardStatsResult:
         """Execute the dashboard stats aggregation.
 
         Args:
+            command: Parameterless command for API uniformity.
             uow: Unit of work for repository access.
 
         Returns:
@@ -41,6 +49,8 @@ class GetDashboardStatsUseCase:
             like_repo = uow.get_like_repository()
             connector_repo = uow.get_connector_repository()
 
+            # Sequential: these are independent queries but SQLite serializes
+            # all operations. Parallelize with TaskGroup after PostgreSQL migration.
             total_tracks = await track_repo.count_all_tracks()
             total_plays = await plays_repo.count_all_plays()
             total_playlists = await playlist_repo.count_all_playlists()

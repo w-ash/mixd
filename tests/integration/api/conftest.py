@@ -19,9 +19,10 @@ from src.infrastructure.persistence.database.db_connection import (
 )
 from src.interface.api.app import create_app
 import src.interface.api.routes.imports as _imports_mod
+import src.interface.api.routes.workflows as _workflows_mod
 
 
-def _noop_launch(_op_id: str, _coro_factory: object) -> None:
+def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
     """No-op stub — never invokes the factory, so no coroutines are created."""
 
 
@@ -41,10 +42,12 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
 
     await init_db()
 
-    # Stub out background task launcher — import tests only verify endpoint
-    # request/response behavior, not the actual import execution.
-    original_launch = _imports_mod._launch_background
-    _imports_mod._launch_background = _noop_launch
+    # Stub out background task launcher at usage sites — both route modules
+    # hold their own binding via `from ... import launch_background`.
+    original_imports = _imports_mod.launch_background
+    original_workflows = _workflows_mod.launch_background
+    _imports_mod.launch_background = _noop_launch  # type: ignore[assignment]
+    _workflows_mod.launch_background = _noop_launch  # type: ignore[assignment]
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -52,7 +55,8 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
         yield c
 
     # Cleanup
-    _imports_mod._launch_background = original_launch
+    _imports_mod.launch_background = original_imports
+    _workflows_mod.launch_background = original_workflows
     reset_engine_cache()
     if original_db_url:
         os.environ["DATABASE_URL"] = original_db_url

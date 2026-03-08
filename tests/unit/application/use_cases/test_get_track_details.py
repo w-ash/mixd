@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from src.application.use_cases.get_track_details import (
+    GetTrackDetailsCommand,
     GetTrackDetailsUseCase,
     TrackDetailsResult,
 )
@@ -75,7 +76,7 @@ class TestGetTrackDetailsHappyPath:
             _make_playlists()
         )
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert isinstance(result, TrackDetailsResult)
         assert result.track.title == "Creep"
@@ -94,7 +95,7 @@ class TestGetTrackDetailsHappyPath:
         mock_uow.get_plays_repository().get_play_aggregations.return_value = {}
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         connector_names = [m.connector_name for m in result.connector_mappings]
         assert "db" not in connector_names
@@ -107,7 +108,7 @@ class TestGetTrackDetailsHappyPath:
         mock_uow.get_plays_repository().get_play_aggregations.return_value = {}
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert "spotify" in result.like_status
         assert result.like_status["spotify"].is_liked is True
@@ -121,7 +122,7 @@ class TestGetTrackDetailsHappyPath:
         )
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert result.play_summary.total_plays == 42
         assert result.play_summary.first_played == datetime(2023, 1, 1, tzinfo=UTC)
@@ -135,7 +136,7 @@ class TestGetTrackDetailsHappyPath:
             _make_playlists()
         )
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert len(result.playlists) == 2
         names = {p.name for p in result.playlists}
@@ -152,7 +153,7 @@ class TestGetTrackDetailsErrors:
         )
 
         with pytest.raises(NotFoundError, match="99999"):
-            await GetTrackDetailsUseCase().execute(99999, mock_uow)
+            await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=99999), mock_uow)
 
 
 class TestGetTrackDetailsEmptyData:
@@ -164,7 +165,7 @@ class TestGetTrackDetailsEmptyData:
         mock_uow.get_plays_repository().get_play_aggregations.return_value = {}
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert result.play_summary.total_plays == 0
         assert result.play_summary.first_played is None
@@ -176,7 +177,7 @@ class TestGetTrackDetailsEmptyData:
         mock_uow.get_plays_repository().get_play_aggregations.return_value = {}
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
-        result = await GetTrackDetailsUseCase().execute(1, mock_uow)
+        result = await GetTrackDetailsUseCase().execute(GetTrackDetailsCommand(track_id=1), mock_uow)
 
         assert result.like_status == {}
         assert result.playlists == []

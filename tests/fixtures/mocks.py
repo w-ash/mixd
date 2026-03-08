@@ -123,6 +123,33 @@ def make_mock_workflow_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_metric_config() -> MagicMock:
+    """Build a ``MagicMock`` mimicking :class:`MetricConfigProvider` protocol."""
+    return MagicMock()
+
+
+def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`WorkflowRunRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.create_run.side_effect = overrides.pop("create_run", lambda r: r)
+    repo.update_run_status.return_value = overrides.pop("update_run_status", None)
+    repo.save_node_record.side_effect = overrides.pop("save_node_record", lambda n: n)
+    repo.update_node_status.return_value = overrides.pop("update_node_status", None)
+    repo.get_runs_for_workflow.return_value = overrides.pop(
+        "get_runs_for_workflow", ([], 0)
+    )
+    repo.get_run_by_id.return_value = overrides.pop("get_run_by_id", None)
+    repo.get_latest_run_for_workflow.return_value = overrides.pop(
+        "get_latest_run_for_workflow", None
+    )
+    repo.get_latest_runs_for_workflows.return_value = overrides.pop(
+        "get_latest_runs_for_workflows", {}
+    )
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 # ---------------------------------------------------------------------------
 # Progress tracking helpers
 # ---------------------------------------------------------------------------
@@ -200,6 +227,11 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
     uow.get_workflow_repository = MagicMock(
         return_value=repo_overrides.get("workflow_repo", make_mock_workflow_repo())
+    )
+    uow.get_workflow_run_repository = MagicMock(
+        return_value=repo_overrides.get(
+            "workflow_run_repo", make_mock_workflow_run_repo()
+        )
     )
 
     # Connector provider (optional override)

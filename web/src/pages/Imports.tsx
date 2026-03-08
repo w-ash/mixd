@@ -162,6 +162,17 @@ function LastfmHistoryImport({
         className="flex items-center gap-1.5"
         role="radiogroup"
         aria-label="Import mode"
+        onKeyDown={(e) => {
+          const options = ["recent", "incremental", "full"] as const;
+          const idx = options.indexOf(mode);
+          if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            e.preventDefault();
+            setMode(options[(idx + 1) % options.length]);
+          } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setMode(options[(idx - 1 + options.length) % options.length]);
+          }
+        }}
       >
         {(["recent", "incremental", "full"] as const).map((option) => (
           // biome-ignore lint/a11y/useSemanticElements: styled segmented control
@@ -170,6 +181,7 @@ function LastfmHistoryImport({
             type="button"
             role="radio"
             aria-checked={mode === option}
+            tabIndex={mode === option ? 0 : -1}
             onClick={() => setMode(option)}
             className={cn(
               "rounded-md px-3 py-1.5 font-display text-xs font-medium capitalize transition-colors",
@@ -287,6 +299,7 @@ export function Imports() {
 
   return (
     <div>
+      <title>Imports — Narada</title>
       <PageHeader
         title="Imports"
         description="Import and sync your music data across services."

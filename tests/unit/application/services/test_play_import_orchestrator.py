@@ -5,7 +5,7 @@ short-circuit on empty ingestion, and error handling.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -55,8 +55,19 @@ def _make_connector_play(track_name: str = "Test Song") -> ConnectorTrackPlay:
 
 
 @pytest.fixture
-def orchestrator():
-    return PlayImportOrchestrator()
+def mock_resolver():
+    """Default mock resolver returning 0 resolved plays."""
+    resolver = AsyncMock()
+    resolver.resolve_connector_plays.return_value = ([], {"error_count": 0})
+    return resolver
+
+
+@pytest.fixture
+def orchestrator(mock_resolver):
+    async def resolver_factory(service: str):
+        return mock_resolver
+
+    return PlayImportOrchestrator(resolver_factory=resolver_factory)
 
 
 @pytest.fixture
@@ -78,7 +89,7 @@ class TestTwoPhaseHappyPath:
     """Test the normal two-phase workflow."""
 
     async def test_ingestion_then_resolution(
-        self, orchestrator, mock_uow, mock_importer
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
     ):
         """Happy path: ingestion returns plays → resolution resolves them."""
         connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
@@ -87,26 +98,22 @@ class TestTwoPhaseHappyPath:
             connector_plays,
         )
 
-        # Mock the resolver that _execute_resolution_phase calls
-        mock_resolver = AsyncMock()
+        # Configure the injected resolver for this test
         mock_resolver.resolve_connector_plays.return_value = (
             [MagicMock(spec=TrackPlay) for _ in range(3)],
             {"error_count": 0},
         )
 
-        with patch.object(
-            orchestrator, "_get_play_resolver", return_value=mock_resolver
-        ):
-            result = await orchestrator.import_plays_two_phase(
-                mock_importer, mock_uow, file_path="/fake/path.json"
-            )
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, file_path="/fake/path.json"
+        )
 
         assert result.operation_name == "Two-Phase Play Import"
         # Ingestion should have been called
         mock_importer.import_plays.assert_called_once()
 
     async def test_combined_result_has_both_phase_metadata(
-        self, orchestrator, mock_uow, mock_importer
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
     ):
         connector_plays = [_make_connector_play()]
         mock_importer.import_plays.return_value = (
@@ -114,16 +121,12 @@ class TestTwoPhaseHappyPath:
             connector_plays,
         )
 
-        mock_resolver = AsyncMock()
         mock_resolver.resolve_connector_plays.return_value = (
             [MagicMock(spec=TrackPlay)],
             {"error_count": 0},
         )
 
-        with patch.object(
-            orchestrator, "_get_play_resolver", return_value=mock_resolver
-        ):
-            result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
+        result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
 
         assert "ingestion_phase" in result.metadata
         assert "resolution_phase" in result.metadata
@@ -150,7 +153,7 @@ class TestResolutionPhaseErrors:
     """Test error handling in the resolution phase."""
 
     async def test_resolution_errors_captured_in_metrics(
-        self, orchestrator, mock_uow, mock_importer
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
     ):
         connector_plays = [_make_connector_play()]
         mock_importer.import_plays.return_value = (
@@ -158,16 +161,12 @@ class TestResolutionPhaseErrors:
             connector_plays,
         )
 
-        mock_resolver = AsyncMock()
         mock_resolver.resolve_connector_plays.return_value = (
             [],  # No resolved plays
             {"error_count": 1},  # 1 error
         )
 
-        with patch.object(
-            orchestrator, "_get_play_resolver", return_value=mock_resolver
-        ):
-            result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
+        result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
 
         # The resolution phase error should be in combined metrics
         assert result.metadata["resolution_phase"]["error_count"] == 1

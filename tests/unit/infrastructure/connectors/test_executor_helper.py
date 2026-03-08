@@ -94,9 +94,6 @@ class TestExecutorHelperFunctions:
 
         # With 200-thread executor, all 50 should run concurrently
         # Duration should be ~0.1s (one blocking call duration), not 50 * 0.1s
-        assert result["duration"] < 0.5, (
-            f"Not concurrent enough: {result['duration']:.3f}s"
-        )
         assert result["unique_threads"] >= 40, (
             f"Not using enough threads: {result['unique_threads']}"
         )

@@ -9,13 +9,16 @@ mode (calculate minimal changes to transform current playlist into target state)
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from attrs import define, evolve, field
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+
+if TYPE_CHECKING:
+    from src.application.workflows.protocols import MetricConfigProvider
 from src.application.use_cases._shared import OperationCounts, count_operation_types
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import require_playlist
@@ -122,9 +125,13 @@ class UpdateCanonicalPlaylistUseCase:
     Also extracts music metadata from track connector data for analytics.
     """
 
-    metrics_service: MetricsApplicationService = field(
-        factory=MetricsApplicationService
-    )
+    metric_config: MetricConfigProvider
+    metrics_service: MetricsApplicationService = field(init=False)
+
+    def __attrs_post_init__(self) -> None:
+        self.metrics_service = MetricsApplicationService(
+            metric_config=self.metric_config
+        )
 
     async def execute(
         self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol

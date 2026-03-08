@@ -591,6 +591,68 @@ class DBWorkflow(BaseEntity):
     )
 
 
+class DBWorkflowRun(DatabaseModel, TimestampMixin):
+    """Persisted record of a single workflow execution.
+
+    Stores the frozen definition snapshot and execution status/metrics.
+    Each run has child node records tracking per-node lifecycle.
+    """
+
+    __tablename__: str = "workflow_runs"
+
+    workflow_id: Mapped[int] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None]
+    output_track_count: Mapped[int | None]
+    output_playlist_id: Mapped[int | None]
+    error_message: Mapped[str | None] = mapped_column(String(2000))
+
+    # Relationships
+    workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
+    nodes: Mapped[list[DBWorkflowRunNode]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__: tuple[Any, ...] = (
+        Index("ix_workflow_runs_workflow_id_started_at", "workflow_id", "started_at"),
+    )
+
+
+class DBWorkflowRunNode(DatabaseModel):
+    """Per-node execution record within a workflow run."""
+
+    __tablename__: str = "workflow_run_nodes"
+
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+    )
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int] = mapped_column(default=0)
+    input_track_count: Mapped[int | None]
+    output_track_count: Mapped[int | None]
+    error_message: Mapped[str | None] = mapped_column(String(2000))
+    execution_order: Mapped[int] = mapped_column(default=0)
+
+    # Relationships
+    run: Mapped[DBWorkflowRun] = relationship(
+        back_populates="nodes",
+        passive_deletes=True,
+    )
+
+    __table_args__: tuple[Any, ...] = (Index("ix_workflow_run_nodes_run_id", "run_id"),)
+
+
 class DBSyncCheckpoint(BaseEntity):
     """Sync state tracking for incremental operations.
 

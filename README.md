@@ -114,8 +114,7 @@ poetry run alembic upgrade head      # Migrate
 | [DATABASE.md](docs/DATABASE.md) | Schema, relationships, and migration patterns |
 | [Workflow Guide](docs/GUIDE_WORKFLOWS.md) | Node catalog and workflow authoring |
 | [Web UI Specs](docs/web-ui/README.md) | User flows, API contracts, frontend architecture |
-| [ROADMAP.md](ROADMAP.md) | Version plan and technology decisions |
-| [BACKLOG.md](docs/BACKLOG.md) | Detailed epics and task breakdowns |
+| [Planning & Backlog](docs/backlog/) | Version plan, technology decisions, and task breakdowns |
 | [CLAUDE.md](CLAUDE.md) | AI-assisted development patterns and conventions |
 
 ## License

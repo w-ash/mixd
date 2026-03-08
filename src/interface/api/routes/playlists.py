@@ -16,7 +16,10 @@ from src.application.use_cases.delete_canonical_playlist import (
     DeleteCanonicalPlaylistCommand,
     DeleteCanonicalPlaylistUseCase,
 )
-from src.application.use_cases.list_playlists import ListPlaylistsUseCase
+from src.application.use_cases.list_playlists import (
+    ListPlaylistsCommand,
+    ListPlaylistsUseCase,
+)
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
@@ -27,8 +30,12 @@ from src.application.use_cases.update_canonical_playlist import (
 )
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
+from src.infrastructure.connectors._shared.metric_registry import (
+    MetricConfigProviderImpl,
+)
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import (
+    BackupPlaylistRequest,
     CreatePlaylistRequest,
     PlaylistDetailSchema,
     PlaylistEntrySchema,
@@ -47,7 +54,9 @@ async def list_playlists(
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistSummarySchema]:
     """List all playlists with pagination."""
-    result = await execute_use_case(lambda uow: ListPlaylistsUseCase().execute(uow))
+    result = await execute_use_case(
+        lambda uow: ListPlaylistsUseCase().execute(ListPlaylistsCommand(), uow)
+    )
 
     # In-memory pagination (playlist count is small)
     playlists = result.playlists[offset : offset + limit]
@@ -67,7 +76,20 @@ async def create_playlist(body: CreatePlaylistRequest) -> PlaylistDetailSchema:
         description=body.description,
     )
     result = await execute_use_case(
-        lambda uow: CreateCanonicalPlaylistUseCase().execute(command, uow)
+        lambda uow: CreateCanonicalPlaylistUseCase(
+            metric_config=MetricConfigProviderImpl()
+        ).execute(command, uow)
+    )
+    return to_playlist_detail(result.playlist)
+
+
+@router.post("/backup", status_code=201)
+async def backup_playlist(body: BackupPlaylistRequest) -> PlaylistDetailSchema:
+    """Backup a playlist from a connector service to the local database."""
+    from src.application.services.playlist_backup_service import run_playlist_backup
+
+    result = await run_playlist_backup(
+        connector_name=body.connector, playlist_id=body.playlist_id
     )
     return to_playlist_detail(result.playlist)
 
@@ -96,7 +118,9 @@ async def update_playlist(
         playlist_description=body.description,
     )
     result = await execute_use_case(
-        lambda uow: UpdateCanonicalPlaylistUseCase().execute(command, uow)
+        lambda uow: UpdateCanonicalPlaylistUseCase(
+            metric_config=MetricConfigProviderImpl()
+        ).execute(command, uow)
     )
     return to_playlist_detail(result.playlist)
 

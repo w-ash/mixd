@@ -7,6 +7,8 @@ always receives a consistent error shape regardless of what goes wrong.
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from src.application.workflows.prefect import WorkflowAlreadyRunningError
+from src.application.workflows.validation import ConnectorNotAvailableError
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 
@@ -29,15 +31,45 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(TemplateReadOnlyError)
-    async def template_readonly_handler(
+    async def template_readonly_handler(  # pyright: ignore[reportUnusedFunction]
         _request: Request, exc: TemplateReadOnlyError
-    ) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=403,
             content={
                 "error": {
                     "code": "TEMPLATE_READONLY",
                     "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(WorkflowAlreadyRunningError)
+    async def workflow_running_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: WorkflowAlreadyRunningError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "WORKFLOW_RUNNING",
+                    "message": str(exc),
+                    "details": {"workflow_id": exc.workflow_id},
+                }
+            },
+        )
+
+    @app.exception_handler(ConnectorNotAvailableError)
+    async def connector_not_available_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: ConnectorNotAvailableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "CONNECTOR_NOT_AVAILABLE",
+                    "message": str(exc),
+                    "details": {"required_connectors": exc.missing_connectors},
                 }
             },
         )

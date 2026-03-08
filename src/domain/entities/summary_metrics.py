@@ -74,6 +74,10 @@ class SummaryMetricCollection:
             )
         )
 
+    def get(self, name: str, default: int | float = 0) -> int | float:
+        """Get metric value by name, returning default if not found."""
+        return next((m.value for m in self.metrics if m.name == name), default)
+
     def sorted(self) -> list[SummaryMetric]:
         """Get summary metrics sorted by significance (lower = higher display priority).
 

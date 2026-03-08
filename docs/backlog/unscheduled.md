@@ -1,8 +1,7 @@
-# Future Ideas & Research
+# Unscheduled Backlog
 
-Speculative features, research notes, and deferred improvements.
-Items here are not committed — they move to [BACKLOG.md](BACKLOG.md) when prioritized into a version.
-For the strategic roadmap, see [ROADMAP.md](../ROADMAP.md).
+Backlog items not yet assigned to a version. Items move to a version detail file (e.g., `v0.7.x.md`) when prioritized.
+For the planning overview, see [README.md](README.md).
 
 ---
 

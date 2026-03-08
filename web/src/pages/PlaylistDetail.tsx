@@ -287,6 +287,7 @@ export function PlaylistDetail() {
 
   return (
     <div>
+      <title>{playlist.name} — Narada</title>
       <PageHeader
         title={playlist.name}
         description={

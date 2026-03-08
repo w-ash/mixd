@@ -11,7 +11,7 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Never
 
 from rich.prompt import Prompt
 import typer
@@ -19,9 +19,24 @@ import typer
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.console import get_console, progress_coordination_context
+from src.interface.cli.console import (
+    get_console,
+    get_error_console,
+    progress_coordination_context,
+)
 
 console = get_console()
+err_console = get_error_console()
+
+
+def handle_cli_error(e: Exception, message: str) -> Never:
+    """Print error message and exit with code 1.
+
+    Consolidates the repeated CLI error handling pattern:
+    ``err_console.print(f"[red]Error: {message}: {e}[/red]"); raise typer.Exit(1)``
+    """
+    err_console.print(f"[red]Error: {message}: {e}[/red]")
+    raise typer.Exit(1) from e
 
 
 def parse_date_string(

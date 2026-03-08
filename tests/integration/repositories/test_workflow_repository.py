@@ -5,37 +5,30 @@ Tests CRUD, template filtering, and source_template upsert behavior.
 
 import pytest
 
-from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
+from src.domain.entities.workflow import Workflow
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.workflow.core import WorkflowRepository
-
-
-def _make_def(wf_id: str = "test", name: str = "Test") -> WorkflowDef:
-    return WorkflowDef(
-        id=wf_id,
-        name=name,
-        tasks=[WorkflowTaskDef(id="s1", type="source.liked_tracks")],
-    )
+from tests.fixtures import make_workflow_def
 
 
 class TestWorkflowRepositoryCRUD:
     async def test_save_and_retrieve(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        workflow = Workflow(definition=_make_def())
+        workflow = Workflow(definition=make_workflow_def())
 
         saved = await repo.save_workflow(workflow)
         assert saved.id is not None
-        assert saved.definition.name == "Test"
+        assert saved.definition.name == "Test Workflow"
 
         retrieved = await repo.get_workflow_by_id(saved.id)
-        assert retrieved.definition.id == "test"
+        assert retrieved.definition.id == "test-workflow"
         assert len(retrieved.definition.tasks) == 1
 
     async def test_update_existing(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        saved = await repo.save_workflow(Workflow(definition=_make_def()))
+        saved = await repo.save_workflow(Workflow(definition=make_workflow_def()))
 
-        updated_def = _make_def(name="Updated Name")
+        updated_def = make_workflow_def(name="Updated Name")
         updated = Workflow(
             id=saved.id,
             definition=updated_def,
@@ -47,7 +40,7 @@ class TestWorkflowRepositoryCRUD:
 
     async def test_delete_returns_true(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        saved = await repo.save_workflow(Workflow(definition=_make_def()))
+        saved = await repo.save_workflow(Workflow(definition=make_workflow_def()))
 
         deleted = await repo.delete_workflow(saved.id)
         assert deleted is True
@@ -69,10 +62,10 @@ class TestWorkflowRepositoryTemplates:
     async def test_list_includes_templates_by_default(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
         await repo.save_workflow(
-            Workflow(definition=_make_def("wf1"), is_template=True)
+            Workflow(definition=make_workflow_def("wf1"), is_template=True)
         )
         await repo.save_workflow(
-            Workflow(definition=_make_def("wf2"), is_template=False)
+            Workflow(definition=make_workflow_def("wf2"), is_template=False)
         )
 
         all_workflows = await repo.list_workflows()
@@ -81,10 +74,10 @@ class TestWorkflowRepositoryTemplates:
     async def test_list_excludes_templates(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
         await repo.save_workflow(
-            Workflow(definition=_make_def("wf1"), is_template=True)
+            Workflow(definition=make_workflow_def("wf1"), is_template=True)
         )
         await repo.save_workflow(
-            Workflow(definition=_make_def("wf2"), is_template=False)
+            Workflow(definition=make_workflow_def("wf2"), is_template=False)
         )
 
         user_workflows = await repo.list_workflows(include_templates=False)
@@ -95,7 +88,7 @@ class TestWorkflowRepositoryTemplates:
         repo = WorkflowRepository(db_session)
         await repo.save_workflow(
             Workflow(
-                definition=_make_def("builtin"),
+                definition=make_workflow_def("builtin"),
                 is_template=True,
                 source_template="builtin",
             )
@@ -115,7 +108,9 @@ class TestWorkflowRepositoryTemplates:
         repo = WorkflowRepository(db_session)
         await repo.save_workflow(
             Workflow(
-                definition=_make_def("a"), is_template=True, source_template="key1"
+                definition=make_workflow_def("a"),
+                is_template=True,
+                source_template="key1",
             )
         )
         # Flushing a duplicate source_template should raise
@@ -124,6 +119,8 @@ class TestWorkflowRepositoryTemplates:
         with pytest.raises(IntegrityError):
             await repo.save_workflow(
                 Workflow(
-                    definition=_make_def("b"), is_template=True, source_template="key1"
+                    definition=make_workflow_def("b"),
+                    is_template=True,
+                    source_template="key1",
                 )
             )

@@ -118,11 +118,7 @@ class ImportTracksResult:
     @property
     def success_rate(self) -> float:
         """Returns import success rate as percentage (0-100)."""
-        # Extract success_rate from summary metrics
-        for metric in self.operation_result.summary_metrics.metrics:
-            if metric.name == "success_rate":
-                return metric.value
-        return 0.0
+        return float(self.operation_result.summary_metrics.get("success_rate"))
 
 
 @define(slots=True)
@@ -169,9 +165,7 @@ class ImportTracksUseCase:
                 )
 
                 # Extract imported count from summary metrics
-                imported_count = self._get_metric_value(
-                    operation_result, "track_plays", 0
-                )
+                imported_count = operation_result.summary_metrics.get("track_plays")
 
                 logger.info(
                     f"Successfully completed {command.service} {command.mode} import: "
@@ -262,18 +256,11 @@ class ImportTracksUseCase:
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
 
-    @staticmethod
-    def _get_metric_value(
-        result: OperationResult, metric_name: str, default: float = 0
-    ) -> int | float:
-        """Extract metric value from summary metrics by name."""
-        for metric in result.summary_metrics.metrics:
-            if metric.name == metric_name:
-                return metric.value
-        return default
-
     async def _create_play_import_orchestrator(self):
         """Create play import orchestrator for two-phase workflow.
+
+        Infrastructure bridge: imports registry here to inject resolver factory,
+        consolidating the infrastructure import to one location.
 
         Returns:
             Configured PlayImportOrchestrator instance for coordinating ingestion and resolution.
@@ -281,8 +268,12 @@ class ImportTracksUseCase:
         from src.application.services.play_import_orchestrator import (
             PlayImportOrchestrator,
         )
+        from src.infrastructure.services.play_import_registry import (
+            get_play_import_registry,
+        )
 
-        return PlayImportOrchestrator()
+        registry = get_play_import_registry()
+        return PlayImportOrchestrator(resolver_factory=registry.create_play_resolver)
 
     async def _create_service_importer(self, service: str, uow: UnitOfWorkProtocol):
         """Create service-specific importer using infrastructure registry.
@@ -340,7 +331,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Recent play two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
+                f"Recent play two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
             )
 
         except Exception as e:
@@ -388,7 +379,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Incremental two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
+                f"Incremental two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
             )
 
         except Exception as e:
@@ -445,7 +436,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"Full history two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
+                f"Full history two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
             )
 
         except Exception as e:
@@ -494,7 +485,7 @@ class ImportTracksUseCase:
             )
 
             logger.info(
-                f"File two-phase import completed: {self._get_metric_value(result, 'track_plays')} track plays created"
+                f"File two-phase import completed: {result.summary_metrics.get('track_plays')} track plays created"
             )
 
         except Exception as e:

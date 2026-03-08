@@ -60,7 +60,7 @@ pyproject.toml  ──→  importlib.metadata.version("narada")
 # 1. Edit pyproject.toml (the ONE source of truth)
 # 2. Regenerate OpenAPI schema + Orval types:
 pnpm --prefix web sync-api
-# 3. Update ROADMAP.md manually (semantic content)
+# 3. Update docs/backlog/README.md manually (semantic content)
 ```
 
 ## Architecture
@@ -459,7 +459,7 @@ See `.claude/skills/subagent-guide/` for the full subagent usage guide — agent
 - **[CLAUDE.md](../CLAUDE.md)** - Essential commands and coding standards
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and patterns
 - **[DATABASE.md](DATABASE.md)** - Schema reference
-- **[BACKLOG.md](../BACKLOG.md)** - Project roadmap
+- **[Backlog](backlog/)** - Project roadmap
 
 ### External References  
 - [SQLAlchemy 2.0](https://docs.sqlalchemy.org/en/20/) - Database ORM

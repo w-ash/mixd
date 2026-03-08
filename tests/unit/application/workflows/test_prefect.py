@@ -1,7 +1,7 @@
 """Tests for Prefect workflow execution.
 
-Tests that workflow result extraction, metrics aggregation, node timeout
-configuration, and execution guard work correctly.
+Tests that workflow result extraction, metrics aggregation, execution
+guard, and per-node timeout mapping work correctly.
 Validation and topological sort tests have moved to test_validation.py.
 """
 
@@ -126,45 +126,6 @@ class TestAggregateWorkflowMetrics:
         assert result == {}
 
 
-class TestGetNodeTimeout:
-    """Tests for _get_node_timeout category-based timeout mapping."""
-
-    def test_source_timeout(self):
-        """Source nodes get the external API timeout."""
-        assert (
-            _get_node_timeout("source.playlist")
-            == WorkflowConstants.SOURCE_TIMEOUT_SECONDS
-        )
-
-    def test_enricher_timeout(self):
-        """Enricher nodes get the external API timeout."""
-        assert (
-            _get_node_timeout("enricher.spotify")
-            == WorkflowConstants.ENRICHER_TIMEOUT_SECONDS
-        )
-
-    def test_destination_timeout(self):
-        """Destination nodes get the external API timeout."""
-        assert (
-            _get_node_timeout("destination.create_playlist")
-            == WorkflowConstants.DESTINATION_TIMEOUT_SECONDS
-        )
-
-    def test_filter_defaults_to_transform(self):
-        """Filter nodes get the transform (pure) timeout."""
-        assert (
-            _get_node_timeout("filter.by_metric")
-            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
-        )
-
-    def test_unknown_defaults_to_transform(self):
-        """Unknown categories default to transform timeout."""
-        assert (
-            _get_node_timeout("unknown.thing")
-            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
-        )
-
-
 class TestOrchestratorWarnings:
     """Tests for orchestrator-level 0-track warnings."""
 
@@ -252,3 +213,31 @@ class TestExecutionGuard:
         err = WorkflowAlreadyRunningError("wf-42")
         assert err.workflow_id == "wf-42"
         assert "wf-42" in str(err)
+
+
+class TestGetNodeTimeout:
+    """Tests for _get_node_timeout asyncio.timeout budget mapping."""
+
+    @pytest.mark.parametrize(
+        ("node_type", "expected"),
+        [
+            ("source.playlist", WorkflowConstants.SOURCE_TIMEOUT_SECONDS),
+            ("source.liked", WorkflowConstants.SOURCE_TIMEOUT_SECONDS),
+            ("enricher.spotify", WorkflowConstants.ENRICHER_TIMEOUT_SECONDS),
+            ("enricher.lastfm", WorkflowConstants.ENRICHER_TIMEOUT_SECONDS),
+            ("destination.playlist", WorkflowConstants.DESTINATION_TIMEOUT_SECONDS),
+            ("filter.by_metric", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+            ("sorter.by_metric", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+            ("selector.top_n", WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS),
+        ],
+    )
+    def test_known_categories(self, node_type: str, expected: int) -> None:
+        """Known node categories map to their configured timeout."""
+        assert _get_node_timeout(node_type) == expected
+
+    def test_unknown_category_falls_back_to_transform(self) -> None:
+        """Unknown categories default to TRANSFORM_TIMEOUT_SECONDS."""
+        assert (
+            _get_node_timeout("mystery.node")
+            == WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
+        )

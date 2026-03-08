@@ -5,6 +5,8 @@ and source_nodes.py (workflow context execution). Both construct identical comma
 the shared builders DRY that up while each caller retains its own execution model.
 """
 
+from typing import TYPE_CHECKING
+
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistResult,
@@ -24,6 +26,9 @@ from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories import UnitOfWorkProtocol
+
+if TYPE_CHECKING:
+    from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)
 
@@ -65,6 +70,7 @@ async def upsert_canonical_playlist(
     connector_name: str,
     playlist_id: str,
     uow: UnitOfWorkProtocol,
+    metric_config: MetricConfigProvider,
 ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
     """Full create-or-update flow for callers with direct UoW access.
 
@@ -93,7 +99,9 @@ async def upsert_canonical_playlist(
         command = build_update_playlist_command(
             existing_playlist, connector_playlist, connector_name
         )
-        result = await UpdateCanonicalPlaylistUseCase().execute(command, uow)
+        result = await UpdateCanonicalPlaylistUseCase(
+            metric_config=metric_config
+        ).execute(command, uow)
         logger.info(
             "Updated existing playlist",
             playlist_id=result.playlist.id,
@@ -106,7 +114,9 @@ async def upsert_canonical_playlist(
         command = build_create_playlist_command(
             connector_playlist, connector_name, playlist_id
         )
-        result = await CreateCanonicalPlaylistUseCase().execute(command, uow)
+        result = await CreateCanonicalPlaylistUseCase(
+            metric_config=metric_config
+        ).execute(command, uow)
         logger.info(
             "Created new playlist",
             playlist_id=result.playlist.id,

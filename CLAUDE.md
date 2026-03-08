@@ -94,6 +94,7 @@ Self-check after implementing:
 - **Database** → docs/DATABASE.md
 - **Workflows** → docs/workflow_guide.md
 - **CLI Reference** → docs/API.md
-- **Backlog** → docs/BACKLOG.md
-- **Ideas** → docs/IDEAS.md
+- **Completed Work** → docs/completed/
+- **Planning & Backlog** → docs/backlog/
+- **Unscheduled Ideas** → docs/backlog/unscheduled.md
 - **Web UI Specs** → docs/web-ui/README.md

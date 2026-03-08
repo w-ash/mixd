@@ -2,7 +2,20 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 
 import { PageLayout } from "./components/layout/PageLayout";
+import { Skeleton } from "./components/ui/skeleton";
 import { Toaster } from "./components/ui/sonner";
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-80" />
+      </div>
+      <Skeleton className="h-64 w-full rounded-lg" />
+    </div>
+  );
+}
 
 const Dashboard = lazy(() =>
   import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })),
@@ -33,6 +46,11 @@ const WorkflowDetail = lazy(() =>
     default: m.WorkflowDetail,
   })),
 );
+const WorkflowRunDetail = lazy(() =>
+  import("./pages/WorkflowRunDetail").then((m) => ({
+    default: m.WorkflowRunDetail,
+  })),
+);
 
 export function App() {
   return (
@@ -42,7 +60,7 @@ export function App() {
           <Route
             index
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Dashboard />
               </Suspense>
             }
@@ -50,7 +68,7 @@ export function App() {
           <Route
             path="imports"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Imports />
               </Suspense>
             }
@@ -58,7 +76,7 @@ export function App() {
           <Route
             path="playlists"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Playlists />
               </Suspense>
             }
@@ -66,7 +84,7 @@ export function App() {
           <Route
             path="playlists/:id"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <PlaylistDetail />
               </Suspense>
             }
@@ -74,7 +92,7 @@ export function App() {
           <Route
             path="workflows"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Workflows />
               </Suspense>
             }
@@ -82,15 +100,23 @@ export function App() {
           <Route
             path="workflows/:id"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <WorkflowDetail />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workflows/:id/runs/:runId"
+            element={
+              <Suspense fallback={<PageSkeleton />}>
+                <WorkflowRunDetail />
               </Suspense>
             }
           />
           <Route
             path="library"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Library />
               </Suspense>
             }
@@ -98,7 +124,7 @@ export function App() {
           <Route
             path="library/:id"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <TrackDetail />
               </Suspense>
             }
@@ -106,7 +132,7 @@ export function App() {
           <Route
             path="settings"
             element={
-              <Suspense>
+              <Suspense fallback={<PageSkeleton />}>
                 <Settings />
               </Suspense>
             }

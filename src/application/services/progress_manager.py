@@ -9,7 +9,9 @@ ProgressCoordinator domain service for business rule enforcement.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from asyncio import CancelledError
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from attrs import define
@@ -138,7 +140,7 @@ class AsyncProgressManager:
             validated_event = await self._coordinator.record_progress_event(event)
 
             # Notify all active subscribers
-            await self._notify_subscribers("progress_event", validated_event)
+            await self._broadcast(lambda s: s.on_progress_event(validated_event))
 
         except ValueError as e:
             self._logger.warning(
@@ -173,7 +175,7 @@ class AsyncProgressManager:
             )
 
             # Notify subscribers
-            await self._notify_subscribers("operation_started", running_operation)
+            await self._broadcast(lambda s: s.on_operation_started(running_operation))
 
         except ValueError as e:
             self._logger.error(
@@ -211,8 +213,8 @@ class AsyncProgressManager:
             )
 
             # Notify subscribers
-            await self._notify_subscribers(
-                "operation_completed", operation_id, final_status
+            await self._broadcast(
+                lambda s: s.on_operation_completed(operation_id, final_status)
             )
 
         except ValueError as e:
@@ -224,75 +226,75 @@ class AsyncProgressManager:
             )
             raise
 
-    async def _notify_subscribers(self, notification_type: str, *args: Any) -> None:
-        """Notify all active subscribers with error isolation.
+    async def _broadcast(
+        self,
+        notify_fn: Callable[[ProgressSubscriber], Awaitable[None]],
+    ) -> None:
+        """Broadcast to all active subscribers with error isolation.
 
-        Args:
-            notification_type: Type of notification ('progress_event', 'operation_started', etc.)
-            *args: Arguments to pass to subscriber methods
+        gather(return_exceptions=True) instead of TaskGroup: subscriber
+        failures must NEVER propagate to the publishing operation.
+        TaskGroup propagates BaseException (including CancelledError from
+        Prefect cancel scopes), violating the isolation contract.
+
+        CancelledError at the gather() site (injected by Prefect cancel scope
+        or uvicorn reload) is caught and cleared via task.uncancel() —
+        subscriber notification is fire-and-forget and must never kill the
+        publishing workflow.
         """
         async with self._subscriber_lock:
-            active_subscribers = [
-                registration
-                for registration in self._subscribers.values()
-                if registration.is_active
-            ]
+            active = [r for r in self._subscribers.values() if r.is_active]
 
-        if not active_subscribers:
+        if not active:
             return
 
-        # Run all notifications concurrently with structured concurrency
-        async with asyncio.TaskGroup() as tg:
-            for registration in active_subscribers:
-                _ = tg.create_task(
-                    self._safe_notify_subscriber(
-                        registration, notification_type, *args
-                    ),
-                    name=f"notify_{registration.subscriber_id}_{notification_type}",
+        try:
+            results = await asyncio.gather(
+                *(self._safe_call(r, notify_fn) for r in active),
+                return_exceptions=True,
+            )
+        except CancelledError:
+            # CancelledError at the gather() site means the parent task was
+            # cancelled externally — NOT a subscriber-internal failure.
+            # Subscriber notification is fire-and-forget: it must never kill
+            # the publishing workflow. Clear the cancel request so it doesn't
+            # re-raise at the caller's next await point. Genuine cancellation
+            # (server shutdown) will re-cancel from the external source.
+            self._logger.debug(
+                "Subscriber notification interrupted by task cancellation",
+            )
+            task = asyncio.current_task()
+            if task is not None:
+                task.uncancel()
+            return
+
+        for result in results:
+            if isinstance(result, BaseException):
+                self._logger.error(
+                    "Subscriber notification raised unexpectedly",
+                    error=str(result),
+                    error_type=type(result).__name__,
                 )
 
-    async def _safe_notify_subscriber(
-        self, registration: SubscriberRegistration, notification_type: str, *args: Any
+    async def _safe_call(
+        self,
+        registration: SubscriberRegistration,
+        notify_fn: Callable[[ProgressSubscriber], Awaitable[None]],
     ) -> None:
-        """Safely notify a single subscriber with error handling.
-
-        Args:
-            registration: Subscriber registration to notify
-            notification_type: Type of notification to send
-            *args: Arguments for the notification
-        """
+        """Safely call a subscriber with error isolation."""
         if not registration.is_active:
             return
 
         try:
-            subscriber = registration.subscriber
-
-            if notification_type == "progress_event":
-                await subscriber.on_progress_event(args[0])
-            elif notification_type == "operation_started":
-                await subscriber.on_operation_started(args[0])
-            elif notification_type == "operation_completed":
-                await subscriber.on_operation_completed(args[0], args[1])
-            else:
-                self._logger.warning(
-                    "Unknown notification type",
-                    notification_type=notification_type,
-                    subscriber_id=registration.subscriber_id,
-                )
-
-        except Exception as e:
-            # Log subscriber error but don't propagate - isolation is critical
+            await notify_fn(registration.subscriber)
+        except (CancelledError, Exception) as e:
             self._logger.error(
                 "Subscriber notification failed",
                 subscriber_id=registration.subscriber_id,
                 subscriber_type=type(registration.subscriber).__name__,
-                notification_type=notification_type,
                 error=str(e),
                 error_type=type(e).__name__,
             )
-
-            # Consider marking subscriber as inactive on repeated failures
-            # This could be enhanced with a failure count and automatic cleanup
 
     # Singleton instance for application-wide progress tracking
 

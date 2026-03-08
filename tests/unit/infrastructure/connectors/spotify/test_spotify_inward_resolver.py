@@ -327,6 +327,71 @@ class TestFallbackSearch:
         assert dead_id not in result
         assert metrics.failed == 1
 
+    async def test_no_hints_leaves_dead_id_unresolved(self):
+        """Dead IDs without hints should remain as failures (no search attempted)."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}  # All dead
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        # No fallback hints provided
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["dead_id"], uow, fallback_hints=None
+        )
+
+        assert "dead_id" not in result
+        assert metrics.failed == 1
+        connector.search_track.assert_not_called()
+
+    async def test_isrc_dedup_reuses_existing_track(self):
+        """Search results whose ISRC already exists should upsert, not duplicate."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = [
+            make_spotify_track("new_id", "Song", "Artist", isrc="USRC12345678")
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        # save_track returns the EXISTING track (ISRC upsert)
+        existing_track = make_track(id=42, isrc="USRC12345678")
+        track_repo.save_track.return_value = existing_track
+        connector_repo.map_track_to_connector.return_value = existing_track
+
+        hints = {"dead_id": FallbackHint(artist_name="Artist", track_name="Song")}
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            ["dead_id"], uow, fallback_hints=hints
+        )
+
+        assert "dead_id" in result
+        assert result["dead_id"].id == 42  # Existing track, not a new one
+        track_repo.save_track.assert_called_once()  # Upsert, not create + duplicate
+
+    async def test_fallback_resolved_ids_populated(self):
+        """fallback_resolved_ids should contain only IDs resolved via search."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "id1": make_spotify_track("id1"),
+        }
+        connector.search_track.return_value = [make_spotify_track("new_id2", "Song B")]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        track_repo.save_track.side_effect = [make_track(1), make_track(2)]
+        connector_repo.map_track_to_connector.return_value = make_track(1)
+
+        hints = {"id2": FallbackHint(artist_name="Artist", track_name="Song B")}
+
+        await resolver.resolve_to_canonical_tracks(
+            ["id1", "id2"], uow, fallback_hints=hints
+        )
+
+        assert resolver.fallback_resolved_ids == {"id2"}
+
 
 class TestResolutionMethod:
     """get_resolution_method() returns correct tags for different resolution paths."""

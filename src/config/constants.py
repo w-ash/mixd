@@ -8,6 +8,8 @@ For user-configurable values, see settings.py instead.
 
 from typing import Final, Literal
 
+from src.domain.entities.workflow import RunStatus
+
 # Workflow progress tracking types
 type Phase = Literal["fetch", "enrich", "query", "save", "sync"]
 type NodeType = Literal[
@@ -84,17 +86,37 @@ class ConnectorConstants:
 
 
 class WorkflowConstants:
-    """Prefect task timeout budgets per node category.
+    """Workflow execution constants: asyncio.timeout budgets and run lifecycle.
 
-    Source/enricher/destination nodes call external APIs and need generous
-    timeouts. Transform nodes (filter, sort, select) are pure in-memory
-    operations — 60s is a safety margin, not an expected duration.
+    Per-node timeout budgets enforced via ``asyncio.timeout()`` in
+    ``build_flow``'s execution loop. Source/enricher/destination nodes call
+    external APIs and need generous timeouts. Transform nodes (filter, sort,
+    select) are pure in-memory — 60s is a safety margin, not expected duration.
     """
 
     SOURCE_TIMEOUT_SECONDS: Final = 300  # 5min — external API fetches
     ENRICHER_TIMEOUT_SECONDS: Final = 300  # 5min — batch API enrichment
     TRANSFORM_TIMEOUT_SECONDS: Final = 60  # 1min — pure transforms (safety)
     DESTINATION_TIMEOUT_SECONDS: Final = 300  # 5min — external API writes
+
+    # Run status lifecycle: PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
+    RUN_STATUS_PENDING: Final[RunStatus] = "pending"
+    RUN_STATUS_RUNNING: Final[RunStatus] = "running"
+    RUN_STATUS_COMPLETED: Final[RunStatus] = "completed"
+    RUN_STATUS_FAILED: Final[RunStatus] = "failed"
+    RUN_STATUS_CANCELLED: Final[RunStatus] = "cancelled"
+
+    # Error message limits (matches DB column String(2000))
+    ERROR_MESSAGE_MAX_LENGTH: Final = 2000
+    SSE_ERROR_MAX_LENGTH: Final = 500
+
+    # Cancellation diagnostic message (DB + SSE)
+    CANCELLED_BY_SERVER_MESSAGE: Final = "Cancelled by server (possible reload)"
+
+    # SSE event type names
+    SSE_EVENT_NODE_STATUS: Final = "node_status"
+    SSE_EVENT_COMPLETE: Final = "complete"
+    SSE_EVENT_ERROR: Final = "error"
 
 
 class MatchMethod:

@@ -11,7 +11,10 @@ pluggable importer instances from the infrastructure layer.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
+from collections.abc import Awaitable, Callable
 from typing import Any
+
+from attrs import define
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
@@ -25,12 +28,15 @@ from src.domain.repositories import (
 logger = get_logger(__name__)
 
 
+@define(slots=True)
 class PlayImportOrchestrator:
     """Orchestrates two-phase play import workflow with clean architecture separation.
 
     Accepts pluggable importer instances to avoid mentioning specific connectors.
     All connector-specific logic lives in the infrastructure layer.
     """
+
+    resolver_factory: Callable[[str], Awaitable[PlayResolverProtocol]]
 
     async def import_plays_two_phase(
         self,
@@ -75,27 +81,11 @@ class PlayImportOrchestrator:
         )
 
         # Extract success rate from combined result summary metrics
-        success_rate_metric = next(
-            (
-                m
-                for m in combined_result.summary_metrics.metrics
-                if m.name == "success_rate"
-            ),
-            None,
-        )
-        success_rate_str = (
-            f"{success_rate_metric.value:.1f}%" if success_rate_metric else "N/A"
-        )
+        success_rate = combined_result.summary_metrics.get("success_rate")
+        success_rate_str = f"{success_rate:.1f}%" if success_rate else "N/A"
 
         # Extract resolved plays from resolution result
-        resolved_count = next(
-            (
-                m.value
-                for m in resolution_result.summary_metrics.metrics
-                if m.name == "resolved"
-            ),
-            0,
-        )
+        resolved_count = resolution_result.summary_metrics.get("resolved")
 
         logger.info(
             "Two-phase import complete",
@@ -132,7 +122,7 @@ class PlayImportOrchestrator:
         # Resolve plays per service using registry-provided resolvers
         for service, plays in [("spotify", spotify_plays), ("lastfm", lastfm_plays)]:
             if plays:
-                resolver = await self._get_play_resolver(service)
+                resolver = await self.resolver_factory(service)
                 track_plays, metrics = await resolver.resolve_connector_plays(
                     plays, uow
                 )
@@ -142,9 +132,11 @@ class PlayImportOrchestrator:
 
         # Save all resolved track_plays to database
         if all_track_plays:
-            plays_repo = uow.get_plays_repository()
-            _ = await plays_repo.bulk_insert_plays(all_track_plays)
-            logger.info(f"Saved {len(all_track_plays)} resolved track plays")
+            async with uow:
+                plays_repo = uow.get_plays_repository()
+                _ = await plays_repo.bulk_insert_plays(all_track_plays)
+                await uow.commit()
+                logger.info(f"Saved {len(all_track_plays)} resolved track plays")
 
         # Convert to OperationResult with summary metrics
         result = OperationResult(
@@ -171,15 +163,6 @@ class PlayImportOrchestrator:
             result.summary_metrics.add("errors", errors, "Errors", significance=3)
 
         return result
-
-    async def _get_play_resolver(self, service: str) -> PlayResolverProtocol:
-        """Get play resolver for a service from the infrastructure registry."""
-        from src.infrastructure.services.play_import_registry import (
-            get_play_import_registry,
-        )
-
-        registry = get_play_import_registry()
-        return await registry.create_play_resolver(service)
 
     def _create_empty_resolution_result(self) -> OperationResult:
         """Create empty resolution result when no plays to resolve."""
@@ -228,64 +211,15 @@ class PlayImportOrchestrator:
         result.metadata["resolution_phase"] = resolution_result.metadata.copy()
 
         # Extract values from ingestion result summary metrics
-        ingestion_imported = next(
-            (
-                m.value
-                for m in ingestion_result.summary_metrics.metrics
-                if m.name == "imported"
-            ),
-            0,
-        )
-        ingestion_duplicates = next(
-            (
-                m.value
-                for m in ingestion_result.summary_metrics.metrics
-                if m.name == "duplicates"
-            ),
-            0,
-        )
-        ingestion_errors = next(
-            (
-                m.value
-                for m in ingestion_result.summary_metrics.metrics
-                if m.name == "errors"
-            ),
-            0,
-        )
-        raw_plays = next(
-            (
-                m.value
-                for m in ingestion_result.summary_metrics.metrics
-                if m.name == "raw_plays"
-            ),
-            0,
-        )
+        ingestion_imported = ingestion_result.summary_metrics.get("imported")
+        ingestion_duplicates = ingestion_result.summary_metrics.get("duplicates")
+        ingestion_errors = ingestion_result.summary_metrics.get("errors")
+        raw_plays = ingestion_result.summary_metrics.get("raw_plays")
 
         # Extract values from resolution result summary metrics
-        resolved = next(
-            (
-                m.value
-                for m in resolution_result.summary_metrics.metrics
-                if m.name == "resolved"
-            ),
-            0,
-        )
-        resolution_filtered = next(
-            (
-                m.value
-                for m in resolution_result.summary_metrics.metrics
-                if m.name == "filtered"
-            ),
-            0,
-        )
-        resolution_errors = next(
-            (
-                m.value
-                for m in resolution_result.summary_metrics.metrics
-                if m.name == "errors"
-            ),
-            0,
-        )
+        resolved = resolution_result.summary_metrics.get("resolved")
+        resolution_filtered = resolution_result.summary_metrics.get("filtered")
+        resolution_errors = resolution_result.summary_metrics.get("errors")
 
         total_errors = int(ingestion_errors + resolution_errors)
 

@@ -922,5 +922,5 @@ src/infrastructure/connectors/_shared/
 - **[workflow_guide.md](GUIDE_WORKFLOWS.md)** - Workflow system documentation
 - **[likes_sync_guide.md](GUIDE_LIKES_SYNC.md)** - Likes synchronization between Spotify and Last.fm
 - **[web-ui/](web-ui/README.md)** - Web UI specification (user flows, API contracts, IA, frontend architecture)
-- **[ROADMAP.md](../ROADMAP.md)** - Project roadmap and planned features
+- **[Planning & Backlog](backlog/README.md)** - Project roadmap and planned features
 - **[CLAUDE.md](../CLAUDE.md)** - Development commands and style guide

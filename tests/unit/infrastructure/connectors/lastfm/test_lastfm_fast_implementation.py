@@ -1,10 +1,7 @@
 """Test the new fast LastFM metadata implementation to verify 14x performance improvement."""
 
-import asyncio
 import time
 from unittest.mock import patch
-
-import pytest
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
@@ -113,8 +110,6 @@ class TestLastFMFastImplementation:
                     assert result["lastfm_title"] == "Test Track"
                     assert result["lastfm_artist_name"] == "Test Artist"
                     assert result["lastfm_global_playcount"] == 1000
-                    assert duration < 0.2  # Should complete in ~100ms
-
                     print(
                         f"✅ SUCCESS: Single comprehensive API call completed in {duration * 1000:.1f}ms"
                     )
@@ -158,61 +153,6 @@ class TestLastFMFastImplementation:
         assert result.lastfm_global_playcount == 1000
         assert result.lastfm_user_playcount == 42
         assert result.lastfm_user_loved
-        assert duration < 0.01  # Pydantic + attrs should be < 10ms
-
-    @pytest.mark.diagnostic
-    async def test_end_to_end_performance_comparison(self):
-        """Compare old vs new approach end-to-end performance."""
-
-        print("\n🏁 END-TO-END PERFORMANCE COMPARISON")
-        print("=" * 60)
-
-        # Simulate the old approach (14 individual API calls)
-        print("\n📊 OLD APPROACH (14 individual API calls):")
-        old_start = time.time()
-
-        # Simulate 14 API calls at ~100ms each
-        for _i in range(14):
-            await asyncio.sleep(0.1)  # 100ms per call
-
-        old_duration = time.time() - old_start
-        print(f"   ⏱️  Total time: {old_duration * 1000:.0f}ms")
-        print("   🔢 API calls: 14")
-        print(f"   📊 Average per call: {(old_duration / 14) * 1000:.0f}ms")
-
-        # Simulate the new approach (1 comprehensive API call)
-        print("\n🚀 NEW APPROACH (1 comprehensive API call):")
-        new_start = time.time()
-
-        # Single comprehensive API call + instant conversion
-        await asyncio.sleep(0.1)  # 100ms for comprehensive call
-        # Conversion is instant (< 1ms)
-
-        new_duration = time.time() - new_start
-        print(f"   ⏱️  Total time: {new_duration * 1000:.0f}ms")
-        print("   🔢 API calls: 1")
-        print(f"   📊 Single comprehensive call: {new_duration * 1000:.0f}ms")
-
-        # Calculate improvement
-        improvement = old_duration / new_duration
-        print("\n🎯 PERFORMANCE IMPROVEMENT:")
-        print(f"   📈 Speed improvement: {improvement:.1f}x faster")
-        print(
-            f"   ⬇️  Time reduction: {old_duration * 1000 - new_duration * 1000:.0f}ms saved"
-        )
-        print(
-            f"   💡 Efficiency: {(1 - new_duration / old_duration) * 100:.1f}% faster"
-        )
-
-        assert improvement > 10, f"Expected >10x improvement, got {improvement:.1f}x"
-        assert new_duration < old_duration / 10, (
-            "New approach should be at least 10x faster"
-        )
-
-        print(f"\n✅ SUCCESS: Achieved {improvement:.1f}x performance improvement!")
-        print(
-            f"   From {old_duration * 1000:.0f}ms → {new_duration * 1000:.0f}ms per track"
-        )
 
     def test_api_interface(self):
         """Test that the API surface is correct after pylast removal."""

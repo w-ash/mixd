@@ -147,7 +147,11 @@ async def playlist_source(
                 return None
 
             result = await upsert_canonical_playlist(
-                connector_playlist, connector, playlist_id, uow
+                connector_playlist,
+                connector,
+                playlist_id,
+                uow,
+                metric_config=workflow_context.metric_config,
             )
             action = (
                 "created"

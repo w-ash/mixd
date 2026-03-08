@@ -1,7 +1,8 @@
 """Integration tests for connector status endpoints.
 
 Tests filesystem-based connector status detection using monkeypatched
-paths and environment variables.
+paths and environment variables. The status logic lives in the
+application service (connector_status.py) — patches target that module.
 """
 
 import json
@@ -10,6 +11,9 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
+
+# Patch target prefix — logic lives in infrastructure alongside connectors
+_SVC = "src.infrastructure.connectors._shared.connector_status"
 
 
 class TestGetConnectors:
@@ -32,7 +36,7 @@ class TestSpotifyStatus:
         self, client: httpx.AsyncClient, tmp_path: Path
     ) -> None:
         with patch(
-            "src.interface.api.routes.connectors.Path",
+            f"{_SVC}.Path",
             return_value=tmp_path / "nonexistent",
         ):
             response = await client.get("/api/v1/connectors")
@@ -53,7 +57,7 @@ class TestSpotifyStatus:
             })
         )
         with patch(
-            "src.interface.api.routes.connectors.Path",
+            f"{_SVC}.Path",
             return_value=cache_file,
         ):
             response = await client.get("/api/v1/connectors")
@@ -77,11 +81,11 @@ class TestSpotifyStatus:
         )
         with (
             patch(
-                "src.interface.api.routes.connectors.Path",
+                f"{_SVC}.Path",
                 return_value=cache_file,
             ),
             patch(
-                "src.interface.api.routes.connectors._try_refresh_spotify_token",
+                f"{_SVC}._try_refresh_spotify_token",
                 return_value=(None, None),
             ),
         ):
@@ -106,11 +110,11 @@ class TestSpotifyStatus:
         )
         with (
             patch(
-                "src.interface.api.routes.connectors.Path",
+                f"{_SVC}.Path",
                 return_value=cache_file,
             ),
             patch(
-                "src.interface.api.routes.connectors._try_refresh_spotify_token",
+                f"{_SVC}._try_refresh_spotify_token",
                 return_value=(fresh_expires, "refreshed_user"),
             ),
         ):
@@ -137,11 +141,11 @@ class TestSpotifyStatus:
         )
         with (
             patch(
-                "src.interface.api.routes.connectors.Path",
+                f"{_SVC}.Path",
                 return_value=cache_file,
             ),
             patch(
-                "src.interface.api.routes.connectors._try_refresh_spotify_token",
+                f"{_SVC}._try_refresh_spotify_token",
                 return_value=(None, None),
             ),
         ):
@@ -163,7 +167,7 @@ class TestSpotifyStatus:
             })
         )
         with patch(
-            "src.interface.api.routes.connectors.Path",
+            f"{_SVC}.Path",
             return_value=cache_file,
         ):
             response = await client.get("/api/v1/connectors")
@@ -189,7 +193,7 @@ class TestSpotifyDisplayName:
             })
         )
         with patch(
-            "src.interface.api.routes.connectors.Path",
+            f"{_SVC}.Path",
             return_value=cache_file,
         ):
             response = await client.get("/api/v1/connectors")
@@ -212,11 +216,11 @@ class TestSpotifyDisplayName:
         mock_fetch = AsyncMock(return_value="fetched_user")
         with (
             patch(
-                "src.interface.api.routes.connectors.Path",
+                f"{_SVC}.Path",
                 return_value=cache_file,
             ),
             patch(
-                "src.interface.api.routes.connectors._fetch_spotify_display_name",
+                f"{_SVC}._fetch_spotify_display_name",
                 mock_fetch,
             ),
         ):
@@ -245,11 +249,11 @@ class TestSpotifyDisplayName:
         mock_fetch = AsyncMock(return_value=None)
         with (
             patch(
-                "src.interface.api.routes.connectors.Path",
+                f"{_SVC}.Path",
                 return_value=cache_file,
             ),
             patch(
-                "src.interface.api.routes.connectors._fetch_spotify_display_name",
+                f"{_SVC}._fetch_spotify_display_name",
                 mock_fetch,
             ),
         ):

@@ -17,6 +17,11 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)
+class ListWorkflowsCommand:
+    include_templates: bool = True
+
+
+@define(frozen=True, slots=True)
 class ListWorkflowsResult:
     workflows: list[Workflow]
     total_count: int
@@ -25,11 +30,13 @@ class ListWorkflowsResult:
 @define(slots=True)
 class ListWorkflowsUseCase:
     async def execute(
-        self, uow: UnitOfWorkProtocol, *, include_templates: bool = True
+        self, command: ListWorkflowsCommand, uow: UnitOfWorkProtocol
     ) -> ListWorkflowsResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            workflows = await repo.list_workflows(include_templates=include_templates)
+            workflows = await repo.list_workflows(
+                include_templates=command.include_templates
+            )
             return ListWorkflowsResult(
                 workflows=workflows,
                 total_count=len(workflows),
@@ -154,11 +161,16 @@ class DeleteWorkflowCommand:
     workflow_id: int
 
 
+@define(frozen=True, slots=True)
+class DeleteWorkflowResult:
+    workflow_id: int
+
+
 @define(slots=True)
 class DeleteWorkflowUseCase:
     async def execute(
         self, command: DeleteWorkflowCommand, uow: UnitOfWorkProtocol
-    ) -> None:
+    ) -> DeleteWorkflowResult:
         async with uow:
             repo = uow.get_workflow_repository()
             existing = await repo.get_workflow_by_id(command.workflow_id)
@@ -171,3 +183,5 @@ class DeleteWorkflowUseCase:
             deleted = await repo.delete_workflow(command.workflow_id)
             if not deleted:
                 raise NotFoundError(f"Workflow {command.workflow_id} not found")
+
+            return DeleteWorkflowResult(workflow_id=command.workflow_id)

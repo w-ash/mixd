@@ -50,9 +50,11 @@ def _register_commands() -> None:
     """Register all CLI commands."""
     # Import command modules here to avoid circular imports
     from src.interface.cli import (
+        connector_commands,
         history_commands,
         likes_commands,
         playlist_commands,
+        stats_commands,
         track_commands,
         workflow_commands,
     )
@@ -91,6 +93,20 @@ def _register_commands() -> None:
         name="tracks",
         help="Track management operations including merging duplicates",
         rich_help_panel="🎵 Track Operations",
+    )
+
+    app.add_typer(
+        connector_commands.app,
+        name="connectors",
+        help="Check music service connector status",
+        rich_help_panel="⚙️ System",
+    )
+
+    app.add_typer(
+        stats_commands.app,
+        name="stats",
+        help="Library statistics and dashboard",
+        rich_help_panel="📊 Library Info",
     )
 
 

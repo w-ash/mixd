@@ -23,7 +23,12 @@ from src.domain.entities import (
     TrackLike,
     TrackPlay,
 )
-from src.domain.entities.workflow import Workflow
+from src.domain.entities.workflow import (
+    RunStatus,
+    Workflow,
+    WorkflowRun,
+    WorkflowRunNode,
+)
 from src.domain.matching.types import MatchResultsById, RawProviderMatch
 
 
@@ -734,6 +739,71 @@ class WorkflowRepositoryProtocol(Protocol):
         ...
 
 
+class WorkflowRunRepositoryProtocol(Protocol):
+    """Repository interface for workflow run history persistence."""
+
+    def create_run(self, run: WorkflowRun) -> Awaitable[WorkflowRun]:
+        """Persist a new workflow run record."""
+        ...
+
+    def update_run_status(
+        self,
+        run_id: int,
+        status: RunStatus,
+        *,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        duration_ms: int | None = None,
+        output_track_count: int | None = None,
+        output_playlist_id: int | None = None,
+        error_message: str | None = None,
+    ) -> Awaitable[None]:
+        """Update run status and optional completion fields."""
+        ...
+
+    def save_node_record(self, node: WorkflowRunNode) -> Awaitable[WorkflowRunNode]:
+        """Persist a new node execution record."""
+        ...
+
+    def update_node_status(
+        self,
+        run_id: int,
+        node_id: str,
+        status: RunStatus,
+        *,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        duration_ms: int | None = None,
+        input_track_count: int | None = None,
+        output_track_count: int | None = None,
+        error_message: str | None = None,
+    ) -> Awaitable[None]:
+        """Update a node's status and execution metrics."""
+        ...
+
+    def get_runs_for_workflow(
+        self, workflow_id: int, limit: int = 20, offset: int = 0
+    ) -> Awaitable[tuple[list[WorkflowRun], int]]:
+        """List runs for a workflow (without nodes loaded) with total count."""
+        ...
+
+    def get_run_by_id(self, run_id: int) -> Awaitable[WorkflowRun]:
+        """Get a single run with all node records loaded."""
+        ...
+
+    def get_latest_run_for_workflow(
+        self, workflow_id: int
+    ) -> Awaitable[WorkflowRun | None]:
+        """Get the most recent run for a workflow, or None."""
+        ...
+
+    def get_latest_runs_for_workflows(
+        self, workflow_ids: list[int]
+    ) -> Awaitable[dict[int, WorkflowRun]]:
+        """Batch-fetch the latest run for each workflow ID."""
+        ...
+
+
 class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
@@ -812,6 +882,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_workflow_repository(self) -> WorkflowRepositoryProtocol:
         """Get workflow repository using this unit of work's transaction."""
+        ...
+
+    def get_workflow_run_repository(self) -> WorkflowRunRepositoryProtocol:
+        """Get workflow run repository using this unit of work's transaction."""
         ...
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:

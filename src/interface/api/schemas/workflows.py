@@ -4,15 +4,21 @@ Domain-to-schema conversion functions translate attrs entities into
 Pydantic models for JSON serialization.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: node config values are heterogeneous
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: node config values are heterogeneous, model_dump() returns dict[str, Any]
 
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
+from src.domain.entities.workflow import (
+    RunStatus,
+    Workflow,
+    WorkflowDef,
+    WorkflowRun,
+    WorkflowTaskDef,
+)
 
 # --- Definition schemas (mirror domain entities) ---
 
@@ -40,6 +46,15 @@ class WorkflowDefSchema(BaseModel):
 # --- Response schemas ---
 
 
+class LastRunSchema(BaseModel):
+    """Lightweight last-run summary for the workflow list page."""
+
+    id: int
+    status: RunStatus
+    completed_at: datetime | None = None
+    output_track_count: int | None = None
+
+
 class WorkflowSummarySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +67,7 @@ class WorkflowSummarySchema(BaseModel):
     node_types: list[str]
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_run: LastRunSchema | None = None
 
 
 class WorkflowDetailSchema(WorkflowSummarySchema):
@@ -98,7 +114,71 @@ class NodeTypeInfoSchema(BaseModel):
     optional_config: list[str] = []
 
 
+# --- Run schemas ---
+
+
+class WorkflowRunNodeSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    node_id: str
+    node_type: str
+    status: RunStatus
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int = 0
+    input_track_count: int | None = None
+    output_track_count: int | None = None
+    error_message: str | None = None
+    execution_order: int = 0
+
+
+class WorkflowRunSummarySchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workflow_id: int
+    status: RunStatus
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
+    output_track_count: int | None = None
+    output_playlist_id: int | None = None
+    error_message: str | None = None
+    created_at: datetime | None = None
+
+
+class WorkflowRunDetailSchema(WorkflowRunSummarySchema):
+    definition_snapshot: WorkflowDefSchema
+    nodes: list[WorkflowRunNodeSchema] = []
+
+
+class WorkflowRunStartedResponse(BaseModel):
+    operation_id: str
+    run_id: int
+
+
 # --- Converters ---
+
+
+def _def_to_schema(wf_def: WorkflowDef) -> WorkflowDefSchema:
+    """Convert a domain WorkflowDef to its API schema representation."""
+    return WorkflowDefSchema(
+        id=wf_def.id,
+        name=wf_def.name,
+        description=wf_def.description,
+        version=wf_def.version,
+        tasks=[
+            WorkflowTaskDefSchema(
+                id=t.id,
+                type=t.type,
+                config=t.config,
+                upstream=t.upstream,
+                result_key=t.result_key,
+            )
+            for t in wf_def.tasks
+        ],
+    )
 
 
 def _extract_node_types(wf_def: WorkflowDef) -> list[str]:
@@ -112,7 +192,18 @@ def _extract_node_types(wf_def: WorkflowDef) -> list[str]:
     return sorted(categories)
 
 
-def to_workflow_summary(workflow: Workflow) -> WorkflowSummarySchema:
+def to_workflow_summary(
+    workflow: Workflow,
+    last_run: WorkflowRun | None = None,
+) -> WorkflowSummarySchema:
+    last_run_schema: LastRunSchema | None = None
+    if last_run is not None and last_run.id is not None:
+        last_run_schema = LastRunSchema(
+            id=last_run.id,
+            status=last_run.status,
+            completed_at=last_run.completed_at,
+            output_track_count=last_run.output_track_count,
+        )
     return WorkflowSummarySchema(
         id=workflow.id or 0,
         name=workflow.definition.name,
@@ -123,26 +214,11 @@ def to_workflow_summary(workflow: Workflow) -> WorkflowSummarySchema:
         node_types=_extract_node_types(workflow.definition),
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
+        last_run=last_run_schema,
     )
 
 
 def to_workflow_detail(workflow: Workflow) -> WorkflowDetailSchema:
-    definition = WorkflowDefSchema(
-        id=workflow.definition.id,
-        name=workflow.definition.name,
-        description=workflow.definition.description,
-        version=workflow.definition.version,
-        tasks=[
-            WorkflowTaskDefSchema(
-                id=t.id,
-                type=t.type,
-                config=t.config,
-                upstream=t.upstream,
-                result_key=t.result_key,
-            )
-            for t in workflow.definition.tasks
-        ],
-    )
     return WorkflowDetailSchema(
         id=workflow.id or 0,
         name=workflow.definition.name,
@@ -153,7 +229,7 @@ def to_workflow_detail(workflow: Workflow) -> WorkflowDetailSchema:
         node_types=_extract_node_types(workflow.definition),
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
-        definition=definition,
+        definition=_def_to_schema(workflow.definition),
     )
 
 
@@ -173,5 +249,44 @@ def schema_to_workflow_def(schema: WorkflowDefSchema) -> WorkflowDef:
                 result_key=t.result_key,
             )
             for t in schema.tasks
+        ],
+    )
+
+
+def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
+    return WorkflowRunSummarySchema(
+        id=run.id or 0,
+        workflow_id=run.workflow_id,
+        status=run.status,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        duration_ms=run.duration_ms,
+        output_track_count=run.output_track_count,
+        output_playlist_id=run.output_playlist_id,
+        error_message=run.error_message,
+        created_at=run.created_at,
+    )
+
+
+def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
+    summary = to_run_summary(run)
+    return WorkflowRunDetailSchema(
+        **summary.model_dump(),
+        definition_snapshot=_def_to_schema(run.definition_snapshot),
+        nodes=[
+            WorkflowRunNodeSchema(
+                id=n.id or 0,
+                node_id=n.node_id,
+                node_type=n.node_type,
+                status=n.status,
+                started_at=n.started_at,
+                completed_at=n.completed_at,
+                duration_ms=n.duration_ms,
+                input_track_count=n.input_track_count,
+                output_track_count=n.output_track_count,
+                error_message=n.error_message,
+                execution_order=n.execution_order,
+            )
+            for n in run.nodes
         ],
     )

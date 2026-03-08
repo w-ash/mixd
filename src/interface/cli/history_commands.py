@@ -7,6 +7,7 @@ from rich.prompt import Prompt
 import typer
 
 from src.config import settings
+from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     parse_date_string,
     prompt_batch_size,
@@ -204,6 +205,51 @@ def _import_all_spotify_files(batch_size: int | None) -> None:
         for failed_file in result.failed_files:
             console.print(f"  [red]• {failed_file}[/red]")
     console.print("[bold green]✓ Batch import completed![/bold green]")
+
+
+@app.command(name="checkpoints")
+def checkpoints_cmd() -> None:
+    """Show sync checkpoint status for all service/entity combinations.
+
+    Displays when each service was last synced and whether a previous sync exists,
+    helping you decide if an incremental import is needed.
+    """
+    run_async(_show_checkpoints_async())
+
+
+async def _show_checkpoints_async() -> None:
+    """Display checkpoint statuses in a Rich table."""
+    try:
+        from rich.table import Table
+
+        from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
+
+        statuses = await get_all_checkpoint_statuses()
+
+        if not statuses:
+            console.print("[yellow]No sync checkpoints found.[/yellow]")
+            return
+
+        table = Table(title="Sync Checkpoints")
+        table.add_column("Service", style="cyan")
+        table.add_column("Entity", style="green")
+        table.add_column("Last Sync", style="dim")
+        table.add_column("Has Previous", justify="center")
+
+        for s in statuses:
+            table.add_row(
+                s.service,
+                s.entity_type,
+                str(s.last_sync_timestamp) if s.last_sync_timestamp else "Never",
+                "[green]Yes[/green]" if s.has_previous_sync else "[dim]No[/dim]",
+            )
+
+        console.print(table)
+
+    except Exception as e:
+        from src.interface.cli.cli_helpers import handle_cli_error
+
+        handle_cli_error(e, "Failed to get checkpoints")
 
 
 def _show_interactive_history_menu() -> None:

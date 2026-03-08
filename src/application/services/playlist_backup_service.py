@@ -37,12 +37,17 @@ async def run_playlist_backup(
         Exception: For other backup failures
     """
     from src.application.runner import execute_use_case
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
 
     logger.info(
         "Starting playlist backup",
         connector=connector_name,
         playlist_id=playlist_id,
     )
+
+    metric_config = MetricConfigProviderImpl()
 
     async def _backup(
         uow: UnitOfWorkProtocol,
@@ -61,7 +66,11 @@ async def run_playlist_backup(
 
         # Step 2: Create or update canonical playlist from connector data
         return await upsert_canonical_playlist(
-            connector_playlist, connector_name, playlist_id, uow
+            connector_playlist,
+            connector_name,
+            playlist_id,
+            uow,
+            metric_config=metric_config,
         )
 
     return await execute_use_case(_backup)

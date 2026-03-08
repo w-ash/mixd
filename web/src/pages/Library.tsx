@@ -216,6 +216,7 @@ export function Library() {
 
   return (
     <div>
+      <title>Library — Narada</title>
       <PageHeader
         title="Library"
         description={
