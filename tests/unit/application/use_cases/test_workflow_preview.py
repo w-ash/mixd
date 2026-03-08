@@ -60,12 +60,27 @@ class TestPreviewWorkflowUseCase:
         workflow_def = make_workflow_def()
         tracks = make_tracks(count=5)
 
-        with _patch_preview_deps(mock_run_return=MagicMock(tracks=tracks)):
+        with _patch_preview_deps(mock_run_return=MagicMock(tracks=tracks, metrics={})):
             result = await PreviewWorkflowUseCase().execute(workflow_def)
 
         assert len(result.output_tracks) == 5
         assert result.output_tracks[0]["rank"] == 1
         assert result.duration_ms >= 0
+        assert result.metric_columns == []
+
+    async def test_includes_metric_columns(self) -> None:
+        """Preview result includes metric columns when workflow produces metrics."""
+        workflow_def = make_workflow_def()
+        tracks = make_tracks(count=3)
+        metrics = {"playcount": {t.id: i * 10 for i, t in enumerate(tracks)}}
+
+        with _patch_preview_deps(
+            mock_run_return=MagicMock(tracks=tracks, metrics=metrics)
+        ):
+            result = await PreviewWorkflowUseCase().execute(workflow_def)
+
+        assert result.metric_columns == ["playcount"]
+        assert result.output_tracks[0]["metrics"]["playcount"] == 0
 
     async def test_dry_run_flag_propagated(self) -> None:
         """Verify run_workflow is called with dry_run=True."""
@@ -106,7 +121,7 @@ class TestPreviewWorkflowUseCase:
         workflow_def = make_workflow_def()
         tracks = make_tracks(count=30)
 
-        with _patch_preview_deps(mock_run_return=MagicMock(tracks=tracks)):
+        with _patch_preview_deps(mock_run_return=MagicMock(tracks=tracks, metrics={})):
             result = await PreviewWorkflowUseCase().execute(workflow_def)
 
         assert len(result.output_tracks) == WorkflowConstants.PREVIEW_OUTPUT_LIMIT
@@ -126,17 +141,20 @@ class TestSerializeOutputTracks:
 
     def test_serializes_with_rank(self) -> None:
         tracks = make_tracks(count=3)
-        result = serialize_output_tracks(tracks)
+        result, columns = serialize_output_tracks(tracks)
 
         assert len(result) == 3
         assert result[0]["rank"] == 1
         assert result[2]["rank"] == 3
+        assert columns == []
 
     def test_respects_limit(self) -> None:
         tracks = make_tracks(count=25)
-        result = serialize_output_tracks(tracks, limit=10)
+        result, _ = serialize_output_tracks(tracks, limit=10)
 
         assert len(result) == 10
 
     def test_empty_list(self) -> None:
-        assert serialize_output_tracks([]) == []
+        result, columns = serialize_output_tracks([])
+        assert result == []
+        assert columns == []

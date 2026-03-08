@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.2
+ * OpenAPI spec version: 0.4.3
  */
 
 export type ListPlaylistsApiV1PlaylistsGetParams = {

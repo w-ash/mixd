@@ -42,16 +42,29 @@ logger = get_logger(__name__).bind(service="workflow_runs")
 
 
 def serialize_output_tracks(
-    tracks: list[Track], limit: int | None = None
-) -> list[dict[str, object]]:
+    tracks: list[Track],
+    limit: int | None = None,
+    metrics: dict[str, dict[int, Any]] | None = None,
+) -> tuple[list[dict[str, object]], list[str]]:
     """Serialize result tracks into lightweight dicts for the run record.
 
-    Shape matches what the frontend OutputTracksTable expects:
-    track_id, title, artists, rank.
+    Returns (tracks, metric_columns) where each track dict includes a ``metrics``
+    sub-dict keyed by the selected columns. Up to MAX_OUTPUT_METRIC_COLUMNS
+    columns are included, sorted alphabetically for deterministic ordering.
     """
     subset = tracks[:limit] if limit is not None else tracks
-    return [
-        {
+
+    # Select and cap metric columns
+    if metrics:
+        metric_columns = sorted(metrics.keys())[
+            : WorkflowConstants.MAX_OUTPUT_METRIC_COLUMNS
+        ]
+    else:
+        metric_columns = []
+
+    result: list[dict[str, object]] = []
+    for rank, track in enumerate(subset, 1):
+        entry: dict[str, object] = {
             "track_id": track.id or 0,
             "title": track.title or "Unknown",
             "artists": ", ".join(a.name for a in track.artists)
@@ -59,8 +72,12 @@ def serialize_output_tracks(
             else "Unknown",
             "rank": rank,
         }
-        for rank, track in enumerate(subset, 1)
-    ]
+        if metrics and metric_columns:
+            entry["metrics"] = {
+                col: metrics[col].get(track.id or 0) for col in metric_columns
+            }
+        result.append(entry)
+    return result, metric_columns
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +323,9 @@ class ExecuteWorkflowRunUseCase:
                 # 4. Update run → COMPLETED
                 duration_ms = timer.stop()
                 output_track_count = len(result.tracks) if result.tracks else None
-                output_tracks = serialize_output_tracks(result.tracks)
+                output_tracks, _metric_columns = serialize_output_tracks(
+                    result.tracks, metrics=result.metrics
+                )
 
                 await self.update_run_status(
                     run_id,

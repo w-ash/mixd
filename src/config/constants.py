@@ -116,6 +116,9 @@ class WorkflowConstants:
     # Preview
     PREVIEW_OUTPUT_LIMIT: Final = 20
 
+    # Output track metric columns (max shown in web UI tables)
+    MAX_OUTPUT_METRIC_COLUMNS: Final = 5
+
     # SSE event type names
     SSE_EVENT_NODE_STATUS: Final = "node_status"
     SSE_EVENT_COMPLETE: Final = "complete"

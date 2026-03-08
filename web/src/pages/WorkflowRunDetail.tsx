@@ -32,7 +32,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
-import { formatDate, formatDuration } from "@/lib/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMetricHeader,
+  formatMetricValue,
+} from "@/lib/format";
 import type { NodeStatus } from "@/lib/sse-types";
 import { cn } from "@/lib/utils";
 import { getNodeCategory, type TrackDecision } from "@/lib/workflow-config";
@@ -214,8 +219,14 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
   );
 }
 
-/** Output tracks table showing the final playlist result. */
-function OutputTracksTable({ tracks }: { tracks: Record<string, unknown>[] }) {
+/** Output tracks table showing the final playlist result with dynamic metric columns. */
+function OutputTracksTable({
+  tracks,
+  metricColumns,
+}: {
+  tracks: Record<string, unknown>[];
+  metricColumns: string[];
+}) {
   if (tracks.length === 0) return null;
 
   return (
@@ -229,11 +240,11 @@ function OutputTracksTable({ tracks }: { tracks: Record<string, unknown>[] }) {
             <TableHead className="w-12 text-right">#</TableHead>
             <TableHead>Title</TableHead>
             <TableHead>Artist</TableHead>
-            {typeof tracks[0]?.metric_name === "string" && (
-              <TableHead className="text-right">
-                {tracks[0].metric_name}
+            {metricColumns.map((col) => (
+              <TableHead key={col} className="text-right">
+                {formatMetricHeader(col)}
               </TableHead>
-            )}
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -248,11 +259,16 @@ function OutputTracksTable({ tracks }: { tracks: Record<string, unknown>[] }) {
               <TableCell className="text-text-muted">
                 {String(track.artists ?? "")}
               </TableCell>
-              {typeof track.metric_name === "string" && (
-                <TableCell className="text-right font-mono text-xs text-text-muted">
-                  {String(track.metric_value ?? "")}
+              {metricColumns.map((col) => (
+                <TableCell
+                  key={col}
+                  className="text-right font-mono text-xs text-text-muted"
+                >
+                  {formatMetricValue(
+                    (track.metrics as Record<string, unknown>)?.[col],
+                  )}
                 </TableCell>
-              )}
+              ))}
             </TableRow>
           ))}
         </TableBody>
@@ -438,7 +454,10 @@ export function WorkflowRunDetail() {
       )}
 
       {/* Output tracks table */}
-      <OutputTracksTable tracks={outputTracks} />
+      <OutputTracksTable
+        tracks={outputTracks}
+        metricColumns={run.metric_columns ?? []}
+      />
     </div>
   );
 }

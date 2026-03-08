@@ -156,6 +156,7 @@ class WorkflowRunSummarySchema(BaseModel):
 class WorkflowRunDetailSchema(WorkflowRunSummarySchema):
     definition_snapshot: WorkflowDefSchema
     output_tracks: list[dict[str, Any]] = []
+    metric_columns: list[str] = []
     nodes: list[WorkflowRunNodeSchema] = []
 
 
@@ -318,12 +319,20 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
     )
 
 
+def _extract_metric_columns(output_tracks: list[dict[str, Any]]) -> list[str]:
+    """Extract metric column names from the first output track's metrics dict."""
+    if not output_tracks:
+        return []
+    return sorted(output_tracks[0].get("metrics", {}).keys())
+
+
 def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
     summary = to_run_summary(run)
     return WorkflowRunDetailSchema(
         **summary.model_dump(),
         definition_snapshot=_def_to_schema(run.definition_snapshot),
         output_tracks=run.output_tracks,
+        metric_columns=_extract_metric_columns(run.output_tracks),
         nodes=[
             WorkflowRunNodeSchema(
                 id=n.id or 0,

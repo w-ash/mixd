@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.2
+ * OpenAPI spec version: 0.4.3
  */
 import type { WorkflowDefSchema } from './workflowDefSchema';
 import type { WorkflowRunDetailSchemaOutputTracksItem } from './workflowRunDetailSchemaOutputTracksItem';
@@ -24,5 +24,6 @@ export interface WorkflowRunDetailSchema {
   created_at?: string | null;
   definition_snapshot: WorkflowDefSchema;
   output_tracks?: WorkflowRunDetailSchemaOutputTracksItem[];
+  metric_columns?: string[];
   nodes?: WorkflowRunNodeSchema[];
 }

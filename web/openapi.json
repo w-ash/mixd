@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.2"
+    "version": "0.4.3"
   },
   "paths": {
     "/api/v1/health": {
@@ -3021,6 +3021,14 @@
             },
             "type": "array",
             "title": "Output Tracks",
+            "default": []
+          },
+          "metric_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Metric Columns",
             "default": []
           },
           "nodes": {

@@ -13,6 +13,7 @@ import {
   type PreviewResult,
   useWorkflowPreview,
 } from "@/hooks/useWorkflowPreview";
+import { formatMetricHeader, formatMetricValue } from "@/lib/format";
 import { getNodeCategory } from "@/lib/workflow-config";
 
 function NodeSummaryList({ result }: { result: PreviewResult }) {
@@ -61,6 +62,9 @@ function OutputTracksTable({ result }: { result: PreviewResult }) {
     );
   }
 
+  // Cap at 2 columns for compact preview layout
+  const columns = (result.metric_columns ?? []).slice(0, 2);
+
   return (
     <div className="space-y-1.5">
       <p className="font-display text-[10px] font-semibold uppercase tracking-wider text-text-muted">
@@ -79,6 +83,14 @@ function OutputTracksTable({ result }: { result: PreviewResult }) {
               <th className="px-2 py-1 font-display text-[10px] font-semibold text-text-faint">
                 Artist
               </th>
+              {columns.map((col) => (
+                <th
+                  key={col}
+                  className="px-2 py-1 text-right font-display text-[10px] font-semibold text-text-faint"
+                >
+                  {formatMetricHeader(col)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -96,6 +108,17 @@ function OutputTracksTable({ result }: { result: PreviewResult }) {
                 <td className="max-w-[150px] truncate px-2 py-1 font-body text-xs text-text-muted">
                   {t.artists}
                 </td>
+                {columns.map((col) => {
+                  const val = t.metrics?.[col];
+                  return (
+                    <td
+                      key={col}
+                      className="px-2 py-1 text-right font-mono text-[10px] text-text-muted"
+                    >
+                      {formatMetricValue(val)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

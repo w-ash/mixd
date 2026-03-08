@@ -22,6 +22,7 @@ export interface PreviewTrack {
   title: string;
   artists: string;
   isrc: string | null;
+  metrics?: Record<string, number | string | null>;
 }
 
 export interface NodePreviewSummary {
@@ -34,6 +35,7 @@ export interface NodePreviewSummary {
 export interface PreviewResult {
   output_tracks: PreviewTrack[];
   node_summaries: NodePreviewSummary[];
+  metric_columns: string[];
 }
 
 export interface UseWorkflowPreviewReturn {
@@ -75,6 +77,7 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
           setPreviewResult({
             output_tracks: (d.output_tracks as PreviewTrack[]) ?? [],
             node_summaries: (d.node_summaries as NodePreviewSummary[]) ?? [],
+            metric_columns: (d.metric_columns as string[]) ?? [],
           });
           setIsPreviewRunning(false);
           disconnect();

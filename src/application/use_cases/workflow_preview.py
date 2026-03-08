@@ -11,7 +11,7 @@ via SSE for real-time node status and a final ``preview_complete`` event.
 import asyncio
 from typing import Any
 
-from attrs import define
+from attrs import define, field
 
 from src.application.use_cases.workflow_runs import serialize_output_tracks
 from src.application.utilities.timing import ExecutionTimer
@@ -34,6 +34,7 @@ class PreviewWorkflowResult:
     output_tracks: list[dict[str, object]]
     node_summaries: list[NodePreviewSummary]
     duration_ms: int
+    metric_columns: list[str] = field(factory=list)
 
 
 @define(slots=True)
@@ -79,17 +80,21 @@ class PreviewWorkflowUseCase:
                 )
 
                 duration_ms = timer.stop()
-                output_tracks = (
-                    serialize_output_tracks(result.tracks, limit=WorkflowConstants.PREVIEW_OUTPUT_LIMIT)
-                    if result.tracks
-                    else []
-                )
+                if result.tracks:
+                    output_tracks, metric_columns = serialize_output_tracks(
+                        result.tracks,
+                        limit=WorkflowConstants.PREVIEW_OUTPUT_LIMIT,
+                        metrics=result.metrics,
+                    )
+                else:
+                    output_tracks, metric_columns = [], []
                 node_summaries = observer.get_summaries()
 
                 return PreviewWorkflowResult(
                     output_tracks=output_tracks,
                     node_summaries=node_summaries,
                     duration_ms=duration_ms,
+                    metric_columns=metric_columns,
                 )
 
             except Exception:

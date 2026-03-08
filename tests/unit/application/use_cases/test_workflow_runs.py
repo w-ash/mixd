@@ -60,7 +60,7 @@ def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
         if mock_run_return is not None:
             mock_run.return_value = mock_run_return
         else:
-            mock_run.return_value = MagicMock(tracks=[])
+            mock_run.return_value = MagicMock(tracks=[], metrics={})
 
         yield mock_logger, mock_run, mock_observer
 
@@ -272,7 +272,7 @@ class TestSerializeOutputTracks:
 
     def test_serializes_tracks_with_rank(self) -> None:
         tracks = make_tracks(count=3)
-        result = serialize_output_tracks(tracks)
+        result, columns = serialize_output_tracks(tracks)
 
         assert len(result) == 3
         assert result[0]["rank"] == 1
@@ -281,9 +281,63 @@ class TestSerializeOutputTracks:
         assert result[0]["track_id"] == tracks[0].id
         assert result[0]["title"] == tracks[0].title
         assert isinstance(result[0]["artists"], str)
+        assert columns == []
 
     def test_empty_list(self) -> None:
-        assert serialize_output_tracks([]) == []
+        result, columns = serialize_output_tracks([])
+        assert result == []
+        assert columns == []
+
+    def test_includes_metrics_per_track(self) -> None:
+        """Each track gets a metrics dict with values from the provided metrics."""
+        tracks = make_tracks(count=2)
+        metrics = {
+            "playcount": {tracks[0].id: 42, tracks[1].id: 7},
+            "popularity": {tracks[0].id: 80, tracks[1].id: 50},
+        }
+        result, columns = serialize_output_tracks(tracks, metrics=metrics)
+
+        assert columns == ["playcount", "popularity"]
+        assert result[0]["metrics"] == {"playcount": 42, "popularity": 80}
+        assert result[1]["metrics"] == {"playcount": 7, "popularity": 50}
+
+    def test_caps_at_max_columns(self) -> None:
+        """Only MAX_OUTPUT_METRIC_COLUMNS columns are included."""
+        tracks = make_tracks(count=1)
+        metrics = {f"metric_{i}": {tracks[0].id: i} for i in range(10)}
+        result, columns = serialize_output_tracks(tracks, metrics=metrics)
+
+        assert len(columns) == WorkflowConstants.MAX_OUTPUT_METRIC_COLUMNS
+        assert len(result[0]["metrics"]) == WorkflowConstants.MAX_OUTPUT_METRIC_COLUMNS
+
+    def test_no_metrics_returns_empty(self) -> None:
+        """Without metrics, no metrics key or columns are produced."""
+        tracks = make_tracks(count=2)
+        result, columns = serialize_output_tracks(tracks)
+
+        assert columns == []
+        assert "metrics" not in result[0]
+
+    def test_metrics_sorted_alphabetically(self) -> None:
+        """Metric columns are sorted alphabetically for deterministic order."""
+        tracks = make_tracks(count=1)
+        metrics = {
+            "zebra": {tracks[0].id: 1},
+            "alpha": {tracks[0].id: 2},
+            "mid": {tracks[0].id: 3},
+        }
+        _, columns = serialize_output_tracks(tracks, metrics=metrics)
+
+        assert columns == ["alpha", "mid", "zebra"]
+
+    def test_missing_metric_for_track_uses_none(self) -> None:
+        """Tracks missing a metric value get None for that column."""
+        tracks = make_tracks(count=2)
+        metrics = {"playcount": {tracks[0].id: 42}}  # track[1] has no entry
+        result, _ = serialize_output_tracks(tracks, metrics=metrics)
+
+        assert result[0]["metrics"]["playcount"] == 42
+        assert result[1]["metrics"]["playcount"] is None
 
 
 class TestExecuteWorkflowRunUseCase:
@@ -298,7 +352,7 @@ class TestExecuteWorkflowRunUseCase:
         )
 
         tracks = make_tracks(count=3)
-        with _patch_execute_deps(mock_run_return=MagicMock(tracks=tracks)):
+        with _patch_execute_deps(mock_run_return=MagicMock(tracks=tracks, metrics={})):
             result = await use_case.execute(workflow_def, run_id=7)
 
         # First call: RUNNING with started_at

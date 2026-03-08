@@ -55,6 +55,18 @@ export function formatCount(n: number): string {
   return n.toLocaleString();
 }
 
+/** Convert a snake_case metric name to Title Case (e.g. "lastfm_user_playcount" → "Lastfm User Playcount"). */
+export function formatMetricHeader(name: string): string {
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Format a metric cell value — numbers get locale formatting, nullish → "—", rest as-is. */
+export function formatMetricValue(value: unknown): string {
+  if (value == null) return "\u2014";
+  if (typeof value === "number") return formatCount(value);
+  return String(value);
+}
+
 /** Format milliseconds as "m:ss". Returns "\u2014" for nullish input. */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "\u2014";

@@ -537,6 +537,7 @@ async def _execute_preview_background(
                 operation_id,
                 WorkflowConstants.RUN_STATUS_COMPLETED,
                 output_tracks=preview_result.output_tracks,
+                metric_columns=preview_result.metric_columns,
                 node_summaries=[
                     {
                         "node_id": s.node_id,
