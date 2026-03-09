@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { makePlaylistSummary } from "@/test/factories";
 import { server } from "@/test/setup";
 import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
@@ -16,32 +17,37 @@ describe("Playlists", () => {
   });
 
   it("renders playlist table when API returns data", async () => {
+    const playlists = [
+      makePlaylistSummary({
+        id: 1,
+        name: "Chill Vibes",
+        description: "Relaxing tracks",
+        track_count: 42,
+      }),
+      makePlaylistSummary({
+        id: 2,
+        name: "Workout Mix",
+        description: null,
+        track_count: 18,
+        connector_links: [
+          {
+            connector_name: "spotify",
+            sync_direction: "push",
+            sync_status: "synced",
+          },
+          {
+            connector_name: "lastfm",
+            sync_direction: "pull",
+            sync_status: "never_synced",
+          },
+        ],
+        updated_at: "2026-02-20T08:30:00Z",
+      }),
+    ];
     server.use(
       http.get("*/api/v1/playlists", () => {
         return HttpResponse.json(
-          {
-            data: [
-              {
-                id: 1,
-                name: "Chill Vibes",
-                description: "Relaxing tracks",
-                track_count: 42,
-                connector_links: ["spotify"],
-                updated_at: "2026-01-15T12:00:00Z",
-              },
-              {
-                id: 2,
-                name: "Workout Mix",
-                description: null,
-                track_count: 18,
-                connector_links: ["spotify", "lastfm"],
-                updated_at: "2026-02-20T08:30:00Z",
-              },
-            ],
-            total: 2,
-            limit: 50,
-            offset: 0,
-          },
+          { data: playlists, total: 2, limit: 50, offset: 0 },
           { status: 200 },
         );
       }),
@@ -94,14 +100,9 @@ describe("Playlists", () => {
   });
 
   it("shows pagination controls when total exceeds page size", async () => {
-    const playlists = Array.from({ length: 50 }, (_, i) => ({
-      id: i + 1,
-      name: `Playlist ${i + 1}`,
-      description: null,
-      track_count: 10,
-      connector_links: ["spotify"],
-      updated_at: "2026-01-15T12:00:00Z",
-    }));
+    const playlists = Array.from({ length: 50 }, (_, i) =>
+      makePlaylistSummary({ id: i + 1, name: `Playlist ${i + 1}` }),
+    );
 
     server.use(
       http.get("*/api/v1/playlists", () => {
@@ -130,14 +131,13 @@ describe("Playlists", () => {
         return HttpResponse.json(
           {
             data: [
-              {
+              makePlaylistSummary({
                 id: 1,
                 name: "Only Playlist",
                 description: null,
                 track_count: 5,
                 connector_links: [],
-                updated_at: "2026-01-15T12:00:00Z",
-              },
+              }),
             ],
             total: 1,
             limit: 50,

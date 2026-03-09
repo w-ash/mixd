@@ -37,6 +37,9 @@ def make_mock_playlist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`PlaylistRepositoryProtocol`."""
     repo = AsyncMock()
     repo.get_playlist_by_id.return_value = overrides.pop("get_playlist_by_id", None)
+    repo.get_playlist_by_connector.return_value = overrides.pop(
+        "get_playlist_by_connector", None
+    )
     repo.save_playlist.side_effect = overrides.pop("save_playlist", lambda p: p)
     repo.delete_playlist.return_value = overrides.pop("delete_playlist", True)
     for k, v in overrides.items():
@@ -118,6 +121,31 @@ def make_mock_workflow_repo(**overrides) -> AsyncMock:
     repo.get_workflow_by_source_template.return_value = overrides.pop(
         "get_workflow_by_source_template", None
     )
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
+def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`PlaylistLinkRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.get_links_for_playlist.return_value = overrides.pop(
+        "get_links_for_playlist", []
+    )
+    repo.get_link.return_value = overrides.pop("get_link", None)
+    repo.create_link.side_effect = overrides.pop("create_link", lambda link: link)
+    repo.delete_link.return_value = overrides.pop("delete_link", True)
+    repo.update_sync_status.return_value = overrides.pop("update_sync_status", None)
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
+def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.upsert_model.side_effect = overrides.pop("upsert_model", lambda cp: cp)
+    repo.get_by_connector_id.return_value = overrides.pop("get_by_connector_id", None)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -237,6 +265,17 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     default_version_repo.get_max_version_number.return_value = 0
     uow.get_workflow_version_repository = MagicMock(
         return_value=repo_overrides.get("workflow_version_repo", default_version_repo)
+    )
+
+    uow.get_playlist_link_repository = MagicMock(
+        return_value=repo_overrides.get(
+            "playlist_link_repo", make_mock_playlist_link_repo()
+        )
+    )
+    uow.get_connector_playlist_repository = MagicMock(
+        return_value=repo_overrides.get(
+            "connector_playlist_repo", make_mock_connector_playlist_repo()
+        )
     )
 
     # Connector provider (optional override)

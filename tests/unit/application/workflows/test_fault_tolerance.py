@@ -50,6 +50,7 @@ class TestWorkflowCancelledError:
         assert "3/5" in str(err)
 
 
+@pytest.mark.slow
 class TestDegradedNodeHandling:
     """Verify that build_flow continues after enricher failures.
 
@@ -195,6 +196,7 @@ class TestDegradedNodeHandling:
                 await flow_fn()
 
 
+@pytest.mark.slow
 class TestGracefulShutdown:
     """Tests for the SIGTERM graceful shutdown mechanism."""
 

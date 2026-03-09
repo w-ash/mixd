@@ -2,52 +2,19 @@ import { HttpResponse, http } from "msw";
 import { Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 
-import type { PlaylistDetailSchema } from "@/api/generated/model";
+import type {
+  PlaylistDetailSchema,
+  PlaylistEntrySchema,
+} from "@/api/generated/model";
+import { makePlaylistDetail, makePlaylistEntries } from "@/test/factories";
 import { server } from "@/test/setup";
 import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
 import { PlaylistDetail } from "./PlaylistDetail";
 
-function makePlaylist(
-  overrides: Partial<PlaylistDetailSchema> = {},
-): PlaylistDetailSchema {
-  return {
-    id: 1,
-    name: "Test Playlist",
-    description: "A test description",
-    track_count: 3,
-    connector_links: ["spotify"],
-    updated_at: "2026-01-15T12:00:00Z",
-    entries: [],
-    ...overrides,
-  };
-}
-
-function makeEntries(
-  items: Array<{
-    title: string;
-    artist: string;
-    album?: string | null;
-    duration_ms?: number | null;
-    added_at?: string | null;
-  }>,
-) {
-  return items.map((item, i) => ({
-    position: i + 1,
-    track: {
-      id: i + 100,
-      title: item.title,
-      artists: [{ name: item.artist }],
-      album: item.album ?? null,
-      duration_ms: item.duration_ms ?? null,
-    },
-    added_at: item.added_at ?? null,
-  }));
-}
-
 function setupHandlers(
   playlist: PlaylistDetailSchema,
-  entries: ReturnType<typeof makeEntries>,
+  entries: PlaylistEntrySchema[],
 ) {
   server.use(
     http.get("*/api/v1/playlists/:playlistId", () => {
@@ -78,7 +45,7 @@ function renderPlaylistDetail() {
 
 describe("PlaylistDetail", () => {
   it("renders summary stats with track count, duration, and last updated", async () => {
-    const entries = makeEntries([
+    const entries = makePlaylistEntries([
       {
         title: "Song A",
         artist: "Artist 1",
@@ -98,7 +65,7 @@ describe("PlaylistDetail", () => {
         added_at: "2026-01-14T14:00:00Z",
       },
     ]);
-    const playlist = makePlaylist({ track_count: 3 });
+    const playlist = makePlaylistDetail({ track_count: 3 });
     setupHandlers(playlist, entries);
 
     renderPlaylistDetail();
@@ -113,14 +80,14 @@ describe("PlaylistDetail", () => {
   });
 
   it("renders total duration in hours and minutes for long playlists", async () => {
-    const entries = makeEntries([
+    const entries = makePlaylistEntries([
       {
         title: "Long Song",
         artist: "Artist",
         duration_ms: 5_580_000,
       },
     ]);
-    const playlist = makePlaylist({ track_count: 1, updated_at: null });
+    const playlist = makePlaylistDetail({ track_count: 1, updated_at: null });
     setupHandlers(playlist, entries);
 
     renderPlaylistDetail();
@@ -136,7 +103,7 @@ describe("PlaylistDetail", () => {
   });
 
   it("renders date added column in track table", async () => {
-    const entries = makeEntries([
+    const entries = makePlaylistEntries([
       {
         title: "Midnight City",
         artist: "M83",
@@ -145,7 +112,7 @@ describe("PlaylistDetail", () => {
         added_at: "2026-02-20T08:30:00Z",
       },
     ]);
-    setupHandlers(makePlaylist(), entries);
+    setupHandlers(makePlaylistDetail(), entries);
 
     renderPlaylistDetail();
 
@@ -160,7 +127,7 @@ describe("PlaylistDetail", () => {
   });
 
   it("shows em-dash for null added_at values", async () => {
-    const entries = makeEntries([
+    const entries = makePlaylistEntries([
       {
         title: "Old Import",
         artist: "Unknown",
@@ -168,7 +135,7 @@ describe("PlaylistDetail", () => {
         added_at: null,
       },
     ]);
-    setupHandlers(makePlaylist(), entries);
+    setupHandlers(makePlaylistDetail(), entries);
 
     renderPlaylistDetail();
 
@@ -186,7 +153,7 @@ describe("PlaylistDetail", () => {
   });
 
   it("handles null duration_ms in total duration computation", async () => {
-    const entries = makeEntries([
+    const entries = makePlaylistEntries([
       {
         title: "Song With Duration",
         artist: "A",
@@ -200,7 +167,7 @@ describe("PlaylistDetail", () => {
         added_at: "2026-01-02T00:00:00Z",
       },
     ]);
-    setupHandlers(makePlaylist({ track_count: 2 }), entries);
+    setupHandlers(makePlaylistDetail({ track_count: 2 }), entries);
 
     renderPlaylistDetail();
 
@@ -213,7 +180,7 @@ describe("PlaylistDetail", () => {
   });
 
   it("renders empty state when playlist has no tracks", async () => {
-    setupHandlers(makePlaylist({ track_count: 0 }), []);
+    setupHandlers(makePlaylistDetail({ track_count: 0 }), []);
 
     renderPlaylistDetail();
 

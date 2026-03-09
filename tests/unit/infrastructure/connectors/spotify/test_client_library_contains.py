@@ -9,28 +9,15 @@ from unittest.mock import AsyncMock, patch
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 
-def _make_client() -> SpotifyAPIClient:
-    """Build a SpotifyAPIClient with __attrs_post_init__ bypassed."""
-    with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-        client = SpotifyAPIClient()
-
-    async def passthrough_retry(impl, *args):
-        return await impl(*args)
-
-    client._retry_policy = passthrough_retry
-    return client
-
-
 class TestCheckLibraryContainsHappyPath:
     """Successful API calls return correct URI→bool mappings."""
 
-    async def test_single_batch_maps_uris_to_booleans(self):
+    async def test_single_batch_maps_uris_to_booleans(self, spotify_client):
         uris = ["spotify:track:aaa", "spotify:track:bbb", "spotify:track:ccc"]
         mock_impl = AsyncMock(return_value=[True, False, True])
 
         with patch.object(SpotifyAPIClient, "_check_library_contains_impl", mock_impl):
-            client = _make_client()
-            result = await client.check_library_contains(uris)
+            result = await spotify_client.check_library_contains(uris)
 
         assert result == {
             "spotify:track:aaa": True,
@@ -39,7 +26,7 @@ class TestCheckLibraryContainsHappyPath:
         }
         mock_impl.assert_awaited_once_with(uris)
 
-    async def test_multiple_batches_when_exceeding_batch_size(self):
+    async def test_multiple_batches_when_exceeding_batch_size(self, spotify_client):
         """URIs exceeding LIBRARY_CONTAINS_BATCH_SIZE split into multiple API calls."""
         # 45 URIs → batch of 40 + batch of 5
         uris = [f"spotify:track:{i:03d}" for i in range(45)]
@@ -59,8 +46,7 @@ class TestCheckLibraryContainsHappyPath:
             return batch2_response
 
         with patch.object(SpotifyAPIClient, "_check_library_contains_impl", mock_impl):
-            client = _make_client()
-            result = await client.check_library_contains(uris)
+            result = await spotify_client.check_library_contains(uris)
 
         assert call_count == 2
         assert len(result) == 45
@@ -69,9 +55,8 @@ class TestCheckLibraryContainsHappyPath:
         assert result["spotify:track:001"] is False  # odd index → False
         assert result["spotify:track:044"] is True  # last in batch2
 
-    async def test_empty_input_returns_empty_dict(self):
-        client = _make_client()
-        result = await client.check_library_contains([])
+    async def test_empty_input_returns_empty_dict(self, spotify_client):
+        result = await spotify_client.check_library_contains([])
 
         assert result == {}
 
@@ -79,21 +64,20 @@ class TestCheckLibraryContainsHappyPath:
 class TestCheckLibraryContainsErrorHandling:
     """API failures default to False (conservative pass-through)."""
 
-    async def test_api_failure_defaults_to_false(self):
+    async def test_api_failure_defaults_to_false(self, spotify_client):
         """When _api_call returns None (suppressed error), all URIs default to False."""
         uris = ["spotify:track:aaa", "spotify:track:bbb"]
 
         # _api_call returns None when it catches a suppressed error
         with patch.object(SpotifyAPIClient, "_api_call", AsyncMock(return_value=None)):
-            client = _make_client()
-            result = await client.check_library_contains(uris)
+            result = await spotify_client.check_library_contains(uris)
 
         assert result == {
             "spotify:track:aaa": False,
             "spotify:track:bbb": False,
         }
 
-    async def test_partial_batch_failure(self):
+    async def test_partial_batch_failure(self, spotify_client):
         """First batch succeeds, second batch fails — mixed results."""
         uris = [f"spotify:track:{i:03d}" for i in range(45)]
 
@@ -108,8 +92,7 @@ class TestCheckLibraryContainsErrorHandling:
             return None  # Second batch fails
 
         with patch.object(SpotifyAPIClient, "_api_call", mock_api_call):
-            client = _make_client()
-            result = await client.check_library_contains(uris)
+            result = await spotify_client.check_library_contains(uris)
 
         # First 40 should be True (succeeded), last 5 should be False (failed)
         assert all(result[f"spotify:track:{i:03d}"] is True for i in range(40))

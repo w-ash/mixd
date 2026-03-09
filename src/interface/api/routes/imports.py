@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
@@ -36,6 +35,7 @@ from src.interface.api.services.progress import (
     OperationBoundEmitter,
     get_operation_registry,
 )
+from src.interface.api.services.sse_operations import prepare_sse_operation
 
 logger = get_logger(__name__).bind(service="imports_api")
 
@@ -101,9 +101,7 @@ async def _prepare_operation() -> tuple[str, OperationBoundEmitter]:
             detail="Too many concurrent operations. Please wait for a running import to finish.",
             headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
         )
-    operation_id = str(uuid4())
-    registry = get_operation_registry()
-    await registry.register(operation_id)
+    operation_id, _ = await prepare_sse_operation()
     emitter = _make_emitter(operation_id)
     return operation_id, emitter
 

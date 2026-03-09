@@ -12,7 +12,6 @@ from asyncio import CancelledError
 import contextlib
 from datetime import datetime
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
@@ -86,7 +85,10 @@ from src.interface.api.services.background import (
     finalize_sse_operation,
     launch_background,
 )
-from src.interface.api.services.progress import get_operation_registry
+from src.interface.api.services.sse_operations import (
+    build_terminal_event,
+    prepare_sse_operation,
+)
 
 logger = get_logger(__name__).bind(service="workflows_api")
 
@@ -207,9 +209,7 @@ async def preview_saved_workflow(
 
 async def _start_preview(workflow_def: WorkflowDef) -> PreviewStartedResponse:
     """Shared logic: register SSE queue, launch background preview."""
-    operation_id = str(uuid4())
-    registry = get_operation_registry()
-    sse_queue = await registry.register(operation_id)
+    operation_id, sse_queue = await prepare_sse_operation()
 
     launch_background(
         f"workflow_preview_{operation_id}",
@@ -277,9 +277,7 @@ async def run_workflow_endpoint(
     workflow = result.workflow
 
     # 2. Register SSE queue
-    operation_id = str(uuid4())
-    registry = get_operation_registry()
-    sse_queue = await registry.register(operation_id)
+    operation_id, sse_queue = await prepare_sse_operation()
 
     # 3. Launch background execution
     launch_background(
@@ -425,30 +423,6 @@ async def _update_node_status(
         )
 
 
-def _terminal_sse_event(
-    event_id: str,
-    event_type: str,
-    operation_id: str,
-    status: RunStatus,
-    *,
-    run_id: int | None = None,
-    **extra: Any,
-) -> dict[str, Any]:
-    """Build a terminal SSE event dict with shared structure."""
-    data: dict[str, Any] = {
-        "operation_id": operation_id,
-        "final_status": status,
-        **extra,
-    }
-    if run_id is not None:
-        data["run_id"] = run_id
-    return {
-        "id": event_id,
-        "event": event_type,
-        "data": data,
-    }
-
-
 async def _execute_workflow_background(
     operation_id: str,
     workflow_def: WorkflowDef,
@@ -471,7 +445,7 @@ async def _execute_workflow_background(
         # Push terminal SSE event based on use case result
         if run_result.status == WorkflowConstants.RUN_STATUS_COMPLETED:
             await sse_queue.put(
-                _terminal_sse_event(
+                build_terminal_event(
                     "evt_final",
                     WorkflowConstants.SSE_EVENT_COMPLETE,
                     operation_id,
@@ -483,7 +457,7 @@ async def _execute_workflow_background(
             )
         else:
             await sse_queue.put(
-                _terminal_sse_event(
+                build_terminal_event(
                     "evt_error",
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,
@@ -499,7 +473,7 @@ async def _execute_workflow_background(
         # Best-effort push of error SSE event on cancellation
         with contextlib.suppress(CancelledError, Exception):
             await sse_queue.put(
-                _terminal_sse_event(
+                build_terminal_event(
                     "evt_error",
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,
@@ -530,7 +504,7 @@ async def _execute_preview_background(
         preview_result = await use_case.execute(workflow_def, sse_queue=sse_queue)
 
         await sse_queue.put(
-            _terminal_sse_event(
+            build_terminal_event(
                 "evt_final",
                 WorkflowConstants.SSE_EVENT_PREVIEW_COMPLETE,
                 operation_id,
@@ -558,7 +532,7 @@ async def _execute_preview_background(
         )
         with contextlib.suppress(CancelledError, Exception):
             await sse_queue.put(
-                _terminal_sse_event(
+                build_terminal_event(
                     "evt_error",
                     WorkflowConstants.SSE_EVENT_ERROR,
                     operation_id,

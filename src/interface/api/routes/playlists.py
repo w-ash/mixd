@@ -1,8 +1,10 @@
-"""Playlist CRUD endpoints.
+"""Playlist CRUD endpoints + connector link management.
 
 Each handler is 5-10 lines: parse request → build Command → execute_use_case() → serialize.
 All business logic lives in the use cases — this is pure HTTP translation.
 """
+
+import asyncio
 
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
@@ -12,9 +14,21 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistUseCase,
 )
+from src.application.use_cases.create_playlist_link import (
+    CreatePlaylistLinkCommand,
+    CreatePlaylistLinkUseCase,
+)
 from src.application.use_cases.delete_canonical_playlist import (
     DeleteCanonicalPlaylistCommand,
     DeleteCanonicalPlaylistUseCase,
+)
+from src.application.use_cases.delete_playlist_link import (
+    DeletePlaylistLinkCommand,
+    DeletePlaylistLinkUseCase,
+)
+from src.application.use_cases.list_playlist_links import (
+    ListPlaylistLinksCommand,
+    ListPlaylistLinksUseCase,
 )
 from src.application.use_cases.list_playlists import (
     ListPlaylistsCommand,
@@ -24,10 +38,16 @@ from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
 )
+from src.application.use_cases.sync_playlist_link import (
+    SyncPlaylistLinkCommand,
+    SyncPlaylistLinkUseCase,
+)
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
     UpdateCanonicalPlaylistUseCase,
 )
+from src.config import get_logger
+from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.connectors._shared.metric_registry import (
@@ -36,16 +56,34 @@ from src.infrastructure.connectors._shared.metric_registry import (
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import (
     BackupPlaylistRequest,
+    CreateLinkRequest,
     CreatePlaylistRequest,
     PlaylistDetailSchema,
     PlaylistEntrySchema,
+    PlaylistLinkSchema,
     PlaylistSummarySchema,
+    SyncLinkRequest,
+    SyncStartedResponse,
     UpdatePlaylistRequest,
+    to_link_schema,
     to_playlist_detail,
     to_playlist_summary,
 )
+from src.interface.api.services.background import (
+    finalize_sse_operation,
+    launch_background,
+)
+from src.interface.api.services.sse_operations import (
+    build_terminal_event,
+    prepare_sse_operation,
+)
+
+logger = get_logger(__name__).bind(service="playlists_api")
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
+
+
+# ─── Playlist CRUD ────────────────────────────────────────────────────────────
 
 
 @router.get("")
@@ -103,7 +141,14 @@ async def get_playlist(playlist_id: int) -> PlaylistDetailSchema:
     )
     if result.playlist is None:
         raise NotFoundError(f"Playlist {playlist_id} not found")
-    return to_playlist_detail(result.playlist)
+
+    # Fetch links for full detail
+    link_result = await execute_use_case(
+        lambda uow: ListPlaylistLinksUseCase().execute(
+            ListPlaylistLinksCommand(playlist_id=playlist_id), uow
+        )
+    )
+    return to_playlist_detail(result.playlist, links=link_result.links)
 
 
 @router.patch("/{playlist_id}")
@@ -161,3 +206,123 @@ async def get_playlist_tracks(
         limit=limit,
         offset=offset,
     )
+
+
+# ─── Playlist Links ──────────────────────────────────────────────────────────
+
+
+@router.get("/{playlist_id}/links")
+async def list_playlist_links(playlist_id: int) -> list[PlaylistLinkSchema]:
+    """List all connector links for a playlist."""
+    result = await execute_use_case(
+        lambda uow: ListPlaylistLinksUseCase().execute(
+            ListPlaylistLinksCommand(playlist_id=playlist_id), uow
+        )
+    )
+    return [to_link_schema(link) for link in result.links]
+
+
+@router.post("/{playlist_id}/links", status_code=201)
+async def create_playlist_link(
+    playlist_id: int, body: CreateLinkRequest
+) -> PlaylistLinkSchema:
+    """Link a playlist to an external service playlist.
+
+    Accepts Spotify URLs, URIs, or raw IDs. Validates that the external
+    playlist exists before creating the link.
+    """
+    command = CreatePlaylistLinkCommand(
+        playlist_id=playlist_id,
+        connector=body.connector,
+        connector_playlist_id=body.connector_playlist_id,
+        sync_direction=SyncDirection(body.sync_direction),
+    )
+    result = await execute_use_case(
+        lambda uow: CreatePlaylistLinkUseCase().execute(command, uow)
+    )
+    return to_link_schema(result.link)
+
+
+@router.delete("/{playlist_id}/links/{link_id}", status_code=204)
+async def delete_playlist_link(playlist_id: int, link_id: int) -> Response:  # noqa: ARG001
+    """Unlink a playlist from an external service."""
+    await execute_use_case(
+        lambda uow: DeletePlaylistLinkUseCase().execute(
+            DeletePlaylistLinkCommand(link_id=link_id), uow
+        )
+    )
+    return Response(status_code=204)
+
+
+@router.post("/{playlist_id}/links/{link_id}/sync", status_code=202)
+async def sync_playlist_link(
+    playlist_id: int,  # noqa: ARG001
+    link_id: int,
+    body: SyncLinkRequest | None = None,
+) -> SyncStartedResponse:
+    """Start a sync operation for a playlist link.
+
+    Returns immediately with an operation_id. Progress streams via
+    GET /operations/{operation_id}/progress (existing SSE endpoint).
+    """
+    direction_override = None
+    if body and body.direction_override:
+        direction_override = SyncDirection(body.direction_override)
+
+    operation_id, sse_queue = await prepare_sse_operation()
+
+    launch_background(
+        f"playlist_sync_{operation_id}",
+        lambda: _execute_sync_background(
+            operation_id, link_id, direction_override, sse_queue
+        ),
+    )
+
+    return SyncStartedResponse(operation_id=operation_id)
+
+
+async def _execute_sync_background(
+    operation_id: str,
+    link_id: int,
+    direction_override: SyncDirection | None,
+    sse_queue: asyncio.Queue[object],
+) -> None:
+    """Execute playlist link sync in background, pushing SSE events."""
+    from asyncio import CancelledError
+    import contextlib
+
+    try:
+        command = SyncPlaylistLinkCommand(
+            link_id=link_id,
+            direction_override=direction_override,
+        )
+        result = await execute_use_case(
+            lambda uow: SyncPlaylistLinkUseCase().execute(command, uow)
+        )
+
+        await sse_queue.put(
+            build_terminal_event(
+                "evt_final",
+                "complete",
+                operation_id,
+                "COMPLETED",
+                tracks_added=result.tracks_added,
+                tracks_removed=result.tracks_removed,
+            )
+        )
+
+    except (CancelledError, Exception) as e:
+        error_msg = str(e)[:500] if not isinstance(e, CancelledError) else "Cancelled"
+        with contextlib.suppress(CancelledError, Exception):
+            await sse_queue.put(
+                build_terminal_event(
+                    "evt_error",
+                    "error",
+                    operation_id,
+                    "FAILED",
+                    error_message=error_msg,
+                )
+            )
+
+    finally:
+        await finalize_sse_operation(operation_id)

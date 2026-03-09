@@ -22,6 +22,7 @@ typer = "^0.24.1"
 attrs = "^25.4.0"
 tenacity = "^9.1.4"
 prefect = "^3.6.19"
+griffe = ">=1.5,<2"  # Prefect depends on griffe v1 API; v2.0 breaks imports
 aiosqlite = "^0.22.1"
 rapidfuzz = "^3.14.3"
 pydantic-settings = "^2.13.1"
@@ -209,7 +210,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--strict-markers --tb=short -m 'not diagnostic and not slow and not performance'"
+addopts = "--strict-markers --tb=short -n auto -m 'not diagnostic and not slow and not performance'"
 markers = [
     # Test Pyramid Layers (applied via pytestmark in conftest.py)
     "unit: unit tests - pure logic, no external dependencies (<100ms)",
