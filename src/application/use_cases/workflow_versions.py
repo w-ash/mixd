@@ -107,7 +107,9 @@ class RevertWorkflowVersionUseCase:
             )
 
             # Snapshot current definition before reverting
-            next_version_num = await version_repo.get_max_version_number(command.workflow_id) + 1
+            next_version_num = (
+                await version_repo.get_max_version_number(command.workflow_id) + 1
+            )
 
             snapshot = WorkflowVersion(
                 workflow_id=command.workflow_id,

@@ -3,8 +3,6 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SSEEvent } from "@/api/sse-client";
-
 import { useSSEConnection } from "./useSSEConnection";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
@@ -13,14 +11,7 @@ vi.mock("@/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-
-function mockSSEWithEvents(events: SSEEvent[]) {
-  const gen = async function* () {
-    for (const e of events) yield e;
-  };
-  vi.mocked(connectToSSE).mockResolvedValue(gen());
-}
+import { connectToSSE, mockSSEWithEvents } from "@/test/sse-test-utils";
 
 function mockSSEError(error: Error) {
   vi.mocked(connectToSSE).mockRejectedValue(error);

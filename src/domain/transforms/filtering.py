@@ -16,7 +16,11 @@ from datetime import UTC, datetime
 from typing import cast
 
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform, optional_tracklist_transform
+from src.domain.transforms.core import (
+    Transform,
+    optional_tracklist_transform,
+    require_database_tracks,
+)
 
 
 @optional_tracklist_transform
@@ -48,15 +52,13 @@ def filter_duplicates() -> Transform:
     """
 
     def transform(t: TrackList) -> TrackList:
+        require_database_tracks(t)
         seen_ids: set[int] = set()
         unique_tracks: list[Track] = []
 
         for track in t.tracks:
-            if track.id is None:
-                # If track has no ID, keep it (can't properly deduplicate)
-                unique_tracks.append(track)
-            elif track.id not in seen_ids:
-                seen_ids.add(track.id)
+            if track.id not in seen_ids:
+                seen_ids.add(track.id)  # type: ignore[arg-type]  # guaranteed non-None by require_database_tracks
                 unique_tracks.append(track)
 
         return t.with_tracks(unique_tracks)

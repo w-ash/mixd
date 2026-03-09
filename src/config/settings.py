@@ -464,6 +464,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(
         default=Path("data"), description="Application data directory"
     )
+    workflow_log_dir: Path = Field(
+        default=Path("data/logs/runs"),
+        description="Directory for per-workflow-run JSONL log files.",
+    )
 
     # Flat env var → nested group routing.  {env_key: (group, field_key)}
     # Identity mappings (key == field) use None as shorthand for "keep name".

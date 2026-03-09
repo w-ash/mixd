@@ -90,4 +90,13 @@ describe("PipelineStrip", () => {
 
     expect(screen.queryByText(/Step/)).not.toBeInTheDocument();
   });
+
+  it("shows initializing state when executing with no statuses yet", () => {
+    render(<PipelineStrip tasks={mockTasks} isExecuting />);
+
+    // Progress section visible with initializing text
+    expect(screen.getByText("Initializing…")).toBeInTheDocument();
+    // No step counter since no node statuses exist
+    expect(screen.queryByText(/Step/)).not.toBeInTheDocument();
+  });
 });

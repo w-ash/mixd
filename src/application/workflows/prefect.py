@@ -10,6 +10,7 @@ recovery, and database session management for long-running playlist operations.
 
 import asyncio
 import datetime
+import signal
 import time
 from typing import Any
 
@@ -67,6 +68,44 @@ class WorkflowAlreadyRunningError(Exception):
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
         super().__init__(f"Workflow '{workflow_id}' is already running")
+
+
+# --- Fault tolerance ---
+
+
+# Categories where a node failure degrades rather than kills the workflow.
+# Enricher failures are recoverable: downstream nodes use cached/stale metrics.
+_RECOVERABLE_CATEGORIES: frozenset[str] = frozenset({"enricher"})
+
+
+def _is_failure_recoverable(node_type: str) -> bool:
+    """Check if a node failure should degrade rather than kill the workflow.
+
+    Enricher failures are recoverable because:
+    - The upstream tracklist can pass through unchanged
+    - Cached metrics from previous runs may still be available
+    - Missing metrics cause downstream filters to drop tracks (safe degradation)
+      rather than producing incorrect results
+
+    Source/transform/destination failures remain fatal.
+    """
+    category = node_type.split(".", maxsplit=1)[0]
+    return category in _RECOVERABLE_CATEGORIES
+
+
+class WorkflowCancelledError(Exception):
+    """Raised when a workflow is cancelled by a graceful shutdown signal."""
+
+
+# Graceful shutdown: set between nodes so the current node completes
+_shutdown_requested = False
+
+
+def _request_shutdown() -> None:
+    """Signal handler callback — sets the shutdown flag for the orchestration loop."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    logger.warning("Graceful shutdown requested — will stop after current node completes")
 
 
 # --- Node timeout ---
@@ -212,6 +251,27 @@ def build_flow(
             try:
                 # Execute tasks in dependency order
                 for task_index, task_def in enumerate(sorted_tasks):
+                    # Graceful shutdown: stop between nodes
+                    if _shutdown_requested:
+                        logger.warning(
+                            "Shutdown requested — cancelling remaining nodes",
+                            completed_nodes=task_index,
+                            remaining_nodes=total_nodes - task_index,
+                        )
+                        node_records.extend(
+                            NodeExecutionRecord(
+                                node_id=remaining.id,
+                                node_type=remaining.type,
+                                execution_order=task_index + 1,
+                                status="skipped",
+                                error_message="Cancelled by graceful shutdown",
+                            )
+                            for remaining in sorted_tasks[task_index:]
+                        )
+                        raise WorkflowCancelledError(
+                            f"Shutdown after {task_index}/{total_nodes} nodes"
+                        )
+
                     task_id = task_def.id
                     node_type = task_def.type
                     execution_order = task_index + 1  # 1-based
@@ -259,33 +319,19 @@ def build_flow(
                     timeout_seconds = _get_node_timeout(node_type)
                     start_ns = time.perf_counter_ns()
 
+                    was_degraded = False
                     try:
                         async with asyncio.timeout(timeout_seconds):
                             result = await execute_node(node_type, task_context, config)
-                    except TimeoutError:
+                    except (TimeoutError, Exception) as exc:
                         duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
-                        timeout_exc = TimeoutError(
-                            f"Node '{task_id}' ({node_type}) exceeded "
-                            f"{timeout_seconds}s timeout"
-                        )
-                        logger.error(
-                            "Node execution timed out",
-                            node_id=task_id,
-                            node_type=node_type,
-                            execution_order=execution_order,
-                            timeout_seconds=timeout_seconds,
-                            duration_ms=duration_ms,
-                        )
-                        failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
-                        await node_observer.on_node_failed(failed_event, timeout_exc)
-                        node_records.append(
-                            failed_event.to_record(
-                                status="failed", error_message=str(timeout_exc)
+
+                        if isinstance(exc, TimeoutError):
+                            exc = TimeoutError(
+                                f"Node '{task_id}' ({node_type}) exceeded "
+                                f"{timeout_seconds}s timeout"
                             )
-                        )
-                        raise timeout_exc from None
-                    except Exception as exc:
-                        duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+
                         logger.opt(exception=True).error(
                             "Node execution failed",
                             node_id=task_id,
@@ -296,22 +342,79 @@ def build_flow(
                         )
                         failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
                         await node_observer.on_node_failed(failed_event, exc)
-                        node_records.append(
-                            failed_event.to_record(
-                                status="failed", error_message=str(exc)
-                            )
-                        )
-                        raise
 
-                    duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+                        # Fault tolerance: enricher failures degrade rather than kill
+                        if (
+                            _is_failure_recoverable(node_type)
+                            and task_def.upstream
+                            and task_def.upstream[0] in task_results
+                        ):
+                            upstream_result = task_results[task_def.upstream[0]]
+                            result = upstream_result  # pass through upstream tracklist
+                            node_records.append(
+                                failed_event.to_record(
+                                    status="degraded",
+                                    error_message=str(exc),
+                                )
+                            )
+                            was_degraded = True
+                            logger.warning(
+                                "Node degraded — continuing with upstream data",
+                                node_id=task_id,
+                                node_type=node_type,
+                                error=str(exc),
+                            )
+                            # Fall through to the success path (store result, continue)
+                        else:
+                            node_records.append(
+                                failed_event.to_record(
+                                    status="failed", error_message=str(exc)
+                                )
+                            )
+                            raise
+                    else:
+                        duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+
                     output_track_count = len(result["tracklist"].tracks)
-                    completed_event = attrs.evolve(
-                        base_event,
-                        duration_ms=duration_ms,
-                        output_track_count=output_track_count,
-                    )
-                    await node_observer.on_node_completed(completed_event, result)
-                    node_records.append(completed_event.to_record(status="completed"))
+
+                    # Structured track-count checkpoint for diagnostics
+                    input_count = input_track_count or 0
+                    delta = input_count - output_track_count
+                    checkpoint_extra: dict[str, Any] = {
+                        "node_id": task_id,
+                        "node_type": node_type,
+                        "input_count": input_count,
+                        "output_count": output_track_count,
+                        "delta": delta,
+                    }
+                    logger.info("track_count_checkpoint", **checkpoint_extra)
+                    if delta > 0:
+                        dropped_ids: list[int | None] = []
+                        if input_track_count and task_def.upstream:
+                            upstream_result = task_results.get(task_def.upstream[0])
+                            if upstream_result:
+                                output_ids = {t.id for t in result["tracklist"].tracks}
+                                dropped_ids = [
+                                    t.id
+                                    for t in upstream_result["tracklist"].tracks
+                                    if t.id not in output_ids
+                                ]
+                        logger.debug(
+                            "track_count_dropped_ids",
+                            node_id=task_id,
+                            dropped_track_ids=dropped_ids,
+                        )
+
+                    # Only emit completed event for non-degraded nodes
+                    # (degraded nodes already had on_node_failed called above)
+                    if not was_degraded:
+                        completed_event = attrs.evolve(
+                            base_event,
+                            duration_ms=duration_ms,
+                            output_track_count=output_track_count,
+                        )
+                        await node_observer.on_node_completed(completed_event, result)
+                        node_records.append(completed_event.to_record(status="completed"))
 
                     # Store result in context and task_results
                     context[task_id] = result
@@ -484,10 +587,22 @@ async def run_workflow(
     flow_logger = get_run_logger()
     workflow_name = workflow_def.name
 
+    # Generate a unique run ID for structured logging correlation
+    import uuid
+
+    from src.config.logging import (
+        add_workflow_run_logger,
+        remove_workflow_run_logger,
+    )
+
+    workflow_run_id = str(uuid.uuid4())[:8]
+    run_sink_id = add_workflow_run_logger(workflow_def.id, workflow_run_id)
+
     try:
         with logger.contextualize(
             workflow_id=workflow_def.id,
             workflow_name=workflow_name,
+            workflow_run_id=workflow_run_id,
         ):
             # Initialize workflow-level progress tracking
             workflow_operation_id = None
@@ -515,6 +630,18 @@ async def run_workflow(
                 effective_observer = ProgressNodeObserver(
                     progress_manager, workflow_operation_id
                 )
+
+            # Register SIGTERM handler for graceful shutdown between nodes
+            global _shutdown_requested
+            _shutdown_requested = False  # reset for each run
+            loop = asyncio.get_running_loop()
+            sigterm_registered = False
+            try:
+                loop.add_signal_handler(signal.SIGTERM, _request_shutdown)
+                sigterm_registered = True
+            except (NotImplementedError, OSError):
+                # Windows or non-main thread — signal handlers unavailable
+                pass
 
             try:
                 with tags("workflow", workflow_name):
@@ -563,6 +690,10 @@ async def run_workflow(
 
                 logger.error("Workflow failed — see node error above")
                 raise
+            finally:
+                if sigterm_registered:
+                    loop.remove_signal_handler(signal.SIGTERM)
     finally:
+        remove_workflow_run_logger(run_sink_id)
         async with _running_lock:
             _running_workflows.discard(workflow_id)

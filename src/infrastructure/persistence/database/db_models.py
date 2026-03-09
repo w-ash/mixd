@@ -612,7 +612,9 @@ class DBWorkflowVersion(DatabaseModel, TimestampMixin):
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
 
     __table_args__: tuple[Any, ...] = (
-        UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_workflow_version"),
+        UniqueConstraint(
+            "workflow_id", "version", name="uq_workflow_versions_workflow_version"
+        ),
         Index("ix_workflow_versions_workflow_id", "workflow_id"),
     )
 

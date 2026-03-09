@@ -1,9 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SSEEvent } from "@/api/sse-client";
+import { WorkflowExecutionProvider } from "@/contexts/WorkflowExecutionContext";
+import { mockSSEWithEvents } from "@/test/sse-test-utils";
+import { createTestQueryClient } from "@/test/test-utils";
 
 import { useWorkflowExecution } from "./useWorkflowExecution";
 
@@ -13,29 +15,16 @@ vi.mock("@/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-
-/** Mock connectToSSE to resolve with a finite sequence of events. */
-function mockSSEWithEvents(events: SSEEvent[]) {
-  const gen = async function* () {
-    for (const e of events) yield e;
-  };
-  vi.mocked(connectToSSE).mockResolvedValue(gen());
-}
-
 // ─── Test wrapper ───────────────────────────────────────────────
 
 function createWrapper(queryClient?: QueryClient) {
-  const client =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: 0 },
-        mutations: { retry: false },
-      },
-    });
+  const client = queryClient ?? createTestQueryClient();
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(QueryClientProvider, { client }, children);
+    return createElement(
+      QueryClientProvider,
+      { client },
+      createElement(WorkflowExecutionProvider, null, children),
+    );
   };
 }
 
@@ -168,12 +157,7 @@ describe("useWorkflowExecution", () => {
       },
     ]);
 
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: 0 },
-        mutations: { retry: false },
-      },
-    });
+    const queryClient = createTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     const { result } = renderHook(() => useWorkflowExecution(1), {

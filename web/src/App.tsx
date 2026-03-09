@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { PageLayout } from "./components/layout/PageLayout";
 import { Skeleton } from "./components/ui/skeleton";
 import { Toaster } from "./components/ui/sonner";
+import { WorkflowExecutionProvider } from "./contexts/WorkflowExecutionContext";
 
 function PageSkeleton() {
   return (
@@ -55,109 +56,111 @@ const WorkflowEditor = lazy(() => import("./pages/WorkflowEditor"));
 
 export function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<PageLayout />}>
-          <Route
-            index
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Dashboard />
-              </Suspense>
-            }
-          />
-          <Route
-            path="imports"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Imports />
-              </Suspense>
-            }
-          />
-          <Route
-            path="playlists"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Playlists />
-              </Suspense>
-            }
-          />
-          <Route
-            path="playlists/:id"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <PlaylistDetail />
-              </Suspense>
-            }
-          />
-          <Route
-            path="workflows"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Workflows />
-              </Suspense>
-            }
-          />
-          <Route
-            path="workflows/new"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <WorkflowEditor />
-              </Suspense>
-            }
-          />
-          <Route
-            path="workflows/:id/edit"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <WorkflowEditor />
-              </Suspense>
-            }
-          />
-          <Route
-            path="workflows/:id"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <WorkflowDetail />
-              </Suspense>
-            }
-          />
-          <Route
-            path="workflows/:id/runs/:runId"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <WorkflowRunDetail />
-              </Suspense>
-            }
-          />
-          <Route
-            path="library"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Library />
-              </Suspense>
-            }
-          />
-          <Route
-            path="library/:id"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <TrackDetail />
-              </Suspense>
-            }
-          />
-          <Route
-            path="settings"
-            element={
-              <Suspense fallback={<PageSkeleton />}>
-                <Settings />
-              </Suspense>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-      <Toaster />
-    </BrowserRouter>
+    <WorkflowExecutionProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<PageLayout />}>
+            <Route
+              index
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Dashboard />
+                </Suspense>
+              }
+            />
+            <Route
+              path="imports"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Imports />
+                </Suspense>
+              }
+            />
+            <Route
+              path="playlists"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Playlists />
+                </Suspense>
+              }
+            />
+            <Route
+              path="playlists/:id"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <PlaylistDetail />
+                </Suspense>
+              }
+            />
+            <Route
+              path="workflows"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Workflows />
+                </Suspense>
+              }
+            />
+            <Route
+              path="workflows/new"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <WorkflowEditor />
+                </Suspense>
+              }
+            />
+            <Route
+              path="workflows/:id/edit"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <WorkflowEditor />
+                </Suspense>
+              }
+            />
+            <Route
+              path="workflows/:id"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <WorkflowDetail />
+                </Suspense>
+              }
+            />
+            <Route
+              path="workflows/:id/runs/:runId"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <WorkflowRunDetail />
+                </Suspense>
+              }
+            />
+            <Route
+              path="library"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Library />
+                </Suspense>
+              }
+            />
+            <Route
+              path="library/:id"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <TrackDetail />
+                </Suspense>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Settings />
+                </Suspense>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+        <Toaster />
+      </BrowserRouter>
+    </WorkflowExecutionProvider>
   );
 }

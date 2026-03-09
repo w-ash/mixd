@@ -45,14 +45,36 @@ def _prepare_destination(
     return tracklist, config, workflow_context
 
 
+async def _find_existing_playlist_by_name(
+    workflow_context: WorkflowContext, playlist_name: str
+) -> int | None:
+    """Check if a canonical playlist with this name already exists.
+
+    Returns the playlist ID if found, None otherwise. Used for idempotent
+    create_playlist: re-running a workflow updates the existing playlist
+    instead of creating duplicates.
+    """
+    from src.domain.repositories import UnitOfWorkProtocol
+
+    async def _search(uow: UnitOfWorkProtocol) -> int | None:
+        repo = uow.get_playlist_repository()
+        all_playlists = await repo.list_all_playlists()
+        for p in all_playlists:
+            if p.name == playlist_name:
+                return p.id
+        return None
+
+    return await workflow_context.execute_service(_search)
+
+
 async def create_playlist(
     context: dict[str, Any],
     config: dict[str, Any],
 ) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
 
-    Creates local canonical playlist first, then optionally creates matching
-    playlist on external platform (Spotify, Apple Music) if connector specified.
+    Idempotent: if a playlist with the same name already exists, updates it
+    instead of creating a duplicate. This makes workflow re-runs safe.
 
     Args:
         context: Workflow execution context containing tracklist, use cases, and connectors.
@@ -77,6 +99,21 @@ async def create_playlist(
         raise ValueError("Missing required 'name' for create_playlist operation")
 
     ctx = NodeContext(context)
+
+    # Idempotency: check if a playlist with this name already exists
+    existing_id = await _find_existing_playlist_by_name(workflow_context, playlist_name)
+    if existing_id is not None:
+        logger.info(
+            "Playlist already exists — updating instead of creating duplicate",
+            playlist_name=playlist_name,
+            existing_playlist_id=existing_id,
+        )
+        # Delegate to update_playlist with the existing ID
+        update_config = {
+            **config,
+            "playlist_id": str(existing_id),
+        }
+        return await update_playlist(context, update_config)
 
     if connector := config.get("connector"):
         await ctx.emit_phase_progress(

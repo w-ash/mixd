@@ -378,6 +378,38 @@ def enable_unified_console_output(progress_console: Console) -> None:
         )
 
 
+def add_workflow_run_logger(workflow_id: str, run_id: str) -> int:
+    """Add a temporary Loguru sink that writes per-run JSONL log file.
+
+    Returns the sink ID so the caller can remove it when the run completes.
+    The sink only captures log entries that have a matching ``workflow_run_id``
+    in their ``extra`` dict — other log entries are filtered out.
+    """
+    log_dir = Path(settings.workflow_log_dir) / workflow_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{run_id}.jsonl"
+
+    def _run_filter(record: Any) -> bool:
+        return record["extra"].get("workflow_run_id") == run_id
+
+    sink_id: int = logger.add(
+        str(log_path),
+        level="DEBUG",
+        serialize=True,
+        filter=_run_filter,
+        enqueue=False,  # Real-time writes for crash safety
+    )
+    return sink_id
+
+
+def remove_workflow_run_logger(sink_id: int) -> None:
+    """Remove a per-run log sink after workflow execution completes."""
+    import contextlib
+
+    with contextlib.suppress(ValueError):
+        logger.remove(sink_id)
+
+
 def restore_standard_console_output() -> None:
     """Restore standard console output after unified Progress.console coordination ends."""
     try:

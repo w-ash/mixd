@@ -180,7 +180,8 @@ export function WorkflowDetail() {
       {tasks.length > 0 && (
         <PipelineStrip
           tasks={tasks}
-          nodeStatuses={nodeStatuses.size > 0 ? nodeStatuses : undefined}
+          nodeStatuses={nodeStatuses}
+          isExecuting={isExecuting}
           className="mb-6"
         />
       )}

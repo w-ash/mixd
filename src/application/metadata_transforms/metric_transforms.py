@@ -26,6 +26,15 @@ from ._helpers import parse_datetime_safe
 logger = get_logger(__name__)
 
 
+def _warn_missing_metrics(operation: str, metric_name: str, tracklist: TrackList) -> None:
+    """Log a warning when a metric operation has no metric data."""
+    if tracklist.tracks:
+        logger.warning(
+            f"{operation} '{metric_name}' has no metric data — "
+            "ensure an upstream enricher for this metric is configured"
+        )
+
+
 def filter_by_metric_range(
     metric_name: str,
     min_value: float | None = None,
@@ -51,6 +60,9 @@ def filter_by_metric_range(
         """Apply the metric filter transformation."""
         metrics = t.metadata.get("metrics", {})
         metric_values: dict[int, Any] = metrics.get(metric_name, {})
+
+        if not metric_values:
+            _warn_missing_metrics("Filter by", metric_name, t)
 
         def is_in_range(track: Track) -> bool:
             """Check if track's metric is within the specified range."""
@@ -110,6 +122,9 @@ def sort_by_external_metrics(
         """Apply external metrics sorting."""
         # Get metrics from tracklist metadata
         metrics_dict = t.metadata.get("metrics", {}).get(metric_name, {})
+
+        if not metrics_dict:
+            _warn_missing_metrics("Sort by", metric_name, t)
 
         def external_metrics_key(track: Track) -> Any:
             """Extract metric value for sorting."""

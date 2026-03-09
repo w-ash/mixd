@@ -53,6 +53,7 @@ import src.application.workflows.node_catalog as _node_catalog  # noqa: F401  # 
 from src.application.workflows.node_registry import list_nodes
 from src.application.workflows.validation import (
     get_node_config_schema,
+    is_validation_error,
     validate_workflow_def_detailed,
 )
 from src.config import get_logger
@@ -171,10 +172,10 @@ async def validate_workflow(
 ) -> WorkflowValidationResponse:
     """Validate a workflow definition without persisting."""
     definition = schema_to_workflow_def(body.definition)
-    errors = validate_workflow_def_detailed(definition)
+    items = validate_workflow_def_detailed(definition)
     return WorkflowValidationResponse(
-        valid=len(errors) == 0,
-        errors=[WorkflowValidationErrorSchema(**e) for e in errors],
+        valid=not any(is_validation_error(item) for item in items),
+        errors=[WorkflowValidationErrorSchema(**e) for e in items],
     )
 
 
@@ -342,9 +343,7 @@ async def list_workflow_versions(
 
 
 @router.get("/{workflow_id}/versions/{version}")
-async def get_workflow_version(
-    workflow_id: int, version: int
-) -> WorkflowVersionSchema:
+async def get_workflow_version(workflow_id: int, version: int) -> WorkflowVersionSchema:
     """Get a specific version with full definition."""
     command = GetWorkflowVersionCommand(workflow_id=workflow_id, version=version)
     result = await execute_use_case(

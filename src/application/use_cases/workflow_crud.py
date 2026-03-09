@@ -33,7 +33,9 @@ def _generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
     if removed:
         parts.append(f"Removed {len(removed)} node{'s' if len(removed) != 1 else ''}")
     if modified:
-        parts.append(f"Modified {len(modified)} node{'s' if len(modified) != 1 else ''}")
+        parts.append(
+            f"Modified {len(modified)} node{'s' if len(modified) != 1 else ''}"
+        )
 
     if old_def.name != new_def.name:
         parts.append(f"Renamed to '{new_def.name}'")

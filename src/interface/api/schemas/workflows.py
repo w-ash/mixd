@@ -99,6 +99,7 @@ class WorkflowValidationErrorSchema(BaseModel):
     task_id: str
     field: str
     message: str
+    severity: str | None = None
 
 
 class WorkflowValidationResponse(BaseModel):

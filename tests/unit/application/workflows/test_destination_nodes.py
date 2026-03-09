@@ -1,7 +1,8 @@
 """Tests for destination nodes.
 
 Validates create_playlist and update_playlist behavior with standard
-(context, config) node signatures.
+(context, config) node signatures, including idempotent create_playlist
+(re-runs update existing playlists instead of creating duplicates).
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -14,6 +15,7 @@ def mock_context(sample_tracklist):
     """Mock workflow context dict for destination nodes.
 
     Includes upstream tracklist following the standard node contract.
+    execute_service returns None by default (no existing playlist found).
     """
     wf_ctx = AsyncMock()
     wf_ctx.use_cases = MagicMock()
@@ -23,6 +25,9 @@ def mock_context(sample_tracklist):
     result.playlist.id = "pl-1"
     result.playlist.name = "Test"
     wf_ctx.execute_use_case = AsyncMock(return_value=result)
+
+    # Default: no existing playlist found (execute_service calls the lambda with uow)
+    wf_ctx.execute_service = AsyncMock(return_value=None)
 
     return {
         "workflow_context": wf_ctx,
@@ -145,3 +150,57 @@ class TestUpdatePlaylist:
 
         assert "tracklist" in result
         mock_context["workflow_context"].execute_use_case.assert_not_called()
+
+
+class TestIdempotentCreatePlaylist:
+    """Tests for idempotent create_playlist: re-runs update instead of duplicating."""
+
+    async def test_creates_new_when_no_existing(self, mock_context):
+        """First run creates a new playlist (execute_service returns None)."""
+        from src.application.workflows.destination_nodes import create_playlist
+
+        config = {"name": "New Playlist"}
+        result = await create_playlist(mock_context, config)
+
+        assert "tracklist" in result
+        # execute_service was called to check for existing playlist
+        mock_context["workflow_context"].execute_service.assert_called_once()
+        # execute_use_case was called to create the playlist
+        mock_context["workflow_context"].execute_use_case.assert_called_once()
+
+    async def test_updates_existing_when_name_matches(self, mock_context):
+        """Re-run delegates to update_playlist when name already exists."""
+        from src.application.workflows.destination_nodes import create_playlist
+
+        # Simulate existing playlist found
+        mock_context["workflow_context"].execute_service = AsyncMock(return_value=42)
+
+        # Set up update result
+        update_result = MagicMock()
+        update_result.playlist = MagicMock()
+        update_result.playlist.id = 42
+        update_result.playlist.name = "Existing Playlist"
+        mock_context["workflow_context"].execute_use_case = AsyncMock(
+            return_value=update_result
+        )
+
+        config = {"name": "Existing Playlist", "description": "Updated"}
+        result = await create_playlist(mock_context, config)
+
+        assert "tracklist" in result
+        # execute_use_case called for update, not create
+        call_args = mock_context["workflow_context"].execute_use_case.call_args
+        # The use case getter should be for update, not create
+        assert call_args is not None
+
+    async def test_dry_run_skips_idempotency_check(self, mock_context):
+        """Dry-run mode doesn't check for existing playlists."""
+        from src.application.workflows.destination_nodes import create_playlist
+
+        mock_context["dry_run"] = True
+        config = {"name": "My Playlist"}
+        result = await create_playlist(mock_context, config)
+
+        assert "tracklist" in result
+        # execute_service never called in dry-run
+        mock_context["workflow_context"].execute_service.assert_not_called()

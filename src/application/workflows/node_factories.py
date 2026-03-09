@@ -29,6 +29,7 @@ from src.application.use_cases.enrich_tracks import (
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
 from src.domain.entities.workflow import TrackDecision
+from src.domain.transforms.core import quarantine_invalid_tracks
 
 from .node_context import NodeContext
 from .node_registry import NodeFn
@@ -37,11 +38,24 @@ from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
 
 # Registry type aliases: transform factories take (ctx, config) and return a TrackList→TrackList fn.
 type _TransformFn = Callable[[TrackList], TrackList]
+
+
 type _TransformFactory = Callable[[Any, dict[str, Any]], _TransformFn]
 
 logger = get_logger(__name__)
 
 # === HELPER FUNCTIONS ===
+
+
+def _quarantine_and_log(tracklist: TrackList, label: str) -> TrackList:
+    """Quarantine tracks without database IDs and log if any were removed."""
+    valid_tl, quarantined = quarantine_invalid_tracks(tracklist)
+    if quarantined:
+        logger.warning(
+            f"{label}: quarantined {len(quarantined)} tracks without database IDs",
+            quarantined_titles=[t.title for t in quarantined[:5]],
+        )
+    return valid_tl
 
 
 def _get_connector_metric_names(
@@ -205,6 +219,59 @@ def _generate_selector_decisions(
     return decisions
 
 
+def _generate_combiner_decisions(
+    upstream_tracklists: list[TrackList],
+    result: TrackList,
+    combiner_type: str,
+) -> list[TrackDecision]:
+    """Generate decisions for combiner nodes — tracks added or removed during merge."""
+    result_ids = {t.id for t in result.tracks}
+    decisions: list[TrackDecision] = []
+
+    if combiner_type.startswith("intersect"):
+        # Intersect: tracks in result are "kept", others are "removed"
+        all_input_tracks = {
+            t.id: t for tl in upstream_tracklists for t in tl.tracks if t.id is not None
+        }
+        for track_id, track in all_input_tracks.items():
+            title, artists = _track_summary(track)
+            if track_id in result_ids:
+                decisions.append(
+                    TrackDecision(
+                        track_id=track_id,
+                        title=title,
+                        artists=artists,
+                        decision="kept",
+                        reason="Present in all sources",
+                    )
+                )
+            else:
+                decisions.append(
+                    TrackDecision(
+                        track_id=track_id,
+                        title=title,
+                        artists=artists,
+                        decision="removed",
+                        reason="Not present in all sources",
+                    )
+                )
+    else:
+        # Concatenate/interleave: all result tracks are "added"
+        for track in result.tracks:
+            title, artists = _track_summary(track)
+            decisions.append(
+                TrackDecision(
+                    track_id=track.id or 0,
+                    title=title,
+                    artists=artists,
+                    decision="added",
+                    reason=f"Combined via {combiner_type}",
+                )
+            )
+
+    return decisions
+
+
 # === SHARED NODE IMPLEMENTATION ===
 
 
@@ -240,6 +307,7 @@ def make_node(
         ctx = NodeContext(context)
         try:
             tracklist = ctx.extract_tracklist()
+            tracklist = _quarantine_and_log(tracklist, operation)
             transform = transform_factory(ctx, config)
             result = transform(tracklist)
         except Exception as e:
@@ -292,7 +360,7 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
     combiner_fn = COMBINER_REGISTRY[combiner_type].fn
     operation = f"combiner.{combiner_type}"
 
-    async def node_impl(context: dict[str, Any], _config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
+    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
         ctx = NodeContext(context)
         upstream_task_ids: list[str] = context.get("upstream_task_ids", [])
 
@@ -302,10 +370,19 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
         # Single collection point — no double-collection
         upstream_tracklists = ctx.collect_tracklists(upstream_task_ids)
 
+        # Quarantine tracks without database IDs from each upstream
+        upstream_tracklists = [
+            _quarantine_and_log(tl, operation) for tl in upstream_tracklists
+        ]
+
         # Domain combiners are dual-mode: pass tracklist=TrackList() to get
         # immediate TrackList result rather than a curried Transform function
+        deduplicate = config.get("deduplicate", False)
         result = cast(
-            TrackList, combiner_fn(upstream_tracklists, tracklist=TrackList())
+            TrackList,
+            combiner_fn(
+                upstream_tracklists, deduplicate=deduplicate, tracklist=TrackList()
+            ),
         )
 
         logger.debug(
@@ -313,7 +390,12 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
             input_count=len(upstream_tracklists),
             output_count=len(result.tracks),
         )
-        return {"tracklist": result}
+
+        # Generate combiner audit trail
+        decisions = _generate_combiner_decisions(
+            upstream_tracklists, result, combiner_type
+        )
+        return {"tracklist": result, "track_decisions": decisions}
 
     return node_impl
 
@@ -392,6 +474,7 @@ def create_enricher_node(
     async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
+        tracklist = _quarantine_and_log(tracklist, enricher_label)
 
         logger.info(
             f"Starting {enricher_label} enrichment for {len(tracklist.tracks)} tracks"

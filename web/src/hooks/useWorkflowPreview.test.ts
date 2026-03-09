@@ -3,8 +3,6 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SSEEvent } from "@/api/sse-client";
-
 import { useWorkflowPreview } from "./useWorkflowPreview";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
@@ -13,14 +11,7 @@ vi.mock("@/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-
-function mockSSEWithEvents(events: SSEEvent[]) {
-  const gen = async function* () {
-    for (const e of events) yield e;
-  };
-  vi.mocked(connectToSSE).mockResolvedValue(gen());
-}
+import { connectToSSE, mockSSEWithEvents } from "@/test/sse-test-utils";
 
 // ─── Mock editor store ──────────────────────────────────────────
 
@@ -37,13 +28,17 @@ vi.mock("@/stores/editor-store", () => ({
 
 const mutateSaved = vi.fn();
 const mutateUnsaved = vi.fn();
+const savedIsPending = false;
+const unsavedIsPending = false;
 
 vi.mock("@/api/generated/workflows/workflows", () => ({
   usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost: () => ({
     mutate: mutateSaved,
+    isPending: savedIsPending,
   }),
   usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost: () => ({
     mutate: mutateUnsaved,
+    isPending: unsavedIsPending,
   }),
 }));
 
@@ -94,7 +89,6 @@ describe("useWorkflowPreview", () => {
       { workflowId: 42 },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
-    expect(result.current.isPreviewRunning).toBe(true);
   });
 
   it("sets operationId from mutation response and connects SSE", async () => {

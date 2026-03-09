@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from attrs import define, field
 
-NodeExecutionStatus = Literal["completed", "failed", "skipped"]
+NodeExecutionStatus = Literal["completed", "failed", "skipped", "degraded"]
 RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 TrackDecisionType = Literal["kept", "removed", "added"]
 

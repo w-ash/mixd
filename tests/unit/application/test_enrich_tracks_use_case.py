@@ -198,7 +198,7 @@ class TestEnrichTracksUseCase:
     async def test_empty_tracklist_handling(
         self, use_case, external_metadata_config, mock_uow
     ):
-        """Test handling of empty tracklist."""
+        """Test handling of empty tracklist — returns cleanly, no errors."""
         # Arrange
         empty_tracklist = TrackList(tracks=[])
         command = EnrichTracksCommand(
@@ -213,16 +213,17 @@ class TestEnrichTracksUseCase:
         assert result.metrics_added == {}
         assert result.track_count == 0
         assert result.enriched_count == 0
-        assert len(result.errors) == 1
-        assert "No tracks with database IDs" in result.errors[0]
+        assert len(result.errors) == 0
 
-    async def test_tracks_without_ids_filtered(
+    async def test_tracks_without_ids_raises_invariant_error(
         self,
         use_case,
         external_metadata_config,
         mock_uow,
     ):
-        """Test that tracks without database IDs are filtered out."""
+        """Test that tracks without database IDs raise TracklistInvariantError."""
+        from src.domain.exceptions import TracklistInvariantError
+
         # Arrange
         tracks_without_ids = [
             Track(id=None, title="No ID Track", artists=[Artist(name="Artist")]),
@@ -233,29 +234,9 @@ class TestEnrichTracksUseCase:
             tracklist=tracklist, enrichment_config=external_metadata_config
         )
 
-        mock_metrics_service = AsyncMock()
-        mock_metrics_service.get_external_track_metrics.return_value = (
-            {"explicit_flag": {1: 85}},
-            {"explicit_flag": {1}},
-        )
-
-        # Act — patch the stored attribute on the class (slots=True prevents instance patch)
-        with patch.object(EnrichTracksUseCase, "metrics_service", mock_metrics_service):
-            result = await use_case.execute(command, mock_uow)
-
-        # Assert
-        # Should process only the track with ID
-        assert result.track_count == 2  # Original count
-        # MetricsApplicationService should only receive the track with ID
-        mock_metrics_service.get_external_track_metrics.assert_called_once_with(
-            track_ids=[1],  # Only the track with ID 1
-            connector="spotify",
-            metric_names=["explicit_flag"],
-            uow=mock_uow,
-            connector_instance=external_metadata_config.connector_instance,
-            progress_manager=None,
-            parent_operation_id=None,
-        )
+        # Act & Assert — fail-fast on missing IDs
+        with pytest.raises(TracklistInvariantError, match="1 tracks lack database IDs"):
+            await use_case.execute(command, mock_uow)
 
     async def test_enrichment_error_handling(
         self,

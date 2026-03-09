@@ -171,6 +171,84 @@ def validate_connector_availability(
     return missing
 
 
+# Mapping from enricher node types to the metric names they provide.
+# Used by _validate_enrichment_dependencies() to check that filter/sort
+# nodes referencing external metrics have a corresponding upstream enricher.
+# Keep in sync with node_catalog.py enricher registrations (attributes → metrics).
+_ENRICHER_METRICS: dict[str, set[str]] = {
+    "enricher.lastfm": {"lastfm_user_playcount", "lastfm_global_playcount"},
+    "enricher.spotify": {"explicit_flag"},
+    "enricher.play_history": {
+        "total_plays",
+        "period_plays",
+        "last_played_dates",
+        "first_played_dates",
+    },
+}
+
+# Node types that reference metrics via config["metric_name"]
+_METRIC_CONSUMER_TYPES = {"filter.by_metric", "sorter.by_metric"}
+
+
+def _validate_enrichment_dependencies(
+    workflow_def: WorkflowDef,
+) -> list[dict[str, str]]:
+    """Walk the DAG and warn if filter/sorter nodes reference metrics without upstream enrichers.
+
+    Returns structured warnings (not errors) — the workflow can still run,
+    but the sort/filter will produce meaningless results.
+    """
+    warnings: list[dict[str, str]] = []
+    task_by_id = {task.id: task for task in workflow_def.tasks}
+
+    def _collect_upstream_enricher_types(
+        task_id: str, visited: set[str] | None = None
+    ) -> set[str]:
+        """Recursively collect all enricher node types upstream of a task."""
+        if visited is None:
+            visited = set()
+        if task_id in visited:
+            return set()
+        visited.add(task_id)
+        task = task_by_id.get(task_id)
+        if not task:
+            return set()
+        enricher_types: set[str] = set()
+        if task.type.startswith("enricher."):
+            enricher_types.add(task.type)
+        for upstream_id in task.upstream:
+            enricher_types |= _collect_upstream_enricher_types(upstream_id, visited)
+        return enricher_types
+
+    for task_def in workflow_def.tasks:
+        if task_def.type not in _METRIC_CONSUMER_TYPES:
+            continue
+
+        metric_name = task_def.config.get("metric_name")
+        if not metric_name:
+            continue
+
+        # Collect metrics available from upstream enrichers
+        upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
+        available_metrics: set[str] = set()
+        for enricher_type in upstream_enrichers:
+            available_metrics |= _ENRICHER_METRICS.get(enricher_type, set())
+
+        if metric_name not in available_metrics:
+            warnings.append({
+                "task_id": task_def.id,
+                "field": "config.metric_name",
+                "severity": "warning",
+                "message": (
+                    f"'{metric_name}' has no upstream enricher — "
+                    f"sort/filter will have no data. "
+                    f"Available metrics from upstream: {sorted(available_metrics) or 'none'}"
+                ),
+            })
+
+    return warnings
+
+
 def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, str]]:
     """Validate workflow definition returning structured error details.
 
@@ -226,7 +304,15 @@ def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, 
     except ValueError as e:
         errors.append({"task_id": "", "field": "tasks", "message": str(e)})
 
+    # Enrichment dependency warnings (non-blocking but surfaced to the user)
+    errors.extend(_validate_enrichment_dependencies(workflow_def))
+
     return errors
+
+
+def is_validation_error(item: dict[str, str]) -> bool:
+    """True if a validation result item is an error (not a warning)."""
+    return item.get("severity") != "warning"
 
 
 def get_node_config_schema() -> dict[str, dict[str, type | tuple[type, ...]]]:

@@ -11,13 +11,17 @@ All combination functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
+from typing import cast
+
 from src.domain.entities.track import Track, TrackList
 
 from .core import Transform
+from .filtering import filter_duplicates
 
 
 def concatenate(
     tracklists: list[TrackList],
+    deduplicate: bool = False,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
     """
@@ -44,12 +48,15 @@ def concatenate(
             combined_track_sources.update(track_sources)
 
         result = TrackList(tracks=all_tracks)
-        return (
+        result = (
             result
             .with_metadata("operation", "concatenate")
             .with_metadata("source_count", len(tracklists))
             .with_metadata("track_sources", combined_track_sources)
         )
+        if deduplicate:
+            result = cast(TrackList, filter_duplicates(tracklist=result))
+        return result
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform
 
@@ -57,6 +64,7 @@ def concatenate(
 def interleave(
     tracklists: list[TrackList],
     stop_on_empty: bool = False,
+    deduplicate: bool = False,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
     """
@@ -90,15 +98,19 @@ def interleave(
                         break
 
         result = TrackList(tracks=interleaved_tracks)
-        return result.with_metadata("operation", "alternate").with_metadata(
+        result = result.with_metadata("operation", "alternate").with_metadata(
             "source_count", len(tracklists)
         )
+        if deduplicate:
+            result = cast(TrackList, filter_duplicates(tracklist=result))
+        return result
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform
 
 
 def intersect(
     tracklists: list[TrackList],
+    deduplicate: bool = False,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
     """
@@ -127,8 +139,11 @@ def intersect(
         result_tracks = [t for t in tracklists[0].tracks if t.id in common_ids]
 
         result = TrackList(tracks=result_tracks)
-        return result.with_metadata("operation", "intersect").with_metadata(
+        result = result.with_metadata("operation", "intersect").with_metadata(
             "source_count", len(tracklists)
         )
+        if deduplicate:
+            result = cast(TrackList, filter_duplicates(tracklist=result))
+        return result
 
     return transform(tracklist or TrackList()) if tracklist is not None else transform

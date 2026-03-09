@@ -816,9 +816,7 @@ class WorkflowVersionRepositoryProtocol(Protocol):
         """List all versions for a workflow, ordered by version desc."""
         ...
 
-    def get_version(
-        self, workflow_id: int, version: int
-    ) -> Awaitable[WorkflowVersion]:
+    def get_version(self, workflow_id: int, version: int) -> Awaitable[WorkflowVersion]:
         """Get a specific version. Raises NotFoundError if not found."""
         ...
 

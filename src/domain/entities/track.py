@@ -100,7 +100,11 @@ class Track:
         return self.connector_metadata.get(connector, {}).get(attribute, default)
 
     def has_same_identity_as(self, other: Track) -> bool:
-        """Compare tracks by external identifiers for identity resolution.
+        """Pre-persistence identity resolution — used by matching/resolution system.
+
+        NOT used for pipeline deduplication. In-pipeline identity is always
+        canonical track.id (database primary key). Use ``filter_duplicates()``
+        for pipeline dedup, which relies on ``track.id``.
 
         Business rule: tracks with identical external identifiers (ISRC,
         Spotify ID, etc.) represent the same song and can be merged.

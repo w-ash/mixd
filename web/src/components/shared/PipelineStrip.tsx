@@ -15,6 +15,7 @@ import { getNodeCategory } from "@/lib/workflow-config";
 interface PipelineStripProps {
   tasks: WorkflowTaskDefSchema[];
   nodeStatuses?: Map<string, NodeStatus>;
+  isExecuting?: boolean;
   className?: string;
 }
 
@@ -48,6 +49,7 @@ function StatusOverlay({ status }: { status?: NodeStatus["status"] }) {
 export function PipelineStrip({
   tasks,
   nodeStatuses,
+  isExecuting = false,
   className,
 }: PipelineStripProps) {
   if (tasks.length === 0) return null;
@@ -59,7 +61,8 @@ export function PipelineStrip({
   const completedCount = nodeStatuses
     ? [...nodeStatuses.values()].filter((s) => s.status === "completed").length
     : 0;
-  const isExecuting = nodeStatuses ? nodeStatuses.size > 0 : false;
+  const hasStatuses = nodeStatuses ? nodeStatuses.size > 0 : false;
+  const showProgress = isExecuting || hasStatuses;
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -128,7 +131,7 @@ export function PipelineStrip({
       </div>
 
       {/* Progress bar during execution */}
-      {isExecuting && (
+      {showProgress && (
         <div className="space-y-1.5">
           <div className="h-1 overflow-hidden rounded-full bg-surface-sunken">
             <div
@@ -138,13 +141,17 @@ export function PipelineStrip({
               }}
             />
           </div>
-          {currentStep && (
+          {currentStep ? (
             <p className="font-display text-xs text-text-muted">
               Step {currentStep.executionOrder}/{currentStep.totalNodes}
               {" \u2014 "}
               {getNodeCategory(currentStep.nodeType).label}
             </p>
-          )}
+          ) : !hasStatuses ? (
+            <p className="font-display text-xs text-text-muted animate-text-breathe">
+              Initializing…
+            </p>
+          ) : null}
         </div>
       )}
     </div>

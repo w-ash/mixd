@@ -26,6 +26,7 @@ from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.transforms.core import require_database_tracks
 
 logger = get_logger(__name__)
 
@@ -164,39 +165,27 @@ class EnrichTracksUseCase:
                     + f"for {len(command.tracklist.tracks)} tracks"
                 )
 
-                # Validate tracks have database IDs (required for enrichment)
-                valid_tracks = [t for t in command.tracklist.tracks if t.id is not None]
-                if not valid_tracks:
-                    logger.warning("No tracks with database IDs - unable to enrich")
+                # Fail fast if any tracks lack database IDs — upstream bug
+                require_database_tracks(command.tracklist)
+
+                if not command.tracklist.tracks:
+                    logger.info("Empty tracklist — nothing to enrich")
                     return EnrichTracksResult(
                         enriched_tracklist=command.tracklist,
                         metrics_added={},
-                        track_count=len(command.tracklist.tracks),
+                        track_count=0,
                         enriched_count=0,
                         execution_time_ms=timer.stop(),
-                        errors=["No tracks with database IDs available for enrichment"],
-                    )
-
-                # Filter out tracks without IDs and log the discrepancy
-                filtered_count = len(command.tracklist.tracks) - len(valid_tracks)
-                if filtered_count > 0:
-                    logger.info(
-                        f"Filtered out {filtered_count} tracks without database IDs"
                     )
 
                 def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
                     raise ValueError(f"Unknown enrichment type: {enrichment_type}")
 
-                # Create filtered tracklist for processing
-                filtered_tracklist = TrackList(
-                    tracks=valid_tracks, metadata=command.tracklist.metadata
-                )
-
                 try:
                     # Delegate to appropriate enrichment strategy
                     if command.enrichment_config.enrichment_type == "external_metadata":
                         result = await self._enrich_external_metadata(
-                            filtered_tracklist,
+                            command.tracklist,
                             command.enrichment_config,
                             uow,
                             progress_manager=command.progress_manager,
@@ -204,7 +193,7 @@ class EnrichTracksUseCase:
                         )
                     elif command.enrichment_config.enrichment_type == "play_history":
                         result = await self._enrich_play_history(
-                            filtered_tracklist, command.enrichment_config, uow
+                            command.tracklist, command.enrichment_config, uow
                         )
                     else:
                         _raise_unknown_enrichment_type_error(
@@ -309,10 +298,14 @@ class EnrichTracksUseCase:
             parent_operation_id=parent_operation_id,
         )
 
-        # Attach metrics and fresh_ids to tracklist metadata
-        enriched_tracklist = tracklist.with_metadata("metrics", metrics).with_metadata(
-            "fresh_metric_ids", {k: list(v) for k, v in fresh_ids.items()}
-        )
+        # Merge metrics with any existing ones (don't overwrite previous enrichers)
+        current_metrics = tracklist.metadata.get("metrics", {})
+        merged_metrics = {**current_metrics, **metrics}
+        current_fresh = tracklist.metadata.get("fresh_metric_ids", {})
+        merged_fresh = {**current_fresh, **{k: list(v) for k, v in fresh_ids.items()}}
+        enriched_tracklist = tracklist.with_metadata(
+            "metrics", merged_metrics
+        ).with_metadata("fresh_metric_ids", merged_fresh)
 
         logger.info(
             f"Successfully enriched tracklist with {len(metrics)} metric types and "

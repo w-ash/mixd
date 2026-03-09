@@ -89,8 +89,11 @@ async def _push_sse_node_event(
     try:
         await queue.put(
             _build_sse_node_event(
-                counter, event, status,
-                run_id=run_id, error_message=error_message,
+                counter,
+                event,
+                status,
+                run_id=run_id,
+                error_message=error_message,
             )
         )
     except Exception:
@@ -192,7 +195,10 @@ class PreviewNodeObserver:
 
     async def on_node_starting(self, event: NodeExecutionEvent) -> None:
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_RUNNING,
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_RUNNING,
         )
 
     async def on_node_completed(
@@ -200,19 +206,27 @@ class PreviewNodeObserver:
     ) -> None:
         tracklist = result.get("tracklist")
         tracks = tracklist.tracks if tracklist else []
-        self._summaries.append(NodePreviewSummary(
-            node_id=event.task_def.id,
-            node_type=event.task_def.type,
-            track_count=len(tracks),
-            sample_titles=[t.title or "Unknown" for t in tracks[:5]],
-        ))
+        self._summaries.append(
+            NodePreviewSummary(
+                node_id=event.task_def.id,
+                node_type=event.task_def.type,
+                track_count=len(tracks),
+                sample_titles=[t.title or "Unknown" for t in tracks[:5]],
+            )
+        )
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_COMPLETED,
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_COMPLETED,
         )
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_FAILED,
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_FAILED,
             error_message=str(error),
         )
 
@@ -257,7 +271,10 @@ class RunHistoryObserver:
             started_at=now,
         )
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_RUNNING,
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_RUNNING,
             run_id=self._run_id,
         )
 
@@ -284,7 +301,10 @@ class RunHistoryObserver:
             node_details=node_details,
         )
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_COMPLETED,
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_COMPLETED,
             run_id=self._run_id,
         )
 
@@ -298,8 +318,12 @@ class RunHistoryObserver:
             error_message=str(error),
         )
         self._event_counter = await _push_sse_node_event(
-            self._sse_queue, self._event_counter, event, WorkflowConstants.RUN_STATUS_FAILED,
-            run_id=self._run_id, error_message=str(error),
+            self._sse_queue,
+            self._event_counter,
+            event,
+            WorkflowConstants.RUN_STATUS_FAILED,
+            run_id=self._run_id,
+            error_message=str(error),
         )
 
     # -- internal helpers --

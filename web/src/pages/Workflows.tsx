@@ -7,7 +7,7 @@ import {
   Play,
   Plus,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo } from "react";
 import { Link } from "react-router";
 
 import type { WorkflowSummarySchema } from "@/api/generated/model";
@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useWorkflowExecutionContext } from "@/contexts/WorkflowExecutionContext";
 import { usePagination } from "@/hooks/usePagination";
 import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
 import { formatDate } from "@/lib/format";
@@ -52,18 +53,11 @@ function WorkflowTableSkeleton() {
 function WorkflowRunButton({
   workflowId,
   disabled,
-  onExecutionStart,
 }: {
   workflowId: number;
   disabled: boolean;
-  onExecutionStart: (workflowId: number) => void;
 }) {
   const { isExecuting, execute } = useWorkflowExecution(workflowId);
-
-  const handleClick = useCallback(() => {
-    onExecutionStart(workflowId);
-    execute();
-  }, [execute, workflowId, onExecutionStart]);
 
   return (
     <Button
@@ -71,7 +65,7 @@ function WorkflowRunButton({
       variant="ghost"
       className="size-7"
       disabled={disabled || isExecuting}
-      onClick={handleClick}
+      onClick={execute}
       title="Run workflow"
     >
       <Play
@@ -82,14 +76,12 @@ function WorkflowRunButton({
   );
 }
 
-function WorkflowRow({
+const WorkflowRow = memo(function WorkflowRow({
   wf,
   runningWorkflowId,
-  onExecutionStart,
 }: {
   wf: WorkflowSummarySchema;
   runningWorkflowId: number | null;
-  onExecutionStart: (workflowId: number) => void;
 }) {
   const lastRun = wf.last_run;
   const runConf = lastRun ? getStatusConfig(lastRun.status) : null;
@@ -166,19 +158,17 @@ function WorkflowRow({
           <WorkflowRunButton
             workflowId={wf.id}
             disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
-            onExecutionStart={onExecutionStart}
           />
         </div>
       </TableCell>
     </TableRow>
   );
-}
+});
 
 export function Workflows() {
   const { page, limit, offset, setPage } = usePagination(0);
-  const [runningWorkflowId, setRunningWorkflowId] = useState<number | null>(
-    null,
-  );
+  const ctx = useWorkflowExecutionContext();
+  const runningWorkflowId = ctx.isExecuting ? ctx.workflowId : null;
 
   const { data, isLoading, isError, error } = useListWorkflowsApiV1WorkflowsGet(
     { limit, offset },
@@ -188,15 +178,6 @@ export function Workflows() {
   const workflows = response?.data ?? [];
   const total = response?.total ?? 0;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
-
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const handleExecutionStart = useCallback((workflowId: number) => {
-    clearTimeout(timerRef.current);
-    setRunningWorkflowId(workflowId);
-    // Clear after a generous timeout — SSE cleanup handles the real state
-    timerRef.current = setTimeout(() => setRunningWorkflowId(null), 120_000);
-  }, []);
-  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   return (
     <div>
@@ -254,7 +235,6 @@ export function Workflows() {
                   key={wf.id}
                   wf={wf}
                   runningWorkflowId={runningWorkflowId}
-                  onExecutionStart={handleExecutionStart}
                 />
               ))}
             </TableBody>

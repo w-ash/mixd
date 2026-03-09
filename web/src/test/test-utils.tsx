@@ -1,14 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type RenderOptions, render } from "@testing-library/react";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router";
+
+import { WorkflowExecutionProvider } from "@/contexts/WorkflowExecutionContext";
 
 interface ProvidersProps {
   children: ReactNode;
   routerProps?: MemoryRouterProps;
 }
 
-function createTestQueryClient() {
+export function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
@@ -23,10 +25,12 @@ function createTestQueryClient() {
 }
 
 function Providers({ children, routerProps }: ProvidersProps) {
-  const queryClient = createTestQueryClient();
+  const [queryClient] = useState(createTestQueryClient);
   return (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+      <WorkflowExecutionProvider>
+        <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+      </WorkflowExecutionProvider>
     </QueryClientProvider>
   );
 }

@@ -1,23 +1,18 @@
 /**
  * Hook for executing a workflow and tracking per-node status via SSE.
  *
- * Manages the full lifecycle: trigger mutation → connect SSE → process
- * node_status events → update nodeStatuses map → invalidate queries on completion.
+ * Thin facade over WorkflowExecutionContext — the context owns the SSE
+ * connection and node statuses so they survive navigation between pages.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import {
-  getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
-  getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey,
-  getListWorkflowsApiV1WorkflowsGetQueryKey,
-  useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost,
-} from "@/api/generated/workflows/workflows";
-
-import { useNodeStatuses } from "@/hooks/useNodeStatuses";
-import { useSSEConnection } from "@/hooks/useSSEConnection";
+import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "@/api/generated/workflows/workflows";
+import { useWorkflowExecutionContext } from "@/contexts/WorkflowExecutionContext";
 import type { NodeStatus } from "@/lib/sse-types";
+
+/** Referentially-stable empty map for non-matching workflows. */
+const EMPTY_MAP: Map<string, NodeStatus> = new Map();
 
 export interface UseWorkflowExecutionReturn {
   isExecuting: boolean;
@@ -31,59 +26,14 @@ export interface UseWorkflowExecutionReturn {
 export function useWorkflowExecution(
   workflowId: number,
 ): UseWorkflowExecutionReturn {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<number | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [domainError, setDomainError] = useState<Error | null>(null);
-
-  const queryClient = useQueryClient();
+  const ctx = useWorkflowExecutionContext();
   const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost();
-  const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
-    useNodeStatuses();
+  const [mutationError, setMutationError] = useState<Error | null>(null);
 
-  const invalidateWorkflowQueries = useCallback(() => {
-    queryClient.invalidateQueries({
-      queryKey:
-        getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey(workflowId),
-    });
-    queryClient.invalidateQueries({
-      queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
-    });
-    queryClient.invalidateQueries({
-      queryKey: getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(workflowId),
-    });
-  }, [queryClient, workflowId]);
-
-  const { error: sseError, disconnect } = useSSEConnection(operationId, {
-    onEvent(eventType, data) {
-      switch (eventType) {
-        case "node_status":
-          handleNodeStatusEvent(data);
-          break;
-
-        case "complete":
-          setIsExecuting(false);
-          invalidateWorkflowQueries();
-          disconnect();
-          break;
-
-        case "error": {
-          const d = data as Record<string, unknown>;
-          setIsExecuting(false);
-          setDomainError(
-            new Error((d.error_message as string) ?? "Workflow failed"),
-          );
-          invalidateWorkflowQueries();
-          disconnect();
-          break;
-        }
-      }
-    },
-  });
+  const isThisWorkflow = ctx.workflowId === workflowId;
 
   const execute = useCallback(() => {
-    setDomainError(null);
-    resetNodeStatuses();
+    setMutationError(null);
 
     mutation.mutate(
       { workflowId },
@@ -94,32 +44,40 @@ export function useWorkflowExecution(
               operation_id: string;
               run_id: number;
             };
-            setOperationId(data.operation_id);
-            setRunId(data.run_id);
-            setIsExecuting(true);
+            ctx.startExecution(workflowId, data.operation_id, data.run_id);
           } else {
             toast.error("Failed to start workflow");
           }
         },
         onError: (err) => {
-          setDomainError(
-            err instanceof Error ? err : new Error("Failed to start workflow"),
-          );
+          const error =
+            err instanceof Error ? err : new Error("Failed to start workflow");
+          setMutationError(error);
           toast.error("Failed to start workflow", {
-            description:
-              err instanceof Error ? err.message : "An error occurred",
+            description: error.message,
           });
         },
       },
     );
-  }, [mutation, workflowId, resetNodeStatuses]);
+  }, [mutation.mutate, workflowId, ctx.startExecution]);
+
+  if (!isThisWorkflow) {
+    return {
+      isExecuting: false,
+      operationId: null,
+      runId: null,
+      nodeStatuses: EMPTY_MAP,
+      error: mutationError,
+      execute,
+    };
+  }
 
   return {
-    isExecuting,
-    operationId,
-    runId,
-    nodeStatuses,
-    error: domainError ?? sseError,
+    isExecuting: ctx.isExecuting,
+    operationId: ctx.operationId,
+    runId: ctx.runId,
+    nodeStatuses: ctx.nodeStatuses,
+    error: mutationError ?? ctx.error,
     execute,
   };
 }

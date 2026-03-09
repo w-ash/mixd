@@ -75,6 +75,7 @@
   --animate-shimmer: shimmer 1.5s ease-in-out infinite;
   --animate-fade-up: fade-up 300ms ease-out both;
   --animate-fade-in-row: fade-in-row 300ms ease-out both;
+  --animate-text-breathe: text-breathe 2s ease-in-out infinite;
 }
 
 /* ── shadcn/ui token bridge ──────────────────────────── */
@@ -270,5 +271,15 @@ body::after {
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes text-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
   }
 }
