@@ -88,7 +88,7 @@ def weighted_shuffle(
             indexed,
             key=lambda pair: (
                 (1 - shuffle_strength) * (pair[0] / track_count)
-                + shuffle_strength * random.random()  # noqa: S311
+                + shuffle_strength * random.random()  # noqa: S311  # nosec B311
             ),
         )
 

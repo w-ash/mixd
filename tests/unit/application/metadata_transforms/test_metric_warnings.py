@@ -38,7 +38,9 @@ class TestSortByExternalMetricsWarning:
         tracklist = TrackList(tracks=[make_track(id=1), make_track(id=2)])
 
         warnings = _capture_loguru_warnings(
-            lambda: sort_by_external_metrics("lastfm_user_playcount", tracklist=tracklist)
+            lambda: sort_by_external_metrics(
+                "lastfm_user_playcount", tracklist=tracklist
+            )
         )
 
         assert any(
@@ -54,7 +56,9 @@ class TestSortByExternalMetricsWarning:
         )
 
         warnings = _capture_loguru_warnings(
-            lambda: sort_by_external_metrics("lastfm_user_playcount", tracklist=tracklist)
+            lambda: sort_by_external_metrics(
+                "lastfm_user_playcount", tracklist=tracklist
+            )
         )
 
         assert not any("no metric data" in msg for msg in warnings)
@@ -62,7 +66,9 @@ class TestSortByExternalMetricsWarning:
     def test_no_warning_on_empty_tracklist(self):
         """No warning when tracklist is empty — nothing to sort."""
         warnings = _capture_loguru_warnings(
-            lambda: sort_by_external_metrics("lastfm_user_playcount", tracklist=TrackList())
+            lambda: sort_by_external_metrics(
+                "lastfm_user_playcount", tracklist=TrackList()
+            )
         )
         assert not any("no metric data" in msg for msg in warnings)
 
@@ -73,7 +79,9 @@ class TestFilterByMetricRangeWarning:
         tracklist = TrackList(tracks=[make_track(id=1)])
 
         warnings = _capture_loguru_warnings(
-            lambda: filter_by_metric_range("lastfm_user_playcount", min_value=5, tracklist=tracklist)
+            lambda: filter_by_metric_range(
+                "lastfm_user_playcount", min_value=5, tracklist=tracklist
+            )
         )
 
         assert any(
@@ -89,7 +97,9 @@ class TestFilterByMetricRangeWarning:
         )
 
         warnings = _capture_loguru_warnings(
-            lambda: filter_by_metric_range("lastfm_user_playcount", min_value=5, tracklist=tracklist)
+            lambda: filter_by_metric_range(
+                "lastfm_user_playcount", min_value=5, tracklist=tracklist
+            )
         )
 
         assert not any("no metric data" in msg for msg in warnings)

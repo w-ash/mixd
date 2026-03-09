@@ -105,7 +105,9 @@ def _request_shutdown() -> None:
     """Signal handler callback — sets the shutdown flag for the orchestration loop."""
     global _shutdown_requested
     _shutdown_requested = True
-    logger.warning("Graceful shutdown requested — will stop after current node completes")
+    logger.warning(
+        "Graceful shutdown requested — will stop after current node completes"
+    )
 
 
 # --- Node timeout ---
@@ -414,7 +416,9 @@ def build_flow(
                             output_track_count=output_track_count,
                         )
                         await node_observer.on_node_completed(completed_event, result)
-                        node_records.append(completed_event.to_record(status="completed"))
+                        node_records.append(
+                            completed_event.to_record(status="completed")
+                        )
 
                     # Store result in context and task_results
                     context[task_id] = result
@@ -639,7 +643,7 @@ async def run_workflow(
             try:
                 loop.add_signal_handler(signal.SIGTERM, _request_shutdown)
                 sigterm_registered = True
-            except (NotImplementedError, OSError):
+            except NotImplementedError, OSError:
                 # Windows or non-main thread — signal handlers unavailable
                 pass
 

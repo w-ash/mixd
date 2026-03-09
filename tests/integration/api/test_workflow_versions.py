@@ -96,9 +96,7 @@ class TestListWorkflowVersions:
         assert isinstance(body, list)
         assert len(body) == 0
 
-    async def test_versions_after_task_update(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_versions_after_task_update(self, client: httpx.AsyncClient) -> None:
         """Updating the task pipeline creates a version record."""
         wf_id = await _create_workflow(client)
 
@@ -180,9 +178,7 @@ class TestGetWorkflowVersion:
         # Version 1 is a snapshot of the original definition (1 task)
         assert len(body["definition"]["tasks"]) == 1
 
-    async def test_version_has_change_summary(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_version_has_change_summary(self, client: httpx.AsyncClient) -> None:
         """Version records include a change summary describing what changed."""
         wf_id = await _create_workflow(client)
         await _update_workflow_tasks(client, wf_id, _two_task_definition())
@@ -213,9 +209,7 @@ class TestGetWorkflowVersion:
 class TestRevertWorkflowVersion:
     """POST /workflows/{id}/versions/{version}/revert — restore previous definition."""
 
-    async def test_revert_restores_definition(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_revert_restores_definition(self, client: httpx.AsyncClient) -> None:
         """Reverting to version 1 restores the original definition."""
         wf_id = await _create_workflow(client)
 
@@ -227,9 +221,7 @@ class TestRevertWorkflowVersion:
         assert len(detail.json()["definition"]["tasks"]) == 2
 
         # Revert to version 1 (the original 1-task definition)
-        response = await client.post(
-            f"/api/v1/workflows/{wf_id}/versions/1/revert"
-        )
+        response = await client.post(f"/api/v1/workflows/{wf_id}/versions/1/revert")
 
         assert response.status_code == 200
         body = response.json()
@@ -249,9 +241,7 @@ class TestRevertWorkflowVersion:
         version_before_revert = detail.json()["definition_version"]
 
         # Revert to version 1
-        resp = await client.post(
-            f"/api/v1/workflows/{wf_id}/versions/1/revert"
-        )
+        resp = await client.post(f"/api/v1/workflows/{wf_id}/versions/1/revert")
 
         assert resp.status_code == 200
         # Revert should bump definition_version by 1
@@ -284,17 +274,13 @@ class TestRevertWorkflowVersion:
     ) -> None:
         wf_id = await _create_workflow(client)
 
-        response = await client.post(
-            f"/api/v1/workflows/{wf_id}/versions/999/revert"
-        )
+        response = await client.post(f"/api/v1/workflows/{wf_id}/versions/999/revert")
 
         assert response.status_code == 404
 
     async def test_revert_nonexistent_workflow_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.post(
-            "/api/v1/workflows/99999/versions/1/revert"
-        )
+        response = await client.post("/api/v1/workflows/99999/versions/1/revert")
 
         assert response.status_code == 404

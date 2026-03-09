@@ -433,8 +433,8 @@ class RichProgressProvider:
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
     ) -> None:
         """Async context manager exit - stops Progress display."""
         await self.stop_display()

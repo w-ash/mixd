@@ -25,9 +25,7 @@ from tests.fixtures import (
 )
 
 
-def _make_version(
-    workflow_id: int = 1, version: int = 1, **kwargs
-) -> WorkflowVersion:
+def _make_version(workflow_id: int = 1, version: int = 1, **kwargs) -> WorkflowVersion:
     return WorkflowVersion(
         id=version,
         workflow_id=workflow_id,

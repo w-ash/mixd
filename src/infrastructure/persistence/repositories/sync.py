@@ -65,8 +65,3 @@ class SyncCheckpointRepository(BaseRepository[DBSyncCheckpoint, SyncCheckpoint])
                 "cursor": checkpoint.cursor,
             },
         )
-
-    @db_operation("hard_delete_sync_checkpoint")
-    async def hard_delete(self, id_: int) -> int:
-        """Hard delete a sync checkpoint (alias for delete since soft delete is removed)."""
-        return await self.delete(id_)

@@ -19,7 +19,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from src.domain.entities.track import Track, TrackList
+from src.domain.entities.track import TrackList
 from src.domain.exceptions import TracklistInvariantError
 
 # Type variables for generic transformations
@@ -41,33 +41,6 @@ def require_database_tracks(tracklist: TrackList) -> None:
     raise TracklistInvariantError(
         f"{len(id_none_tracks)} tracks lack database IDs: {titles}"
     )
-
-
-def quarantine_invalid_tracks(tracklist: TrackList) -> tuple[TrackList, list[Track]]:
-    """Separate tracks with database IDs from those without.
-
-    Instead of crashing the pipeline on invariant violations, quarantines
-    invalid tracks while allowing valid ones to proceed. Raises only if
-    ALL tracks are invalid (total upstream failure).
-
-    Returns:
-        Tuple of (valid_tracklist, quarantined_tracks).
-
-    Raises:
-        TracklistInvariantError: If zero tracks have database IDs.
-    """
-    valid = [t for t in tracklist.tracks if t.id is not None]
-    quarantined = [t for t in tracklist.tracks if t.id is None]
-
-    if quarantined and not valid:
-        titles = [t.title for t in quarantined[:5]]
-        raise TracklistInvariantError(
-            f"All {len(quarantined)} tracks lack database IDs: {titles}"
-        )
-
-    if quarantined:
-        return tracklist.with_tracks(valid), quarantined
-    return tracklist, []
 
 
 # === Transform Decorators ===

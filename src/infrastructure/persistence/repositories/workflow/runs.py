@@ -1,6 +1,6 @@
 """Workflow run repository for execution history persistence."""
 
-# pyright: reportAny=false, reportAttributeAccessIssue=false
+# pyright: reportAny=false, reportAttributeAccessIssue=false, reportUnknownMemberType=false
 # Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 
 from datetime import UTC, datetime

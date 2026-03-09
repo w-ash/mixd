@@ -215,29 +215,6 @@ class TestEnrichTracksUseCase:
         assert result.enriched_count == 0
         assert len(result.errors) == 0
 
-    async def test_tracks_without_ids_raises_invariant_error(
-        self,
-        use_case,
-        external_metadata_config,
-        mock_uow,
-    ):
-        """Test that tracks without database IDs raise TracklistInvariantError."""
-        from src.domain.exceptions import TracklistInvariantError
-
-        # Arrange
-        tracks_without_ids = [
-            Track(id=None, title="No ID Track", artists=[Artist(name="Artist")]),
-            Track(id=1, title="Has ID Track", artists=[Artist(name="Artist")]),
-        ]
-        tracklist = TrackList(tracks=tracks_without_ids)
-        command = EnrichTracksCommand(
-            tracklist=tracklist, enrichment_config=external_metadata_config
-        )
-
-        # Act & Assert — fail-fast on missing IDs
-        with pytest.raises(TracklistInvariantError, match="1 tracks lack database IDs"):
-            await use_case.execute(command, mock_uow)
-
     async def test_enrichment_error_handling(
         self,
         use_case,

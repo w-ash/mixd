@@ -13,12 +13,11 @@ while reducing repetitive error-handling code.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: decorator signatures wrapping heterogeneous repository methods
 
-import asyncio
 from collections.abc import Callable, Coroutine
 import functools
 import inspect
 import time
-from typing import Any, TypeGuard
+from typing import Any
 
 from sqlalchemy.exc import (
     DatabaseError,
@@ -35,11 +34,6 @@ from src.domain.exceptions import NotFoundError
 
 # Initialize logger
 logger = get_logger(__name__)
-
-
-def is_awaitable(value: Any) -> TypeGuard[Coroutine[Any, Any, Any]]:
-    """Type guard for better asyncio.iscoroutine handling."""
-    return asyncio.iscoroutine(value)
 
 
 def db_operation(operation_name: str | None = None):

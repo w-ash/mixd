@@ -69,7 +69,7 @@ def sample_random(count: int) -> Transform:
 
     def transform(t: TrackList) -> TrackList:
         n = min(count, len(t.tracks))
-        selected = random.sample(t.tracks, n)
+        selected = random.sample(t.tracks, n)  # nosec B311
         return t.with_tracks(selected)
 
     return transform

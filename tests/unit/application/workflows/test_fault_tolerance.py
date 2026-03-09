@@ -92,18 +92,17 @@ class TestDegradedNodeHandling:
         workflow continues using the upstream tracklist."""
         from unittest.mock import patch
 
-        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
-
         from src.application.workflows.prefect import build_flow
+        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
         workflow_def = WorkflowDef(
             id="test-degraded",
             name="Test Degraded",
             tasks=[
-                WorkflowTaskDef(id="src", type="source.playlist", config={"playlist_id": "p1"}),
                 WorkflowTaskDef(
-                    id="enrich", type="enricher.lastfm", upstream=["src"]
+                    id="src", type="source.playlist", config={"playlist_id": "p1"}
                 ),
+                WorkflowTaskDef(id="enrich", type="enricher.lastfm", upstream=["src"]),
                 WorkflowTaskDef(
                     id="dest",
                     type="destination.update_playlist",
@@ -158,15 +157,16 @@ class TestDegradedNodeHandling:
         """Source node failures kill the workflow (not recoverable)."""
         from unittest.mock import patch
 
-        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
-
         from src.application.workflows.prefect import build_flow
+        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
         workflow_def = WorkflowDef(
             id="test-fatal",
             name="Test Fatal",
             tasks=[
-                WorkflowTaskDef(id="src", type="source.playlist", config={"playlist_id": "p1"}),
+                WorkflowTaskDef(
+                    id="src", type="source.playlist", config={"playlist_id": "p1"}
+                ),
                 WorkflowTaskDef(
                     id="dest",
                     type="destination.update_playlist",
@@ -208,19 +208,18 @@ class TestGracefulShutdown:
         from contextlib import asynccontextmanager
         from unittest.mock import AsyncMock, patch
 
-        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
-
         import src.application.workflows.prefect as prefect_module
         from src.application.workflows.prefect import build_flow
+        from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
         workflow_def = WorkflowDef(
             id="test-shutdown",
             name="Test Shutdown",
             tasks=[
-                WorkflowTaskDef(id="src", type="source.playlist", config={"playlist_id": "p1"}),
                 WorkflowTaskDef(
-                    id="enrich", type="enricher.lastfm", upstream=["src"]
+                    id="src", type="source.playlist", config={"playlist_id": "p1"}
                 ),
+                WorkflowTaskDef(id="enrich", type="enricher.lastfm", upstream=["src"]),
                 WorkflowTaskDef(
                     id="dest",
                     type="destination.update_playlist",

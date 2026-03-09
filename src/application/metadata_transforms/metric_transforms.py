@@ -26,7 +26,9 @@ from ._helpers import parse_datetime_safe
 logger = get_logger(__name__)
 
 
-def _warn_missing_metrics(operation: str, metric_name: str, tracklist: TrackList) -> None:
+def _warn_missing_metrics(
+    operation: str, metric_name: str, tracklist: TrackList
+) -> None:
     """Log a warning when a metric operation has no metric data."""
     if tracklist.tracks:
         logger.warning(

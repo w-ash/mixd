@@ -301,7 +301,7 @@ class TestPrefectToLoguruHandler:
 
         # Create a LogRecord with exc_info
         try:
-            raise RuntimeError("test traceback")
+            raise RuntimeError("test traceback")  # noqa: TRY301
         except RuntimeError:
             import sys
 

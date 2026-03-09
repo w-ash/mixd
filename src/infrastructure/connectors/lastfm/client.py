@@ -61,7 +61,9 @@ def _sign_params(params: dict[str, str], api_secret: str) -> str:
         Hex-encoded MD5 signature string
     """
     sorted_pairs = "".join(k + v for k, v in sorted(params.items()))
-    return hashlib.md5((sorted_pairs + api_secret).encode()).hexdigest()  # noqa: S324 — Last.fm API signature scheme requires MD5
+    return hashlib.md5(
+        (sorted_pairs + api_secret).encode(), usedforsecurity=False
+    ).hexdigest()
 
 
 # -------------------------------------------------------------------------
@@ -241,9 +243,11 @@ class LastFMAPIClient(BaseAPIClient):
                 )
 
             # auth.getMobileSession signature: Last.fm mobile auth uses md5(username + md5(password))
-            password_hash = hashlib.md5(lastfm_password.encode()).hexdigest()  # noqa: S324 — Last.fm API signature scheme requires MD5
-            auth_token = hashlib.md5(  # noqa: S324 — Last.fm API signature scheme requires MD5
-                (self.lastfm_username + password_hash).encode()
+            password_hash = hashlib.md5(
+                lastfm_password.encode(), usedforsecurity=False
+            ).hexdigest()
+            auth_token = hashlib.md5(
+                (self.lastfm_username + password_hash).encode(), usedforsecurity=False
             ).hexdigest()
 
             auth_params: dict[str, str] = {

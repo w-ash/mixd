@@ -29,7 +29,7 @@ from src.application.use_cases.enrich_tracks import (
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
 from src.domain.entities.workflow import TrackDecision
-from src.domain.transforms.core import quarantine_invalid_tracks
+from src.domain.transforms.core import require_database_tracks
 
 from .node_context import NodeContext
 from .node_registry import NodeFn
@@ -45,17 +45,6 @@ type _TransformFactory = Callable[[Any, dict[str, Any]], _TransformFn]
 logger = get_logger(__name__)
 
 # === HELPER FUNCTIONS ===
-
-
-def _quarantine_and_log(tracklist: TrackList, label: str) -> TrackList:
-    """Quarantine tracks without database IDs and log if any were removed."""
-    valid_tl, quarantined = quarantine_invalid_tracks(tracklist)
-    if quarantined:
-        logger.warning(
-            f"{label}: quarantined {len(quarantined)} tracks without database IDs",
-            quarantined_titles=[t.title for t in quarantined[:5]],
-        )
-    return valid_tl
 
 
 def _get_connector_metric_names(
@@ -307,7 +296,7 @@ def make_node(
         ctx = NodeContext(context)
         try:
             tracklist = ctx.extract_tracklist()
-            tracklist = _quarantine_and_log(tracklist, operation)
+            require_database_tracks(tracklist)
             transform = transform_factory(ctx, config)
             result = transform(tracklist)
         except Exception as e:
@@ -370,10 +359,9 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
         # Single collection point — no double-collection
         upstream_tracklists = ctx.collect_tracklists(upstream_task_ids)
 
-        # Quarantine tracks without database IDs from each upstream
-        upstream_tracklists = [
-            _quarantine_and_log(tl, operation) for tl in upstream_tracklists
-        ]
+        # Validate all upstream tracks have database IDs
+        for tl in upstream_tracklists:
+            require_database_tracks(tl)
 
         # Domain combiners are dual-mode: pass tracklist=TrackList() to get
         # immediate TrackList result rather than a curried Transform function
@@ -474,7 +462,7 @@ def create_enricher_node(
     async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
-        tracklist = _quarantine_and_log(tracklist, enricher_label)
+        require_database_tracks(tracklist)
 
         logger.info(
             f"Starting {enricher_label} enrichment for {len(tracklist.tracks)} tracks"

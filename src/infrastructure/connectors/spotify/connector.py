@@ -16,7 +16,6 @@ from attrs import define, field
 
 from src.config import get_logger, settings
 from src.domain.entities import (
-    ConnectorPlaylist,
     ConnectorTrack,
     Playlist,
     Track,
@@ -142,10 +141,6 @@ class SpotifyConnector(BaseAPIConnector):
         return await self._client.search_track(artist, title, limit)
 
     # Playlist Operations - Delegate to operations
-
-    async def get_spotify_playlist(self, playlist_id: str) -> ConnectorPlaylist:
-        """Fetch a Spotify playlist with its tracks."""
-        return await self._operations.get_playlist_with_all_tracks(playlist_id)
 
     async def create_playlist(
         self,

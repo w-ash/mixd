@@ -299,14 +299,6 @@ class TrackConnectorRepository:
 
         return results
 
-    @db_operation("find_track_by_connector")
-    async def find_track_by_connector(
-        self, connector: str, connector_id: str
-    ) -> Track | None:
-        """Find an internal track by its external service ID."""
-        results = await self.find_tracks_by_connectors([(connector, connector_id)])
-        return results.get((connector, connector_id))
-
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
         self,
@@ -766,49 +758,6 @@ class TrackConnectorRepository:
             }
         else:
             return {track_id: metadata for track_id, metadata in result if metadata}
-
-    @db_operation("get_metadata_timestamps")
-    async def get_metadata_timestamps(
-        self, track_ids: list[int], connector: str
-    ) -> dict[int, datetime]:
-        """Get when metadata was last collected from an external service.
-
-        Args:
-            track_ids: Internal track IDs to check.
-            connector: Service name to filter by.
-
-        Returns:
-            Dict mapping track_id to most recent collection timestamp.
-        """
-        if not track_ids:
-            return {}
-
-        from sqlalchemy import func
-
-        from src.infrastructure.persistence.database.db_models import DBTrackMetric
-
-        stmt = (
-            select(
-                DBTrackMetric.track_id,
-                func.max(DBTrackMetric.collected_at).label("latest_collected_at"),
-            )
-            .where(
-                DBTrackMetric.track_id.in_(track_ids),
-                DBTrackMetric.connector_name == connector,
-            )
-            .group_by(DBTrackMetric.track_id)
-        )
-
-        result = await self.session.execute(stmt)
-        return {
-            track_id: (
-                collected_at.replace(tzinfo=UTC)
-                if collected_at.tzinfo is None
-                else collected_at
-            )
-            for track_id, collected_at in result.fetchall()
-            if collected_at
-        }
 
     @db_operation("ensure_primary_mapping")
     async def ensure_primary_mapping(

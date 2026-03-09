@@ -7,7 +7,7 @@ from music services like Spotify and Last.fm.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: service_metadata, raw_data dicts, factory patterns
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Self
 
 from attrs import Attribute, define, field
@@ -282,76 +282,6 @@ class ConnectorTrackPlay:
             },
         )
 
-    @classmethod
-    def create_from_lastfm_data(
-        cls,
-        artist_name: str,
-        track_name: str,
-        played_at: datetime,
-        album_name: str | None = None,
-        ms_played: int | None = None,
-        service_metadata: dict[str, Any] | None = None,
-        api_page: int | None = None,
-        raw_data: dict[str, Any] | None = None,
-        import_timestamp: datetime | None = None,
-        import_batch_id: str | None = None,
-    ) -> Self:
-        """Create ConnectorTrackPlay from Last.fm API data for unified processing.
-
-        Args:
-            artist_name: Track artist name
-            track_name: Track title
-            played_at: When track was scrobbled
-            album_name: Album name if available
-            ms_played: Play duration (Last.fm doesn't provide this)
-            service_metadata: Last.fm specific metadata
-            api_page: Source API page for debugging
-            raw_data: Complete API response for debugging
-            import_timestamp: When this import was initiated
-            import_batch_id: Batch identifier for bulk imports
-
-        Returns:
-            ConnectorTrackPlay object ready for deferred resolution
-        """
-        return cls(
-            artist_name=artist_name,
-            track_name=track_name,
-            played_at=played_at,
-            service="lastfm",
-            album_name=album_name,
-            ms_played=ms_played,
-            service_metadata=service_metadata or {},
-            api_page=api_page,
-            raw_data=raw_data or {},
-            import_timestamp=import_timestamp,
-            import_source="lastfm_api",
-            import_batch_id=import_batch_id,
-        )
-
-    def is_resolved(self) -> bool:
-        """Check if this connector play has been resolved to a canonical track."""
-        return self.resolved_track_id is not None
-
-    def with_resolution(
-        self, track_id: int, resolved_at: datetime | None = None
-    ) -> Self:
-        """Create new ConnectorTrackPlay with resolution information.
-
-        Args:
-            track_id: Canonical track ID this play resolves to
-            resolved_at: When resolution occurred (defaults to now)
-
-        Returns:
-            New ConnectorTrackPlay instance with resolution data
-        """
-        import attrs
-
-        return attrs.evolve(
-            self,
-            resolved_track_id=track_id,
-            resolved_at=resolved_at or datetime.now(UTC),
-        )
-
 
 @define(frozen=True, slots=True)
 class TrackPlay:
@@ -385,19 +315,6 @@ class TrackPlay:
     )
     import_source: str | None = None  # "spotify_export", "lastfm_api", "manual"
     import_batch_id: str | None = None
-
-    @classmethod
-    def create_with_current_import_timestamp(
-        cls, track_id: int | None, service: str, played_at: datetime, **kwargs: Any
-    ) -> Self:
-        """Create TrackPlay with current UTC timestamp for import tracking."""
-        return cls(
-            track_id=track_id,
-            service=service,
-            played_at=played_at,
-            import_timestamp=datetime.now(UTC),
-            **kwargs,
-        )
 
 
 @define(frozen=False)

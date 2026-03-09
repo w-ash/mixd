@@ -23,7 +23,7 @@ from typing import Any
 from attrs import define, field
 
 from src.config import get_logger
-from src.domain.entities import PlayRecord, Track, create_lastfm_play_record
+from src.domain.entities import Track
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.conversions import (
     LastFMTrackInfo,
@@ -326,39 +326,3 @@ class LastFMOperations:
         """Enrich a track with Last.fm metadata using FAST single API call."""
         lastfm_info = await self.get_track_info_intelligent(track)
         return convert_lastfm_to_domain_track(track, lastfm_info)
-
-    # Play History Operations
-
-    async def create_play_record_from_track(
-        self, track: Track, timestamp: str | None = None
-    ) -> PlayRecord:
-        """Create a Last.fm play record from a track."""
-        from datetime import UTC, datetime
-
-        # Get Last.fm info to enrich the play record
-        lastfm_info = await self.get_track_info_intelligent(track)
-
-        # Parse timestamp or use current time
-        import contextlib
-
-        scrobbled_at = datetime.now(UTC)
-        if timestamp:
-            with contextlib.suppress(ValueError):
-                scrobbled_at = datetime.fromisoformat(timestamp)
-
-        # Extract artist and track names
-        artist_name = track.artists[0].name if track.artists else "Unknown Artist"
-        track_name = track.title or "Unknown Track"
-
-        # Create enriched play record
-        return create_lastfm_play_record(
-            artist_name=artist_name,
-            track_name=track_name,
-            scrobbled_at=scrobbled_at,
-            album_name=track.album,
-            lastfm_track_url=lastfm_info.lastfm_url if lastfm_info else None,
-            lastfm_artist_url=lastfm_info.lastfm_artist_url if lastfm_info else None,
-            mbid=lastfm_info.lastfm_mbid if lastfm_info else None,
-            artist_mbid=lastfm_info.lastfm_artist_mbid if lastfm_info else None,
-            loved=lastfm_info.lastfm_user_loved if lastfm_info else False,
-        )

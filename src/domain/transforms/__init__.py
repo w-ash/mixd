@@ -14,7 +14,7 @@ Modules:
 """
 
 from .combining import concatenate, interleave, intersect
-from .core import Transform, quarantine_invalid_tracks, require_database_tracks
+from .core import Transform, require_database_tracks
 from .filtering import (
     exclude_artists,
     exclude_tracks,
@@ -44,7 +44,6 @@ __all__ = [
     "filter_duplicates",
     "interleave",
     "intersect",
-    "quarantine_invalid_tracks",
     "reorder_to_match_target",
     "require_database_tracks",
     "reverse_tracks",

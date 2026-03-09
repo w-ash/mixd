@@ -24,11 +24,21 @@ class TestEnrichmentMetricsMerge:
             Track(id=1, title="Song A", artists=[Artist(name="Artist")]),
             Track(id=2, title="Song B", artists=[Artist(name="Artist")]),
         ]
-        tracklist = TrackList(tracks=tracks).with_metadata("metrics", {
-            "lastfm_user_playcount": {1: 42, 2: 15},
-        }).with_metadata("fresh_metric_ids", {
-            "lastfm_user_playcount": [1, 2],
-        })
+        tracklist = (
+            TrackList(tracks=tracks)
+            .with_metadata(
+                "metrics",
+                {
+                    "lastfm_user_playcount": {1: 42, 2: 15},
+                },
+            )
+            .with_metadata(
+                "fresh_metric_ids",
+                {
+                    "lastfm_user_playcount": [1, 2],
+                },
+            )
+        )
 
         # Spotify enricher will add explicit_flag
         mock_metrics_service = AsyncMock()
@@ -56,8 +66,12 @@ class TestEnrichmentMetricsMerge:
 
         # Assert: both metric sets are present in the final tracklist
         final_metrics = result.enriched_tracklist.metadata.get("metrics", {})
-        assert "lastfm_user_playcount" in final_metrics, "Previous enricher's metrics were overwritten!"
-        assert "explicit_flag" in final_metrics, "Current enricher's metrics are missing!"
+        assert "lastfm_user_playcount" in final_metrics, (
+            "Previous enricher's metrics were overwritten!"
+        )
+        assert "explicit_flag" in final_metrics, (
+            "Current enricher's metrics are missing!"
+        )
         assert final_metrics["lastfm_user_playcount"] == {1: 42, 2: 15}
         assert final_metrics["explicit_flag"] == {1: True, 2: False}
 
@@ -71,9 +85,12 @@ class TestEnrichmentMetricsMerge:
         tracks = [
             Track(id=1, title="Song", artists=[Artist(name="Artist")]),
         ]
-        tracklist = TrackList(tracks=tracks).with_metadata("metrics", {
-            "explicit_flag": {1: True},
-        })
+        tracklist = TrackList(tracks=tracks).with_metadata(
+            "metrics",
+            {
+                "explicit_flag": {1: True},
+            },
+        )
 
         mock_plays_repo = AsyncMock()
         mock_plays_repo.get_play_aggregations.return_value = {

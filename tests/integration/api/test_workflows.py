@@ -99,9 +99,7 @@ class TestGetWorkflow:
         self, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """GET /workflows/{id} should include last_run when runs exist."""
-        monkeypatch.setattr(
-            _workflows_mod, "launch_background", lambda *a, **kw: None
-        )
+        monkeypatch.setattr(_workflows_mod, "launch_background", lambda *a, **kw: None)
 
         create_resp = await client.post(
             "/api/v1/workflows", json={"definition": _valid_definition()}

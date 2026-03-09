@@ -166,16 +166,6 @@ class WorkflowRunStartedResponse(BaseModel):
     run_id: int
 
 
-# --- Preview schemas ---
-
-
-class NodePreviewSummarySchema(BaseModel):
-    node_id: str
-    node_type: str
-    track_count: int
-    sample_titles: list[str] = []
-
-
 # --- Version schemas ---
 
 
@@ -192,12 +182,6 @@ class WorkflowVersionSchema(BaseModel):
 
 class PreviewStartedResponse(BaseModel):
     operation_id: str
-
-
-class PreviewResultSchema(BaseModel):
-    output_tracks: list[dict[str, Any]] = []
-    node_summaries: list[NodePreviewSummarySchema] = []
-    duration_ms: int
 
 
 # --- Converters ---

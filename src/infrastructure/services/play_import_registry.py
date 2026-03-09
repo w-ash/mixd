@@ -94,14 +94,6 @@ class PlayImportServiceRegistry:
         factory_func = self._resolver_factories[service]
         return await factory_func(uow)
 
-    def get_supported_services(self) -> list[str]:
-        """Get list of supported service identifiers.
-
-        Returns:
-            List of supported service names
-        """
-        return list(self._importer_factories.keys())
-
     # === PRIVATE FACTORY METHODS ===
     # These delegate to connector-specific factories while maintaining clean boundaries
 

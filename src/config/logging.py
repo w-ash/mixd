@@ -40,7 +40,7 @@ Quick Start:
 import logging
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 from loguru import logger
 from rich.console import Console
@@ -62,7 +62,7 @@ class PrefectToLoguruHandler(logging.Handler):
     (CLI progress coordination) and `intercept_prefect_loggers()` (API server).
     """
 
-    _LEVEL_MAPPING: dict[int, str] = {
+    _LEVEL_MAPPING: ClassVar[dict[int, str]] = {
         logging.DEBUG: "DEBUG",
         logging.INFO: "INFO",
         logging.WARNING: "WARNING",

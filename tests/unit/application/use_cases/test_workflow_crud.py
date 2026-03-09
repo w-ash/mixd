@@ -239,8 +239,14 @@ class TestGenerateChangeSummary:
         from src.domain.entities.workflow import WorkflowTaskDef
 
         old = make_workflow_def()
-        new_tasks = list(old.tasks) + [
-            WorkflowTaskDef(id="filter", type="filter.by_metric", config={"metric_name": "play_count"}, upstream=["source"]),
+        new_tasks = [
+            *old.tasks,
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_metric",
+                config={"metric_name": "play_count"},
+                upstream=["source"],
+            ),
         ]
         new = make_workflow_def(tasks=new_tasks)
         assert "Added 1 node" in _generate_change_summary(old, new)
@@ -249,8 +255,15 @@ class TestGenerateChangeSummary:
         from src.domain.entities.workflow import WorkflowTaskDef
 
         old_tasks = [
-            WorkflowTaskDef(id="a", type="source.liked_tracks", config={"service": "spotify"}),
-            WorkflowTaskDef(id="b", type="filter.by_metric", config={"metric_name": "play_count"}, upstream=["a"]),
+            WorkflowTaskDef(
+                id="a", type="source.liked_tracks", config={"service": "spotify"}
+            ),
+            WorkflowTaskDef(
+                id="b",
+                type="filter.by_metric",
+                config={"metric_name": "play_count"},
+                upstream=["a"],
+            ),
         ]
         old = make_workflow_def(tasks=old_tasks)
         new = make_workflow_def(tasks=[old_tasks[0]])

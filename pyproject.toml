@@ -59,6 +59,7 @@ target-version = "py314"
 preview = true  # Enable latest lint rules and formatter improvements
 # Python 3.14 specific: Enhanced version-aware parsing
 output-format = "full"
+extend-exclude = ["vulture_whitelist.py"]
 
 [tool.ruff.lint]
 # Linting rules

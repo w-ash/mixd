@@ -26,7 +26,6 @@ from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.transforms.core import require_database_tracks
 
 logger = get_logger(__name__)
 
@@ -165,9 +164,6 @@ class EnrichTracksUseCase:
                     + f"for {len(command.tracklist.tracks)} tracks"
                 )
 
-                # Fail fast if any tracks lack database IDs — upstream bug
-                require_database_tracks(command.tracklist)
-
                 if not command.tracklist.tracks:
                     logger.info("Empty tracklist — nothing to enrich")
                     return EnrichTracksResult(
@@ -268,12 +264,8 @@ class EnrichTracksUseCase:
             logger.warning("No metrics specified for enrichment")
             return tracklist, {}
 
-        # Get track IDs from the tracklist
+        # Type-narrowing only — node factory already validated all tracks have IDs
         track_ids = [t.id for t in tracklist.tracks if t.id is not None]
-
-        if not track_ids:
-            logger.warning("No tracks with database IDs found")
-            return tracklist, {}
 
         logger.info(
             f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {config.connector}"
@@ -339,15 +331,8 @@ class EnrichTracksUseCase:
             logger.info("No tracks to enrich")
             return tracklist, {}
 
-        # Extract valid track IDs
-        valid_tracks = [t for t in tracklist.tracks if t.id is not None]
-        if not valid_tracks:
-            logger.warning(
-                "No tracks have database IDs - unable to enrich play history"
-            )
-            return tracklist, {}
-
-        track_ids = [t.id for t in valid_tracks if t.id is not None]
+        # Type-narrowing only — node factory already validated all tracks have IDs
+        track_ids = [t.id for t in tracklist.tracks if t.id is not None]
 
         # Calculate period boundaries if needed
         period_start, period_end = None, None

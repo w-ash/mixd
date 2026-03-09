@@ -318,12 +318,6 @@ class ConnectorRepositoryProtocol(Protocol):
         """Count distinct tracks per connector (excluding internal pseudo-connectors)."""
         ...
 
-    def find_track_by_connector(
-        self, connector: str, connector_id: str
-    ) -> Awaitable[Track | None]:
-        """Find track by connector ID."""
-        ...
-
     def map_track_to_connector(
         self,
         track: Track,
@@ -349,20 +343,6 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             The updated track object
-        """
-        ...
-
-    def get_metadata_timestamps(
-        self, track_ids: list[int], connector: str
-    ) -> Awaitable[dict[int, datetime]]:
-        """Get most recent metadata collection timestamps for tracks.
-
-        Args:
-            track_ids: Track IDs to check timestamps for.
-            connector: Connector name to filter by.
-
-        Returns:
-            Dictionary mapping track_id to most recent collected_at timestamp.
         """
         ...
 
