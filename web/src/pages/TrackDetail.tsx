@@ -101,6 +101,8 @@ function matchMethodLabel(method: string): string {
   return labels[method] || method;
 }
 
+const smallBadge = "text-[10px] px-1.5 py-0";
+
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const trackId = Number(id);
@@ -220,29 +222,20 @@ export function TrackDetail() {
                     {/* Secondary metadata row */}
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {m.is_primary && (
-                        <Badge
-                          variant="default"
-                          className="text-[10px] px-1.5 py-0"
-                        >
+                        <Badge variant="default" className={smallBadge}>
                           Primary
                         </Badge>
                       )}
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] px-1.5 py-0"
-                      >
+                      <Badge variant="outline" className={smallBadge}>
                         {matchMethodLabel(m.match_method)}
                       </Badge>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] px-1.5 py-0"
-                      >
+                      <Badge variant="outline" className={smallBadge}>
                         {m.confidence}%
                       </Badge>
                       {m.origin === "manual_override" && (
                         <Badge
                           variant="outline"
-                          className="text-[10px] px-1.5 py-0 border-primary/40 text-primary"
+                          className={`${smallBadge} border-primary/40 text-primary`}
                         >
                           Manual
                         </Badge>

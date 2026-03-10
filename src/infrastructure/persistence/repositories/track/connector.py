@@ -452,13 +452,13 @@ class TrackConnectorRepository:
         # Filter out mappings that would overwrite manual overrides
         if mapping_data:
             ct_ids_in_batch = [d["connector_track_id"] for d in mapping_data]
-            manual_override_ct_ids: set[int] = set()
-            if ct_ids_in_batch:
-                existing_overrides = await self.mapping_repo.find_by([
-                    self.mapping_repo.model_class.connector_track_id.in_(ct_ids_in_batch),
-                    self.mapping_repo.model_class.origin == MappingOrigin.MANUAL_OVERRIDE,
-                ])
-                manual_override_ct_ids = {m.connector_track_id for m in existing_overrides}
+            result = await self.session.execute(
+                select(DBTrackMapping.connector_track_id).where(
+                    DBTrackMapping.connector_track_id.in_(ct_ids_in_batch),
+                    DBTrackMapping.origin == MappingOrigin.MANUAL_OVERRIDE,
+                )
+            )
+            manual_override_ct_ids = {row[0] for row in result.fetchall()}
 
             if manual_override_ct_ids:
                 mapping_data = [

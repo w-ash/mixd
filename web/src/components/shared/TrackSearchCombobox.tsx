@@ -1,9 +1,10 @@
 import { Command } from "cmdk";
 import { Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { LibraryTrackSchema } from "@/api/generated/model";
 import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
+import { useTrackSearch } from "@/hooks/useTrackSearch";
 
 interface TrackSearchComboboxProps {
   onSelect: (track: LibraryTrackSchema) => void;
@@ -16,19 +17,12 @@ export function TrackSearchCombobox({
   excludeTrackId,
   placeholder = "Search tracks...",
 }: TrackSearchComboboxProps) {
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const { search, setSearch, deferredSearch } = useTrackSearch();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 300);
-    return () => clearTimeout(timer);
-  }, [query]);
-
   const { data, isLoading } = useListTracksApiV1TracksGet(
-    { q: debouncedQuery || undefined, limit: 10 },
-    { query: { enabled: debouncedQuery.length >= 2 } },
+    { q: deferredSearch || undefined, limit: 10 },
+    { query: { enabled: deferredSearch.length >= 2 } },
   );
 
   const tracks =
@@ -50,24 +44,24 @@ export function TrackSearchCombobox({
         <Search className="size-4 text-text-muted" />
         <Command.Input
           ref={inputRef}
-          value={query}
-          onValueChange={setQuery}
+          value={search}
+          onValueChange={setSearch}
           placeholder={placeholder}
           className="flex h-10 w-full bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
         />
       </div>
       <Command.List className="max-h-60 overflow-y-auto p-1">
-        {debouncedQuery.length < 2 && (
+        {deferredSearch.length < 2 && (
           <Command.Empty className="p-4 text-center text-sm text-text-muted">
             Type at least 2 characters to search.
           </Command.Empty>
         )}
-        {debouncedQuery.length >= 2 && isLoading && (
+        {deferredSearch.length >= 2 && isLoading && (
           <Command.Loading className="p-4 text-center text-sm text-text-muted">
             Searching...
           </Command.Loading>
         )}
-        {debouncedQuery.length >= 2 && !isLoading && tracks.length === 0 && (
+        {deferredSearch.length >= 2 && !isLoading && tracks.length === 0 && (
           <Command.Empty className="p-4 text-center text-sm text-text-muted">
             No tracks found.
           </Command.Empty>

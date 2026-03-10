@@ -9,6 +9,7 @@ from datetime import datetime
 
 from attrs import Factory, define
 
+from src.config.constants import MappingOrigin
 from src.domain.entities import Playlist, Track, TrackLike
 from src.domain.repositories.interfaces import (
     FullMappingInfo,
@@ -31,7 +32,7 @@ class ConnectorMappingInfo:
     mapping_id: int = 0
     match_method: str = ""
     confidence: int = 0
-    origin: str = "automatic"
+    origin: str = MappingOrigin.AUTOMATIC
     is_primary: bool = False
     connector_track_title: str = ""
     connector_track_artists: list[str] = Factory(list[str])
