@@ -13,15 +13,11 @@ from sqlalchemy.sql.elements import ColumnElement
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, ensure_utc
 from src.infrastructure.persistence.database.db_models import DBConnectorPlay
+from src.infrastructure.persistence.repositories._shared import chunked
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
-
-
-def _chunked[T](items: list[T], size: int) -> list[list[T]]:
-    """Split items into fixed-size chunks."""
-    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrackPlay]):
@@ -138,7 +134,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         # Batch plays to avoid SQLite expression tree limit
         batch_size = 200
 
-        for batch in _chunked(plays, batch_size):
+        for batch in chunked(plays, batch_size):
             # Build conditions for this batch
             conditions: list[ColumnElement[bool]] = []
             for play in batch:

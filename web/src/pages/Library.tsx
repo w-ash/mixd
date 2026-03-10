@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { usePagination } from "@/hooks/usePagination";
 import { useTrackSearch } from "@/hooks/useTrackSearch";
-import { formatDuration } from "@/lib/format";
+import { formatArtists, formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -390,7 +390,7 @@ export function Library() {
                   </TableCell>
                   {/* Artist */}
                   <TableCell className="text-text-muted text-sm truncate max-w-48">
-                    {track.artists.map((a) => a.name).join(", ")}
+                    {formatArtists(track.artists)}
                   </TableCell>
                   {/* Album */}
                   <TableCell className="text-text-muted text-sm truncate max-w-48">

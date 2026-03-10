@@ -3,7 +3,6 @@
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: metric value types from aggregation queries
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any, override
 
@@ -19,13 +18,6 @@ from src.infrastructure.persistence.repositories.base_repo import (
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
-
-# Global queue for pending metrics operations
-# This allows us to batch metrics operations and avoid database locks
-# Format: list of (track_id, connector, metric_name, value)
-_METRICS_QUEUE: list[tuple[int, str, str, float]] = []
-_METRICS_LOCK = asyncio.Lock()
-_METRICS_TASK = None
 
 
 @define(frozen=True, slots=True)

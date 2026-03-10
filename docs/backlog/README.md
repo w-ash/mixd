@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.4
-**Current Initiative**: Code & Test Suite Hardening
+**Current Version**: 0.4.6
+**Current Initiative**: Track Relink & Unlink
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -23,8 +23,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.2** | Run-first workflow UX | ✅ Completed | [details](v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
 | **v0.4.3** | Visual workflow editor + versioning | ✅ Completed | [details](v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
 | **v0.4.4** | Connector playlist linking | ✅ Completed | [details](v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
-| **v0.4.5** | Code & test suite hardening | 🔜 Not Started | [details](v0.4.x.md#v045-code--test-suite-hardening) |
-| **v0.4.6** | Track provenance & duplicate merge | 🔜 Not Started | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
+| **v0.4.5** | Code & test suite hardening | ✅ Completed | [details](v0.4.x.md#v045-code--test-suite-hardening) |
+| **v0.4.6** | Track provenance & duplicate merge | ✅ Completed | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
 | **v0.4.7** | Track relink & unlink | 🔜 Not Started | [details](v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
 | **v0.4.8** | Data integrity & quality audit | 🔜 Not Started | [details](v0.4.x.md#v048-data-integrity--quality-audit) |
 | **v0.4.9** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v049-cli-unification--polish) |
@@ -64,7 +64,7 @@ Key architecture & tech choices (see CLAUDE.md for migration details):
 
 - **Python 3.14+ & attrs**: Modern type syntax (`str | None`, `class Foo[T]`), immutable domain entities with slots
 - **PostgreSQL (v0.5.0)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes. Web UI developed on SQLite first (v0.3.x), migrated at deployment time.
-- **Vite 6+ / Vitest**: 10x faster HMR than Webpack, native ESM + TypeScript
+- **Vite 7 / Vitest**: 10x faster HMR than Webpack, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`
 - **Clean Architecture + DDD**: Composable workflows, isolated APIs, testable logic (see docs/architecture/README.md)

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
+from src.config.constants import ConnectorPriority
 from src.domain.entities import ConnectorTrack, Playlist, PlaylistEntry, Track
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
@@ -610,7 +611,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Returns:
             Service name in priority order (spotify > lastfm > musicbrainz).
         """
-        for connector in ["spotify", "lastfm", "musicbrainz"]:
+        for connector in ConnectorPriority.ORDER:
             if connector in connector_ids:
                 return connector
         return None

@@ -67,6 +67,22 @@ export function formatMetricValue(value: unknown): string {
   return String(value);
 }
 
+/** Join artist names from an array of `{ name }` objects. */
+export function formatArtists(artists: Array<{ name: string }>): string {
+  return artists.map((a) => a.name).join(", ");
+}
+
+/** Format milliseconds as a human-readable total duration ("2 hr 15 min"). */
+export function formatTotalDuration(ms: number): string {
+  if (ms <= 0) return "0 min";
+  const totalMinutes = Math.round(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours} hr`;
+  return `${hours} hr ${minutes} min`;
+}
+
 /** Format milliseconds as "m:ss". Returns "\u2014" for nullish input. */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "\u2014";

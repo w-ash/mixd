@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   decodeHtmlEntities,
+  formatArtists,
   formatDate,
   formatDateTime,
   formatDuration,
@@ -147,7 +148,7 @@ export function TrackDetail() {
 
       <PageHeader
         title={track.title}
-        description={track.artists.map((a) => a.name).join(", ")}
+        description={formatArtists(track.artists)}
         action={<MergeTrackDialog winner={track} />}
       />
 

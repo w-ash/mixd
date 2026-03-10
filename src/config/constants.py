@@ -157,6 +157,18 @@ class MatchMethod:
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
 
 
+class DenormalizedTrackColumns:
+    """Mapping from connector name to fast-path column on DBTrack."""
+
+    COLUMN_MAP: Final[dict[str, str]] = {"spotify": "spotify_id", "musicbrainz": "mbid"}
+
+
+class ConnectorPriority:
+    """Connector preference order for metadata sourcing."""
+
+    ORDER: Final[tuple[str, ...]] = ("spotify", "lastfm", "musicbrainz")
+
+
 class LastFMConstants:
     """Last.fm API format specifications and processing constants."""
 

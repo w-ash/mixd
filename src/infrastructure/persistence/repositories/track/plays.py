@@ -17,6 +17,7 @@ from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
 from src.domain.repositories.interfaces import PlayAggregationResult
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
+from src.infrastructure.persistence.repositories._shared import chunked
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
     BaseRepository,
@@ -27,11 +28,6 @@ logger = get_logger(__name__)
 
 # (track_id, service, played_at, ms_played) — deduplication key for play records
 type PlayLookupKey = tuple[int | None, str, datetime | None, int | None]
-
-
-def _chunked[T](items: list[T], size: int) -> list[list[T]]:
-    """Split items into fixed-size chunks."""
-    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 @define(frozen=True, slots=True)
@@ -178,7 +174,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             200  # Well under SQLite's 1000 limit, allows for other query complexity
         )
 
-        for batch in _chunked(plays, batch_size):
+        for batch in chunked(plays, batch_size):
             # Build conditions for this batch
             conditions: list[ColumnElement[bool]] = []
             for play in batch:

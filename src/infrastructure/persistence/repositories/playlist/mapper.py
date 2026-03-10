@@ -3,12 +3,9 @@
 # pyright: reportExplicitAny=false, reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportAny=false
 # Legitimate Any: SQLAlchemy JSON columns, dynamic relationship traversal via safe_fetch_relationship
 
-from datetime import UTC, datetime
-from typing import Any, override
+from typing import override
 
 from attrs import define
-from sqlalchemy import Select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import (
@@ -23,14 +20,11 @@ from src.domain.entities import (
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
     DBPlaylist,
-    DBPlaylistMapping,
 )
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
-    BaseRepository,
     safe_fetch_relationship,
 )
-from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 # Create module logger
@@ -267,69 +261,3 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
         return []
 
 
-@define(frozen=True, slots=True)
-class PlaylistMappingMapper(BaseModelMapper[DBPlaylistMapping, dict[str, Any]]):
-    """Maps between DBPlaylistMapping and dictionary representation."""
-
-    @override
-    @staticmethod
-    async def to_domain(db_model: DBPlaylistMapping) -> dict[str, Any]:
-        """Convert DB mapping to dictionary."""
-        return {
-            "id": db_model.id,
-            "playlist_id": db_model.playlist_id,
-            "connector_name": db_model.connector_name,
-            "connector_playlist_id": db_model.connector_playlist_id,
-            "last_synced": db_model.last_synced,
-        }
-
-    @override
-    @staticmethod
-    def to_db(domain_model: dict[str, Any]) -> DBPlaylistMapping:
-        """Convert dictionary to DB mapping."""
-        return DBPlaylistMapping(
-            playlist_id=domain_model.get("playlist_id"),
-            connector_name=domain_model.get("connector_name"),
-            connector_playlist_id=domain_model.get("connector_playlist_id"),
-            last_synced=domain_model.get("last_synced", datetime.now(UTC)),
-        )
-
-    @override
-    @staticmethod
-    def get_default_relationships() -> list[str]:
-        """Get default relationships to load for playlist mappings."""
-        return ["playlist"]
-
-
-class PlaylistMappingRepository(BaseRepository[DBPlaylistMapping, dict[str, Any]]):
-    """Repository for playlist mapping operations."""
-
-    def __init__(self, session: AsyncSession) -> None:
-        """Initialize repository with session and mapper."""
-        super().__init__(
-            session=session,
-            model_class=DBPlaylistMapping,
-            mapper=PlaylistMappingMapper(),
-        )
-
-    def select_by_connector(
-        self, connector: str, connector_id: str
-    ) -> Select[tuple[DBPlaylistMapping]]:
-        """Create a select statement for a mapping by connector details."""
-        return self.select().where(
-            self.model_class.connector_name == connector,
-            self.model_class.connector_playlist_id == connector_id,
-        )
-
-    @db_operation("get_by_connector")
-    async def get_by_connector(
-        self, connector: str, connector_id: str
-    ) -> dict[str, Any] | None:
-        """Get a playlist mapping by connector name and external ID."""
-        stmt = self.select_by_connector(connector, connector_id)
-        db_entity = await self.execute_select_one(stmt)
-
-        if not db_entity:
-            return None
-
-        return await self.mapper.to_domain(db_entity)

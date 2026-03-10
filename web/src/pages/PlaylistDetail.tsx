@@ -57,21 +57,13 @@ import {
 } from "@/components/ui/table";
 import {
   decodeHtmlEntities,
+  formatArtists,
   formatDate,
   formatDuration,
   formatRelativeTime,
+  formatTotalDuration,
 } from "@/lib/format";
 import { getSyncStatusConfig } from "@/lib/sync-status";
-
-function formatTotalDuration(ms: number): string {
-  if (ms <= 0) return "0 min";
-  const totalMinutes = Math.round(ms / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes} min`;
-  if (minutes === 0) return `${hours} hr`;
-  return `${hours} hr ${minutes} min`;
-}
 
 function DetailSkeleton() {
   return (
@@ -753,7 +745,7 @@ export function PlaylistDetail() {
                   {entry.track.title}
                 </TableCell>
                 <TableCell className="text-text-muted">
-                  {entry.track.artists.map((a) => a.name).join(", ")}
+                  {formatArtists(entry.track.artists)}
                 </TableCell>
                 <TableCell className="text-text-muted">
                   {entry.track.album ?? "\u2014"}

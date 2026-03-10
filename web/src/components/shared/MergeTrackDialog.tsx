@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { formatArtists } from "@/lib/format";
 
 interface MergeTrackDialogProps {
   winner: TrackDetailSchema;
@@ -101,7 +102,7 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
     if (!next) setSelectedLoser(null);
   };
 
-  const winnerArtists = winner.artists.map((a) => a.name).join(", ");
+  const winnerArtists = formatArtists(winner.artists);
   const winnerConnectors = winner.connector_mappings.map(
     (m) => m.connector_name,
   );
@@ -142,7 +143,7 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
               />
               <TrackCard
                 title={selectedLoser.title}
-                artists={selectedLoser.artists.map((a) => a.name).join(", ")}
+                artists={formatArtists(selectedLoser.artists)}
                 album={selectedLoser.album}
                 connectors={selectedLoser.connector_names}
                 variant="loser"

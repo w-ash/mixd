@@ -10,7 +10,7 @@ from sqlalchemy import String, cast, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.config.constants import MappingOrigin
+from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylistTrack,
@@ -30,12 +30,11 @@ logger = get_logger(__name__)
 class TrackRepository(BaseRepository[DBTrack, Track]):
     """Repository for core track operations."""
 
-    # ID type lookup definitions
+    # ID type lookup definitions: non-connector types + shared connector→column map
     _TRACK_ID_TYPES: ClassVar[dict[str, str]] = {
         "internal": "id",
-        "spotify": "spotify_id",
         "isrc": "isrc",
-        "musicbrainz": "mbid",
+        **DenormalizedTrackColumns.COLUMN_MAP,
     }
 
     def __init__(self, session: AsyncSession) -> None:
@@ -104,11 +103,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             "isrc": track.isrc,
         }
 
-        # Add connector IDs if available
-        if "spotify" in track.connector_track_identifiers:
-            values["spotify_id"] = track.connector_track_identifiers["spotify"]
-        if "musicbrainz" in track.connector_track_identifiers:
-            values["mbid"] = track.connector_track_identifiers["musicbrainz"]
+        # Add denormalized connector IDs (fast-path lookup columns)
+        for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
+            if connector in track.connector_track_identifiers:
+                values[column] = track.connector_track_identifiers[connector]
 
         # Handle lookups by ISRC or Spotify ID - leverage the improved upsert with direct values
         # The upsert method has been updated to use a two-phase approach that avoids greenlet issues

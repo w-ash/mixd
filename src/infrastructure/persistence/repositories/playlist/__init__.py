@@ -9,13 +9,9 @@ from src.infrastructure.persistence.repositories.playlist.connector import (
     ConnectorPlaylistRepository,
 )
 from src.infrastructure.persistence.repositories.playlist.core import PlaylistRepository
-from src.infrastructure.persistence.repositories.playlist.mapper import (
-    PlaylistMappingRepository,
-)
 
 # Export repositories for direct import
 __all__ = [
     "ConnectorPlaylistRepository",  # Store external service playlist metadata
-    "PlaylistMappingRepository",  # Track playlist-to-service relationships
     "PlaylistRepository",  # Manage internal playlist CRUD operations
 ]

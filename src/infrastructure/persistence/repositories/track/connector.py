@@ -17,7 +17,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.config.constants import BusinessLimits, MappingOrigin
+from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.repositories.interfaces import FullMappingInfo
 from src.infrastructure.persistence.database.db_models import (
@@ -710,8 +710,7 @@ class TrackConnectorRepository:
         lookup columns (spotify_id, mbid) on DBTrack must be updated so that
         save_track() deduplication and _TRACK_ID_TYPES lookups find the track.
         """
-        column_map = {"spotify": "spotify_id", "musicbrainz": "mbid"}
-        column_name = column_map.get(connector)
+        column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector)
         if column_name:
             await self.session.execute(
                 update(DBTrack)

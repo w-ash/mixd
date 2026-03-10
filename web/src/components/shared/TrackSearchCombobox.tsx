@@ -5,6 +5,7 @@ import type { LibraryTrackSchema } from "@/api/generated/model";
 import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { useTrackSearch } from "@/hooks/useTrackSearch";
+import { formatArtists } from "@/lib/format";
 
 interface TrackSearchComboboxProps {
   onSelect: (track: LibraryTrackSchema) => void;
@@ -78,7 +79,7 @@ export function TrackSearchCombobox({
                 {track.title}
               </div>
               <div className="truncate text-xs text-text-muted">
-                {track.artists.map((a) => a.name).join(", ")}
+                {formatArtists(track.artists)}
                 {track.album && ` — ${track.album}`}
               </div>
             </div>
