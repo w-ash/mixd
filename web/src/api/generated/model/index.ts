@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.6
+ * OpenAPI spec version: 0.4.7
  */
 
 export * from './artistSchema';
@@ -50,11 +50,13 @@ export * from './playlistLinkSchema';
 export * from './playlistSummarySchema';
 export * from './playSummarySchema';
 export * from './previewStartedResponse';
+export * from './relinkMappingRequest';
 export * from './syncLinkRequest';
 export * from './syncStartedResponse';
 export * from './trackDetailSchema';
 export * from './trackDetailSchemaLikeStatus';
 export * from './trackSummarySchema';
+export * from './unlinkMappingResponse';
 export * from './updatePlaylistRequest';
 export * from './updateWorkflowRequest';
 export * from './validationError';

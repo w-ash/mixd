@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.6
+ * OpenAPI spec version: 0.4.7
  */
 import {
   useMutation,
@@ -30,7 +30,9 @@ import type {
   MergeTrackRequest,
   PaginatedResponseLibraryTrackSchema,
   PlaylistBriefSchema,
-  TrackDetailSchema
+  RelinkMappingRequest,
+  TrackDetailSchema,
+  UnlinkMappingResponse
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -373,6 +375,281 @@ export const useMergeTrackApiV1TracksTrackIdMergePost = <TError = HTTPValidation
         TContext
       > => {
       return useMutation(getMergeTrackApiV1TracksTrackIdMergePostMutationOptions(options), queryClient);
+    }
+    /**
+ * Relink a connector mapping to a different canonical track.
+ * @summary Relink Mapping
+ */
+export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse200 = {
+  data: TrackDetailSchema
+  status: 200
+}
+
+export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponseSuccess = (relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse200) & {
+  headers: Headers;
+};
+export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponseError = (relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse = (relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponseSuccess | relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponseError)
+
+export const getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchUrl = (trackId: number,
+    mappingId: number,) => {
+
+
+  
+
+  return `/api/v1/tracks/${trackId}/mappings/${mappingId}`
+}
+
+export const relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch = async (trackId: number,
+    mappingId: number,
+    relinkMappingRequest: RelinkMappingRequest, options?: RequestInit): Promise<relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse> => {
+  
+  return customFetch<relinkMappingApiV1TracksTrackIdMappingsMappingIdPatchResponse>(getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchUrl(trackId,mappingId),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      relinkMappingRequest,)
+  }
+);}
+  
+
+
+
+export const getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, TError,{trackId: number;mappingId: number;data: RelinkMappingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, TError,{trackId: number;mappingId: number;data: RelinkMappingRequest}, TContext> => {
+
+const mutationKey = ['relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, {trackId: number;mappingId: number;data: RelinkMappingRequest}> = (props) => {
+          const {trackId,mappingId,data} = props ?? {};
+
+          return  relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch(trackId,mappingId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>>
+    export type RelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationBody = RelinkMappingRequest
+    export type RelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationError = HTTPValidationError
+
+    /**
+ * @summary Relink Mapping
+ */
+export const useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>, TError,{trackId: number;mappingId: number;data: RelinkMappingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof relinkMappingApiV1TracksTrackIdMappingsMappingIdPatch>>,
+        TError,
+        {trackId: number;mappingId: number;data: RelinkMappingRequest},
+        TContext
+      > => {
+      return useMutation(getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMutationOptions(options), queryClient);
+    }
+    /**
+ * Unlink a connector mapping from this track.
+ * @summary Unlink Mapping
+ */
+export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse200 = {
+  data: UnlinkMappingResponse
+  status: 200
+}
+
+export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponseSuccess = (unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse200) & {
+  headers: Headers;
+};
+export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponseError = (unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse = (unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponseSuccess | unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponseError)
+
+export const getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteUrl = (trackId: number,
+    mappingId: number,) => {
+
+
+  
+
+  return `/api/v1/tracks/${trackId}/mappings/${mappingId}`
+}
+
+export const unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete = async (trackId: number,
+    mappingId: number, options?: RequestInit): Promise<unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse> => {
+  
+  return customFetch<unlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponse>(getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteUrl(trackId,mappingId),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+  
+
+
+
+export const getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, TError,{trackId: number;mappingId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, TError,{trackId: number;mappingId: number}, TContext> => {
+
+const mutationKey = ['unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, {trackId: number;mappingId: number}> = (props) => {
+          const {trackId,mappingId} = props ?? {};
+
+          return  unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete(trackId,mappingId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>>
+    
+    export type UnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Unlink Mapping
+ */
+export const useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>, TError,{trackId: number;mappingId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof unlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete>>,
+        TError,
+        {trackId: number;mappingId: number},
+        TContext
+      > => {
+      return useMutation(getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMutationOptions(options), queryClient);
+    }
+    /**
+ * Set a mapping as the primary for its connector on this track.
+ * @summary Set Primary Mapping
+ */
+export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse200 = {
+  data: TrackDetailSchema
+  status: 200
+}
+
+export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponseSuccess = (setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse200) & {
+  headers: Headers;
+};
+export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponseError = (setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse422) & {
+  headers: Headers;
+};
+
+export type setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse = (setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponseSuccess | setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponseError)
+
+export const getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchUrl = (trackId: number,
+    mappingId: number,) => {
+
+
+  
+
+  return `/api/v1/tracks/${trackId}/mappings/${mappingId}/primary`
+}
+
+export const setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch = async (trackId: number,
+    mappingId: number, options?: RequestInit): Promise<setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse> => {
+  
+  return customFetch<setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponse>(getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchUrl(trackId,mappingId),
+  {      
+    ...options,
+    method: 'PATCH'
+    
+    
+  }
+);}
+  
+
+
+
+export const getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, TError,{trackId: number;mappingId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, TError,{trackId: number;mappingId: number}, TContext> => {
+
+const mutationKey = ['setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, {trackId: number;mappingId: number}> = (props) => {
+          const {trackId,mappingId} = props ?? {};
+
+          return  setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch(trackId,mappingId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationResult = NonNullable<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>>
+    
+    export type SetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationError = HTTPValidationError
+
+    /**
+ * @summary Set Primary Mapping
+ */
+export const useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>, TError,{trackId: number;mappingId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch>>,
+        TError,
+        {trackId: number;mappingId: number},
+        TContext
+      > => {
+      return useMutation(getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions(options), queryClient);
     }
     /**
  * Get playlists containing a specific track.

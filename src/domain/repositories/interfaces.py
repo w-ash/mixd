@@ -22,6 +22,7 @@ from src.domain.entities import (
     SyncCheckpoint,
     Track,
     TrackLike,
+    TrackMapping,
     TrackPlay,
 )
 from src.domain.entities.playlist_link import SyncStatus
@@ -360,6 +361,7 @@ class ConnectorRepositoryProtocol(Protocol):
         metadata: dict[str, object] | None = None,
         confidence_evidence: dict[str, object] | None = None,
         auto_set_primary: bool = True,
+        origin: str = "automatic",
     ) -> Awaitable[Track]:
         """Map an existing track to a connector.
 
@@ -372,6 +374,7 @@ class ConnectorRepositoryProtocol(Protocol):
             metadata: Optional service-specific metadata
             confidence_evidence: Optional evidence for the confidence score
             auto_set_primary: Whether to automatically set this as the primary mapping
+            origin: Mapping origin — "automatic" (default) or "manual_override"
 
         Returns:
             The updated track object
@@ -495,6 +498,112 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             True if the primary mapping was successfully updated, False otherwise
+        """
+        ...
+
+    def get_mapping_by_id(self, mapping_id: int) -> Awaitable[TrackMapping | None]:
+        """Get a single track mapping by its database ID.
+
+        Args:
+            mapping_id: Database ID of the mapping row.
+
+        Returns:
+            TrackMapping domain entity if found, None otherwise.
+        """
+        ...
+
+    def delete_mapping(self, mapping_id: int) -> Awaitable[TrackMapping]:
+        """Delete a track mapping and return the pre-deletion entity.
+
+        Args:
+            mapping_id: Database ID of the mapping to delete.
+
+        Returns:
+            The deleted TrackMapping entity (pre-deletion snapshot).
+
+        Raises:
+            NotFoundError: If no mapping exists with the given ID.
+        """
+        ...
+
+    def update_mapping_track(
+        self, mapping_id: int, new_track_id: int, origin: str
+    ) -> Awaitable[TrackMapping]:
+        """Move a mapping to a different canonical track.
+
+        Updates track_id and origin on the mapping, resets is_primary to False
+        (primary must be reassigned separately).
+
+        Args:
+            mapping_id: Database ID of the mapping to update.
+            new_track_id: Target canonical track ID.
+            origin: New origin value (e.g., "manual_override").
+
+        Returns:
+            Updated TrackMapping entity.
+
+        Raises:
+            NotFoundError: If no mapping exists with the given ID.
+        """
+        ...
+
+    def count_mappings_for_connector_track(
+        self, connector_track_id: int
+    ) -> Awaitable[int]:
+        """Count remaining mappings for a given connector track.
+
+        Used by unlink to detect orphaned connector tracks.
+
+        Args:
+            connector_track_id: Database ID of the connector track.
+
+        Returns:
+            Number of mappings referencing the connector track.
+        """
+        ...
+
+    def get_remaining_mappings(
+        self, track_id: int, connector_name: str
+    ) -> Awaitable[list[TrackMapping]]:
+        """Get all mappings for a (track, connector) pair, ordered by confidence desc.
+
+        Used to pick the next primary mapping after removing one.
+
+        Args:
+            track_id: Canonical track ID.
+            connector_name: Connector name to filter by.
+
+        Returns:
+            List of TrackMapping entities, highest confidence first.
+        """
+        ...
+
+    def get_connector_track_by_id(
+        self, connector_track_id: int
+    ) -> Awaitable[ConnectorTrack | None]:
+        """Get a connector track entity by its database ID.
+
+        Args:
+            connector_track_id: Database ID of the connector track.
+
+        Returns:
+            ConnectorTrack domain entity if found, None otherwise.
+        """
+        ...
+
+    def ensure_primary_for_connector(
+        self, track_id: int, connector_name: str
+    ) -> Awaitable[None]:
+        """Ensure a primary mapping exists for a (track, connector) pair.
+
+        If no mappings remain, clears the denormalized ID column.
+        If mappings exist but none is primary, promotes the highest-confidence one
+        and syncs the denormalized ID.
+        If a primary already exists, does nothing.
+
+        Args:
+            track_id: Canonical track ID.
+            connector_name: Connector name.
         """
         ...
 

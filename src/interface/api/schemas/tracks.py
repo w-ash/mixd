@@ -106,6 +106,19 @@ class MergeTrackRequest(BaseModel):
     loser_id: int
 
 
+class RelinkMappingRequest(BaseModel):
+    """Request body for relinking a mapping to a different track."""
+
+    new_track_id: int
+
+
+class UnlinkMappingResponse(BaseModel):
+    """Response after unlinking a mapping."""
+
+    deleted_mapping_id: int
+    orphan_track_id: int | None = None
+
+
 # --- Domain-to-schema converters ---
 
 

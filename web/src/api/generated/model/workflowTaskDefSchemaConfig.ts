@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.6
+ * OpenAPI spec version: 0.4.7
  */
 
 export type WorkflowTaskDefSchemaConfig = { [key: string]: unknown };

@@ -12,13 +12,14 @@ from datetime import UTC, datetime
 from typing import Any, cast, override
 
 from attrs import define
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
+from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import FullMappingInfo
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -491,6 +492,7 @@ class TrackConnectorRepository:
         metadata: dict[str, Any] | None = None,
         confidence_evidence: dict[str, Any] | None = None,
         auto_set_primary: bool = True,
+        origin: str = "automatic",
     ) -> Track:
         """Link an existing internal track to an external service ID."""
         if track.id is None:
@@ -512,6 +514,17 @@ class TrackConnectorRepository:
         ])
 
         result_track = results[0] if results else track
+
+        # Override origin if not the default (e.g., manual_override for orphan tracks)
+        if origin != "automatic" and result_track.id:
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == result_track.id,
+                    DBTrackMapping.connector_name == connector,
+                )
+                .values(origin=origin)
+            )
 
         # Auto-set primary mapping if requested and track has an ID
         if auto_set_primary and result_track.id:
@@ -717,6 +730,135 @@ class TrackConnectorRepository:
                 .where(DBTrack.id == track_id)
                 .values(**{column_name: connector_id})
             )
+
+    async def _clear_denormalized_id(self, track_id: int, connector: str) -> None:
+        """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
+        column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector)
+        if column_name:
+            await self.session.execute(
+                update(DBTrack)
+                .where(DBTrack.id == track_id)
+                .values(**{column_name: None})
+            )
+
+    @db_operation("get_mapping_by_id")
+    async def get_mapping_by_id(self, mapping_id: int) -> TrackMapping | None:
+        """Get a single track mapping by its database ID."""
+        result = await self.session.execute(
+            select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return await TrackMappingMapper.to_domain(row)
+
+    @db_operation("delete_mapping")
+    async def delete_mapping(self, mapping_id: int) -> TrackMapping:
+        """Delete a track mapping and return the pre-deletion entity."""
+        result = await self.session.execute(
+            select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise NotFoundError(f"Mapping {mapping_id} not found")
+        mapping = await TrackMappingMapper.to_domain(row)
+        await self.session.execute(
+            delete(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+        )
+        return mapping
+
+    @db_operation("update_mapping_track")
+    async def update_mapping_track(
+        self, mapping_id: int, new_track_id: int, origin: str
+    ) -> TrackMapping:
+        """Move a mapping to a different canonical track."""
+        result = cast(
+            CursorResult[Any],
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(DBTrackMapping.id == mapping_id)
+                .values(track_id=new_track_id, origin=origin, is_primary=False)
+            ),
+        )
+        if result.rowcount == 0:
+            raise NotFoundError(f"Mapping {mapping_id} not found")
+        # Re-fetch updated mapping
+        refreshed = await self.session.execute(
+            select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+        )
+        row = refreshed.scalar_one()
+        return await TrackMappingMapper.to_domain(row)
+
+    @db_operation("count_mappings_for_connector_track")
+    async def count_mappings_for_connector_track(
+        self, connector_track_id: int
+    ) -> int:
+        """Count remaining mappings for a given connector track."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(DBTrackMapping)
+            .where(DBTrackMapping.connector_track_id == connector_track_id)
+        )
+        return result.scalar_one()
+
+    @db_operation("get_remaining_mappings")
+    async def get_remaining_mappings(
+        self, track_id: int, connector_name: str
+    ) -> list[TrackMapping]:
+        """Get all mappings for a (track, connector) pair, ordered by confidence desc."""
+        result = await self.session.execute(
+            select(DBTrackMapping)
+            .where(
+                DBTrackMapping.track_id == track_id,
+                DBTrackMapping.connector_name == connector_name,
+            )
+            .order_by(DBTrackMapping.confidence.desc())
+        )
+        return [
+            await TrackMappingMapper.to_domain(row)
+            for row in result.scalars().all()
+        ]
+
+    @db_operation("get_connector_track_by_id")
+    async def get_connector_track_by_id(
+        self, connector_track_id: int
+    ) -> ConnectorTrack | None:
+        """Get a connector track entity by its database ID."""
+        result = await self.session.execute(
+            select(DBConnectorTrack).where(DBConnectorTrack.id == connector_track_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return await ConnectorTrackMapper.to_domain(row)
+
+    @db_operation("ensure_primary_for_connector")
+    async def ensure_primary_for_connector(
+        self, track_id: int, connector_name: str
+    ) -> None:
+        """Ensure a primary mapping exists for a (track, connector) pair.
+
+        Promotes the highest-confidence mapping if none is primary,
+        or clears the denormalized ID if no mappings remain.
+        """
+        remaining = await self.get_remaining_mappings(track_id, connector_name)
+        if not remaining:
+            await self._clear_denormalized_id(track_id, connector_name)
+            return
+        if any(m.is_primary for m in remaining):
+            return
+        # Promote highest-confidence mapping
+        best = remaining[0]
+        await self.set_primary_mapping(track_id, connector_name, best.connector_track_id)
+        # Sync denormalized ID column
+        ct_result = await self.session.execute(
+            select(DBConnectorTrack.connector_track_identifier).where(
+                DBConnectorTrack.id == best.connector_track_id
+            )
+        )
+        external_id = ct_result.scalar_one_or_none()
+        if external_id:
+            await self._sync_denormalized_id(track_id, connector_name, external_id)
 
     @db_operation("get_connector_mappings")
     async def get_connector_mappings(

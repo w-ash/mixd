@@ -1,12 +1,30 @@
-import { ArrowLeft, ExternalLink, HelpCircle } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ExternalLink,
+  HelpCircle,
+  Link2Off,
+  Repeat,
+  Star,
+} from "lucide-react";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
+import { toast } from "sonner";
 
-import { useGetTrackDetailApiV1TracksTrackIdGet } from "@/api/generated/tracks/tracks";
+import type { ConnectorMappingSchema } from "@/api/generated/model";
+import {
+  getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
+  useGetTrackDetailApiV1TracksTrackIdGet,
+  useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
+} from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
+import { RelinkMappingDialog } from "@/components/shared/RelinkMappingDialog";
+import { UnlinkMappingDialog } from "@/components/shared/UnlinkMappingDialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   decodeHtmlEntities,
@@ -104,6 +122,172 @@ function matchMethodLabel(method: string): string {
 
 const smallBadge = "text-[10px] px-1.5 py-0";
 
+/** Connector mapping list with hover-reveal actions */
+function MappingList({
+  trackId,
+  mappings,
+  trackTitle,
+}: {
+  trackId: number;
+  mappings: ConnectorMappingSchema[];
+  trackTitle: string;
+}) {
+  const [relinkMapping, setRelinkMapping] =
+    useState<ConnectorMappingSchema | null>(null);
+  const [unlinkMapping, setUnlinkMapping] =
+    useState<ConnectorMappingSchema | null>(null);
+
+  const queryClient = useQueryClient();
+  const setPrimaryMutation =
+    useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch({
+      mutation: {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
+          });
+          toast.success("Primary mapping updated");
+        },
+        onError: (error: Error) => {
+          toast.error("Failed to set primary", { description: error.message });
+        },
+      },
+    });
+
+  return (
+    <>
+      <ul className="space-y-3">
+        {mappings.map((m) => {
+          const url = getConnectorTrackUrl(
+            m.connector_name,
+            m.connector_track_id,
+          );
+          const titleDiffers =
+            m.connector_track_title && m.connector_track_title !== trackTitle;
+
+          return (
+            <li
+              key={`${m.connector_name}-${m.connector_track_id}`}
+              className={`group rounded-md border px-3 py-2 ${m.is_primary ? "border-border-muted" : "border-border-muted/50 opacity-75"}`}
+            >
+              {/* Primary info row */}
+              <div className="flex items-center gap-2">
+                <ConnectorIcon name={m.connector_name} />
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium text-text">
+                    {m.connector_track_title || m.connector_track_id}
+                  </span>
+                  {m.connector_track_artists.length > 0 && (
+                    <span className="ml-1.5 text-xs text-text-muted">
+                      {m.connector_track_artists.join(", ")}
+                    </span>
+                  )}
+                </div>
+                {/* Hover-reveal action bar */}
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-6"
+                    title="Relink to different track"
+                    onClick={() => setRelinkMapping(m)}
+                  >
+                    <Repeat className="size-3" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-6 hover:border-destructive/50 hover:text-destructive"
+                    title="Unlink mapping"
+                    onClick={() => setUnlinkMapping(m)}
+                  >
+                    <Link2Off className="size-3" />
+                  </Button>
+                  {!m.is_primary && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-6"
+                      title="Set as primary"
+                      disabled={setPrimaryMutation.isPending}
+                      onClick={() =>
+                        setPrimaryMutation.mutate({
+                          trackId,
+                          mappingId: m.mapping_id,
+                        })
+                      }
+                    >
+                      <Star className="size-3" />
+                    </Button>
+                  )}
+                </div>
+                {url && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-text-muted hover:text-primary transition-colors"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                )}
+              </div>
+
+              {/* Title mismatch warning */}
+              {titleDiffers && (
+                <p className="mt-1 rounded bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                  Service title differs: &ldquo;
+                  {m.connector_track_title}&rdquo;
+                </p>
+              )}
+
+              {/* Secondary metadata row */}
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {m.is_primary && (
+                  <Badge variant="default" className={smallBadge}>
+                    Primary
+                  </Badge>
+                )}
+                <Badge variant="outline" className={smallBadge}>
+                  {matchMethodLabel(m.match_method)}
+                </Badge>
+                <Badge variant="outline" className={smallBadge}>
+                  {m.confidence}%
+                </Badge>
+                {m.origin === "manual_override" && (
+                  <Badge
+                    variant="outline"
+                    className={`${smallBadge} border-primary/40 text-primary`}
+                  >
+                    Manual
+                  </Badge>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {relinkMapping && (
+        <RelinkMappingDialog
+          trackId={trackId}
+          mapping={relinkMapping}
+          open
+          onOpenChange={(open) => !open && setRelinkMapping(null)}
+        />
+      )}
+
+      {unlinkMapping && (
+        <UnlinkMappingDialog
+          trackId={trackId}
+          mapping={unlinkMapping}
+          open
+          onOpenChange={(open) => !open && setUnlinkMapping(null)}
+        />
+      )}
+    </>
+  );
+}
+
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const trackId = Number(id);
@@ -172,80 +356,11 @@ export function TrackDetail() {
           {track.connector_mappings.length === 0 ? (
             <p className="text-sm text-text-muted">No connector mappings.</p>
           ) : (
-            <ul className="space-y-3">
-              {track.connector_mappings.map((m) => {
-                const url = getConnectorTrackUrl(
-                  m.connector_name,
-                  m.connector_track_id,
-                );
-                const titleDiffers =
-                  m.connector_track_title &&
-                  m.connector_track_title !== track.title;
-
-                return (
-                  <li
-                    key={`${m.connector_name}-${m.connector_track_id}`}
-                    className={`rounded-md border px-3 py-2 ${m.is_primary ? "border-border-muted" : "border-border-muted/50 opacity-75"}`}
-                  >
-                    {/* Primary info row */}
-                    <div className="flex items-center gap-2">
-                      <ConnectorIcon name={m.connector_name} />
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-medium text-text">
-                          {m.connector_track_title || m.connector_track_id}
-                        </span>
-                        {m.connector_track_artists.length > 0 && (
-                          <span className="ml-1.5 text-xs text-text-muted">
-                            {m.connector_track_artists.join(", ")}
-                          </span>
-                        )}
-                      </div>
-                      {url && (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-text-muted hover:text-primary transition-colors"
-                        >
-                          <ExternalLink className="size-3.5" />
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Title mismatch warning */}
-                    {titleDiffers && (
-                      <p className="mt-1 rounded bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
-                        Service title differs: &ldquo;
-                        {m.connector_track_title}&rdquo;
-                      </p>
-                    )}
-
-                    {/* Secondary metadata row */}
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {m.is_primary && (
-                        <Badge variant="default" className={smallBadge}>
-                          Primary
-                        </Badge>
-                      )}
-                      <Badge variant="outline" className={smallBadge}>
-                        {matchMethodLabel(m.match_method)}
-                      </Badge>
-                      <Badge variant="outline" className={smallBadge}>
-                        {m.confidence}%
-                      </Badge>
-                      {m.origin === "manual_override" && (
-                        <Badge
-                          variant="outline"
-                          className={`${smallBadge} border-primary/40 text-primary`}
-                        >
-                          Manual
-                        </Badge>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <MappingList
+              trackId={track.id}
+              mappings={track.connector_mappings}
+              trackTitle={track.title}
+            />
           )}
         </Section>
 

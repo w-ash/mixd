@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.6"
+    "version": "0.4.7"
   },
   "paths": {
     "/api/v1/health": {
@@ -795,6 +795,170 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/mappings/{mapping_id}": {
+      "patch": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Relink Mapping",
+        "description": "Relink a connector mapping to a different canonical track.",
+        "operationId": "relink_mapping_api_v1_tracks__track_id__mappings__mapping_id__patch",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          },
+          {
+            "name": "mapping_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mapping Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelinkMappingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Unlink Mapping",
+        "description": "Unlink a connector mapping from this track.",
+        "operationId": "unlink_mapping_api_v1_tracks__track_id__mappings__mapping_id__delete",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          },
+          {
+            "name": "mapping_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mapping Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnlinkMappingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/mappings/{mapping_id}/primary": {
+      "patch": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Set Primary Mapping",
+        "description": "Set a mapping as the primary for its connector on this track.",
+        "operationId": "set_primary_mapping_api_v1_tracks__track_id__mappings__mapping_id__primary_patch",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          },
+          {
+            "name": "mapping_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mapping Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2987,6 +3151,20 @@
         ],
         "title": "PreviewStartedResponse"
       },
+      "RelinkMappingRequest": {
+        "properties": {
+          "new_track_id": {
+            "type": "integer",
+            "title": "New Track Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_track_id"
+        ],
+        "title": "RelinkMappingRequest",
+        "description": "Request body for relinking a mapping to a different track."
+      },
       "SyncLinkRequest": {
         "properties": {
           "direction_override": {
@@ -3173,6 +3351,31 @@
         ],
         "title": "TrackSummarySchema",
         "description": "Minimal track data for playlist entry listings."
+      },
+      "UnlinkMappingResponse": {
+        "properties": {
+          "deleted_mapping_id": {
+            "type": "integer",
+            "title": "Deleted Mapping Id"
+          },
+          "orphan_track_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orphan Track Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted_mapping_id"
+        ],
+        "title": "UnlinkMappingResponse",
+        "description": "Response after unlinking a mapping."
       },
       "UpdatePlaylistRequest": {
         "properties": {
