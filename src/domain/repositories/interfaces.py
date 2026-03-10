@@ -25,7 +25,7 @@ from src.domain.entities import (
     TrackMapping,
     TrackPlay,
 )
-from src.domain.entities.playlist_link import SyncStatus
+from src.domain.entities.playlist_link import SyncDirection, SyncStatus
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -666,6 +666,16 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         """Update the sync status and optional metrics for a link."""
         ...
 
+    def update_link_direction(
+        self, link_id: int, direction: SyncDirection
+    ) -> Awaitable[PlaylistLink | None]:
+        """Update the sync direction for a link. Returns the updated link, or None if not found."""
+        ...
+
+    def count_links_by_connector(self) -> Awaitable[dict[str, int]]:
+        """Count linked playlists grouped by connector name."""
+        ...
+
     def delete_link(self, link_id: int) -> Awaitable[bool]:
         """Delete a playlist link. Returns True if deleted."""
         ...
@@ -727,6 +737,10 @@ class PlaysRepositoryProtocol(Protocol):
 
     def count_all_plays(self) -> Awaitable[int]:
         """Count all play records in the database."""
+        ...
+
+    def count_plays_by_service(self) -> Awaitable[dict[str, int]]:
+        """Count play records grouped by service (single query)."""
         ...
 
     def bulk_insert_plays(self, plays: list[TrackPlay]) -> Awaitable[tuple[int, int]]:

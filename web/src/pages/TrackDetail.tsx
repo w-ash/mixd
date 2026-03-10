@@ -18,10 +18,14 @@ import {
   useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
 } from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
+import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
 import { RelinkMappingDialog } from "@/components/shared/RelinkMappingDialog";
+import {
+  confidenceVariant,
+  StatusIndicator,
+} from "@/components/shared/StatusIndicator";
 import { UnlinkMappingDialog } from "@/components/shared/UnlinkMappingDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,20 +108,52 @@ function getConnectorTrackUrl(
   }
 }
 
-/** Human-readable match method label */
+/** Human-readable match method label + explanation */
+const matchMethods: Record<string, { label: string; description: string }> = {
+  direct_import: {
+    label: "Direct",
+    description: "Matched by ISRC (exact identifier)",
+  },
+  direct: {
+    label: "Direct",
+    description: "Matched by ISRC (exact identifier)",
+  },
+  search_fallback: {
+    label: "Search",
+    description: "Found via search by artist + title",
+  },
+  artist_title: {
+    label: "Artist/Title",
+    description: "Matched by artist name and track title",
+  },
+  spotify_redirect: {
+    label: "Redirect",
+    description: "Redirected from a different version",
+  },
+  spotify_connector_play_resolver: {
+    label: "Play Resolver",
+    description: "Resolved from listening history",
+  },
+  lastfm_discovery: {
+    label: "Discovery",
+    description: "Discovered via Last.fm data",
+  },
+  direct_import_stale_id: {
+    label: "Stale ID",
+    description: "Originally matched by ID, but the ID has since changed",
+  },
+  search_fallback_stale_id: {
+    label: "Stale ID",
+    description: "Originally found via search, but the ID has since changed",
+  },
+};
+
 function matchMethodLabel(method: string): string {
-  const labels: Record<string, string> = {
-    direct_import: "Direct",
-    direct: "Direct",
-    search_fallback: "Search",
-    artist_title: "Artist/Title",
-    spotify_redirect: "Redirect",
-    spotify_connector_play_resolver: "Play Resolver",
-    lastfm_discovery: "Discovery",
-    direct_import_stale_id: "Stale ID",
-    search_fallback_stale_id: "Stale ID",
-  };
-  return labels[method] || method;
+  return matchMethods[method]?.label ?? method;
+}
+
+function matchMethodDescription(method: string): string {
+  return matchMethods[method]?.description ?? method;
 }
 
 const smallBadge = "text-[10px] px-1.5 py-0";
@@ -155,7 +191,7 @@ function MappingList({
 
   return (
     <>
-      <ul className="space-y-3">
+      <div className="space-y-2">
         {mappings.map((m) => {
           const url = getConnectorTrackUrl(
             m.connector_name,
@@ -165,49 +201,35 @@ function MappingList({
             m.connector_track_title && m.connector_track_title !== trackTitle;
 
           return (
-            <li
+            <ConnectorListItem
               key={`${m.connector_name}-${m.connector_track_id}`}
-              className={`group rounded-md border px-3 py-2 ${m.is_primary ? "border-border-muted" : "border-border-muted/50 opacity-75"}`}
-            >
-              {/* Primary info row */}
-              <div className="flex items-center gap-2">
-                <ConnectorIcon name={m.connector_name} />
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium text-text">
-                    {m.connector_track_title || m.connector_track_id}
-                  </span>
-                  {m.connector_track_artists.length > 0 && (
-                    <span className="ml-1.5 text-xs text-text-muted">
-                      {m.connector_track_artists.join(", ")}
-                    </span>
-                  )}
-                </div>
-                {/* Hover-reveal action bar */}
-                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              connectorName={m.connector_name}
+              muted={!m.is_primary}
+              actions={
+                <>
                   <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-6"
-                    title="Relink to different track"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-text-faint hover:text-text"
                     onClick={() => setRelinkMapping(m)}
                   >
-                    <Repeat className="size-3" />
+                    <Repeat className="mr-1 size-3" />
+                    Relink
                   </Button>
                   <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-6 hover:border-destructive/50 hover:text-destructive"
-                    title="Unlink mapping"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-text-faint hover:text-red-400"
                     onClick={() => setUnlinkMapping(m)}
                   >
-                    <Link2Off className="size-3" />
+                    <Link2Off className="mr-1 size-3" />
+                    Unlink
                   </Button>
                   {!m.is_primary && (
                     <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-6"
-                      title="Set as primary"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-text-faint hover:text-text"
                       disabled={setPrimaryMutation.isPending}
                       onClick={() =>
                         setPrimaryMutation.mutate({
@@ -216,19 +238,33 @@ function MappingList({
                         })
                       }
                     >
-                      <Star className="size-3" />
+                      <Star className="mr-1 size-3" />
+                      Primary
                     </Button>
                   )}
-                </div>
-                {url && (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-text-muted hover:text-primary transition-colors"
-                  >
-                    <ExternalLink className="size-3.5" />
-                  </a>
+                  {url && (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-7 items-center px-2 text-xs text-text-faint transition-colors hover:text-text"
+                    >
+                      <ExternalLink className="mr-1 size-3" />
+                      Open
+                    </a>
+                  )}
+                </>
+              }
+            >
+              {/* Title + artists */}
+              <div>
+                <span className="text-sm font-medium text-text">
+                  {m.connector_track_title || m.connector_track_id}
+                </span>
+                {m.connector_track_artists.length > 0 && (
+                  <span className="ml-1.5 text-xs text-text-muted">
+                    {m.connector_track_artists.join(", ")}
+                  </span>
                 )}
               </div>
 
@@ -240,19 +276,25 @@ function MappingList({
                 </p>
               )}
 
-              {/* Secondary metadata row */}
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {/* Metadata badges */}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 {m.is_primary && (
                   <Badge variant="default" className={smallBadge}>
                     Primary
                   </Badge>
                 )}
-                <Badge variant="outline" className={smallBadge}>
+                <Badge
+                  variant="outline"
+                  className={smallBadge}
+                  title={matchMethodDescription(m.match_method)}
+                >
                   {matchMethodLabel(m.match_method)}
                 </Badge>
-                <Badge variant="outline" className={smallBadge}>
-                  {m.confidence}%
-                </Badge>
+                <StatusIndicator
+                  variant={confidenceVariant(m.confidence)}
+                  label={`${m.confidence}%`}
+                  size="sm"
+                />
                 {m.origin === "manual_override" && (
                   <Badge
                     variant="outline"
@@ -262,10 +304,10 @@ function MappingList({
                   </Badge>
                 )}
               </div>
-            </li>
+            </ConnectorListItem>
           );
         })}
-      </ul>
+      </div>
 
       {relinkMapping && (
         <RelinkMappingDialog

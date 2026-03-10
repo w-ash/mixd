@@ -95,11 +95,24 @@ function StatCard({
 /* ── Stats grid ──────────────────────────────────────────── */
 
 function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
+  const connectorCount = Object.keys(stats.tracks_by_connector).length;
+  const tracksLabel =
+    connectorCount > 0
+      ? `Tracks across ${connectorCount} ${connectorCount === 1 ? "service" : "services"}`
+      : "Total Tracks";
+
+  const linkedCount = Object.values(stats.playlists_by_connector ?? {}).reduce(
+    (a, b) => a + b,
+    0,
+  );
+  const playlistsLabel =
+    linkedCount > 0 ? `Playlists \u00b7 ${linkedCount} linked` : "Playlists";
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         icon={<Music className="size-5" />}
-        label="Total Tracks"
+        label={tracksLabel}
         value={stats.total_tracks}
         hero
         breakdown={stats.tracks_by_connector}
@@ -108,6 +121,7 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
         icon={<Headphones className="size-5" />}
         label="Total Plays"
         value={stats.total_plays}
+        breakdown={stats.plays_by_connector}
         delay="50ms"
       />
       <StatCard
@@ -119,8 +133,9 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
       />
       <StatCard
         icon={<ListMusic className="size-5" />}
-        label="Playlists"
+        label={playlistsLabel}
         value={stats.total_playlists}
+        breakdown={stats.playlists_by_connector}
         delay="150ms"
       />
     </div>

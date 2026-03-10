@@ -254,4 +254,19 @@ describe("TrackDetail", () => {
 
     expect(screen.getByText("Not in any playlists.")).toBeInTheDocument();
   });
+
+  it("shows text labels on mapping action buttons", async () => {
+    overrideTrackDetail(mockTrack);
+
+    renderTrackDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
+    });
+
+    expect(screen.getAllByText("Relink").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unlink").length).toBeGreaterThan(0);
+  });
 });

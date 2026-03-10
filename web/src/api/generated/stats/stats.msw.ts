@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.7
+ * OpenAPI spec version: 0.4.8
  */
 import {
   faker
@@ -25,6 +25,10 @@ import type {
 export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideResponse: Partial<Extract<DashboardStatsSchema, object>> = {}): DashboardStatsSchema => ({total_tracks: faker.number.int(), total_plays: faker.number.int(), total_playlists: faker.number.int(), total_liked: faker.number.int(), tracks_by_connector: {
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, liked_by_connector: {
+        [faker.string.alphanumeric(5)]: faker.number.int()
+      }, plays_by_connector: {
+        [faker.string.alphanumeric(5)]: faker.number.int()
+      }, playlists_by_connector: {
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, ...overrideResponse})
 

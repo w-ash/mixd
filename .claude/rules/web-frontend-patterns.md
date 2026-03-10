@@ -27,6 +27,31 @@ paths:
 - `web/src/api/query-client.ts` — `createQueryClient()` factory; retries only on `status >= 500`, error check uses `instanceof ApiError`
 - `web/src/api/generated/` — Orval output (tags-split): query/mutation hooks, MSW mock handlers, TypeScript models. Never hand-edit.
 
+## Confirmation Dialogs
+- Use for operations with serious consequences (sync to external services, unlink mappings) — never for routine actions
+- **`ConfirmationDialog`** (`shared/ConfirmationDialog.tsx`) — shared base with title, description, children slot, action buttons. Props: `confirmLabel`, `destructive`, `isPending`, `disabled`. Default focus on Cancel.
+- **`SyncConfirmationDialog`** (`shared/SyncConfirmationDialog.tsx`) — fetches preview from `GET /playlists/{id}/links/{link_id}/sync/preview`, shows add/remove counts, includes direction toggle. Confirm button is dynamic: "Sync 12 tracks to Spotify"
+- Button labels are action-specific: "Sync 12 tracks to Spotify", "Remove link" — never "Yes" / "OK" / "Confirm"
+- Loading state while preview fetches; error state if preview fails (with fallback to manual sync)
+
+## Status Indicators
+- Every status combines **at least two of**: icon, color, text label. Never a bare colored dot.
+- **`StatusIndicator`** (`shared/StatusIndicator.tsx`) — variants: `success`/`warning`/`error`/`info`/`neutral`. Props: `variant`, `label`, `detail?`, `size?`
+- Helper functions: `syncStatusVariant(status)` maps sync status strings → variants; `confidenceVariant(score)` maps 0-100 → variants (≥80 success, 50-79 warning, <50 error)
+- Sync status: "Synced" with detail "+3 added · -1 removed", "Syncing…", "Sync failed" with error detail, "Never synced"
+- **`formatSyncResults(added, removed)`** in `lib/sync-status.ts` — formats last sync metrics as "+N added · -M removed"
+- Connector status: "Connected as testuser", "Session expired", "Not connected"
+
+## Action Discoverability
+- At rest: `text-text-faint` or `text-text-muted` with full opacity. On hover: `text-text` or `text-primary`
+- Same button size, spacing, and visual weight for equivalent actions across TrackDetail and PlaylistDetail
+- Action labels describe what happens: "Sync to Spotify", "Import from Last.fm" — not generic "Run" or "Sync"
+- Direction labels use plain language: "Local → Spotify" / "Spotify → Local" — not "push" / "pull"
+
+## Shared Layout Components
+- **`ConnectorListItem`** (`shared/ConnectorListItem.tsx`) — shared layout for connector-linked items. Structure: `[ConnectorIcon] [children] [actions]`. Used in playlist links and track mappings.
+- **`ConnectorCard`** (`shared/ConnectorCard.tsx`) — connector status display on Integrations page. Includes purpose description and specific CLI auth command (`narada auth spotify`).
+
 ## Error Boundaries
 - `react-error-boundary` wraps `<Outlet />` in PageLayout; sidebar stays outside boundary so navigation always works
 - `resetKeys={[pathname]}` auto-resets error state on navigation

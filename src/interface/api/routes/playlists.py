@@ -34,6 +34,10 @@ from src.application.use_cases.list_playlists import (
     ListPlaylistsCommand,
     ListPlaylistsUseCase,
 )
+from src.application.use_cases.preview_playlist_sync import (
+    PreviewPlaylistSyncCommand,
+    PreviewPlaylistSyncUseCase,
+)
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
@@ -45,6 +49,10 @@ from src.application.use_cases.sync_playlist_link import (
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
     UpdateCanonicalPlaylistUseCase,
+)
+from src.application.use_cases.update_playlist_link import (
+    UpdatePlaylistLinkCommand,
+    UpdatePlaylistLinkUseCase,
 )
 from src.config import get_logger
 from src.domain.entities.playlist_link import SyncDirection
@@ -63,7 +71,9 @@ from src.interface.api.schemas.playlists import (
     PlaylistLinkSchema,
     PlaylistSummarySchema,
     SyncLinkRequest,
+    SyncPreviewResponse,
     SyncStartedResponse,
+    UpdateLinkRequest,
     UpdatePlaylistRequest,
     to_link_schema,
     to_playlist_detail,
@@ -252,6 +262,49 @@ async def delete_playlist_link(playlist_id: int, link_id: int) -> Response:  # n
         )
     )
     return Response(status_code=204)
+
+
+@router.patch("/{playlist_id}/links/{link_id}")
+async def update_playlist_link(
+    playlist_id: int,  # noqa: ARG001
+    link_id: int,
+    body: UpdateLinkRequest,
+) -> PlaylistLinkSchema:
+    """Update a playlist link's sync direction."""
+    command = UpdatePlaylistLinkCommand(
+        link_id=link_id,
+        sync_direction=SyncDirection(body.sync_direction),
+    )
+    result = await execute_use_case(
+        lambda uow: UpdatePlaylistLinkUseCase().execute(command, uow)
+    )
+    return to_link_schema(result.link)
+
+
+@router.get("/{playlist_id}/links/{link_id}/sync/preview")
+async def preview_playlist_sync(
+    playlist_id: int,  # noqa: ARG001
+    link_id: int,
+    direction_override: str | None = Query(default=None),
+) -> SyncPreviewResponse:
+    """Preview what a sync would change without executing it."""
+    override = SyncDirection(direction_override) if direction_override else None
+    command = PreviewPlaylistSyncCommand(
+        link_id=link_id,
+        direction_override=override,
+    )
+    result = await execute_use_case(
+        lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow)
+    )
+    return SyncPreviewResponse(
+        tracks_to_add=result.tracks_to_add,
+        tracks_to_remove=result.tracks_to_remove,
+        tracks_unchanged=result.tracks_unchanged,
+        direction=result.direction.value,
+        connector_name=result.connector_name,
+        playlist_name=result.playlist_name,
+        has_comparison_data=result.has_comparison_data,
+    )
 
 
 @router.post("/{playlist_id}/links/{link_id}/sync", status_code=202)

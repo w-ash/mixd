@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.7"
+    "version": "0.4.8"
   },
   "paths": {
     "/api/v1/health": {
@@ -516,6 +516,134 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Update Playlist Link",
+        "description": "Update a playlist link's sync direction.",
+        "operationId": "update_playlist_link_api_v1_playlists__playlist_id__links__link_id__patch",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistLinkSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/links/{link_id}/sync/preview": {
+      "get": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Preview Playlist Sync",
+        "description": "Preview what a sync would change without executing it.",
+        "operationId": "preview_playlist_sync_api_v1_playlists__playlist_id__links__link_id__sync_preview_get",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          },
+          {
+            "name": "direction_override",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction Override"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncPreviewResponse"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -2320,6 +2448,20 @@
             },
             "type": "object",
             "title": "Liked By Connector"
+          },
+          "plays_by_connector": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Plays By Connector"
+          },
+          "playlists_by_connector": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Playlists By Connector"
           }
         },
         "type": "object",
@@ -2329,7 +2471,9 @@
           "total_playlists",
           "total_liked",
           "tracks_by_connector",
-          "liked_by_connector"
+          "liked_by_connector",
+          "plays_by_connector",
+          "playlists_by_connector"
         ],
         "title": "DashboardStatsSchema",
         "description": "Dashboard aggregate statistics response."
@@ -3183,6 +3327,50 @@
         "title": "SyncLinkRequest",
         "description": "Request body for POST /playlists/{id}/links/{link_id}/sync."
       },
+      "SyncPreviewResponse": {
+        "properties": {
+          "tracks_to_add": {
+            "type": "integer",
+            "title": "Tracks To Add"
+          },
+          "tracks_to_remove": {
+            "type": "integer",
+            "title": "Tracks To Remove"
+          },
+          "tracks_unchanged": {
+            "type": "integer",
+            "title": "Tracks Unchanged"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "playlist_name": {
+            "type": "string",
+            "title": "Playlist Name"
+          },
+          "has_comparison_data": {
+            "type": "boolean",
+            "title": "Has Comparison Data",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "tracks_to_add",
+          "tracks_to_remove",
+          "tracks_unchanged",
+          "direction",
+          "connector_name",
+          "playlist_name"
+        ],
+        "title": "SyncPreviewResponse",
+        "description": "Preview of what a sync operation would change (read-only).\n\nWhen ``has_comparison_data`` is False, the link has never been synced\nand no locally-cached external playlist exists for diffing."
+      },
       "SyncStartedResponse": {
         "properties": {
           "operation_id": {
@@ -3376,6 +3564,20 @@
         ],
         "title": "UnlinkMappingResponse",
         "description": "Response after unlinking a mapping."
+      },
+      "UpdateLinkRequest": {
+        "properties": {
+          "sync_direction": {
+            "type": "string",
+            "title": "Sync Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sync_direction"
+        ],
+        "title": "UpdateLinkRequest",
+        "description": "Request body for PATCH /playlists/{id}/links/{link_id}."
       },
       "UpdatePlaylistRequest": {
         "properties": {

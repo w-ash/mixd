@@ -20,7 +20,7 @@ describe("ConnectorCard", () => {
     expect(screen.getByText("Spotify")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText("Playlists, liked tracks, listening history"),
+      screen.getByText("Playlists, liked tracks, and library sync"),
     ).toBeInTheDocument();
     expect(screen.getByText(/Signed in as testuser/)).toBeInTheDocument();
     expect(
@@ -42,10 +42,10 @@ describe("ConnectorCard", () => {
 
     expect(screen.getByText("Not configured")).toBeInTheDocument();
     expect(
-      screen.getByText("Playlists, liked tracks, listening history"),
+      screen.getByText("Playlists, liked tracks, and library sync"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Not connected \u00b7 run CLI to authenticate"),
+      screen.getByText("Not connected \u00b7 run narada auth spotify"),
     ).toBeInTheDocument();
   });
 
@@ -80,7 +80,7 @@ describe("ConnectorCard", () => {
     expect(screen.getByText("Last.fm")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText("Scrobble counts, play history, loved tracks"),
+      screen.getByText("Listening history, play counts, and loved tracks"),
     ).toBeInTheDocument();
     expect(screen.getByText(/Signed in as musicfan42/)).toBeInTheDocument();
   });
@@ -100,7 +100,7 @@ describe("ConnectorCard", () => {
     expect(screen.getByText("MusicBrainz")).toBeInTheDocument();
     expect(screen.getByText("Available")).toBeInTheDocument();
     expect(
-      screen.getByText("Track identification, metadata enrichment"),
+      screen.getByText("Track metadata enrichment and identification"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Public API \u00b7 no authentication required"),
@@ -121,7 +121,9 @@ describe("ConnectorCard", () => {
 
     expect(screen.getByText("Apple Music")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
-    expect(screen.getByText("Library, playlists")).toBeInTheDocument();
+    expect(
+      screen.getByText("Playlists and library sync (coming soon)"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Coming soon \u00b7 connector under development"),
     ).toBeInTheDocument();
@@ -140,7 +142,7 @@ describe("ConnectorCard", () => {
     );
 
     expect(
-      screen.getByText("Not connected \u00b7 run CLI to authenticate"),
+      screen.getByText("Not connected \u00b7 run narada auth lastfm"),
     ).toBeInTheDocument();
   });
 });

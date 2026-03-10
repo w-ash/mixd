@@ -84,6 +84,28 @@ class SyncLinkRequest(BaseModel):
     direction_override: str | None = None
 
 
+class UpdateLinkRequest(BaseModel):
+    """Request body for PATCH /playlists/{id}/links/{link_id}."""
+
+    sync_direction: str
+
+
+class SyncPreviewResponse(BaseModel):
+    """Preview of what a sync operation would change (read-only).
+
+    When ``has_comparison_data`` is False, the link has never been synced
+    and no locally-cached external playlist exists for diffing.
+    """
+
+    tracks_to_add: int
+    tracks_to_remove: int
+    tracks_unchanged: int
+    direction: str
+    connector_name: str
+    playlist_name: str
+    has_comparison_data: bool = True
+
+
 class SyncStartedResponse(BaseModel):
     """Response for sync operations that run in the background."""
 

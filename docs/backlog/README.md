@@ -1,6 +1,6 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.7
+**Current Version**: 0.4.8
 **Current Initiative**: Data Integrity & Quality Audit
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -26,8 +26,9 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.5** | Code & test suite hardening | ✅ Completed | [details](v0.4.x.md#v045-code--test-suite-hardening) |
 | **v0.4.6** | Track provenance & duplicate merge | ✅ Completed | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
 | **v0.4.7** | Track relink & unlink | ✅ Completed | [details](v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
-| **v0.4.8** | Data integrity & quality audit | 🔜 Not Started | [details](v0.4.x.md#v048-data-integrity--quality-audit) |
-| **v0.4.9** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v049-cli-unification--polish) |
+| **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
+| **v0.4.9** | Data integrity & quality audit | 🔜 Not Started | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
+| **v0.4.10** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v0410-cli-unification--polish) |
 | **v0.5.0** | CI/CD + PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
 | **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |

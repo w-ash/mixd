@@ -9,7 +9,7 @@ Joins through DBConnectorPlaylist to denormalize the external playlist identifie
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -149,6 +149,31 @@ class PlaylistLinkRepository:
             .values(**values)
         )
         await self._session.execute(stmt)
+
+    @db_operation("count_links_by_connector")
+    async def count_links_by_connector(self) -> dict[str, int]:
+        """Count linked playlists grouped by connector name."""
+        stmt = select(
+            DBPlaylistMapping.connector_name,
+            func.count(DBPlaylistMapping.id),
+        ).group_by(DBPlaylistMapping.connector_name)
+        result = await self._session.execute(stmt)
+        return {name: count for name, count in result.tuples().all()}
+
+    @db_operation("update_link_direction")
+    async def update_link_direction(
+        self, link_id: int, direction: SyncDirection
+    ) -> PlaylistLink | None:
+        """Update the sync direction for a link. Returns the updated link."""
+        stmt = (
+            update(DBPlaylistMapping)
+            .where(DBPlaylistMapping.id == link_id)
+            .values(sync_direction=direction.value)
+        )
+        result = await self._session.execute(stmt)
+        if result.rowcount == 0:
+            return None
+        return await self.get_link(link_id)
 
     @db_operation("delete_link")
     async def delete_link(self, link_id: int) -> bool:

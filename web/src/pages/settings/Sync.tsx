@@ -96,7 +96,7 @@ function OperationCard({
           disabled={isPending || isActive || triggerDisabled}
           onClick={onTrigger}
         >
-          {isPending ? "Starting..." : isActive ? "Running..." : "Run"}
+          {isPending ? "Starting..." : isActive ? "Running..." : "Import"}
         </Button>
       </div>
 
@@ -172,23 +172,46 @@ function LastfmHistoryImport({
           }
         }}
       >
-        {(["recent", "incremental", "full"] as const).map((option) => (
+        {(
+          [
+            {
+              value: "recent",
+              label: "Recent",
+              desc: "Last 90 days of scrobbles",
+            },
+            {
+              value: "incremental",
+              label: "Since last import",
+              desc: "Everything new since your last import",
+            },
+            {
+              value: "full",
+              label: "Full",
+              desc: "Complete listening history (may be slow)",
+            },
+          ] as const
+        ).map((option) => (
           // biome-ignore lint/a11y/useSemanticElements: styled segmented control
           <button
-            key={option}
+            key={option.value}
             type="button"
             role="radio"
-            aria-checked={mode === option}
-            tabIndex={mode === option ? 0 : -1}
-            onClick={() => setMode(option)}
+            aria-checked={mode === option.value}
+            tabIndex={mode === option.value ? 0 : -1}
+            onClick={() => setMode(option.value)}
             className={cn(
-              "rounded-md px-3 py-1.5 font-display text-xs font-medium capitalize transition-colors",
-              mode === option
+              "rounded-md px-3 py-2 text-left transition-colors",
+              mode === option.value
                 ? "bg-primary/15 text-primary ring-1 ring-primary/30"
                 : "bg-surface-elevated text-text-muted hover:text-text",
             )}
           >
-            {option}
+            <span className="font-display text-xs font-medium">
+              {option.label}
+            </span>
+            <span className="block text-[10px] text-text-faint mt-0.5">
+              {option.desc}
+            </span>
           </button>
         ))}
       </div>
@@ -272,8 +295,8 @@ function SpotifyHistoryImport({
   return (
     <OperationCard
       connector="spotify"
-      title="GDPR Export"
-      description="Upload your Spotify data export (JSON)."
+      title="Spotify Data Export"
+      description="Upload the streaming history JSON from your Spotify privacy data download."
       checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
       operationId={operationId}
       isPending={mutation.isPending}
@@ -285,6 +308,15 @@ function SpotifyHistoryImport({
         onFileSelect={setSelectedFile}
         disabled={mutation.isPending}
       />
+      <details className="mt-2 text-xs text-text-faint">
+        <summary className="cursor-pointer hover:text-text-muted">
+          How to get your data export
+        </summary>
+        <p className="mt-1 pl-3 border-l border-border">
+          Go to spotify.com/account/privacy &rarr; Request your data &rarr;
+          Upload the streaming history JSON file here.
+        </p>
+      </details>
     </OperationCard>
   );
 }

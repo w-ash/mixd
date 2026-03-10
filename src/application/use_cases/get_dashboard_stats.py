@@ -24,6 +24,8 @@ class DashboardStatsResult:
     total_liked: int
     tracks_by_connector: dict[str, int]
     liked_by_connector: dict[str, int]
+    plays_by_connector: dict[str, int]
+    playlists_by_connector: dict[str, int]
 
 
 @define(slots=True)
@@ -48,6 +50,7 @@ class GetDashboardStatsUseCase:
             playlist_repo = uow.get_playlist_repository()
             like_repo = uow.get_like_repository()
             connector_repo = uow.get_connector_repository()
+            link_repo = uow.get_playlist_link_repository()
 
             # Sequential: these are independent queries but SQLite serializes
             # all operations. Parallelize with TaskGroup after PostgreSQL migration.
@@ -57,6 +60,8 @@ class GetDashboardStatsUseCase:
             total_liked = await like_repo.count_total_liked()
             tracks_by_connector = await connector_repo.count_tracks_by_connector()
             liked_by_connector = await like_repo.count_liked_by_service()
+            plays_by_connector = await plays_repo.count_plays_by_service()
+            playlists_by_connector = await link_repo.count_links_by_connector()
 
             return DashboardStatsResult(
                 total_tracks=total_tracks,
@@ -65,4 +70,6 @@ class GetDashboardStatsUseCase:
                 total_liked=total_liked,
                 tracks_by_connector=tracks_by_connector,
                 liked_by_connector=liked_by_connector,
+                plays_by_connector=plays_by_connector,
+                playlists_by_connector=playlists_by_connector,
             )

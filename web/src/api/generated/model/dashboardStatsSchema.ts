@@ -3,9 +3,11 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.7
+ * OpenAPI spec version: 0.4.8
  */
 import type { DashboardStatsSchemaLikedByConnector } from './dashboardStatsSchemaLikedByConnector';
+import type { DashboardStatsSchemaPlaylistsByConnector } from './dashboardStatsSchemaPlaylistsByConnector';
+import type { DashboardStatsSchemaPlaysByConnector } from './dashboardStatsSchemaPlaysByConnector';
 import type { DashboardStatsSchemaTracksByConnector } from './dashboardStatsSchemaTracksByConnector';
 
 /**
@@ -18,4 +20,6 @@ export interface DashboardStatsSchema {
   total_liked: number;
   tracks_by_connector: DashboardStatsSchemaTracksByConnector;
   liked_by_connector: DashboardStatsSchemaLikedByConnector;
+  plays_by_connector: DashboardStatsSchemaPlaysByConnector;
+  playlists_by_connector: DashboardStatsSchemaPlaylistsByConnector;
 }

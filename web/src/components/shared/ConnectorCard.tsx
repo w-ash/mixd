@@ -2,12 +2,12 @@ import type { ConnectorStatusSchema } from "@/api/generated/model";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { Badge } from "@/components/ui/badge";
 
-/** Static descriptions — what each connector provides, regardless of connection state. */
+/** Static descriptions — what each connector enables. */
 const connectorDescriptions: Record<string, string> = {
-  spotify: "Playlists, liked tracks, listening history",
-  lastfm: "Scrobble counts, play history, loved tracks",
-  musicbrainz: "Track identification, metadata enrichment",
-  apple: "Library, playlists",
+  spotify: "Playlists, liked tracks, and library sync",
+  lastfm: "Listening history, play counts, and loved tracks",
+  musicbrainz: "Track metadata enrichment and identification",
+  apple: "Playlists and library sync (coming soon)",
 };
 
 /** Auth/status detail — always rendered as the last line of each card. */
@@ -19,7 +19,13 @@ function getAuthDetail(connector: ConnectorStatusSchema): string {
     return "Public API \u00b7 no authentication required";
   }
   if (!connector.connected) {
-    return "Not connected \u00b7 run CLI to authenticate";
+    const authCommand =
+      connector.name === "spotify"
+        ? "narada auth spotify"
+        : connector.name === "lastfm"
+          ? "narada auth lastfm"
+          : "narada auth";
+    return `Not connected \u00b7 run ${authCommand}`;
   }
 
   const identity = connector.account_name

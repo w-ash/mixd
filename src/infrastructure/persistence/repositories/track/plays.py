@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import override
 
 from attrs import define
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -96,6 +96,16 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         stmt = self.count()
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
+    @db_operation("count_plays_by_service")
+    async def count_plays_by_service(self) -> dict[str, int]:
+        """Count play records grouped by service."""
+        stmt = select(
+            DBTrackPlay.service,
+            func.count(DBTrackPlay.id),
+        ).group_by(DBTrackPlay.service)
+        result = await self.session.execute(stmt)
+        return {service: count for service, count in result.tuples().all()}
 
     @db_operation("bulk_insert_plays")
     async def bulk_insert_plays(self, plays: list[TrackPlay]) -> tuple[int, int]:

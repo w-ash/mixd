@@ -13,6 +13,8 @@ const mockStats = {
   total_liked: 456,
   tracks_by_connector: { spotify: 1000, lastfm: 800 },
   liked_by_connector: { spotify: 300, lastfm: 150 },
+  plays_by_connector: { lastfm: 45000, spotify: 11789 },
+  playlists_by_connector: { spotify: 3 },
 };
 
 describe("Dashboard", () => {
@@ -40,10 +42,10 @@ describe("Dashboard", () => {
     expect(screen.getByText("456")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
 
-    expect(screen.getByText("Total Tracks")).toBeInTheDocument();
+    expect(screen.getByText("Tracks across 2 services")).toBeInTheDocument();
     expect(screen.getByText("Total Plays")).toBeInTheDocument();
     expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
-    expect(screen.getByText("Playlists")).toBeInTheDocument();
+    expect(screen.getByText("Playlists \u00b7 3 linked")).toBeInTheDocument();
   });
 
   it("renders per-connector breakdowns", async () => {
@@ -79,6 +81,8 @@ describe("Dashboard", () => {
             total_liked: 0,
             tracks_by_connector: {},
             liked_by_connector: {},
+            plays_by_connector: {},
+            playlists_by_connector: {},
           },
           { status: 200 },
         );

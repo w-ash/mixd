@@ -28,11 +28,22 @@ import {
   useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet,
   useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost,
   useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch,
+  useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
 } from "@/api/generated/playlists/playlists";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
+import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
+import {
+  ConnectorIcon,
+  getConnectorLabel,
+} from "@/components/shared/ConnectorIcon";
+import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { OperationProgress } from "@/components/shared/OperationProgress";
+import {
+  StatusIndicator,
+  syncStatusVariant,
+} from "@/components/shared/StatusIndicator";
+import { SyncConfirmationDialog } from "@/components/shared/SyncConfirmationDialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -69,7 +80,7 @@ import {
   formatRelativeTime,
   formatTotalDuration,
 } from "@/lib/format";
-import { getSyncStatusConfig } from "@/lib/sync-status";
+import { formatSyncResults, getSyncStatusConfig } from "@/lib/sync-status";
 
 function DetailSkeleton() {
   return (
@@ -118,34 +129,23 @@ function DeletePlaylistDialog({ playlistId }: { playlistId: number }) {
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="destructive" size="sm">
-          Delete
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete Playlist</DialogTitle>
-          <DialogDescription>
-            This action cannot be undone. The playlist and all its entries will
-            be permanently removed.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={deleteMutation.isPending}
-            onClick={() => deleteMutation.mutate({ playlistId })}
-          >
-            {deleteMutation.isPending ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
+        Delete
+      </Button>
+      <ConfirmationDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Delete Playlist"
+        description="This action cannot be undone. The playlist and all its entries will be permanently removed."
+        confirmLabel={
+          deleteMutation.isPending ? "Deleting..." : "Delete permanently"
+        }
+        destructive
+        isPending={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate({ playlistId })}
+      />
+    </>
   );
 }
 
@@ -452,6 +452,8 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: number }) {
 function LinkedServicesSection({ playlistId }: { playlistId: number }) {
   const queryClient = useQueryClient();
   const [syncOperationId, setSyncOperationId] = useState<string | null>(null);
+  const [syncDialogLink, setSyncDialogLink] =
+    useState<PlaylistLinkSchema | null>(null);
 
   const { progress: syncProgress, isActive: isSyncing } = useOperationProgress(
     syncOperationId,
@@ -514,6 +516,20 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
       },
     });
 
+  const updateLinkMutation =
+    useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch({
+      mutation: {
+        onSuccess: () => {
+          invalidateLinkQueries(queryClient, playlistId);
+        },
+        onError: (error: Error) => {
+          toast.error("Failed to update direction", {
+            description: error.message,
+          });
+        },
+      },
+    });
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -545,103 +561,129 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
       ) : (
         <div className="space-y-2">
           {links.map((link) => {
-            const statusCfg = getSyncStatusConfig(link.sync_status);
+            const label = getConnectorLabel(link.connector_name);
+            const directionLabel =
+              link.sync_direction === "push"
+                ? `Local \u2192 ${label}`
+                : `${label} \u2192 Local`;
+            const syncButtonLabel =
+              link.sync_direction === "push"
+                ? `Sync to ${label}`
+                : `Sync from ${label}`;
+            const syncResults = formatSyncResults(
+              link.last_sync_tracks_added,
+              link.last_sync_tracks_removed,
+            );
 
             return (
-              <div
+              <ConnectorListItem
                 key={link.id}
-                className="group flex items-center gap-4 rounded-md border-l-2 border-border bg-surface-inset px-4 py-3 transition-colors hover:border-primary/40"
-              >
-                {/* Connector icon + name */}
-                <ConnectorIcon name={link.connector_name} />
-
-                {/* External playlist name */}
-                <span className="min-w-0 flex-1 truncate font-body text-sm text-text-muted">
-                  {link.connector_playlist_name ?? link.connector_playlist_id}
-                </span>
-
-                {/* Direction arrow */}
-                <span
-                  className="flex items-center gap-1 text-xs text-text-muted"
-                  title={
-                    link.sync_direction === "push"
-                      ? "Push: local → service"
-                      : "Pull: service → local"
-                  }
-                >
-                  {link.sync_direction === "push" ? (
-                    <ArrowRight className="size-3.5" />
-                  ) : (
-                    <ArrowLeftRight className="size-3.5" />
-                  )}
-                  <span className="font-mono text-[11px] uppercase">
-                    {link.sync_direction}
-                  </span>
-                </span>
-
-                {/* Status dot + last sync */}
-                <span className="flex items-center gap-1.5 text-xs text-text-muted">
-                  <span
-                    className={`size-1.5 rounded-full ${statusCfg.dotClass}`}
-                  />
-                  <span>{formatRelativeTime(link.last_synced)}</span>
-                </span>
-
-                {/* Error indicator */}
-                {link.sync_status === "error" && link.last_sync_error && (
-                  <span
-                    className="max-w-32 truncate text-xs text-red-400"
-                    title={link.last_sync_error}
-                  >
-                    {link.last_sync_error}
-                  </span>
-                )}
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    disabled={
+                connectorName={link.connector_name}
+                actions={
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-text-muted hover:text-text"
+                      disabled={
+                        syncMutation.isPending ||
+                        isSyncing ||
+                        link.sync_status === "syncing"
+                      }
+                      onClick={() => setSyncDialogLink(link)}
+                    >
+                      {link.sync_status === "syncing" ||
                       syncMutation.isPending ||
-                      isSyncing ||
-                      link.sync_status === "syncing"
-                    }
+                      isSyncing ? (
+                        <Loader2 className="mr-1 size-3 animate-spin" />
+                      ) : (
+                        <ArrowLeftRight className="mr-1 size-3" />
+                      )}
+                      {syncButtonLabel}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-text-muted hover:text-red-400"
+                      title="Removes the sync link. Your external playlist is unchanged."
+                      disabled={deleteLinkMutation.isPending}
+                      onClick={() =>
+                        deleteLinkMutation.mutate({
+                          playlistId,
+                          linkId: link.id,
+                        })
+                      }
+                    >
+                      <Unlink className="mr-1 size-3" />
+                      Remove link
+                    </Button>
+                  </>
+                }
+              >
+                {/* Playlist name + direction + status */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="truncate font-body text-sm text-text-muted">
+                    {link.connector_playlist_name ?? link.connector_playlist_id}
+                  </span>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-elevated hover:text-text"
+                    title={`Click to switch to ${link.sync_direction === "push" ? "pull" : "push"}`}
+                    disabled={updateLinkMutation.isPending}
                     onClick={() =>
-                      syncMutation.mutate({
+                      updateLinkMutation.mutate({
                         playlistId,
                         linkId: link.id,
-                        data: null as never,
+                        data: {
+                          sync_direction:
+                            link.sync_direction === "push" ? "pull" : "push",
+                        },
                       })
                     }
                   >
-                    {link.sync_status === "syncing" ||
-                    syncMutation.isPending ||
-                    isSyncing ? (
-                      <Loader2 className="mr-1 size-3 animate-spin" />
-                    ) : (
-                      <ArrowLeftRight className="mr-1 size-3" />
-                    )}
-                    Sync
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-red-400 hover:text-red-300"
-                    disabled={deleteLinkMutation.isPending}
-                    onClick={() =>
-                      deleteLinkMutation.mutate({ playlistId, linkId: link.id })
+                    <ArrowRight className="size-3.5" />
+                    <span className="text-[11px]">{directionLabel}</span>
+                  </button>
+                  <StatusIndicator
+                    variant={syncStatusVariant(link.sync_status)}
+                    label={getSyncStatusConfig(link.sync_status).label}
+                    detail={
+                      link.sync_status === "error"
+                        ? (link.last_sync_error ?? undefined)
+                        : (syncResults ??
+                          formatRelativeTime(link.last_synced) ??
+                          undefined)
                     }
-                  >
-                    <Unlink className="mr-1 size-3" />
-                    Unlink
-                  </Button>
+                  />
                 </div>
-              </div>
+              </ConnectorListItem>
             );
           })}
         </div>
+      )}
+
+      {syncDialogLink && (
+        <SyncConfirmationDialog
+          open
+          onOpenChange={(open) => !open && setSyncDialogLink(null)}
+          playlistId={playlistId}
+          linkId={syncDialogLink.id}
+          connectorName={syncDialogLink.connector_name}
+          playlistName={
+            syncDialogLink.connector_playlist_name ??
+            syncDialogLink.connector_playlist_id
+          }
+          currentDirection={syncDialogLink.sync_direction}
+          isPending={syncMutation.isPending}
+          onConfirm={(directionOverride) => {
+            syncMutation.mutate({
+              playlistId,
+              linkId: syncDialogLink.id,
+              data: { direction_override: directionOverride },
+            });
+            setSyncDialogLink(null);
+          }}
+        />
       )}
     </section>
   );

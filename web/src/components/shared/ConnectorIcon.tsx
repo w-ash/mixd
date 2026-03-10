@@ -78,6 +78,15 @@ const connectorConfig = {
 
 export type ConnectorName = keyof typeof connectorConfig;
 
+/** Get the display label for a connector name (e.g. "spotify" → "Spotify"). */
+export function getConnectorLabel(name: string): string {
+  const config = connectorConfig[name as ConnectorName];
+  if (config) return config.label;
+  // Backend uses "apple_music" but icon config uses "apple"
+  if (name === "apple_music") return "Apple Music";
+  return name;
+}
+
 const iconSizes = {
   sm: "h-4 w-4",
   lg: "h-8 w-8",

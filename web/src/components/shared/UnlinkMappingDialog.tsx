@@ -7,16 +7,8 @@ import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete,
 } from "@/api/generated/tracks/tracks";
+import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
 import { MappingInfoCard } from "@/components/shared/MappingInfoCard";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 interface UnlinkMappingDialogProps {
   trackId: number;
@@ -61,50 +53,27 @@ export function UnlinkMappingDialog({
       },
     });
 
-  const handleConfirm = () => {
-    unlinkMutation.mutate({
-      trackId,
-      mappingId: mapping.mapping_id,
-    });
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Unlink Mapping</DialogTitle>
-          <DialogDescription>
-            Remove this {mapping.connector_name} mapping from the track.
-          </DialogDescription>
-        </DialogHeader>
+    <ConfirmationDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Unlink Mapping"
+      description={`Remove this ${mapping.connector_name} mapping from the track.`}
+      confirmLabel={unlinkMutation.isPending ? "Unlinking..." : "Unlink"}
+      destructive
+      isPending={unlinkMutation.isPending}
+      onConfirm={() =>
+        unlinkMutation.mutate({ trackId, mappingId: mapping.mapping_id })
+      }
+    >
+      <MappingInfoCard mapping={mapping} />
 
-        <MappingInfoCard mapping={mapping} />
-
-        <div className="rounded-md bg-status-error/10 p-3 text-sm text-text-muted">
-          <strong className="text-text">This cannot be undone.</strong> The
-          mapping will be permanently removed from this track. If no other
-          mappings reference this external track, an orphan track will be
-          auto-created.
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleConfirm}
-            disabled={unlinkMutation.isPending}
-          >
-            {unlinkMutation.isPending ? "Unlinking..." : "Unlink"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="rounded-md bg-status-error/10 p-3 text-sm text-text-muted">
+        <strong className="text-text">This cannot be undone.</strong> The
+        mapping will be permanently removed from this track. If no other
+        mappings reference this external track, an orphan track will be
+        auto-created.
+      </div>
+    </ConfirmationDialog>
   );
 }

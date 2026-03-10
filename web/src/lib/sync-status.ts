@@ -2,8 +2,8 @@
 
 export const syncStatusConfig = {
   synced: { label: "Synced", dotClass: "bg-green-500" },
-  syncing: { label: "Syncing", dotClass: "bg-blue-400 animate-pulse" },
-  error: { label: "Error", dotClass: "bg-red-500" },
+  syncing: { label: "Syncing\u2026", dotClass: "bg-blue-400 animate-pulse" },
+  error: { label: "Sync failed", dotClass: "bg-red-500" },
   never_synced: { label: "Never synced", dotClass: "bg-text-muted/40" },
 } as const;
 
@@ -14,4 +14,15 @@ export function getSyncStatusConfig(status: string) {
   return (
     syncStatusConfig[status as SyncStatusKey] ?? syncStatusConfig.never_synced
   );
+}
+
+/** Format last sync results as a compact string: "+12 added · -3 removed" */
+export function formatSyncResults(
+  added: number | null | undefined,
+  removed: number | null | undefined,
+): string | null {
+  const parts: string[] = [];
+  if (added != null && added > 0) parts.push(`+${added} added`);
+  if (removed != null && removed > 0) parts.push(`-${removed} removed`);
+  return parts.length > 0 ? parts.join(" · ") : null;
 }

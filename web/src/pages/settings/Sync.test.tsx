@@ -68,7 +68,7 @@ describe("Sync page", () => {
     expect(screen.getByText("Scrobble History")).toBeInTheDocument();
     expect(screen.getByText("Import Likes")).toBeInTheDocument();
     expect(screen.getByText("Export Loves")).toBeInTheDocument();
-    expect(screen.getByText("GDPR Export")).toBeInTheDocument();
+    expect(screen.getByText("Spotify Data Export")).toBeInTheDocument();
   });
 
   it("renders connector icons for service identification", () => {
@@ -86,8 +86,8 @@ describe("Sync page", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
 
-    const runButtons = screen.getAllByRole("button", { name: "Run" });
-    expect(runButtons).toHaveLength(4);
+    const importButtons = screen.getAllByRole("button", { name: "Import" });
+    expect(importButtons).toHaveLength(4);
   });
 
   it("renders segmented mode selector for Last.fm history", () => {
@@ -95,7 +95,9 @@ describe("Sync page", () => {
     renderWithProviders(<Sync />);
 
     const recentBtn = screen.getByRole("radio", { name: /recent/i });
-    const incrementalBtn = screen.getByRole("radio", { name: /incremental/i });
+    const incrementalBtn = screen.getByRole("radio", {
+      name: /since last import/i,
+    });
     const fullBtn = screen.getByRole("radio", { name: /full/i });
 
     expect(recentBtn).toHaveAttribute("aria-checked", "true");

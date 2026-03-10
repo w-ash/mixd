@@ -16,6 +16,8 @@ class DashboardStatsSchema(BaseModel):
     total_liked: int
     tracks_by_connector: dict[str, int]
     liked_by_connector: dict[str, int]
+    plays_by_connector: dict[str, int]
+    playlists_by_connector: dict[str, int]
 
 
 def to_dashboard_stats(result: DashboardStatsResult) -> DashboardStatsSchema:

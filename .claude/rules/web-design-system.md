@@ -18,21 +18,45 @@ Narada is a power tool for music metadata enthusiasts — the "record store crat
 - Mono font (JetBrains Mono): ISRCs, IDs, durations, timestamps, code
 - Never use Inter, Roboto, system-ui for display text
 
-## Accessibility (WCAG 2.2 AA)
-- Semantic HTML: `nav`, `main`, `article`, `header` — not div soup
-- ARIA labels on all interactive elements; `aria-live` for dynamic progress updates
-- Keyboard navigation: Tab order, Esc closes modals, Enter submits
-- 44x44px minimum touch targets; 4.5:1 contrast ratio for text
+## Accessibility: WCAG 2.2 AA
+- 44×44px minimum touch targets; 4.5:1 contrast ratio for text
+- `aria-live` for dynamic progress updates (sync status, import progress)
+
+## Self-Explanatory Interface Principles
+
+### Status Indicators
+- **Never color alone** — every status must combine at least two of: icon, color, text label. A colored dot without a label is meaningless.
+- **Use contextual text** — "Synced 2h ago", "Sync failed: rate limited", "Strong match (85%)" — not just "green dot" or bare percentages.
+- **Reuse `StatusIndicator` pattern** — consistent component across playlist sync status, connector status, and match quality.
+
+### Confirmation & Destructive Actions
+- **Confirmation dialogs for serious consequences only** — don't cry wolf. Routine actions need no confirmation. Sync operations that modify external services always do.
+- **Restate what will happen** — "This will add 12 tracks to Summer Vibes on Spotify" not "Are you sure?"
+- **Action-specific button labels** — "Sync to Spotify" not "Confirm". "Remove link" not "Yes".
+- **Default focus on the safe option** (Cancel), not the destructive action.
+
+### Discoverable Actions
+- **Never hide primary actions behind hover** — `opacity-0 group-hover:opacity-100` is forbidden for important actions. Use subtle-at-rest styling instead (muted color that strengthens on hover).
+- **Buttons describe consequences** — "Sync to Spotify", "Import from Last.fm", not generic "Run" or "Sync".
+- **Inline consequence hints** for destructive actions — show what will happen before the user opens a dialog.
+
+### Microcopy
+- **Titles must be comprehensible standalone** — users scan, they don't read. If the title doesn't make sense without the body, rewrite it.
+- **Plain language over jargon** — "Local → Spotify" not "push". "Spotify Data Export" not "GDPR Export". "Since your last import" not "incremental".
+- **Explain the "why" before the "what"** — "To see your listening stats, connect Last.fm" not just "Connect Last.fm".
+
+### Progressive Disclosure
+- **Basics visible, details expandable** — show the essential information at rest, let users expand for more.
+- **Described options** — radio buttons and selectors include short descriptions, not just labels.
+- **Error details expandable** — show summary at rest, full error on click/expand.
+
+### Consistency Across Pages
+- **Same action = same pattern everywhere** — connector relationships (track mappings, playlist links) use the same visual component, button style, and interaction pattern regardless of page.
+- **Same status = same indicator everywhere** — sync status, match quality, and connection status all use the same `StatusIndicator` system.
 
 ## Anti-AI-Slop Design Principles
 
 All LLMs train on the same layouts and templates — without specific guidance, they converge on the statistical average of "website." These rules exist to prevent that.
-
-### Structural Rules
-- **Every element must be defensible** — if you can't justify its existence and placement, remove it
-- **Design all states** — empty, loading, error, single item, overflow, long text. Never just the happy path.
-- **Test with real content** — use actual track titles, artist names, and play counts. Not "Song Title" x 5.
-- **No Frankenstein layouts** — sections must flow with narrative purpose, not feel randomly assembled
 
 ### Visual Identity (Narada-specific)
 - **3-level depth system** (inset/flat/elevated) — no uniform containers. If every card looks the same, hierarchy is broken.
@@ -42,13 +66,10 @@ All LLMs train on the same layouts and templates — without specific guidance, 
 - **Asymmetric borders** — prefer left-accent bars and bottom rules over full border boxes.
 
 ### Visual Clichés to Avoid
-- Purple/blue/indigo gradients as primary palette (the AI default — every LLM reaches for `bg-indigo-500`)
-- Glassmorphism as design foundation (surgical accent on one element is fine — as the whole theme, never)
-- Blobby decorative background shapes that serve no purpose
-- Every container with identical `rounded-xl border bg-card p-4`
+- Purple/blue/indigo gradients as primary palette (the AI default)
+- Glassmorphism as design foundation (surgical accent fine — never as whole theme)
+- Every container with identical `rounded-xl border bg-card p-4` — vary depth
 - Uniform spacing between all sections (vary the rhythm)
 - `animate-pulse` skeleton loaders (use shimmer gradient instead)
 - Text-only empty states without visual presence
-- Static pages with no entrance animation
 - Native browser form controls in a dark theme
-- Over-generating elements — more UI isn't better UI. Reduce cognitive load.

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.7
+ * OpenAPI spec version: 0.4.8
  */
 import {
   faker
@@ -22,6 +22,7 @@ import type {
   PaginatedResponsePlaylistSummarySchema,
   PlaylistDetailSchema,
   PlaylistLinkSchema,
+  SyncPreviewResponse,
   SyncStartedResponse
 } from '../model';
 
@@ -41,6 +42,10 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetResponseMock =
 export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseMock = (): PlaylistLinkSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), sync_direction: faker.string.alpha({length: {min: 10, max: 20}}), sync_status: faker.string.alpha({length: {min: 10, max: 20}}), last_synced: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_sync_error: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), last_sync_tracks_added: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), last_sync_tracks_removed: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])})))
 
 export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseMock = (overrideResponse: Partial<Extract<PlaylistLinkSchema, object>> = {}): PlaylistLinkSchema => ({id: faker.number.int(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), sync_direction: faker.string.alpha({length: {min: 10, max: 20}}), sync_status: faker.string.alpha({length: {min: 10, max: 20}}), last_synced: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_sync_error: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), last_sync_tracks_added: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), last_sync_tracks_removed: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), ...overrideResponse})
+
+export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseMock = (overrideResponse: Partial<Extract<PlaylistLinkSchema, object>> = {}): PlaylistLinkSchema => ({id: faker.number.int(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), sync_direction: faker.string.alpha({length: {min: 10, max: 20}}), sync_status: faker.string.alpha({length: {min: 10, max: 20}}), last_synced: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_sync_error: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), last_sync_tracks_added: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), last_sync_tracks_removed: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), ...overrideResponse})
+
+export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseMock = (overrideResponse: Partial<Extract<SyncPreviewResponse, object>> = {}): SyncPreviewResponse => ({tracks_to_add: faker.number.int(), tracks_to_remove: faker.number.int(), tracks_unchanged: faker.number.int(), direction: faker.string.alpha({length: {min: 10, max: 20}}), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), playlist_name: faker.string.alpha({length: {min: 10, max: 20}}), has_comparison_data: faker.datatype.boolean(), ...overrideResponse})
 
 export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseMock = (overrideResponse: Partial<Extract<SyncStartedResponse, object>> = {}): SyncStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -161,6 +166,30 @@ export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMockH
   }, options)
 }
 
+export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMockHandler = (overrideResponse?: PlaylistLinkSchema | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<PlaylistLinkSchema> | PlaylistLinkSchema), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/playlists/:playlistId/links/:linkId', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetMockHandler = (overrideResponse?: SyncPreviewResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SyncPreviewResponse> | SyncPreviewResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/playlists/:playlistId/links/:linkId/sync/preview', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMockHandler = (overrideResponse?: SyncStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SyncStartedResponse> | SyncStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/playlists/:playlistId/links/:linkId/sync', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
   
@@ -183,5 +212,7 @@ export const getPlaylistsMock = () => [
   getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetMockHandler(),
   getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMockHandler(),
   getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMockHandler(),
+  getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMockHandler(),
+  getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetMockHandler(),
   getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMockHandler()
 ]

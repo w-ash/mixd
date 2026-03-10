@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.7
+ * OpenAPI spec version: 0.4.8
  */
 
 export * from './artistSchema';
@@ -18,6 +18,8 @@ export * from './createPlaylistRequest';
 export * from './createWorkflowRequest';
 export * from './dashboardStatsSchema';
 export * from './dashboardStatsSchemaLikedByConnector';
+export * from './dashboardStatsSchemaPlaylistsByConnector';
+export * from './dashboardStatsSchemaPlaysByConnector';
 export * from './dashboardStatsSchemaTracksByConnector';
 export * from './exportLastfmLikesRequest';
 export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams';
@@ -49,14 +51,17 @@ export * from './playlistEntrySchema';
 export * from './playlistLinkSchema';
 export * from './playlistSummarySchema';
 export * from './playSummarySchema';
+export * from './previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams';
 export * from './previewStartedResponse';
 export * from './relinkMappingRequest';
 export * from './syncLinkRequest';
+export * from './syncPreviewResponse';
 export * from './syncStartedResponse';
 export * from './trackDetailSchema';
 export * from './trackDetailSchemaLikeStatus';
 export * from './trackSummarySchema';
 export * from './unlinkMappingResponse';
+export * from './updateLinkRequest';
 export * from './updatePlaylistRequest';
 export * from './updateWorkflowRequest';
 export * from './validationError';

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.7
+ * OpenAPI spec version: 0.4.8
  */
 import {
   useMutation,
@@ -35,8 +35,11 @@ import type {
   PaginatedResponsePlaylistSummarySchema,
   PlaylistDetailSchema,
   PlaylistLinkSchema,
+  PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams,
   SyncLinkRequest,
+  SyncPreviewResponse,
   SyncStartedResponse,
+  UpdateLinkRequest,
   UpdatePlaylistRequest
 } from '../model';
 
@@ -1087,6 +1090,240 @@ export const useDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete = <T
       return useMutation(getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationOptions(options), queryClient);
     }
     /**
+ * Update a playlist link's sync direction.
+ * @summary Update Playlist Link
+ */
+export type updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse200 = {
+  data: PlaylistLinkSchema
+  status: 200
+}
+
+export type updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseSuccess = (updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseError = (updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse = (updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseSuccess | updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseError)
+
+export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl = (playlistId: number,
+    linkId: number,) => {
+
+
+  
+
+  return `/api/v1/playlists/${playlistId}/links/${linkId}`
+}
+
+export const updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch = async (playlistId: number,
+    linkId: number,
+    updateLinkRequest: UpdateLinkRequest, options?: RequestInit): Promise<updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse> => {
+  
+  return customFetch<updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse>(getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl(playlistId,linkId),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateLinkRequest,)
+  }
+);}
+  
+
+
+
+export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>, TError,{playlistId: number;linkId: number;data: UpdateLinkRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>, TError,{playlistId: number;linkId: number;data: UpdateLinkRequest}, TContext> => {
+
+const mutationKey = ['updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>, {playlistId: number;linkId: number;data: UpdateLinkRequest}> = (props) => {
+          const {playlistId,linkId,data} = props ?? {};
+
+          return  updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch(playlistId,linkId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>>
+    export type UpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMutationBody = UpdateLinkRequest
+    export type UpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMutationError = HTTPValidationError
+
+    /**
+ * @summary Update Playlist Link
+ */
+export const useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>, TError,{playlistId: number;linkId: number;data: UpdateLinkRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>,
+        TError,
+        {playlistId: number;linkId: number;data: UpdateLinkRequest},
+        TContext
+      > => {
+      return useMutation(getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMutationOptions(options), queryClient);
+    }
+    /**
+ * Preview what a sync would change without executing it.
+ * @summary Preview Playlist Sync
+ */
+export type previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse200 = {
+  data: SyncPreviewResponse
+  status: 200
+}
+
+export type previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseSuccess = (previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse200) & {
+  headers: Headers;
+};
+export type previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseError = (previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse422) & {
+  headers: Headers;
+};
+
+export type previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse = (previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseSuccess | previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseError)
+
+export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetUrl = (playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/playlists/${playlistId}/links/${linkId}/sync/preview?${stringifiedParams}` : `/api/v1/playlists/${playlistId}/links/${linkId}/sync/preview`
+}
+
+export const previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet = async (playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: RequestInit): Promise<previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse> => {
+  
+  return customFetch<previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse>(getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetUrl(playlistId,linkId,params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+  
+
+
+
+
+export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryKey = (playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams,) => {
+    return [
+    `/api/v1/playlists/${playlistId}/links/${linkId}/sync/preview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryOptions = <TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryKey(playlistId,linkId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>> = ({ signal }) => previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet(playlistId,linkId,params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(playlistId && linkId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryResult = NonNullable<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>>
+export type PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryError = HTTPValidationError
+
+
+export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet<TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(
+ playlistId: number,
+    linkId: number,
+    params: undefined |  PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet<TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(
+ playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet<TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(
+ playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Preview Playlist Sync
+ */
+
+export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet<TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(
+ playlistId: number,
+    linkId: number,
+    params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryOptions(playlistId,linkId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
  * Start a sync operation for a playlist link.
 
 Returns immediately with an operation_id. Progress streams via
