@@ -171,3 +171,57 @@ class TestGetTrackPlaylistsEndpoint:
         response = await client.get("/api/v1/tracks/99999/playlists")
 
         assert response.status_code == 404
+
+
+class TestMergeTrackEndpoint:
+    """POST /api/v1/tracks/{id}/merge merges a duplicate into the winner."""
+
+    async def test_merge_returns_winner(self, client: httpx.AsyncClient) -> None:
+        winner_id = await _create_track(client, "Creep", "Radiohead")
+        loser_id = await _create_track(client, "Creep (Remaster)", "Radiohead")
+
+        response = await client.post(
+            f"/api/v1/tracks/{winner_id}/merge",
+            json={"loser_id": loser_id},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == winner_id
+        assert body["title"] == "Creep"
+
+    async def test_loser_is_deleted_after_merge(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        winner_id = await _create_track(client, "Winner")
+        loser_id = await _create_track(client, "Loser")
+
+        await client.post(
+            f"/api/v1/tracks/{winner_id}/merge",
+            json={"loser_id": loser_id},
+        )
+
+        response = await client.get(f"/api/v1/tracks/{loser_id}")
+        assert response.status_code == 404
+
+    async def test_self_merge_returns_400(self, client: httpx.AsyncClient) -> None:
+        track_id = await _create_track(client, "Solo")
+
+        response = await client.post(
+            f"/api/v1/tracks/{track_id}/merge",
+            json={"loser_id": track_id},
+        )
+
+        assert response.status_code == 400
+
+    async def test_nonexistent_loser_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        winner_id = await _create_track(client, "Winner")
+
+        response = await client.post(
+            f"/api/v1/tracks/{winner_id}/merge",
+            json={"loser_id": 99999},
+        )
+
+        assert response.status_code == 404

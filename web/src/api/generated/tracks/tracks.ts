@@ -3,19 +3,23 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.3
+ * OpenAPI spec version: 0.4.6
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
@@ -23,6 +27,7 @@ import type {
 import type {
   HTTPValidationError,
   ListTracksApiV1TracksGetParams,
+  MergeTrackRequest,
   PaginatedResponseLibraryTrackSchema,
   PlaylistBriefSchema,
   TrackDetailSchema
@@ -279,6 +284,97 @@ export function useGetTrackDetailApiV1TracksTrackIdGet<TData = Awaited<ReturnTyp
 
 
 /**
+ * Merge a duplicate track into this track (winner).
+ * @summary Merge Track
+ */
+export type mergeTrackApiV1TracksTrackIdMergePostResponse200 = {
+  data: TrackDetailSchema
+  status: 200
+}
+
+export type mergeTrackApiV1TracksTrackIdMergePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type mergeTrackApiV1TracksTrackIdMergePostResponseSuccess = (mergeTrackApiV1TracksTrackIdMergePostResponse200) & {
+  headers: Headers;
+};
+export type mergeTrackApiV1TracksTrackIdMergePostResponseError = (mergeTrackApiV1TracksTrackIdMergePostResponse422) & {
+  headers: Headers;
+};
+
+export type mergeTrackApiV1TracksTrackIdMergePostResponse = (mergeTrackApiV1TracksTrackIdMergePostResponseSuccess | mergeTrackApiV1TracksTrackIdMergePostResponseError)
+
+export const getMergeTrackApiV1TracksTrackIdMergePostUrl = (trackId: number,) => {
+
+
+  
+
+  return `/api/v1/tracks/${trackId}/merge`
+}
+
+export const mergeTrackApiV1TracksTrackIdMergePost = async (trackId: number,
+    mergeTrackRequest: MergeTrackRequest, options?: RequestInit): Promise<mergeTrackApiV1TracksTrackIdMergePostResponse> => {
+  
+  return customFetch<mergeTrackApiV1TracksTrackIdMergePostResponse>(getMergeTrackApiV1TracksTrackIdMergePostUrl(trackId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      mergeTrackRequest,)
+  }
+);}
+  
+
+
+
+export const getMergeTrackApiV1TracksTrackIdMergePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, TError,{trackId: number;data: MergeTrackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, TError,{trackId: number;data: MergeTrackRequest}, TContext> => {
+
+const mutationKey = ['mergeTrackApiV1TracksTrackIdMergePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, {trackId: number;data: MergeTrackRequest}> = (props) => {
+          const {trackId,data} = props ?? {};
+
+          return  mergeTrackApiV1TracksTrackIdMergePost(trackId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MergeTrackApiV1TracksTrackIdMergePostMutationResult = NonNullable<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>>
+    export type MergeTrackApiV1TracksTrackIdMergePostMutationBody = MergeTrackRequest
+    export type MergeTrackApiV1TracksTrackIdMergePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Merge Track
+ */
+export const useMergeTrackApiV1TracksTrackIdMergePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>, TError,{trackId: number;data: MergeTrackRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof mergeTrackApiV1TracksTrackIdMergePost>>,
+        TError,
+        {trackId: number;data: MergeTrackRequest},
+        TContext
+      > => {
+      return useMutation(getMergeTrackApiV1TracksTrackIdMergePostMutationOptions(options), queryClient);
+    }
+    /**
  * Get playlists containing a specific track.
  * @summary Get Track Playlists
  */

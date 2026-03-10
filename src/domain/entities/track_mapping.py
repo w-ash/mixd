@@ -22,5 +22,6 @@ class TrackMapping:
     match_method: str = ""
     confidence: int = 0
     confidence_evidence: dict[str, object] | None = None
+    origin: str = "automatic"
     is_primary: bool = False
     id: int | None = None

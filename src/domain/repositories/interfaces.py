@@ -313,8 +313,38 @@ class CheckpointRepositoryProtocol(Protocol):
         ...
 
 
+class FullMappingInfo(TypedDict):
+    """Complete mapping data for track detail views including connector track metadata."""
+
+    mapping_id: int
+    connector_name: str
+    connector_track_id: str
+    match_method: str
+    confidence: int
+    origin: str
+    is_primary: bool
+    connector_track_title: str
+    connector_track_artists: list[str]
+
+
 class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
+
+    def get_full_mappings_for_track(
+        self, track_id: int
+    ) -> Awaitable[list[FullMappingInfo]]:
+        """Get all mappings for a track with full connector track metadata.
+
+        Returns ALL mappings (not just primary), joined with connector track
+        title/artists so the UI can show what each service calls the track.
+
+        Args:
+            track_id: Internal canonical track ID.
+
+        Returns:
+            List of FullMappingInfo dicts with complete provenance data.
+        """
+        ...
 
     def count_tracks_by_connector(self) -> Awaitable[dict[str, int]]:
         """Count distinct tracks per connector (excluding internal pseudo-connectors)."""

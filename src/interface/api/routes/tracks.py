@@ -16,10 +16,15 @@ from src.application.use_cases.get_track_playlists import (
     GetTrackPlaylistsUseCase,
 )
 from src.application.use_cases.list_tracks import ListTracksCommand, ListTracksUseCase
+from src.application.use_cases.merge_tracks import (
+    MergeTracksCommand,
+    MergeTracksUseCase,
+)
 from src.config.constants import BusinessLimits
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.tracks import (
     LibraryTrackSchema,
+    MergeTrackRequest,
     PlaylistBriefSchema,
     TrackDetailSchema,
     playlist_to_brief_schema,
@@ -72,6 +77,19 @@ async def get_track_detail(track_id: int) -> TrackDetailSchema:
     command = GetTrackDetailsCommand(track_id=track_id)
     result = await execute_use_case(
         lambda uow: GetTrackDetailsUseCase().execute(command, uow)
+    )
+    return to_track_detail(result)
+
+
+@router.post("/{track_id}/merge")
+async def merge_track(track_id: int, body: MergeTrackRequest) -> TrackDetailSchema:
+    """Merge a duplicate track into this track (winner)."""
+    command = MergeTracksCommand(winner_id=track_id, loser_id=body.loser_id)
+    await execute_use_case(lambda uow: MergeTracksUseCase().execute(command, uow))
+    # Fresh read after merge commit
+    detail_cmd = GetTrackDetailsCommand(track_id=track_id)
+    result = await execute_use_case(
+        lambda uow: GetTrackDetailsUseCase().execute(detail_cmd, uow)
     )
     return to_track_detail(result)
 

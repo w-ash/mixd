@@ -5,8 +5,10 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.4.6
  */
-import type { ValidationError } from './validationError';
 
-export interface HTTPValidationError {
-  detail?: ValidationError[];
+/**
+ * Request body for merging a duplicate track into a winner.
+ */
+export interface MergeTrackRequest {
+  loser_id: number;
 }

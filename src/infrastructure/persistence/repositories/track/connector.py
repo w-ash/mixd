@@ -17,8 +17,9 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.config.constants import BusinessLimits
+from src.config.constants import BusinessLimits, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
+from src.domain.repositories.interfaces import FullMappingInfo
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -118,6 +119,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             match_method=db_model.match_method,
             confidence=db_model.confidence,
             confidence_evidence=db_model.confidence_evidence,
+            origin=db_model.origin,
             is_primary=db_model.is_primary,
         )
 
@@ -139,6 +141,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             match_method=domain_model.match_method,
             confidence=domain_model.confidence,
             confidence_evidence=domain_model.confidence_evidence,
+            origin=domain_model.origin,
             is_primary=domain_model.is_primary,
         )
 
@@ -232,6 +235,46 @@ class TrackConnectorRepository:
         ).group_by(DBTrackMapping.connector_name)
         result = await self.session.execute(stmt)
         return {str(row[0]): int(row[1]) for row in result.fetchall()}
+
+    @db_operation("get_full_mappings_for_track")
+    async def get_full_mappings_for_track(
+        self, track_id: int
+    ) -> list[FullMappingInfo]:
+        """Get all mappings for a track with joined connector track metadata."""
+        stmt = (
+            select(
+                DBTrackMapping.id,
+                DBTrackMapping.connector_name,
+                DBConnectorTrack.connector_track_identifier,
+                DBTrackMapping.match_method,
+                DBTrackMapping.confidence,
+                DBTrackMapping.origin,
+                DBTrackMapping.is_primary,
+                DBConnectorTrack.title,
+                DBConnectorTrack.artists,
+            )
+            .join(
+                DBConnectorTrack,
+                DBTrackMapping.connector_track_id == DBConnectorTrack.id,
+            )
+            .where(DBTrackMapping.track_id == track_id)
+            .order_by(DBTrackMapping.is_primary.desc(), DBTrackMapping.confidence.desc())
+        )
+        result = await self.session.execute(stmt)
+        return [
+            FullMappingInfo(
+                mapping_id=row.id,
+                connector_name=row.connector_name,
+                connector_track_id=row.connector_track_identifier,
+                match_method=row.match_method,
+                confidence=row.confidence,
+                origin=row.origin,
+                is_primary=row.is_primary,
+                connector_track_title=row.title,
+                connector_track_artists=row.artists.get("names", []),
+            )
+            for row in result.fetchall()
+        ]
 
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(
@@ -406,6 +449,23 @@ class TrackConnectorRepository:
                 "is_primary": False,  # Don't set primary here, handle it separately
             })
 
+        # Filter out mappings that would overwrite manual overrides
+        if mapping_data:
+            ct_ids_in_batch = [d["connector_track_id"] for d in mapping_data]
+            manual_override_ct_ids: set[int] = set()
+            if ct_ids_in_batch:
+                existing_overrides = await self.mapping_repo.find_by([
+                    self.mapping_repo.model_class.connector_track_id.in_(ct_ids_in_batch),
+                    self.mapping_repo.model_class.origin == MappingOrigin.MANUAL_OVERRIDE,
+                ])
+                manual_override_ct_ids = {m.connector_track_id for m in existing_overrides}
+
+            if manual_override_ct_ids:
+                mapping_data = [
+                    d for d in mapping_data
+                    if d["connector_track_id"] not in manual_override_ct_ids
+                ]
+
         # Bulk upsert mappings
         if mapping_data:
             _ = await self.mapping_repo.bulk_upsert(
@@ -561,10 +621,11 @@ class TrackConnectorRepository:
                 # Add the domain track for each occurrence in the playlist
                 domain_tracks.extend(domain_track for _ in track_group)
 
-                # Update mapping confidence if needed
+                # Update mapping confidence if needed (skip manual overrides)
                 if (
                     mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
                     and mapping.id is not None
+                    and mapping.origin != MappingOrigin.MANUAL_OVERRIDE
                 ):
                     _ = await self.mapping_repo.update(
                         mapping.id,

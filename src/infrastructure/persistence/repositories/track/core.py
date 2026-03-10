@@ -10,6 +10,7 @@ from sqlalchemy import String, cast, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
+from src.config.constants import MappingOrigin
 from src.domain.entities import Track
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylistTrack,
@@ -347,6 +348,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                         .values(
                             confidence=conflict.loser_confidence,
                             match_method=conflict.loser_match_method,
+                            origin=MappingOrigin.MANUAL_OVERRIDE,
                             updated_at=now,
                         )
                     )
@@ -367,7 +369,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 await self.session.execute(
                     update(DBTrackMapping)
                     .where(DBTrackMapping.id == loser_mapping_id)
-                    .values(track_id=to_id, is_primary=False, updated_at=now)
+                    .values(
+                        track_id=to_id,
+                        is_primary=False,
+                        origin=MappingOrigin.MANUAL_OVERRIDE,
+                        updated_at=now,
+                    )
                 )
 
         # Move non-conflicting mappings from loser to winner
@@ -379,13 +386,21 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     DBTrackMapping.track_id == from_id,
                     ~DBTrackMapping.id.in_(conflict_mapping_ids),
                 )
-                .values(track_id=to_id, updated_at=now)
+                .values(
+                    track_id=to_id,
+                    origin=MappingOrigin.MANUAL_OVERRIDE,
+                    updated_at=now,
+                )
             )
         else:
             await self.session.execute(
                 update(DBTrackMapping)
                 .where(DBTrackMapping.track_id == from_id)
-                .values(track_id=to_id, updated_at=now)
+                .values(
+                    track_id=to_id,
+                    origin=MappingOrigin.MANUAL_OVERRIDE,
+                    updated_at=now,
+                )
             )
 
         logger.debug(

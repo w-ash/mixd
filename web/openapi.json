@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.3"
+    "version": "0.4.6"
   },
   "paths": {
     "/api/v1/health": {
@@ -742,6 +742,59 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/merge": {
+      "post": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Merge Track",
+        "description": "Merge a duplicate track into this track (winner).",
+        "operationId": "merge_track_api_v1_tracks__track_id__merge_post",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeTrackRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1915,6 +1968,10 @@
       },
       "ConnectorMappingSchema": {
         "properties": {
+          "mapping_id": {
+            "type": "integer",
+            "title": "Mapping Id"
+          },
           "connector_name": {
             "type": "string",
             "title": "Connector Name"
@@ -1922,15 +1979,49 @@
           "connector_track_id": {
             "type": "string",
             "title": "Connector Track Id"
+          },
+          "match_method": {
+            "type": "string",
+            "title": "Match Method"
+          },
+          "confidence": {
+            "type": "integer",
+            "title": "Confidence"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          },
+          "connector_track_title": {
+            "type": "string",
+            "title": "Connector Track Title"
+          },
+          "connector_track_artists": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Track Artists"
           }
         },
         "type": "object",
         "required": [
+          "mapping_id",
           "connector_name",
-          "connector_track_id"
+          "connector_track_id",
+          "match_method",
+          "confidence",
+          "origin",
+          "is_primary",
+          "connector_track_title",
+          "connector_track_artists"
         ],
         "title": "ConnectorMappingSchema",
-        "description": "Connector mapping for track detail views."
+        "description": "Connector mapping for track detail views with full provenance."
       },
       "ConnectorStatusSchema": {
         "properties": {
@@ -2354,6 +2445,20 @@
         ],
         "title": "LikeStatusSchema",
         "description": "Per-service like status."
+      },
+      "MergeTrackRequest": {
+        "properties": {
+          "loser_id": {
+            "type": "integer",
+            "title": "Loser Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loser_id"
+        ],
+        "title": "MergeTrackRequest",
+        "description": "Request body for merging a duplicate track into a winner."
       },
       "NodeTypeInfoSchema": {
         "properties": {

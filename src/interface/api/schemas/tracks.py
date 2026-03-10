@@ -38,12 +38,19 @@ class LibraryTrackSchema(BaseModel):
 
 
 class ConnectorMappingSchema(BaseModel):
-    """Connector mapping for track detail views."""
+    """Connector mapping for track detail views with full provenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
+    mapping_id: int
     connector_name: str
     connector_track_id: str
+    match_method: str
+    confidence: int
+    origin: str
+    is_primary: bool
+    connector_track_title: str
+    connector_track_artists: list[str]
 
 
 class LikeStatusSchema(BaseModel):
@@ -93,6 +100,12 @@ class TrackDetailSchema(BaseModel):
     playlists: list[PlaylistBriefSchema]
 
 
+class MergeTrackRequest(BaseModel):
+    """Request body for merging a duplicate track into a winner."""
+
+    loser_id: int
+
+
 # --- Domain-to-schema converters ---
 
 
@@ -126,8 +139,15 @@ def to_library_track(track: Track, *, liked_track_ids: set[int]) -> LibraryTrack
 
 def _to_connector_mapping_schema(info: ConnectorMappingInfo) -> ConnectorMappingSchema:
     return ConnectorMappingSchema(
+        mapping_id=info.mapping_id,
         connector_name=info.connector_name,
         connector_track_id=info.connector_track_id,
+        match_method=info.match_method,
+        confidence=info.confidence,
+        origin=info.origin,
+        is_primary=info.is_primary,
+        connector_track_title=info.connector_track_title,
+        connector_track_artists=info.connector_track_artists,
     )
 
 

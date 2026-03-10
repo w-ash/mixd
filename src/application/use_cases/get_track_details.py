@@ -7,11 +7,14 @@ answering "which playlists contain this track?".
 
 from datetime import datetime
 
-from attrs import define
+from attrs import Factory, define
 
-from src.config.constants import ConnectorConstants
 from src.domain.entities import Playlist, Track, TrackLike
-from src.domain.repositories.interfaces import PlayAggregationResult, UnitOfWorkProtocol
+from src.domain.repositories.interfaces import (
+    FullMappingInfo,
+    PlayAggregationResult,
+    UnitOfWorkProtocol,
+)
 
 
 @define(frozen=True, slots=True)
@@ -21,10 +24,17 @@ class GetTrackDetailsCommand:
 
 @define(frozen=True, slots=True)
 class ConnectorMappingInfo:
-    """Connector mapping details for display."""
+    """Connector mapping details for display with full provenance."""
 
     connector_name: str
     connector_track_id: str
+    mapping_id: int = 0
+    match_method: str = ""
+    confidence: int = 0
+    origin: str = "automatic"
+    is_primary: bool = False
+    connector_track_title: str = ""
+    connector_track_artists: list[str] = Factory(list[str])
 
 
 @define(frozen=True, slots=True)
@@ -64,15 +74,23 @@ class TrackDetailsResult:
     playlists: list[PlaylistSummary]
 
 
-def _build_connector_mappings(track: Track) -> list[ConnectorMappingInfo]:
-    """Extract connector mappings from track's loaded identifiers."""
+def _build_connector_mappings(
+    full_mappings: list[FullMappingInfo],
+) -> list[ConnectorMappingInfo]:
+    """Build connector mapping info from full repository data."""
     return [
         ConnectorMappingInfo(
-            connector_name=connector,
-            connector_track_id=track_id,
+            mapping_id=m["mapping_id"],
+            connector_name=m["connector_name"],
+            connector_track_id=m["connector_track_id"],
+            match_method=m["match_method"],
+            confidence=m["confidence"],
+            origin=m["origin"],
+            is_primary=m["is_primary"],
+            connector_track_title=m["connector_track_title"],
+            connector_track_artists=m["connector_track_artists"],
         )
-        for connector, track_id in track.connector_track_identifiers.items()
-        if connector != ConnectorConstants.DB_PSEUDO_CONNECTOR
+        for m in full_mappings
     ]
 
 
@@ -123,10 +141,12 @@ class GetTrackDetailsUseCase:
 
             # Sequential: these are independent queries but SQLite serializes
             # all operations. Parallelize with TaskGroup after PostgreSQL migration.
+            connector_repo = uow.get_connector_repository()
             like_repo = uow.get_like_repository()
             plays_repo = uow.get_plays_repository()
             playlist_repo = uow.get_playlist_repository()
 
+            full_mappings = await connector_repo.get_full_mappings_for_track(track_id)
             likes = await like_repo.get_track_likes(track_id)
             play_agg = await plays_repo.get_play_aggregations(
                 [track_id], ["total_plays", "last_played_dates", "first_played_dates"]
@@ -135,7 +155,7 @@ class GetTrackDetailsUseCase:
 
             return TrackDetailsResult(
                 track=track,
-                connector_mappings=_build_connector_mappings(track),
+                connector_mappings=_build_connector_mappings(full_mappings),
                 like_status=_build_like_status(likes),
                 play_summary=_build_play_summary(play_agg, track_id),
                 playlists=_build_playlist_summaries(playlists),

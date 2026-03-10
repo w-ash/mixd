@@ -1,10 +1,11 @@
-import { ArrowLeft, HelpCircle } from "lucide-react";
+import { ArrowLeft, ExternalLink, HelpCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { useGetTrackDetailApiV1TracksTrackIdGet } from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -78,11 +79,26 @@ function getConnectorTrackUrl(
     case "musicbrainz":
       return `https://musicbrainz.org/recording/${trackId}`;
     case "lastfm":
-      // Last.fm IDs are often full URLs already; MBIDs and lastfm: prefixes aren't linkable
       return trackId.startsWith("https://") ? trackId : null;
     default:
       return null;
   }
+}
+
+/** Human-readable match method label */
+function matchMethodLabel(method: string): string {
+  const labels: Record<string, string> = {
+    direct_import: "Direct",
+    direct: "Direct",
+    search_fallback: "Search",
+    artist_title: "Artist/Title",
+    spotify_redirect: "Redirect",
+    spotify_connector_play_resolver: "Play Resolver",
+    lastfm_discovery: "Discovery",
+    direct_import_stale_id: "Stale ID",
+    search_fallback_stale_id: "Stale ID",
+  };
+  return labels[method] || method;
 }
 
 export function TrackDetail() {
@@ -130,6 +146,7 @@ export function TrackDetail() {
       <PageHeader
         title={track.title}
         description={track.artists.map((a) => a.name).join(", ")}
+        action={<MergeTrackDialog winner={track} />}
       />
 
       {/* Core metadata */}
@@ -147,40 +164,93 @@ export function TrackDetail() {
       </dl>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Connector Mappings */}
+        {/* Connector Mappings with Provenance */}
         <Section title="Connectors">
           {track.connector_mappings.length === 0 ? (
             <p className="text-sm text-text-muted">No connector mappings.</p>
           ) : (
-            <ul className="space-y-2">
-              {track.connector_mappings.map((m) => (
-                <li
-                  key={`${m.connector_name}-${m.connector_track_id}`}
-                  className="flex items-center justify-between"
-                >
-                  <ConnectorIcon name={m.connector_name} />
-                  {(() => {
-                    const url = getConnectorTrackUrl(
-                      m.connector_name,
-                      m.connector_track_id,
-                    );
-                    return url ? (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-text-muted font-mono hover:text-primary transition-colors"
+            <ul className="space-y-3">
+              {track.connector_mappings.map((m) => {
+                const url = getConnectorTrackUrl(
+                  m.connector_name,
+                  m.connector_track_id,
+                );
+                const titleDiffers =
+                  m.connector_track_title &&
+                  m.connector_track_title !== track.title;
+
+                return (
+                  <li
+                    key={`${m.connector_name}-${m.connector_track_id}`}
+                    className={`rounded-md border px-3 py-2 ${m.is_primary ? "border-border-muted" : "border-border-muted/50 opacity-75"}`}
+                  >
+                    {/* Primary info row */}
+                    <div className="flex items-center gap-2">
+                      <ConnectorIcon name={m.connector_name} />
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-medium text-text">
+                          {m.connector_track_title || m.connector_track_id}
+                        </span>
+                        {m.connector_track_artists.length > 0 && (
+                          <span className="ml-1.5 text-xs text-text-muted">
+                            {m.connector_track_artists.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                      {url && (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-text-muted hover:text-primary transition-colors"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Title mismatch warning */}
+                    {titleDiffers && (
+                      <p className="mt-1 rounded bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                        Service title differs: &ldquo;
+                        {m.connector_track_title}&rdquo;
+                      </p>
+                    )}
+
+                    {/* Secondary metadata row */}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {m.is_primary && (
+                        <Badge
+                          variant="default"
+                          className="text-[10px] px-1.5 py-0"
+                        >
+                          Primary
+                        </Badge>
+                      )}
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0"
                       >
-                        {m.connector_track_id}
-                      </a>
-                    ) : (
-                      <code className="text-xs text-text-muted font-mono">
-                        {m.connector_track_id}
-                      </code>
-                    );
-                  })()}
-                </li>
-              ))}
+                        {matchMethodLabel(m.match_method)}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0"
+                      >
+                        {m.confidence}%
+                      </Badge>
+                      {m.origin === "manual_override" && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 border-primary/40 text-primary"
+                        >
+                          Manual
+                        </Badge>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Section>

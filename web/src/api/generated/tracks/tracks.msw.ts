@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.3
+ * OpenAPI spec version: 0.4.6
  */
 import {
   faker
@@ -26,7 +26,11 @@ import type {
 
 export const getListTracksApiV1TracksGetResponseMock = (overrideResponse: Partial<Extract<PaginatedResponseLibraryTrackSchema, object>> = {}): PaginatedResponseLibraryTrackSchema => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_names: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), is_liked: faker.datatype.boolean()})), total: faker.number.int(), limit: faker.number.int(), offset: faker.number.int(), ...overrideResponse})
 
-export const getGetTrackDetailApiV1TracksTrackIdGetResponseMock = (overrideResponse: Partial<Extract<TrackDetailSchema, object>> = {}): TrackDetailSchema => ({id: faker.number.int(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), release_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_mappings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_id: faker.string.alpha({length: {min: 10, max: 20}})})), like_status: {
+export const getGetTrackDetailApiV1TracksTrackIdGetResponseMock = (overrideResponse: Partial<Extract<TrackDetailSchema, object>> = {}): TrackDetailSchema => ({id: faker.number.int(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), release_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_mappings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({mapping_id: faker.number.int(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_id: faker.string.alpha({length: {min: 10, max: 20}}), match_method: faker.string.alpha({length: {min: 10, max: 20}}), confidence: faker.number.int(), origin: faker.string.alpha({length: {min: 10, max: 20}}), is_primary: faker.datatype.boolean(), connector_track_title: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))})), like_status: {
+        [faker.string.alphanumeric(5)]: {is_liked: faker.datatype.boolean(), liked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}
+      }, play_summary: {total_plays: faker.number.int(), first_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}, playlists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
+
+export const getMergeTrackApiV1TracksTrackIdMergePostResponseMock = (overrideResponse: Partial<Extract<TrackDetailSchema, object>> = {}): TrackDetailSchema => ({id: faker.number.int(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), release_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_mappings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({mapping_id: faker.number.int(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_id: faker.string.alpha({length: {min: 10, max: 20}}), match_method: faker.string.alpha({length: {min: 10, max: 20}}), confidence: faker.number.int(), origin: faker.string.alpha({length: {min: 10, max: 20}}), is_primary: faker.datatype.boolean(), connector_track_title: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))})), like_status: {
         [faker.string.alphanumeric(5)]: {is_liked: faker.datatype.boolean(), liked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}
       }, play_summary: {total_plays: faker.number.int(), first_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}, playlists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.number.int(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
 
@@ -57,6 +61,18 @@ export const getGetTrackDetailApiV1TracksTrackIdGetMockHandler = (overrideRespon
   }, options)
 }
 
+export const getMergeTrackApiV1TracksTrackIdMergePostMockHandler = (overrideResponse?: TrackDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<TrackDetailSchema> | TrackDetailSchema), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/tracks/:trackId/merge', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getMergeTrackApiV1TracksTrackIdMergePostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetMockHandler = (overrideResponse?: PlaylistBriefSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlaylistBriefSchema[]> | PlaylistBriefSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/tracks/:trackId/playlists', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   
@@ -71,5 +87,6 @@ export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetMockHandler = (ov
 export const getTracksMock = () => [
   getListTracksApiV1TracksGetMockHandler(),
   getGetTrackDetailApiV1TracksTrackIdGetMockHandler(),
+  getMergeTrackApiV1TracksTrackIdMergePostMockHandler(),
   getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetMockHandler()
 ]

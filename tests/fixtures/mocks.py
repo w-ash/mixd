@@ -59,6 +59,9 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     repo.map_track_to_connector.return_value = overrides.pop(
         "map_track_to_connector", None
     )
+    repo.get_full_mappings_for_track.return_value = overrides.pop(
+        "get_full_mappings_for_track", []
+    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

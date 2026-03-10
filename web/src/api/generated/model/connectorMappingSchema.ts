@@ -3,13 +3,20 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.3
+ * OpenAPI spec version: 0.4.6
  */
 
 /**
- * Connector mapping for track detail views.
+ * Connector mapping for track detail views with full provenance.
  */
 export interface ConnectorMappingSchema {
+  mapping_id: number;
   connector_name: string;
   connector_track_id: string;
+  match_method: string;
+  confidence: number;
+  origin: string;
+  is_primary: boolean;
+  connector_track_title: string;
+  connector_track_artists: string[];
 }

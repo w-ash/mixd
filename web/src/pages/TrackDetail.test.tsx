@@ -16,8 +16,28 @@ const mockTrack = {
   release_date: "1997-06-16",
   isrc: "GBAYE9700100",
   connector_mappings: [
-    { connector_name: "spotify", connector_track_id: "sp-123" },
-    { connector_name: "lastfm", connector_track_id: "lf-456" },
+    {
+      mapping_id: 10,
+      connector_name: "spotify",
+      connector_track_id: "sp-123",
+      match_method: "direct_import",
+      confidence: 100,
+      origin: "automatic",
+      is_primary: true,
+      connector_track_title: "Paranoid Android",
+      connector_track_artists: ["Radiohead"],
+    },
+    {
+      mapping_id: 20,
+      connector_name: "lastfm",
+      connector_track_id: "lf-456",
+      match_method: "artist_title",
+      confidence: 85,
+      origin: "manual_override",
+      is_primary: true,
+      connector_track_title: "Paranoid Android - Remastered",
+      connector_track_artists: ["Radiohead"],
+    },
   ],
   like_status: {
     spotify: { is_liked: true, liked_at: "2025-03-15T10:30:00Z" },
@@ -64,27 +84,54 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
-    expect(screen.getByText("Radiohead")).toBeInTheDocument();
+    expect(screen.getAllByText("Radiohead").length).toBeGreaterThan(0);
     expect(screen.getByText("OK Computer")).toBeInTheDocument();
     expect(screen.getByText("6:26")).toBeInTheDocument();
     expect(screen.getByText(/1997/)).toBeInTheDocument();
     expect(screen.getByText("GBAYE9700100")).toBeInTheDocument();
   });
 
-  it("displays connector mappings", async () => {
+  it("displays connector mappings with provenance badges", async () => {
     overrideTrackDetail(mockTrack);
 
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
-    expect(screen.getByText("sp-123")).toBeInTheDocument();
-    expect(screen.getByText("lf-456")).toBeInTheDocument();
+    // Match method badges
+    expect(screen.getByText("Direct")).toBeInTheDocument();
+    expect(screen.getByText("Artist/Title")).toBeInTheDocument();
+
+    // Confidence badges
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByText("85%")).toBeInTheDocument();
+
+    // Manual override badge
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+  });
+
+  it("shows title mismatch warning when connector title differs", async () => {
+    overrideTrackDetail(mockTrack);
+
+    renderTrackDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
+    });
+
+    // The title mismatch warning text
+    expect(screen.getByText(/Service title differs/)).toBeInTheDocument();
   });
 
   it("displays like status per service", async () => {
@@ -93,7 +140,9 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     expect(screen.getByText("spotify")).toBeInTheDocument();
@@ -108,7 +157,9 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     expect(screen.getByText("127")).toBeInTheDocument();
@@ -120,7 +171,9 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     expect(screen.getByText("Chill Vibes")).toBeInTheDocument();
@@ -134,12 +187,28 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     const backLink = screen.getByText(/Back to Library/);
     expect(backLink).toBeInTheDocument();
     expect(backLink.closest("a")).toHaveAttribute("href", "/library");
+  });
+
+  it("shows merge button", async () => {
+    overrideTrackDetail(mockTrack);
+
+    renderTrackDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
+    });
+
+    expect(screen.getByText("Merge with...")).toBeInTheDocument();
   });
 
   it("shows error state for nonexistent track", async () => {
@@ -164,7 +233,9 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     expect(screen.getByText("No play history recorded.")).toBeInTheDocument();
@@ -176,7 +247,9 @@ describe("TrackDetail", () => {
     renderTrackDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Paranoid Android")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Paranoid Android",
+      );
     });
 
     expect(screen.getByText("Not in any playlists.")).toBeInTheDocument();

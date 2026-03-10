@@ -203,6 +203,9 @@ class DBTrackMapping(BaseEntity):
     match_method: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[int]
     confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    origin: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="automatic", server_default="automatic"
+    )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships

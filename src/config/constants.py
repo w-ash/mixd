@@ -126,6 +126,18 @@ class WorkflowConstants:
     SSE_EVENT_PREVIEW_COMPLETE: Final = "preview_complete"
 
 
+class MappingOrigin:
+    """How a track mapping was established.
+
+    Used to protect manual corrections from being overwritten by
+    automated sync operations. Manual overrides are never replaced
+    by subsequent ingestion or matching runs.
+    """
+
+    AUTOMATIC: Final = "automatic"
+    MANUAL_OVERRIDE: Final = "manual_override"
+
+
 class MatchMethod:
     """Track resolution method identifiers.
 
