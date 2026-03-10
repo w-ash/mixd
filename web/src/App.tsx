@@ -27,17 +27,19 @@ const Playlists = lazy(() =>
 const PlaylistDetail = lazy(() =>
   import("./pages/PlaylistDetail").then((m) => ({ default: m.PlaylistDetail })),
 );
-const Imports = lazy(() =>
-  import("./pages/Imports").then((m) => ({ default: m.Imports })),
+const Integrations = lazy(() =>
+  import("./pages/settings/Integrations").then((m) => ({
+    default: m.Integrations,
+  })),
+);
+const Sync = lazy(() =>
+  import("./pages/settings/Sync").then((m) => ({ default: m.Sync })),
 );
 const Library = lazy(() =>
   import("./pages/Library").then((m) => ({ default: m.Library })),
 );
 const TrackDetail = lazy(() =>
   import("./pages/TrackDetail").then((m) => ({ default: m.TrackDetail })),
-);
-const Settings = lazy(() =>
-  import("./pages/Settings").then((m) => ({ default: m.Settings })),
 );
 const Workflows = lazy(() =>
   import("./pages/Workflows").then((m) => ({ default: m.Workflows })),
@@ -70,11 +72,7 @@ export function App() {
             />
             <Route
               path="imports"
-              element={
-                <Suspense fallback={<PageSkeleton />}>
-                  <Imports />
-                </Suspense>
-              }
+              element={<Navigate to="/settings/sync" replace />}
             />
             <Route
               path="playlists"
@@ -150,9 +148,21 @@ export function App() {
             />
             <Route
               path="settings"
+              element={<Navigate to="integrations" replace />}
+            />
+            <Route
+              path="settings/integrations"
               element={
                 <Suspense fallback={<PageSkeleton />}>
-                  <Settings />
+                  <Integrations />
+                </Suspense>
+              }
+            />
+            <Route
+              path="settings/sync"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Sync />
                 </Suspense>
               }
             />

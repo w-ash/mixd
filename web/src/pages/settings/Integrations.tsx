@@ -20,7 +20,7 @@ const sections = [
   },
 ];
 
-function SettingsSkeleton() {
+function IntegrationsSkeleton() {
   return (
     <div className="space-y-8">
       {[2, 2].map((count, i) => (
@@ -75,7 +75,7 @@ function ConnectorSection({
   );
 }
 
-export function Settings() {
+export function Integrations() {
   const { data, isLoading, isError, error } =
     useGetConnectorsApiV1ConnectorsGet();
 
@@ -83,13 +83,13 @@ export function Settings() {
 
   return (
     <div>
-      <title>Settings — Narada</title>
+      <title>Integrations — Narada</title>
       <PageHeader
-        title="Settings"
+        title="Integrations"
         description="Connected services and application preferences."
       />
 
-      {isLoading && <SettingsSkeleton />}
+      {isLoading && <IntegrationsSkeleton />}
 
       {isError && (
         <EmptyState

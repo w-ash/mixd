@@ -167,7 +167,7 @@ export function Dashboard() {
             description="Connect services in Settings to get started."
             action={
               <Link
-                to="/settings"
+                to="/settings/integrations"
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 font-display text-sm font-medium text-surface transition-colors hover:bg-primary/90"
               >
                 Go to Settings

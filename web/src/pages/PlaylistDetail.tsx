@@ -8,12 +8,16 @@ import {
   Music,
   Unlink,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import type { PlaylistLinkSchema } from "@/api/generated/model";
+import type {
+  PlaylistLinkSchema,
+  SyncStartedResponse,
+} from "@/api/generated/model";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
+  getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
   getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey,
   getListPlaylistsApiV1PlaylistsGetQueryKey,
   useCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPost,
@@ -28,6 +32,7 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { OperationProgress } from "@/components/shared/OperationProgress";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,6 +60,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useOperationProgress } from "@/hooks/useOperationProgress";
 import {
   decodeHtmlEntities,
   formatArtists,
@@ -445,6 +451,33 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: number }) {
 
 function LinkedServicesSection({ playlistId }: { playlistId: number }) {
   const queryClient = useQueryClient();
+  const [syncOperationId, setSyncOperationId] = useState<string | null>(null);
+
+  const { progress: syncProgress, isActive: isSyncing } = useOperationProgress(
+    syncOperationId,
+    {
+      invalidateKeys: [
+        getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(
+          playlistId,
+        ),
+        getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey(
+          playlistId,
+        ),
+        getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId),
+        getListPlaylistsApiV1PlaylistsGetQueryKey(),
+      ],
+    },
+  );
+
+  // Clear stale operation ID once the operation finishes
+  useEffect(() => {
+    if (
+      syncProgress?.status === "completed" ||
+      syncProgress?.status === "failed"
+    ) {
+      setSyncOperationId(null);
+    }
+  }, [syncProgress?.status]);
 
   const { data: linksData, isLoading } =
     useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet(playlistId);
@@ -468,9 +501,11 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
   const syncMutation =
     useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost({
       mutation: {
-        onSuccess: () => {
-          toast.success("Sync started");
-          // Refetch immediately to show "syncing" status
+        onSuccess: (res) => {
+          if (res.status === 202) {
+            setSyncOperationId((res.data as SyncStartedResponse).operation_id);
+            toast.success("Sync started");
+          }
           invalidateLinkQueries(queryClient, playlistId);
         },
         onError: (error: Error) => {
@@ -496,6 +531,10 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
         </h2>
         <LinkPlaylistDialog playlistId={playlistId} />
       </div>
+
+      {syncProgress && (
+        <OperationProgress progress={syncProgress} className="mb-3" />
+      )}
 
       {links.length === 0 ? (
         <div className="rounded-md border-l-2 border-border bg-surface-inset px-4 py-3">
@@ -565,7 +604,9 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
                     size="sm"
                     className="h-7 px-2 text-xs"
                     disabled={
-                      syncMutation.isPending || link.sync_status === "syncing"
+                      syncMutation.isPending ||
+                      isSyncing ||
+                      link.sync_status === "syncing"
                     }
                     onClick={() =>
                       syncMutation.mutate({
@@ -576,7 +617,8 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
                     }
                   >
                     {link.sync_status === "syncing" ||
-                    syncMutation.isPending ? (
+                    syncMutation.isPending ||
+                    isSyncing ? (
                       <Loader2 className="mr-1 size-3 animate-spin" />
                     ) : (
                       <ArrowLeftRight className="mr-1 size-3" />

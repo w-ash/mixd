@@ -12,6 +12,7 @@ import {
 import type {
   CheckpointStatusSchema,
   ImportLastfmHistoryRequestMode,
+  OperationStartedResponse,
 } from "@/api/generated/model";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
@@ -39,8 +40,7 @@ function makeOperationCallbacks(
   return {
     onSuccess: (res: { status: number; data: unknown }) => {
       if (res.status === 200) {
-        // Safe assertion: 200 responses always carry OperationStartedResponse
-        setOperationId((res.data as { operation_id: string }).operation_id);
+        setOperationId((res.data as OperationStartedResponse).operation_id);
       } else {
         toast.error(`Failed to start ${label}`, {
           description: `Unexpected response (${res.status})`,
@@ -80,11 +80,9 @@ function OperationCard({
   triggerDisabled,
   children,
 }: OperationCardProps) {
-  const { progress } = useOperationProgress(operationId, {
+  const { progress, isActive } = useOperationProgress(operationId, {
     invalidateKeys: CHECKPOINT_KEYS,
   });
-  const isActive =
-    progress?.status === "running" || progress?.status === "pending";
 
   return (
     <div className="flex flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-4 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
@@ -293,15 +291,15 @@ function SpotifyHistoryImport({
 
 // ─── Page ───────────────────────────────────────────────────────
 
-export function Imports() {
+export function Sync() {
   const { data } = useGetCheckpointsApiV1ImportsCheckpointsGet();
   const checkpoints = data?.status === 200 ? data.data : [];
 
   return (
     <div>
-      <title>Imports — Narada</title>
+      <title>Sync — Narada</title>
       <PageHeader
-        title="Imports"
+        title="Sync"
         description="Import and sync your music data across services."
       />
 

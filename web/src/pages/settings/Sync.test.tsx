@@ -5,7 +5,7 @@ import type { CheckpointStatusSchema } from "@/api/generated/model";
 import { server } from "@/test/setup";
 import { renderWithProviders, screen } from "@/test/test-utils";
 
-import { Imports } from "./Imports";
+import { Sync } from "./Sync";
 
 const checkpoints: CheckpointStatusSchema[] = [
   {
@@ -42,12 +42,12 @@ function setupCheckpointsMock() {
   );
 }
 
-describe("Imports page", () => {
+describe("Sync page", () => {
   it("renders page header", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
-    expect(screen.getByText("Imports")).toBeInTheDocument();
+    expect(screen.getByText("Sync")).toBeInTheDocument();
     expect(
       screen.getByText("Import and sync your music data across services."),
     ).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe("Imports page", () => {
 
   it("renders section headings for data type groups", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     expect(screen.getByText("Listening History")).toBeInTheDocument();
     expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("Imports page", () => {
 
   it("renders all four operation cards", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     expect(screen.getByText("Scrobble History")).toBeInTheDocument();
     expect(screen.getByText("Import Likes")).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("Imports page", () => {
 
   it("renders connector icons for service identification", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     const spotifyIcons = screen.getAllByTitle("Spotify");
     const lastfmIcons = screen.getAllByTitle("Last.fm");
@@ -84,7 +84,7 @@ describe("Imports page", () => {
 
   it("renders run buttons for each operation", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     const runButtons = screen.getAllByRole("button", { name: "Run" });
     expect(runButtons).toHaveLength(4);
@@ -92,7 +92,7 @@ describe("Imports page", () => {
 
   it("renders segmented mode selector for Last.fm history", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     const recentBtn = screen.getByRole("radio", { name: /recent/i });
     const incrementalBtn = screen.getByRole("radio", { name: /incremental/i });
@@ -105,7 +105,7 @@ describe("Imports page", () => {
 
   it("renders file upload for Spotify history", () => {
     setupCheckpointsMock();
-    renderWithProviders(<Imports />);
+    renderWithProviders(<Sync />);
 
     expect(
       screen.getByRole("button", { name: /choose file/i }),

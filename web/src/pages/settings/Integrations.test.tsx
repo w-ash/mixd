@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/setup";
 import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
-import { Settings } from "./Settings";
+import { Integrations } from "./Integrations";
 
-describe("Settings", () => {
+describe("Integrations", () => {
   it("renders loading skeleton initially", () => {
-    renderWithProviders(<Settings />);
+    renderWithProviders(<Integrations />);
 
     const skeletons = document.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
@@ -49,7 +49,7 @@ describe("Settings", () => {
       }),
     );
 
-    renderWithProviders(<Settings />);
+    renderWithProviders(<Integrations />);
 
     await waitFor(() => {
       expect(screen.getByText("Spotify")).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("Settings", () => {
       }),
     );
 
-    renderWithProviders(<Settings />);
+    renderWithProviders(<Integrations />);
 
     await waitFor(() => {
       expect(screen.getByText("Failed to load connectors")).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("Settings", () => {
       }),
     );
 
-    renderWithProviders(<Settings />);
+    renderWithProviders(<Integrations />);
 
     await waitFor(() => {
       expect(screen.getByText("No connectors configured")).toBeInTheDocument();

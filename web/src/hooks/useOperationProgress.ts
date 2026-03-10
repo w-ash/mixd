@@ -39,6 +39,8 @@ export interface UseOperationProgressOptions {
 
 interface UseOperationProgressResult {
   progress: OperationProgress | null;
+  /** Whether the operation is currently running or pending. */
+  isActive: boolean;
   isConnected: boolean;
   error: Error | null;
 }
@@ -192,5 +194,8 @@ export function useOperationProgress(
     }
   }, [operationId]);
 
-  return { progress, isConnected, error };
+  const isActive =
+    progress?.status === "running" || progress?.status === "pending";
+
+  return { progress, isActive, isConnected, error };
 }
