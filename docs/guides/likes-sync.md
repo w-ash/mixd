@@ -17,37 +17,36 @@ The system uses intelligent track matching and checkpoint tracking to ensure rel
 
 Before using the likes synchronization features, ensure:
 
-1. **Service Configuration**: Run `narada setup` to configure API keys and OAuth tokens
-2. **Database Initialization**: Database is automatically created on first run
-3. **Connection Verification**: Check service status with `narada status`
+1. **API credentials** configured in `.env` (see [development.md](../development.md) for setup)
+2. **Database initialized** — runs automatically on first use
+3. **Service connections verified** — run `narada connectors` to check status
 
 ## Command Usage
 
 ### Importing Liked Tracks from Spotify
 
 ```bash
-narada import-spotify-likes [OPTIONS]
+narada likes import-spotify [OPTIONS]
 ```
 
 This command fetches tracks you've saved/liked on Spotify and imports them into the Narada database, preserving their like status and complete metadata.
 
 #### Options
 
-- `--limit NUMBER`: Maximum number of tracks to import (default: no limit)
-- `--batch-size NUMBER`: Number of tracks to process per batch (default: 100)
-- `--user-id STRING`: Spotify user ID (default: current user)
+- `--limit` / `-l` — tracks per API request batch (higher = fewer API calls)
+- `--max-imports` / `-m` — maximum total tracks to import (unlimited if not specified)
 
 #### Examples
 
 ```bash
 # Import all liked tracks from Spotify
-narada import-spotify-likes
+narada likes import-spotify
 
-# Import with custom batch size for slower connections
-narada import-spotify-likes --batch-size 50
+# Import only the first 500 liked tracks
+narada likes import-spotify --max-imports 500
 
-# Import only the most recent 500 liked tracks
-narada import-spotify-likes --limit 500
+# Adjust API batch size for slower connections
+narada likes import-spotify --limit 25
 ```
 
 #### What Happens During Import
@@ -62,28 +61,31 @@ narada import-spotify-likes --limit 500
 ### Exporting Liked Tracks to Last.fm
 
 ```bash
-narada export-likes-to-lastfm [OPTIONS]
+narada likes export-lastfm [OPTIONS]
 ```
 
 This command identifies tracks that are liked in Narada but not yet loved on Last.fm, and marks them as loved on Last.fm through intelligent track matching.
 
 #### Options
 
-- `--limit NUMBER`: Maximum number of tracks to export (default: no limit)
-- `--batch-size NUMBER`: Number of tracks to process per batch (default: 100)
-- `--user-id STRING`: Last.fm username (default: configured user)
+- `--batch-size` / `-b` — tracks per API request batch (Last.fm has rate limits)
+- `--max-exports` / `-m` — maximum total tracks to export (unlimited if not specified)
+- `--date` — override checkpoint date, export tracks liked since this date (ISO format: `2025-08-01`)
 
 #### Examples
 
 ```bash
 # Export all liked tracks to Last.fm
-narada export-likes-to-lastfm
+narada likes export-lastfm
 
 # Export with smaller batch size for API stability
-narada export-likes-to-lastfm --batch-size 25
+narada likes export-lastfm --batch-size 25
 
 # Export only the first 100 tracks for testing
-narada export-likes-to-lastfm --limit 100
+narada likes export-lastfm --max-exports 100
+
+# Re-export everything since a specific date
+narada likes export-lastfm --date 2025-01-01
 ```
 
 #### What Happens During Export
@@ -95,26 +97,9 @@ narada export-likes-to-lastfm --limit 100
 5. **Error Handling**: Gracefully handles API limits and failures
 6. **Checkpoint Saving**: Tracks export progress for resumability
 
-## System Architecture
+## Architecture
 
-The likes synchronization system follows Clean Architecture principles with well-defined layers:
-
-### Application Layer
-- **Use Cases**: `ImportSpotifyLikesUseCase` and `ExportLikesToLastfmUseCase` orchestrate business logic
-- **Services**: `LikeOperationService` provides reusable like management operations
-- **Checkpoint Management**: Tracks sync progress for resumable operations
-
-### Domain Layer
-- **Entities**: `Track`, `TrackLike` represent core business objects
-- **Matching Algorithms**: Sophisticated track matching with confidence scoring
-- **Business Rules**: Like status validation and conflict resolution
-
-### Infrastructure Layer
-- **Connectors**: 
-  - `SpotifyConnector`: OAuth integration with `get_liked_tracks()` method
-  - `LastfmConnector`: API integration with `love_track()` method
-- **Repositories**: `TrackRepository`, `TrackLikeRepository` for data persistence
-
+For details on how the likes sync system is structured (use cases, domain entities, connectors, repositories), see [Architecture: Layers & Patterns](../architecture/layers-and-patterns.md).
 
 ## Common Scenarios
 
@@ -124,10 +109,10 @@ To fully synchronize your likes between Spotify and Last.fm for the first time:
 
 ```bash
 # Step 1: Import all liked tracks from Spotify
-narada import-spotify-likes
+narada likes import-spotify
 
 # Step 2: Export all liked tracks to Last.fm
-narada export-likes-to-lastfm
+narada likes export-lastfm
 ```
 
 **Expected Results**:
@@ -142,8 +127,8 @@ After the initial synchronization, run the same commands periodically to keep se
 
 ```bash
 # Run weekly or monthly to catch new likes
-narada import-spotify-likes
-narada export-likes-to-lastfm
+narada likes import-spotify
+narada likes export-lastfm
 ```
 
 The checkpoint system ensures only new changes are processed, making subsequent runs much faster.
@@ -153,11 +138,11 @@ The checkpoint system ensures only new changes are processed, making subsequent 
 For very large music libraries, use batch sizing and limits:
 
 ```bash
-# Import in smaller batches for stability
-narada import-spotify-likes --batch-size 50
+# Import with lower API batch size for stability
+narada likes import-spotify --limit 25
 
 # Export in smaller batches with rate limiting consideration
-narada export-likes-to-lastfm --batch-size 25
+narada likes export-lastfm --batch-size 25
 ```
 
 ### Testing and Validation
@@ -166,13 +151,13 @@ To test the system before full synchronization:
 
 ```bash
 # Test import with a small subset
-narada import-spotify-likes --limit 100
+narada likes import-spotify --max-imports 100
 
 # Test export with a small subset
-narada export-likes-to-lastfm --limit 50
+narada likes export-lastfm --max-exports 50
 
-# Check results
-narada status
+# Check service connections
+narada connectors
 ```
 
 ## Track Matching System
@@ -195,9 +180,9 @@ Typical matching success rates:
 
 ## Related Documentation
 
-- **[API.md](API.md)** - Complete CLI command reference including likes sync commands
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design patterns used in likes sync
-- **[DATABASE.md](DATABASE.md)** - Database schema for tracks, likes, and sync checkpoints
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer guide for extending the likes sync system
-- **[workflow_guide.md](workflow_guide.md)** - Workflow system for advanced playlist operations
-- **[Planning & Backlog](backlog/README.md)** - Future enhancements planned for likes synchronization
+- **[CLI Reference](cli.md)** - Complete CLI command reference
+- **[Workflow Guide](workflows.md)** - Workflow system for advanced playlist operations
+- **[Architecture](../architecture/README.md)** - System architecture and design patterns
+- **[Database](../architecture/database.md)** - Database schema for tracks, likes, and sync checkpoints
+- **[Development](../development.md)** - Developer setup and common task recipes
+- **[Planning & Backlog](../backlog/README.md)** - Future enhancements planned for likes synchronization

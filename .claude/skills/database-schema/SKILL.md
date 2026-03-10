@@ -6,7 +6,7 @@ user-invocable: false
 
 # Narada Database Schema Reference
 
-> Condensed from `docs/DATABASE.md`. All tables inherit `BaseEntity` → `id`, `created_at`, `updated_at`.
+> Condensed from `docs/architecture/database.md`. All tables inherit `BaseEntity` → `id`, `created_at`, `updated_at`.
 
 ## Tables
 

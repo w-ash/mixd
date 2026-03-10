@@ -475,8 +475,8 @@ Database migrations are handled through Alembic with the following approach:
 
 ## Related Documentation
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design decisions
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer onboarding and contribution guide
-- **[API.md](API.md)** - CLI commands that interact with the database
-- **[workflow_guide.md](workflow_guide.md)** - Workflow system that operates on database entities
-- **[likes_sync_guide.md](likes_sync_guide.md)** - Likes synchronization using database entities
+- **[Architecture](README.md)** - System architecture and design decisions
+- **[Development](../development.md)** - Developer onboarding and contribution guide
+- **[CLI Reference](../guides/cli.md)** - CLI commands that interact with the database
+- **[Workflow Guide](../guides/workflows.md)** - Workflow system that operates on database entities
+- **[Likes Sync Guide](../guides/likes-sync.md)** - Likes synchronization using database entities

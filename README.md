@@ -1,122 +1,101 @@
 # Narada
 
-**Own your music data. Create playlists using YOUR criteria, not proprietary algorithms.**
+**Personal music metadata hub — own your data, build playlists with your own rules.**
 
-Streaming services lock your data behind opaque algorithms. Narada gives you control: import listening history from Spotify and Last.fm, define workflow pipelines with your own logic (e.g., "liked tracks unplayed for 6 months"), and sync across services.
+Streaming services lock your listening history, likes, and playlists behind proprietary algorithms you can't customize. Narada puts you in control: import your data, sync it across services, and build smart playlists using criteria *you* define.
 
-## What It Does
+## What You Can Do
 
-- **Cross-Service Playlists**: Build playlists using data from Spotify, Last.fm, and MusicBrainz together
-- **Workflow Pipelines**: Declarative JSON workflows — source tracks, filter, sort, enrich, and push to Spotify
-- **Listening History**: Import Spotify GDPR exports and ongoing Last.fm scrobbles into a unified database
-- **Web UI + CLI**: Browse playlists and manage connectors in the browser, or use the CLI for power operations
+### Own Your Data
 
-### Example Workflows
+Import your music data into a unified local database that *you* control.
 
-- **"Current Obsessions"** — liked tracks with 8+ plays in the last 30 days, top 20
-- **"Hidden Gems"** — liked tracks with 3+ plays but untouched for 6 months
-- **"Discovery Mix"** — interleave recent plays with old favorites, random 40
+- **Listening history** — Last.fm scrobbles (ongoing via API) and Spotify play history (GDPR export)
+- **Liked tracks** — import saves from Spotify, export as loves to Last.fm
+- **Playlists** — backup any Spotify playlist locally with full track metadata
+- **Track identity** — automatic cross-service matching via Spotify IDs, ISRCs, MusicBrainz, and fuzzy metadata
 
-## Getting Started
+### Sync Across Services
 
-### Prerequisites
+Push and pull data between Spotify, Last.fm, and MusicBrainz — operations no single platform offers.
 
-- Python 3.14+, [Poetry](https://python-poetry.org/)
-- Node.js 20+, [pnpm](https://pnpm.io/) (for the web UI)
+- **Likes sync** — import liked tracks from Spotify, export them as Last.fm loves (with checkpoint tracking for incremental updates)
+- **Playlist linking** — link a canonical playlist to Spotify and sync changes in either direction
+- **Enrichment** — pull play counts from Last.fm, explicit flags from Spotify, and recording IDs from MusicBrainz to enrich your local library
 
-### Installation
+### Build Smart Playlists
+
+Create declarative workflow pipelines from composable building blocks. Source tracks, enrich with cross-service data, filter and sort by your criteria, and push results to Spotify.
+
+**Available nodes:**
+
+| Category | What they do |
+|----------|-------------|
+| **Source** | Pull tracks from any linked playlist (Spotify, local, or canonical) |
+| **Enrich** | Add play counts (Last.fm), explicit flags (Spotify), listening history from your database |
+| **Filter** | By play count, release date, liked status, duration, explicit content, play recency — or exclude tracks in other playlists |
+| **Sort** | By any metric, release date, play frequency, date added, first/last played, or weighted shuffle |
+| **Select** | Top N, last N, random N, or a percentage |
+| **Combine** | Merge, concatenate, interleave, or intersect multiple sources |
+| **Destination** | Create or update playlists (locally and on Spotify) with template naming |
+
+Workflows run via CLI or the web UI's visual editor with live per-node progress.
+
+### Web Interface
+
+A full-featured web UI for browsing and managing your music library.
+
+- **Dashboard** — library stats, connector health, data quality signals
+- **Track library** — search, filter, paginate, view detailed track info with cross-service mappings
+- **Playlist management** — CRUD, connector linking, push/pull sync
+- **Visual workflow editor** — drag-and-drop DAG builder with node palette, config panel, undo/redo, dry-run preview
+- **Live execution** — watch workflows run node-by-node with real-time progress, then inspect per-track decisions in run history
+
+## How It Works
+
+Two interfaces (CLI + Web) over a shared application core, built on Clean Architecture with domain-driven design.
+
+```
+CLI (Typer + Rich)  ─┐
+                     ├→ Use Cases → Domain Logic ← Connectors (Spotify, Last.fm, MusicBrainz)
+Web (React + FastAPI)┘                           ← SQLite/SQLAlchemy (async)
+```
+
+Workflows are declarative pipelines: **Source → Enrich → Filter → Sort → Select → Destination**. Tracks flow through nodes that compose freely. The pipeline engine (Prefect 3.0) handles orchestration, retry, and progress tracking.
+
+**Stack**: Python 3.14, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 7, Tailwind CSS v4, Tanstack Query
+
+## Quick Start
 
 ```bash
-git clone https://github.com/w-ash/narada.git
-cd narada
-
-# Backend
+git clone https://github.com/w-ash/narada.git && cd narada
 poetry install
-
-# Frontend
-pnpm --prefix web install
+cp .env.example .env   # Add your Spotify and Last.fm API credentials
+poetry run alembic upgrade head
+narada connectors      # Verify service connections
 ```
-
-### Configuration
-
-Create a `.env` file with your API credentials:
 
 ```bash
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
-LASTFM_KEY=your_lastfm_api_key
-LASTFM_USERNAME=your_lastfm_username
+# Import your data
+narada likes import-spotify         # Backup liked tracks
+narada history import-lastfm        # Import listening history
+
+# Run a workflow
+narada workflow                     # Interactive workflow browser
+
+# Launch the web UI
+narada-api                          # FastAPI on :8000
+pnpm --prefix web install && pnpm --prefix web dev   # Vite on :5173
 ```
 
-Connect Spotify (opens browser for OAuth):
-```bash
-narada setup
-```
-
-### Running
-
-```bash
-# Web UI — backend + frontend
-narada-api                        # FastAPI on :8000
-pnpm --prefix web dev             # Vite dev server on :5173, proxies /api → :8000
-
-# CLI
-narada --help                     # All commands
-narada workflow                   # Interactive workflow browser
-narada history import-lastfm      # Import listening history
-narada likes import-spotify       # Backup liked tracks
-```
-
-## Architecture
-
-**Domain-Driven Design + Clean Architecture.** Two presentation layers (CLI + Web) over a shared application core.
-
-```
-narada/
-├── src/
-│   ├── domain/              Pure business logic (matching, transforms, entities)
-│   ├── application/         Use cases, workflows (Prefect 3.0), services
-│   ├── infrastructure/      Spotify/Last.fm/MusicBrainz connectors, SQLAlchemy repos
-│   └── interface/
-│       ├── cli/             Typer + Rich
-│       └── api/             FastAPI (REST + SSE)
-├── web/                     React 19 + Vite 7 + Tailwind v4 + Tanstack Query
-├── tests/                   1235 pytest tests + 70 Vitest tests
-└── docs/                    Architecture, API reference, workflow guide
-```
-
-**Stack**: Python 3.14, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 7, Tailwind CSS v4, shadcn/ui, Tanstack Query, Orval, Biome
-
-## Development
-
-```bash
-# Tests
-poetry run pytest                    # Backend fast tests (~32s, 1235 tests)
-poetry run pytest -m ""              # All tests including slow
-pnpm --prefix web test               # Frontend component tests (70 tests)
-
-# Code quality
-poetry run ruff check . --fix        # Lint
-poetry run ruff format .             # Format
-poetry run basedpyright src/         # Type check (0 errors)
-pnpm --prefix web check              # Biome lint + TypeScript
-
-# Database
-poetry run alembic upgrade head      # Migrate
-```
+Full setup: [docs/development.md](docs/development.md) — CLI reference: [docs/guides/cli.md](docs/guides/cli.md)
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer responsibilities and dependency rules |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer onboarding and full command reference |
-| [DATABASE.md](docs/DATABASE.md) | Schema, relationships, and migration patterns |
-| [Workflow Guide](docs/GUIDE_WORKFLOWS.md) | Node catalog and workflow authoring |
-| [Web UI Specs](docs/web-ui/README.md) | User flows, API contracts, frontend architecture |
-| [Planning & Backlog](docs/backlog/) | Version plan, technology decisions, and task breakdowns |
-| [CLAUDE.md](CLAUDE.md) | AI-assisted development patterns and conventions |
+- **Using narada?** → [docs/guides/](docs/guides/) — workflows, likes sync, CLI reference
+- **Contributing?** → [docs/development.md](docs/development.md) then [docs/architecture/](docs/architecture/)
+- **Full index** → [docs/README.md](docs/README.md)
 
 ## License
 
-This project is licensed under the MIT License — see the LICENSE file for details.
+AGPL-3.0 — see [LICENSE](LICENSE) for details.

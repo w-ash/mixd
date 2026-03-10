@@ -357,16 +357,16 @@ PATCH  /playlists/{id}/tracks/move
 GET    /playlists/{id}/links
        → { data: PlaylistMapping[] }
 ```
-- **Use case**: Query playlist connector mappings
-- **Status**: Needs implementation
+- **Use case**: `ListPlaylistLinksUseCase`
+- **Status**: ✅ Implemented (v0.4.4)
 
 ```
 POST   /playlists/{id}/links
        body: { connector: str, connector_playlist_id: str, sync_direction: "narada" | "connector" | "manual" }
        → PlaylistMapping
 ```
-- **Use case**: `CreateConnectorPlaylistUseCase`
-- **Status**: Needs API route (use case exists)
+- **Use case**: `CreatePlaylistLinkUseCase`
+- **Status**: ✅ Implemented (v0.4.4)
 
 ```
 PATCH  /playlists/{id}/links/{link_id}
@@ -380,16 +380,16 @@ PATCH  /playlists/{id}/links/{link_id}
 DELETE /playlists/{id}/links/{link_id}
        → 204
 ```
-- **Use case**: Unlink connector playlist
-- **Status**: Needs implementation
+- **Use case**: `DeletePlaylistLinkUseCase`
+- **Status**: ✅ Implemented (v0.4.4)
 
 ```
 POST   /playlists/{id}/links/{link_id}/sync
        body: { direction: "push" | "pull" }
        → { operation_id: str }
 ```
-- **Use case**: `UpdateConnectorPlaylistUseCase`
-- **Status**: Needs API route (use case exists)
+- **Use case**: `SyncPlaylistLinkUseCase`
+- **Status**: ✅ Implemented (v0.4.4)
 
 ### Playlist Object Schemas
 
@@ -430,14 +430,18 @@ Defined in `src/interface/api/schemas/playlists.py`.
   "added_at": "2026-03-01T12:00:00 | null"
 }
 
-// PlaylistMapping (stub -- not yet implemented)
+// PlaylistLinkSchema (implemented v0.4.4)
 {
   "id": 1,
-  "connector": "spotify",
+  "connector_name": "spotify",
   "connector_playlist_id": "string",
-  "connector_playlist_name": "string",
-  "sync_direction": "narada | connector | manual",
-  "last_synced": "ISO8601 | null"
+  "connector_playlist_name": "string | null",
+  "sync_direction": "push | pull",
+  "sync_status": "never_synced | syncing | synced | error",
+  "last_synced": "ISO8601 | null",
+  "last_sync_error": "string | null",
+  "last_sync_tracks_added": "int | null",
+  "last_sync_tracks_removed": "int | null"
 }
 ```
 
@@ -837,8 +841,8 @@ GET    /stats/dashboard
            liked_by_connector: { "spotify": int, "lastfm": int, ... }
          }
 ```
-- **Use case**: `GetTrackStatsUseCase` (v0.3.3)
-- **Status**: Needs implementation
+- **Use case**: `GetDashboardStatsUseCase` (v0.3.3)
+- **Status**: ✅ Implemented (v0.3.3)
 
 ```
 GET    /stats/plays
@@ -1028,14 +1032,17 @@ Fields:
 | `RunWorkflowUseCase` | `POST /workflows/{id}/run` | `routes/workflows.py` | v0.4.1 |
 | `GetWorkflowRunsUseCase` | `GET /workflows/{id}/runs`, `GET /workflows/{id}/runs/{run_id}` | `routes/workflows.py` | v0.4.1 |
 | `PreviewWorkflowUseCase` | `POST /workflows/{id}/preview`, `POST /workflows/preview` | `routes/workflows.py` | v0.4.3 |
+| `GetDashboardStatsUseCase` | `GET /stats/dashboard` | `routes/stats.py` | v0.3.3 |
+| `ListPlaylistLinksUseCase` | `GET /playlists/{id}/links` | `routes/playlists.py` | v0.4.4 |
+| `CreatePlaylistLinkUseCase` | `POST /playlists/{id}/links` | `routes/playlists.py` | v0.4.4 |
+| `DeletePlaylistLinkUseCase` | `DELETE /playlists/{id}/links/{link_id}` | `routes/playlists.py` | v0.4.4 |
+| `SyncPlaylistLinkUseCase` | `POST /playlists/{id}/links/{link_id}/sync` | `routes/playlists.py` | v0.4.4 |
 
 ### Use Cases With Existing Logic (Need API Routes)
 
 | Use Case | API Endpoints | Milestone |
 |----------|--------------|-----------|
 | `UpdateCanonicalPlaylistUseCase` | `POST /playlists/{id}/tracks`, `DELETE .../tracks`, `PATCH .../reorder` | v0.3.2+ |
-| `CreateConnectorPlaylistUseCase` | `POST /playlists/{id}/links` | v0.4.4 |
-| `UpdateConnectorPlaylistUseCase` | `PATCH /playlists/{id}/links/{id}`, sync | v0.4.4 |
 | `MatchAndIdentifyTracksUseCase` | `POST /tracks/rematch` | v0.3.2 |
 | `EnrichTracksUseCase` | Internal (used by workflows) | — |
 
@@ -1045,13 +1052,6 @@ Fields:
 |----------|-----------|--------------|
 | Operation cancellation | v0.3.2+ | `POST /operations/{id}/cancel` |
 | `GetTrackConnectorMappingsUseCase` | v0.3.2+ | `GET /tracks/{id}/mappings` |
-| `GetTrackStatsUseCase` | v0.3.3 | `GET /stats/dashboard` |
-| `GetConnectorMappingStatsUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
-| `GetMetadataFreshnessUseCase` | v0.3.3 | `GET /stats/dashboard` (partial) |
-| Workflow CRUD | ✅ v0.4.0 | `GET/POST/PATCH/DELETE /workflows` |
-| Workflow execution | ✅ v0.4.1 | `POST /workflows/{id}/run`, `GET .../runs` |
-| Version tracking + run output | ✅ v0.4.2 | Schema additions to existing endpoints |
-| Workflow preview (dry-run) | ✅ v0.4.3 | `POST /workflows/{id}/preview`, `POST /workflows/preview` |
-| Connector playlist browse | v0.4.4 | `GET /connectors/{connector}/playlists` |
+| Connector playlist browse | v0.4.5+ | `GET /connectors/{connector}/playlists` |
 | Connector OAuth flows | v0.5.0 | `/auth/*`, `/connectors/*/auth-url` |
 | `GetUnmappedTracksUseCase` | v0.6.0 | `GET /tracks?unmapped_for=...` |

@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "narada"
-version = "0.4.3"
+version = "0.4.4"
 description = "Music metadata integration and playlist management platform"
 authors = ["Ash Wright <a@ashwright.net>"]
 homepage = "https://github.com/w-ash/narada"
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-only"
 packages = [
     {include = "src"}
 ]

@@ -1,0 +1,167 @@
+"""Unit tests for SyncPlaylistLinkUseCase."""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from src.application.use_cases.sync_playlist_link import (
+    SyncPlaylistLinkCommand,
+    SyncPlaylistLinkUseCase,
+)
+from src.application.use_cases.update_connector_playlist import (
+    UpdateConnectorPlaylistResult,
+)
+from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.exceptions import NotFoundError
+from tests.fixtures import make_mock_uow, make_playlist
+
+
+def _make_link(
+    *,
+    direction: SyncDirection = SyncDirection.PUSH,
+    status: SyncStatus = SyncStatus.NEVER_SYNCED,
+) -> PlaylistLink:
+    return PlaylistLink(
+        id=1,
+        playlist_id=42,
+        connector_name="spotify",
+        connector_playlist_identifier="ext123",
+        connector_playlist_name="External Playlist",
+        sync_direction=direction,
+        sync_status=status,
+    )
+
+
+def _make_uow_with_link(link: PlaylistLink | None = None) -> AsyncMock:
+    link = link or _make_link()
+    uow = make_mock_uow()
+
+    link_repo = uow.get_playlist_link_repository()
+    link_repo.get_link.return_value = link
+    link_repo.update_sync_status.return_value = None
+
+    playlist = make_playlist(id=42, name="My Playlist")
+    uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
+
+    return uow
+
+
+class TestSyncPlaylistLinkPush:
+    """Push sync (canonical → external)."""
+
+    @pytest.mark.asyncio
+    async def test_push_sync_success(self):
+        uow = _make_uow_with_link()
+
+        # After sync completes, re-fetch returns the updated link
+        updated_link = _make_link(status=SyncStatus.SYNCED)
+        uow.get_playlist_link_repository().get_link.side_effect = [
+            _make_link(),  # Initial fetch
+            updated_link,  # Re-fetch after sync
+        ]
+
+        mock_push_result = UpdateConnectorPlaylistResult(
+            playlist_id="ext123",
+            connector="spotify",
+            tracks_added=3,
+            tracks_removed=1,
+        )
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_push_sync", new_callable=AsyncMock
+        ) as mock_push:
+            from src.application.use_cases.sync_playlist_link import (
+                SyncPlaylistLinkResult,
+            )
+
+            mock_push.return_value = SyncPlaylistLinkResult(
+                link=_make_link(),
+                tracks_added=3,
+                tracks_removed=1,
+            )
+
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=1), uow
+            )
+
+            assert result.tracks_added == 3
+            assert result.tracks_removed == 1
+            mock_push.assert_called_once()
+
+
+class TestSyncPlaylistLinkPull:
+    """Pull sync (external → canonical)."""
+
+    @pytest.mark.asyncio
+    async def test_pull_sync_via_direction_override(self):
+        uow = _make_uow_with_link(_make_link(direction=SyncDirection.PUSH))
+
+        updated_link = _make_link(status=SyncStatus.SYNCED)
+        uow.get_playlist_link_repository().get_link.side_effect = [
+            _make_link(),
+            updated_link,
+        ]
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_pull_sync", new_callable=AsyncMock
+        ) as mock_pull:
+            from src.application.use_cases.sync_playlist_link import (
+                SyncPlaylistLinkResult,
+            )
+
+            mock_pull.return_value = SyncPlaylistLinkResult(
+                link=_make_link(),
+                tracks_added=5,
+                tracks_removed=0,
+            )
+
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(
+                    link_id=1,
+                    direction_override=SyncDirection.PULL,
+                ),
+                uow,
+            )
+
+            assert result.tracks_added == 5
+            mock_pull.assert_called_once()
+
+
+class TestSyncPlaylistLinkErrors:
+    """Error handling during sync."""
+
+    @pytest.mark.asyncio
+    async def test_link_not_found_raises(self):
+        uow = make_mock_uow()
+        uow.get_playlist_link_repository().get_link.return_value = None
+
+        with pytest.raises(NotFoundError, match="not found"):
+            await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=999), uow
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_error_updates_status(self):
+        uow = _make_uow_with_link()
+
+        uow.get_playlist_link_repository().get_link.side_effect = [
+            _make_link(),  # Initial fetch
+        ]
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_push_sync", new_callable=AsyncMock
+        ) as mock_push:
+            mock_push.side_effect = RuntimeError("Spotify API error")
+
+            with pytest.raises(RuntimeError, match="Spotify API error"):
+                await SyncPlaylistLinkUseCase().execute(
+                    SyncPlaylistLinkCommand(link_id=1), uow
+                )
+
+            # Verify error status was set
+            link_repo = uow.get_playlist_link_repository()
+            # First call: SYNCING, last call: ERROR
+            calls = link_repo.update_sync_status.call_args_list
+            assert calls[0].args == (1, SyncStatus.SYNCING)
+            assert calls[-1].args == (1, SyncStatus.ERROR)
+            assert "Spotify API error" in str(calls[-1].kwargs.get("error", ""))

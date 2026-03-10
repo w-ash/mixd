@@ -1,6 +1,7 @@
 ---
 paths:
-  - "**/*.py"
+  - "src/**/*.py"
+  - "tests/**/*.py"
 ---
 # Python 3.14+ Conventions (Narada-Specific)
 

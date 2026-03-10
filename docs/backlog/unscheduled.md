@@ -60,6 +60,15 @@ For the planning overview, see [README.md](README.md).
 - **Deezer Connector** (L) - Deezer integration via free public API (OAuth 2.0). Library, playlists, catalog (73M+ tracks). No API key costs. [Developer portal](https://developers.deezer.com/).
 - **SoundCloud Connector** (M) - SoundCloud integration via public API (OAuth 2.0). More creator-oriented than library-focused, but supports playlists and liked tracks. Lower priority — less aligned with Narada's library management use case. [Developer docs](https://developers.soundcloud.com/docs).
 
+## Playlist Link Enhancements
+
+- **Browse/Search User's Playlists from Connector** (M) - Instead of paste-ID-to-link, let users browse their own playlists from Spotify/Apple Music and select one. Requires new `list_user_playlists()` connector method + browse/search UI.
+- **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
+- **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
+- **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.
+- **External Change Detection** (S) - Compare Spotify `snapshot_id` (or equivalent) to detect external changes since last sync. Enables "out of sync" notifications.
+- **PAUSED Sync State** (S) - Allow users to pause sync on a link without unlinking. Requires scheduled sync infrastructure.
+
 ## Lower Priority Ideas
 
 - **Advanced Analytics Dashboard** - Workflow usage and performance metrics

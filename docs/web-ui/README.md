@@ -8,8 +8,8 @@ Documentation for the Narada web interface, organized by concern.
 |----------|---------|-----------|
 | [01-user-flows.md](01-user-flows.md) | **Primary spec.** Deep user journeys with triggers, steps, backend calls, and edge cases. Start here. | Evolving -- updated as features are designed |
 | [02-information-architecture.md](02-information-architecture.md) | Page hierarchy, URLs, navigation, empty states, responsive behavior. Derived from user flows. | Stable once flows settle |
-| [03-api-contracts.md](03-api-contracts.md) | REST endpoints, schemas, SSE format, error conventions. Maps each endpoint to its backing use case. | v0.3.x–v0.4.2 endpoints concrete; v0.4.3 preview endpoint concrete; v0.4.4+ stubs |
-| [04-frontend-architecture.md](04-frontend-architecture.md) | React stack decisions, project structure, component strategy, state management, testing. | Reflects v0.4.2 implementation |
+| [03-api-contracts.md](03-api-contracts.md) | REST endpoints, schemas, SSE format, error conventions. Maps each endpoint to its backing use case. | v0.3.x–v0.4.4 endpoints concrete; v0.4.5+ stubs |
+| [04-frontend-architecture.md](04-frontend-architecture.md) | React stack decisions, project structure, component strategy, state management, testing. | Reflects v0.4.4 implementation |
 
 ## Backlog Alignment
 
@@ -24,10 +24,10 @@ Documentation for the Narada web interface, organized by concern.
 | v0.4.2 -- Run-First Workflow UX | Run-focused detail page, pipeline strip, inline execution, per-track run output, version tracking |
 | v0.4.3 -- Visual Workflow Editor & Preview | Drag-and-drop node palette, config panel, undo/redo, dry-run preview |
 | v0.4.4 -- Connector Playlist Linking | Link canonical playlists to Spotify/Apple Music, push/pull sync |
-| v0.4.5 -- CI/CD & Quality | GitHub Actions, E2E tests, accessibility audit |
+| v0.4.5 -- Code & Test Suite Hardening | DDD/DRY audit, dependency updates, test performance, fixture consistency |
 | v0.5.0 -- PostgreSQL, Deployment & OAuth | Production infrastructure, Docker, Fly.io, Spotify OAuth |
 | v0.6.0 -- Apple Music & Data Quality | Unmapped track filters in Library, manual mapping UI on Track Detail, DQ alerts on Dashboard |
-| v0.7.0 -- Advanced Workflow Features | Sub-flows, workflow versioning & diff, import/export |
+| v0.7.0 -- Advanced Workflow Features | Sub-flows, import/export |
 | v0.8.0 -- LLM-Assisted Workflows | Natural language workflow creation via chat interface |
 
 ## How to Use These Docs

@@ -20,7 +20,3 @@ paths:
 - `SSEProgressProvider` implements the same `ProgressSubscriber` protocol as CLI's `RichProgressProvider`
 - SSE events include `id` field for `Last-Event-ID` reconnection
 - Event types: `progress`, `complete`, `error`, `cancelled`
-
-## Shared Architecture
-- API and CLI are two presentation layers over the same application core
-- Same use cases, same runner, same domain logic — never create "web-specific" business logic

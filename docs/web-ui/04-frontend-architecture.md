@@ -1,7 +1,7 @@
 # Frontend Architecture
 
 > Architecture decisions and project structure for the React web UI.
-> Stack choices, component catalog, and project layout reflect v0.4.2 implementation.
+> Stack choices, component catalog, and project layout reflect v0.4.4 implementation.
 > Future components and hooks are noted where planned.
 
 ---
@@ -297,7 +297,8 @@ web/
 │   │   ├── WorkflowDetail.tsx       Run-first layout: pipeline strip + last run card (v0.4.2)
 │   │   ├── WorkflowDetail.test.tsx
 │   │   ├── WorkflowRunDetail.tsx    Historical run view with DAG from definition_snapshot (v0.4.1)
-│   │   └── WorkflowRunDetail.test.tsx
+│   │   ├── WorkflowRunDetail.test.tsx
+│   │   └── WorkflowEditor.tsx       Interactive workflow builder with drag-and-drop (v0.4.3)
 │   ├── test/                        Test infrastructure
 │   │   ├── setup.ts                 MSW server bootstrap + jest-dom matchers
 │   │   └── test-utils.tsx           renderWithProviders + re-exports
@@ -315,9 +316,9 @@ web/
 └── package.json
 ```
 
-> **Test coverage**: 28 test files, ~213 tests. Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
+> **Test coverage**: Every page and shared component has a co-located `.test.tsx`/`.test.ts` file. Run with `pnpm --prefix web test`.
 >
-> **Future pages** (not yet implemented): `WorkflowEditor.tsx` (v0.4.3), `PlaylistLinks.tsx` (v0.4.4). All other pages (Dashboard, Library, TrackDetail, Playlists, Workflows, WorkflowDetail, WorkflowRunDetail, Imports, Settings) are implemented.
+> All pages are implemented: Dashboard, Library, TrackDetail, Playlists, PlaylistDetail, Workflows, WorkflowDetail, WorkflowRunDetail, WorkflowEditor, Imports, Settings. Playlist link management is integrated into PlaylistDetail (not a separate page).
 >
 > **Future shared components**: `TrackRow.tsx`, `AlbumArt.tsx`, `SearchModal.tsx`. These will be built when their corresponding pages are implemented.
 

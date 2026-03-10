@@ -11,6 +11,33 @@ paths:
 - Markers auto-applied by directory: `tests/unit/` → `unit`, `tests/integration/` → `integration`
 - Additional markers applied per-test: `slow` (>1s), `performance` (>5s), `diagnostic` — all skipped by default
 
+## Test Execution Policy (DO NOT over-test)
+**During implementation (inner loop)** — run ONLY affected tests:
+- Editing `src/domain/X.py` → `poetry run pytest tests/unit/domain/test_X.py -x`
+- Editing `src/application/use_cases/X.py` → `poetry run pytest tests/unit/application/use_cases/test_X.py -x`
+- Editing a connector → `poetry run pytest tests/unit/infrastructure/connectors/Y/test_X.py -x`
+- Editing a repository → `poetry run pytest tests/integration/repositories/test_X.py -x`
+- Editing an API route → `poetry run pytest tests/integration/api/test_X.py -x`
+- Editing frontend → `pnpm --prefix web test src/path/to/Component.test.tsx`
+- Use `-k "test_name"` when iterating on a specific failure
+- Use `--lf` to rerun only previously-failed tests
+
+**Before committing** — full fast suite:
+- `poetry run pytest` (runs with `-n auto`, excludes slow/diagnostic)
+- `pnpm --prefix web test` (all frontend)
+
+**Full verification (version bump, dep update, or explicit request only)**:
+- `poetry run pytest -m ""` — all tests including slow
+- `poetry run basedpyright src/` — type check
+- `poetry run ruff check .` — lint
+- `pnpm --prefix web check && pnpm --prefix web build`
+
+**Anti-patterns** — NEVER do these during normal implementation:
+- Running `poetry run pytest` (full suite) after every small edit
+- Running `poetry run basedpyright src/` after editing a single file
+- Running `pnpm --prefix web build` to verify a component change
+- Running slow/diagnostic tests unless touching connectors or infrastructure
+
 ## Directory Placement (mirror source structure)
 - `src/domain/X.py` → `tests/unit/domain/test_X.py`
 - `src/application/use_cases/X.py` → `tests/unit/application/use_cases/test_X.py`
@@ -44,26 +71,6 @@ paths:
 - Test names: `test_<scenario>_<expected_behavior>` — descriptive, not cryptic
 - Module docstring on every test file explaining what is tested
 - Every new test directory needs an `__init__.py` (prevents module name collisions)
-
-## Coverage Checklist
-1. **Happy path** — primary success case works end-to-end
-2. **Validation** — invalid inputs rejected (empty strings, None, out-of-range)
-3. **Edge cases** — empty collections, single item, boundary values, duplicates
-4. **Error propagation** — exceptions from dependencies handled correctly
-5. **Transaction behavior** — commit on success, rollback on failure (use cases)
-
-## Frontend Tests (web/)
-- Co-located: `Component.tsx` → `Component.test.tsx` (same directory)
-- Hooks: `useX.ts` → `useX.test.ts` (same directory)
-- E2E: `web/e2e/*.spec.ts` (Playwright, Chromium desktop)
-- Run: `pnpm --prefix web test` (Vitest) / `pnpm --prefix web test:e2e` (Playwright)
-- `@/` path alias maps to `web/src/` — use in imports: `import { renderWithProviders } from "@/test/test-utils"`
-- Test utilities live in `web/src/test/`: `setup.ts` (MSW server bootstrap), `test-utils.tsx` (renderWithProviders)
-- `renderWithProviders()` wraps with test QueryClient (`retry: false`, `gcTime: 0`) + `MemoryRouter` — use for any component that uses hooks, routing, or queries
-- Direct `render()` from `@testing-library/react` is fine for pure presentational components with no hooks/router
-- MSW auto-generated handlers from Orval in `web/src/api/generated/**/*.msw.ts` — pre-loaded in `setup.ts`
-- Per-test API overrides: `server.use(http.get("*/api/v1/playlists", customHandler))` — reset automatically
-- All frontend tests use `*.test.tsx` / `*.test.ts` (no `.integration.test.tsx` convention)
 
 ## What NOT to Test
 - Python/attrs language features ("frozen raises on mutation")

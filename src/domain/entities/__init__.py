@@ -19,6 +19,7 @@ from .playlist import (
     Playlist,
     PlaylistEntry,
 )
+from .playlist_link import PlaylistLink, SyncDirection, SyncStatus
 
 # Shared utilities
 from .shared import MetricValue, ensure_utc, utc_now_factory
@@ -56,10 +57,13 @@ __all__ = [
     "PlayRecord",
     "Playlist",
     "PlaylistEntry",
+    "PlaylistLink",
     "SummaryMetric",
     "SummaryMetricCollection",
     "SyncCheckpoint",
     "SyncCheckpointStatus",
+    "SyncDirection",
+    "SyncStatus",
     "Track",
     "TrackLike",
     "TrackList",

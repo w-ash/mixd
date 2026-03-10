@@ -10,4 +10,5 @@ export interface WorkflowValidationErrorSchema {
   task_id: string;
   field: string;
   message: string;
+  severity?: string | null;
 }

@@ -387,6 +387,218 @@
         }
       }
     },
+    "/api/v1/playlists/{playlist_id}/links": {
+      "get": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "List Playlist Links",
+        "description": "List all connector links for a playlist.",
+        "operationId": "list_playlist_links_api_v1_playlists__playlist_id__links_get",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlaylistLinkSchema"
+                  },
+                  "title": "Response List Playlist Links Api V1 Playlists  Playlist Id  Links Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Create Playlist Link",
+        "description": "Link a playlist to an external service playlist.\n\nAccepts Spotify URLs, URIs, or raw IDs. Validates that the external\nplaylist exists before creating the link.",
+        "operationId": "create_playlist_link_api_v1_playlists__playlist_id__links_post",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistLinkSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/links/{link_id}": {
+      "delete": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Delete Playlist Link",
+        "description": "Unlink a playlist from an external service.",
+        "operationId": "delete_playlist_link_api_v1_playlists__playlist_id__links__link_id__delete",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/links/{link_id}/sync": {
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Sync Playlist Link",
+        "description": "Start a sync operation for a playlist link.\n\nReturns immediately with an operation_id. Progress streams via\nGET /operations/{operation_id}/progress (existing SSE endpoint).",
+        "operationId": "sync_playlist_link_api_v1_playlists__playlist_id__links__link_id__sync_post",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SyncLinkRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tracks": {
       "get": {
         "tags": [
@@ -1677,6 +1889,30 @@
         "title": "CheckpointStatusSchema",
         "description": "Sync checkpoint status for a single service + entity type."
       },
+      "ConnectorLinkBriefSchema": {
+        "properties": {
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "sync_direction": {
+            "type": "string",
+            "title": "Sync Direction"
+          },
+          "sync_status": {
+            "type": "string",
+            "title": "Sync Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_name",
+          "sync_direction",
+          "sync_status"
+        ],
+        "title": "ConnectorLinkBriefSchema",
+        "description": "Compact link info for playlist list views."
+      },
       "ConnectorMappingSchema": {
         "properties": {
           "connector_name": {
@@ -1736,6 +1972,30 @@
         ],
         "title": "ConnectorStatusSchema",
         "description": "Current authentication status of a music service connector."
+      },
+      "CreateLinkRequest": {
+        "properties": {
+          "connector": {
+            "type": "string",
+            "title": "Connector"
+          },
+          "connector_playlist_id": {
+            "type": "string",
+            "title": "Connector Playlist Id"
+          },
+          "sync_direction": {
+            "type": "string",
+            "title": "Sync Direction",
+            "default": "push"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector",
+          "connector_playlist_id"
+        ],
+        "title": "CreateLinkRequest",
+        "description": "Request body for POST /playlists/{id}/links."
       },
       "CreatePlaylistRequest": {
         "properties": {
@@ -2398,7 +2658,7 @@
           },
           "connector_links": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ConnectorLinkBriefSchema"
             },
             "type": "array",
             "title": "Connector Links"
@@ -2464,6 +2724,96 @@
         "title": "PlaylistEntrySchema",
         "description": "A track's membership in a playlist with position metadata."
       },
+      "PlaylistLinkSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "connector_playlist_id": {
+            "type": "string",
+            "title": "Connector Playlist Id"
+          },
+          "connector_playlist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Playlist Name"
+          },
+          "sync_direction": {
+            "type": "string",
+            "title": "Sync Direction"
+          },
+          "sync_status": {
+            "type": "string",
+            "title": "Sync Status"
+          },
+          "last_synced": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced"
+          },
+          "last_sync_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Error"
+          },
+          "last_sync_tracks_added": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Tracks Added"
+          },
+          "last_sync_tracks_removed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Tracks Removed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "connector_name",
+          "connector_playlist_id",
+          "sync_direction",
+          "sync_status"
+        ],
+        "title": "PlaylistLinkSchema",
+        "description": "Full link detail for playlist detail views."
+      },
       "PlaylistSummarySchema": {
         "properties": {
           "id": {
@@ -2491,7 +2841,7 @@
           },
           "connector_links": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ConnectorLinkBriefSchema"
             },
             "type": "array",
             "title": "Connector Links"
@@ -2517,7 +2867,7 @@
           "connector_links"
         ],
         "title": "PlaylistSummarySchema",
-        "description": "Compact playlist representation for list views."
+        "description": "Compact playlist representation for list views.\n\nBreaking change from v0.4.3: connector_links changed from list[str]\nto list[ConnectorLinkBriefSchema] with sync direction and status."
       },
       "PreviewStartedResponse": {
         "properties": {
@@ -2531,6 +2881,38 @@
           "operation_id"
         ],
         "title": "PreviewStartedResponse"
+      },
+      "SyncLinkRequest": {
+        "properties": {
+          "direction_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction Override"
+          }
+        },
+        "type": "object",
+        "title": "SyncLinkRequest",
+        "description": "Request body for POST /playlists/{id}/links/{link_id}/sync."
+      },
+      "SyncStartedResponse": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation_id"
+        ],
+        "title": "SyncStartedResponse",
+        "description": "Response for sync operations that run in the background."
       },
       "TrackDetailSchema": {
         "properties": {
@@ -3449,6 +3831,17 @@
           "message": {
             "type": "string",
             "title": "Message"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
           }
         },
         "type": "object",

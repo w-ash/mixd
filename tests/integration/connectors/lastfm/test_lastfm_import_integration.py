@@ -1,6 +1,6 @@
 """Integration tests for LastfmPlayImporter with real repository interactions.
 
-Tests critical service + repository integration paths following DEVELOPMENT.md patterns:
+Tests critical service + repository integration paths following .claude/rules/test-patterns.md:
 - Real database operations with automatic cleanup
 - End-to-end workflow validation
 - UnitOfWork transaction integrity

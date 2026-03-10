@@ -5,6 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.4.3
  */
+import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema';
 import type { PlaylistEntrySchema } from './playlistEntrySchema';
 
 /**
@@ -15,7 +16,7 @@ export interface PlaylistDetailSchema {
   name: string;
   description?: string | null;
   track_count: number;
-  connector_links: string[];
+  connector_links: ConnectorLinkBriefSchema[];
   updated_at?: string | null;
   entries: PlaylistEntrySchema[];
 }

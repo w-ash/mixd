@@ -498,6 +498,23 @@ class DBPlaylistMapping(BaseEntity):
         default=lambda: datetime.now(UTC),
     )
 
+    # Sync management columns
+    sync_direction: Mapped[str] = mapped_column(
+        String(10), default="push", server_default="push"
+    )
+    sync_status: Mapped[str] = mapped_column(
+        String(20), default="never_synced", server_default="never_synced"
+    )
+    last_sync_error: Mapped[str | None] = mapped_column(default=None)
+    last_sync_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    last_sync_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    last_sync_tracks_added: Mapped[int | None] = mapped_column(default=None)
+    last_sync_tracks_removed: Mapped[int | None] = mapped_column(default=None)
+
     # Relationships
     playlist: Mapped[DBPlaylist] = relationship(
         back_populates="mappings",

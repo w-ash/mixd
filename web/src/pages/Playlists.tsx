@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { usePagination } from "@/hooks/usePagination";
 import { decodeHtmlEntities, formatDate } from "@/lib/format";
+import { getSyncStatusConfig } from "@/lib/sync-status";
 
 function PlaylistTableSkeleton() {
   return (
@@ -111,8 +112,20 @@ export function Playlists() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      {playlist.connector_links.map((connector) => (
-                        <ConnectorIcon key={connector} name={connector} />
+                      {playlist.connector_links.map((link) => (
+                        <span
+                          key={link.connector_name}
+                          className="inline-flex items-center gap-1.5"
+                        >
+                          <ConnectorIcon
+                            name={link.connector_name}
+                            labelHidden
+                          />
+                          <span
+                            className={`size-1.5 rounded-full ${getSyncStatusConfig(link.sync_status).dotClass}`}
+                            title={`${link.sync_direction} · ${link.sync_status}`}
+                          />
+                        </span>
                       ))}
                     </div>
                   </TableCell>

@@ -26,6 +26,7 @@ import type {
 
 import type {
   BackupPlaylistRequest,
+  CreateLinkRequest,
   CreatePlaylistRequest,
   GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams,
   HTTPValidationError,
@@ -33,6 +34,9 @@ import type {
   PaginatedResponsePlaylistEntrySchema,
   PaginatedResponsePlaylistSummarySchema,
   PlaylistDetailSchema,
+  PlaylistLinkSchema,
+  SyncLinkRequest,
+  SyncStartedResponse,
   UpdatePlaylistRequest
 } from '../model';
 
@@ -779,3 +783,403 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
 
 
 
+/**
+ * List all connector links for a playlist.
+ * @summary List Playlist Links
+ */
+export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse200 = {
+  data: PlaylistLinkSchema[]
+  status: 200
+}
+
+export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseSuccess = (listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse200) & {
+  headers: Headers;
+};
+export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseError = (listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse422) & {
+  headers: Headers;
+};
+
+export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse = (listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseSuccess | listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseError)
+
+export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetUrl = (playlistId: number,) => {
+
+
+  
+
+  return `/api/v1/playlists/${playlistId}/links`
+}
+
+export const listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet = async (playlistId: number, options?: RequestInit): Promise<listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse> => {
+  
+  return customFetch<listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse>(getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetUrl(playlistId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+  
+
+
+
+
+export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey = (playlistId: number,) => {
+    return [
+    `/api/v1/playlists/${playlistId}/links`
+    ] as const;
+    }
+
+    
+export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey(playlistId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>> = ({ signal }) => listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet(playlistId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(playlistId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryResult = NonNullable<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>>
+export type ListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryError = HTTPValidationError
+
+
+export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(
+ playlistId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>,
+          TError,
+          Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(
+ playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>,
+          TError,
+          Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(
+ playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Playlist Links
+ */
+
+export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(
+ playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryOptions(playlistId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+/**
+ * Link a playlist to an external service playlist.
+
+Accepts Spotify URLs, URIs, or raw IDs. Validates that the external
+playlist exists before creating the link.
+ * @summary Create Playlist Link
+ */
+export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse201 = {
+  data: PlaylistLinkSchema
+  status: 201
+}
+
+export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseSuccess = (createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse201) & {
+  headers: Headers;
+};
+export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseError = (createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse422) & {
+  headers: Headers;
+};
+
+export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse = (createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseSuccess | createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseError)
+
+export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostUrl = (playlistId: number,) => {
+
+
+  
+
+  return `/api/v1/playlists/${playlistId}/links`
+}
+
+export const createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost = async (playlistId: number,
+    createLinkRequest: CreateLinkRequest, options?: RequestInit): Promise<createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse> => {
+  
+  return customFetch<createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse>(getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostUrl(playlistId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createLinkRequest,)
+  }
+);}
+  
+
+
+
+export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>, TError,{playlistId: number;data: CreateLinkRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>, TError,{playlistId: number;data: CreateLinkRequest}, TContext> => {
+
+const mutationKey = ['createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>, {playlistId: number;data: CreateLinkRequest}> = (props) => {
+          const {playlistId,data} = props ?? {};
+
+          return  createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost(playlistId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMutationResult = NonNullable<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>>
+    export type CreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMutationBody = CreateLinkRequest
+    export type CreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Create Playlist Link
+ */
+export const useCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>, TError,{playlistId: number;data: CreateLinkRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>,
+        TError,
+        {playlistId: number;data: CreateLinkRequest},
+        TContext
+      > => {
+      return useMutation(getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMutationOptions(options), queryClient);
+    }
+    /**
+ * Unlink a playlist from an external service.
+ * @summary Delete Playlist Link
+ */
+export type deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponseSuccess = (deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponseError = (deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse = (deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponseSuccess | deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponseError)
+
+export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteUrl = (playlistId: number,
+    linkId: number,) => {
+
+
+  
+
+  return `/api/v1/playlists/${playlistId}/links/${linkId}`
+}
+
+export const deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete = async (playlistId: number,
+    linkId: number, options?: RequestInit): Promise<deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse> => {
+  
+  return customFetch<deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse>(getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteUrl(playlistId,linkId),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+  
+
+
+
+export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>, TError,{playlistId: number;linkId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>, TError,{playlistId: number;linkId: number}, TContext> => {
+
+const mutationKey = ['deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>, {playlistId: number;linkId: number}> = (props) => {
+          const {playlistId,linkId} = props ?? {};
+
+          return  deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete(playlistId,linkId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>>
+    
+    export type DeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Playlist Link
+ */
+export const useDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>, TError,{playlistId: number;linkId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>,
+        TError,
+        {playlistId: number;linkId: number},
+        TContext
+      > => {
+      return useMutation(getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationOptions(options), queryClient);
+    }
+    /**
+ * Start a sync operation for a playlist link.
+
+Returns immediately with an operation_id. Progress streams via
+GET /operations/{operation_id}/progress (existing SSE endpoint).
+ * @summary Sync Playlist Link
+ */
+export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse202 = {
+  data: SyncStartedResponse
+  status: 202
+}
+
+export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseSuccess = (syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse202) & {
+  headers: Headers;
+};
+export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseError = (syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse422) & {
+  headers: Headers;
+};
+
+export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse = (syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseSuccess | syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseError)
+
+export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl = (playlistId: number,
+    linkId: number,) => {
+
+
+  
+
+  return `/api/v1/playlists/${playlistId}/links/${linkId}/sync`
+}
+
+export const syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = async (playlistId: number,
+    linkId: number,
+    syncLinkRequestNull: SyncLinkRequest | null, options?: RequestInit): Promise<syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse> => {
+  
+  return customFetch<syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse>(getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl(playlistId,linkId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      syncLinkRequestNull,)
+  }
+);}
+  
+
+
+
+export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>, TError,{playlistId: number;linkId: number;data: SyncLinkRequest | null}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>, TError,{playlistId: number;linkId: number;data: SyncLinkRequest | null}, TContext> => {
+
+const mutationKey = ['syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>, {playlistId: number;linkId: number;data: SyncLinkRequest | null}> = (props) => {
+          const {playlistId,linkId,data} = props ?? {};
+
+          return  syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost(playlistId,linkId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationResult = NonNullable<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>>
+    export type SyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationBody = SyncLinkRequest | null
+    export type SyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Sync Playlist Link
+ */
+export const useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>, TError,{playlistId: number;linkId: number;data: SyncLinkRequest | null}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>,
+        TError,
+        {playlistId: number;linkId: number;data: SyncLinkRequest | null},
+        TContext
+      > => {
+      return useMutation(getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationOptions(options), queryClient);
+    }
+    

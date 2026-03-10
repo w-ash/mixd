@@ -19,6 +19,7 @@ from src.infrastructure.persistence.database.db_connection import (
 )
 from src.interface.api.app import create_app
 import src.interface.api.routes.imports as _imports_mod
+import src.interface.api.routes.playlists as _playlists_mod
 import src.interface.api.routes.workflows as _workflows_mod
 
 
@@ -45,8 +46,10 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
     # Stub out background task launcher at usage sites — both route modules
     # hold their own binding via `from ... import launch_background`.
     original_imports = _imports_mod.launch_background
+    original_playlists = _playlists_mod.launch_background
     original_workflows = _workflows_mod.launch_background
     _imports_mod.launch_background = _noop_launch  # type: ignore[assignment]
+    _playlists_mod.launch_background = _noop_launch  # type: ignore[assignment]
     _workflows_mod.launch_background = _noop_launch  # type: ignore[assignment]
 
     app = create_app()
@@ -56,6 +59,7 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
 
     # Cleanup
     _imports_mod.launch_background = original_imports
+    _playlists_mod.launch_background = original_playlists
     _workflows_mod.launch_background = original_workflows
     reset_engine_cache()
     if original_db_url:

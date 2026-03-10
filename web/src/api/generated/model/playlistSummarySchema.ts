@@ -5,15 +5,19 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.4.3
  */
+import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema';
 
 /**
  * Compact playlist representation for list views.
+
+Breaking change from v0.4.3: connector_links changed from list[str]
+to list[ConnectorLinkBriefSchema] with sync direction and status.
  */
 export interface PlaylistSummarySchema {
   id: number;
   name: string;
   description?: string | null;
   track_count: number;
-  connector_links: string[];
+  connector_links: ConnectorLinkBriefSchema[];
   updated_at?: string | null;
 }

@@ -18,11 +18,13 @@ from src.domain.entities import (
     ConnectorTrackPlay,
     OperationResult,
     Playlist,
+    PlaylistLink,
     SyncCheckpoint,
     Track,
     TrackLike,
     TrackPlay,
 )
+from src.domain.entities.playlist_link import SyncStatus
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -498,6 +500,38 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
         ...
 
 
+class PlaylistLinkRepositoryProtocol(Protocol):
+    """Repository interface for playlist link (mapping) operations."""
+
+    def get_links_for_playlist(self, playlist_id: int) -> Awaitable[list[PlaylistLink]]:
+        """Get all connector links for a canonical playlist."""
+        ...
+
+    def get_link(self, link_id: int) -> Awaitable[PlaylistLink | None]:
+        """Get a single playlist link by ID."""
+        ...
+
+    def create_link(self, link: PlaylistLink) -> Awaitable[PlaylistLink]:
+        """Create a new playlist link. Ensures the DBConnectorPlaylist exists."""
+        ...
+
+    def update_sync_status(
+        self,
+        link_id: int,
+        status: SyncStatus,
+        *,
+        error: str | None = None,
+        tracks_added: int | None = None,
+        tracks_removed: int | None = None,
+    ) -> Awaitable[None]:
+        """Update the sync status and optional metrics for a link."""
+        ...
+
+    def delete_link(self, link_id: int) -> Awaitable[bool]:
+        """Delete a playlist link. Returns True if deleted."""
+        ...
+
+
 class MetricsRepositoryProtocol(Protocol):
     """Repository interface for track metrics operations."""
 
@@ -873,6 +907,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_service_connector_provider(self) -> ServiceConnectorProvider:
         """Get service connector provider for accessing music service connectors."""
+        ...
+
+    def get_playlist_link_repository(self) -> PlaylistLinkRepositoryProtocol:
+        """Get playlist link repository for managing canonical-to-external playlist mappings."""
         ...
 
     def get_connector_playlist_repository(

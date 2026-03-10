@@ -18,6 +18,7 @@ from src.domain.repositories.interfaces import (
     ConnectorRepositoryProtocol,
     LikeRepositoryProtocol,
     MetricsRepositoryProtocol,
+    PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     ServiceConnectorProvider,
@@ -50,7 +51,7 @@ from src.infrastructure.services.track_identity_service_impl import (
 )
 
 
-class DatabaseUnitOfWork:
+class DatabaseUnitOfWork:  # noqa: PLR0904
     """Database implementation of the Unit of Work pattern.
 
     This class manages database transactions and provides access to all repositories
@@ -130,6 +131,14 @@ class DatabaseUnitOfWork:
     def get_connector_repository(self) -> ConnectorRepositoryProtocol:
         """Get connector repository using this unit of work's transaction."""
         return TrackConnectorRepository(self._session)
+
+    def get_playlist_link_repository(self) -> PlaylistLinkRepositoryProtocol:
+        """Get playlist link repository for managing canonical-to-external playlist mappings."""
+        from src.infrastructure.persistence.repositories.playlist.links import (
+            PlaylistLinkRepository,
+        )
+
+        return PlaylistLinkRepository(self._session)
 
     def get_connector_playlist_repository(self) -> ConnectorPlaylistRepositoryProtocol:
         """Get connector playlist repository using this unit of work's transaction."""

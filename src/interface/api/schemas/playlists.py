@@ -10,6 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
+from src.domain.entities.playlist_link import PlaylistLink
 from src.domain.entities.track import Artist, Track
 
 
@@ -43,8 +44,61 @@ class PlaylistEntrySchema(BaseModel):
     added_at: datetime | None = None
 
 
+# --- Playlist link schemas ---
+
+
+class ConnectorLinkBriefSchema(BaseModel):
+    """Compact link info for playlist list views."""
+
+    connector_name: str
+    sync_direction: str
+    sync_status: str
+
+
+class PlaylistLinkSchema(BaseModel):
+    """Full link detail for playlist detail views."""
+
+    id: int
+    connector_name: str
+    connector_playlist_id: str
+    connector_playlist_name: str | None = None
+    sync_direction: str
+    sync_status: str
+    last_synced: datetime | None = None
+    last_sync_error: str | None = None
+    last_sync_tracks_added: int | None = None
+    last_sync_tracks_removed: int | None = None
+
+
+class CreateLinkRequest(BaseModel):
+    """Request body for POST /playlists/{id}/links."""
+
+    connector: str
+    connector_playlist_id: str  # Accepts Spotify URI, URL, or raw ID
+    sync_direction: str = "push"
+
+
+class SyncLinkRequest(BaseModel):
+    """Request body for POST /playlists/{id}/links/{link_id}/sync."""
+
+    direction_override: str | None = None
+
+
+class SyncStartedResponse(BaseModel):
+    """Response for sync operations that run in the background."""
+
+    operation_id: str
+
+
+# --- Playlist summary/detail schemas ---
+
+
 class PlaylistSummarySchema(BaseModel):
-    """Compact playlist representation for list views."""
+    """Compact playlist representation for list views.
+
+    Breaking change from v0.4.3: connector_links changed from list[str]
+    to list[ConnectorLinkBriefSchema] with sync direction and status.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,7 +106,7 @@ class PlaylistSummarySchema(BaseModel):
     name: str
     description: str | None = None
     track_count: int
-    connector_links: list[str]
+    connector_links: list[ConnectorLinkBriefSchema]
     updated_at: datetime | None = None
 
 
@@ -108,26 +162,81 @@ def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchem
     )
 
 
-def to_playlist_summary(playlist: Playlist) -> PlaylistSummarySchema:
-    """Convert domain Playlist to summary schema for list endpoints."""
+def to_link_brief(link: PlaylistLink) -> ConnectorLinkBriefSchema:
+    """Convert domain PlaylistLink to brief schema for list views."""
+    return ConnectorLinkBriefSchema(
+        connector_name=link.connector_name,
+        sync_direction=link.sync_direction.value,
+        sync_status=link.sync_status.value,
+    )
+
+
+def to_link_schema(link: PlaylistLink) -> PlaylistLinkSchema:
+    """Convert domain PlaylistLink to full schema for detail views."""
+    return PlaylistLinkSchema(
+        id=link.id or 0,
+        connector_name=link.connector_name,
+        connector_playlist_id=link.connector_playlist_identifier,
+        connector_playlist_name=link.connector_playlist_name,
+        sync_direction=link.sync_direction.value,
+        sync_status=link.sync_status.value,
+        last_synced=link.last_synced,
+        last_sync_error=link.last_sync_error,
+        last_sync_tracks_added=link.last_sync_tracks_added,
+        last_sync_tracks_removed=link.last_sync_tracks_removed,
+    )
+
+
+def _build_connector_links(
+    playlist: Playlist,
+    links: list[PlaylistLink] | None,
+) -> list[ConnectorLinkBriefSchema]:
+    """Build connector link briefs from pre-fetched links or playlist identifiers."""
+    if links is not None:
+        return [to_link_brief(link) for link in links]
+    # Fallback: connector names only (no sync info available)
+    return [
+        ConnectorLinkBriefSchema(
+            connector_name=name,
+            sync_direction="push",
+            sync_status="never_synced",
+        )
+        for name in playlist.connector_playlist_identifiers
+    ]
+
+
+def to_playlist_summary(
+    playlist: Playlist,
+    links: list[PlaylistLink] | None = None,
+) -> PlaylistSummarySchema:
+    """Convert domain Playlist to summary schema for list endpoints.
+
+    Args:
+        playlist: The playlist entity.
+        links: Optional pre-fetched links. If None, falls back to
+            connector_playlist_identifiers keys with default status.
+    """
     return PlaylistSummarySchema(
         id=playlist.id or 0,
         name=playlist.name,
         description=playlist.description,
         track_count=playlist.track_count,
-        connector_links=list(playlist.connector_playlist_identifiers.keys()),
+        connector_links=_build_connector_links(playlist, links),
         updated_at=playlist.updated_at,
     )
 
 
-def to_playlist_detail(playlist: Playlist) -> PlaylistDetailSchema:
+def to_playlist_detail(
+    playlist: Playlist,
+    links: list[PlaylistLink] | None = None,
+) -> PlaylistDetailSchema:
     """Convert domain Playlist to detail schema with all entries."""
     return PlaylistDetailSchema(
         id=playlist.id or 0,
         name=playlist.name,
         description=playlist.description,
         track_count=playlist.track_count,
-        connector_links=list(playlist.connector_playlist_identifiers.keys()),
+        connector_links=_build_connector_links(playlist, links),
         updated_at=playlist.updated_at,
         entries=[
             to_playlist_entry(entry, idx) for idx, entry in enumerate(playlist.entries)
