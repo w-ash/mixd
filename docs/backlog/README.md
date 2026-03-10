@@ -1,9 +1,9 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.1
-**Current Initiative**: Workflow Persistence & Web UI
+**Current Version**: 0.4.4
+**Current Initiative**: Code & Test Suite Hardening
 
-→ [Completed milestones](../completed/) | [Unscheduled ideas](unscheduled.md)
+→ [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
 ---
 
@@ -13,18 +13,22 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 
 | Version | Goal | Status | Details |
 |---------|------|--------|---------|
-| **v0.2.7** | Advanced workflow features + DRY consolidation | ✅ Completed | [details](../completed/v0.2.x.md#v027-advanced-workflow-features) |
-| **v0.3.0** | Web UI foundation + playlists + settings | ✅ Completed | [details](../completed/v0.3.x.md#v030-web-ui-foundation--playlists-vertical-slice-1) |
-| **v0.3.1** | Imports + real-time progress | ✅ Completed | [details](../completed/v0.3.x.md#v031-imports--real-time-progress-vertical-slice-2) |
-| **v0.3.2** | Track library + search | ✅ Completed | [details](../completed/v0.3.x.md#v032-library--search-vertical-slice-3) |
-| **v0.3.3** | Dashboard + stats | ✅ Completed | [details](../completed/v0.3.x.md#v033-dashboard--stats-vertical-slice-4) |
+| **v0.2.7** | Advanced workflow features + DRY consolidation | ✅ Completed | [details](completed/v0.2.x.md#v027-advanced-workflow-features) |
+| **v0.3.0** | Web UI foundation + playlists + settings | ✅ Completed | [details](completed/v0.3.x.md#v030-web-ui-foundation--playlists-vertical-slice-1) |
+| **v0.3.1** | Imports + real-time progress | ✅ Completed | [details](completed/v0.3.x.md#v031-imports--real-time-progress-vertical-slice-2) |
+| **v0.3.2** | Track library + search | ✅ Completed | [details](completed/v0.3.x.md#v032-library--search-vertical-slice-3) |
+| **v0.3.3** | Dashboard + stats | ✅ Completed | [details](completed/v0.3.x.md#v033-dashboard--stats-vertical-slice-4) |
 | **v0.4.0** | Workflows (persistence, visualization, CRUD) | ✅ Completed | [details](v0.4.x.md#v040-workflow-persistence--visualization-vertical-slice-5a) |
 | **v0.4.1** | Workflow execution + run history | ✅ Completed | [details](v0.4.x.md#v041-workflow-execution--run-history-vertical-slice-5b) |
-| **v0.4.2** | Run-first workflow UX | 🔜 Not Started | [details](v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
-| **v0.4.3** | Visual workflow editor + versioning | 🔜 Not Started | [details](v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
-| **v0.4.4** | Connector playlist linking | 🔜 Not Started | [details](v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
-| **v0.4.5** | CI/CD + quality hardening | 🔜 Not Started | [details](v0.4.x.md#v045-cicd--quality-hardening) |
-| **v0.5.0** | PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
+| **v0.4.2** | Run-first workflow UX | ✅ Completed | [details](v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
+| **v0.4.3** | Visual workflow editor + versioning | ✅ Completed | [details](v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
+| **v0.4.4** | Connector playlist linking | ✅ Completed | [details](v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
+| **v0.4.5** | Code & test suite hardening | 🔜 Not Started | [details](v0.4.x.md#v045-code--test-suite-hardening) |
+| **v0.4.6** | Track provenance & duplicate merge | 🔜 Not Started | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
+| **v0.4.7** | Track relink & unlink | 🔜 Not Started | [details](v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
+| **v0.4.8** | Data integrity & quality audit | 🔜 Not Started | [details](v0.4.x.md#v048-data-integrity--quality-audit) |
+| **v0.4.9** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v049-cli-unification--polish) |
+| **v0.5.0** | CI/CD + PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
 | **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |
 | **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.8.x.md#v080-llm-assisted-workflow-creation) |
@@ -63,7 +67,7 @@ Key architecture & tech choices (see CLAUDE.md for migration details):
 - **Vite 6+ / Vitest**: 10x faster HMR than Webpack, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`
-- **Clean Architecture + DDD**: Composable workflows, isolated APIs, testable logic (see docs/ARCHITECTURE.md)
+- **Clean Architecture + DDD**: Composable workflows, isolated APIs, testable logic (see docs/architecture/README.md)
 
 ---
 

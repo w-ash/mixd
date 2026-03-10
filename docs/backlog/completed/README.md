@@ -1,8 +1,8 @@
 # Completed Milestones
 
 Detailed epics and task breakdowns for completed versions.
-For the planning overview, see [../backlog/README.md](../backlog/README.md).
-For active backlog, see [backlog/](../backlog/).
+For the planning overview, see [../README.md](../README.md).
+For active backlog, see [../](../).
 
 | Version Group | File | Versions |
 |---------------|------|----------|

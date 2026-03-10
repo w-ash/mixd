@@ -41,7 +41,7 @@ Powered by: import history, backup likes/playlists, cross-service identity mappi
 
 Layer-specific enforcement rules live in `.claude/rules/` and load automatically per path.
 
-→ See docs/ARCHITECTURE.md for full layer responsibilities
+→ See docs/architecture/layers-and-patterns.md for full layer responsibilities
 
 ## Essential Commands
 
@@ -71,7 +71,7 @@ narada history import-lastfm         # Import listening history
 narada likes import-spotify          # Backup liked tracks
 ```
 
-→ See docs/DEVELOPMENT.md for full reference
+→ See docs/development.md for setup, versioning, and recipes
 
 ## Coding Patterns
 
@@ -87,14 +87,34 @@ Self-check after implementing:
 3. Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`)
 4. Run: `poetry run pytest tests/path/to/test_file.py -x`
 
+### When to Run What
+
+**During implementation** — targeted tests ONLY:
+- Run the specific test file for the code you changed: `poetry run pytest tests/path/to/test_file.py -x`
+- Use `-k "test_name"` to iterate on a single failing test
+- Use `--lf` to rerun only previously-failed tests
+- Frontend: `pnpm --prefix web test src/path/to/Component.test.tsx`
+
+**Before committing** — full fast suite:
+- `poetry run pytest` (automatically excludes slow/diagnostic)
+- `pnpm --prefix web test` (all frontend tests)
+
+**On version bump or explicit request only**:
+- `poetry run pytest -m ""` (all tests including slow)
+- `poetry run basedpyright src/` + `poetry run ruff check .`
+- `pnpm --prefix web check && pnpm --prefix web build`
+
+**NEVER** run the full suite after every small edit — it breaks the feedback loop.
+
 ## Documentation Map
 
-- **Architecture** → docs/ARCHITECTURE.md
-- **Development** → docs/DEVELOPMENT.md
-- **Database** → docs/DATABASE.md
-- **Workflows** → docs/workflow_guide.md
-- **CLI Reference** → docs/API.md
-- **Completed Work** → docs/completed/
-- **Planning & Backlog** → docs/backlog/
+- **Architecture** → docs/architecture/README.md
+- **Development** → docs/development.md (setup, versioning, recipes)
+- **Database** → docs/architecture/database.md
+- **Workflows** → docs/guides/workflows.md
+- **Likes Sync** → docs/guides/likes-sync.md
+- **CLI Reference** → docs/guides/cli.md
+- **REST API Reference** → docs/web-ui/03-api-contracts.md
+- **Planning & Backlog** → docs/backlog/ (includes completed/ archive)
 - **Unscheduled Ideas** → docs/backlog/unscheduled.md
 - **Web UI Specs** → docs/web-ui/README.md
