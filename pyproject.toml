@@ -60,9 +60,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
-[tool.uv]
-default-groups = ["dev"]
-
 # Ruff configuration for version 0.15.4+ with Python 3.14 support
 [tool.ruff]
 # Basic settings

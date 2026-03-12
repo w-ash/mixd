@@ -167,7 +167,7 @@ app = create_app()
 
 
 def run_server() -> None:
-    """Poetry script entry point for `narada-api`."""
+    """Script entry point for `narada-api`."""
     import uvicorn
 
     uvicorn.run(
