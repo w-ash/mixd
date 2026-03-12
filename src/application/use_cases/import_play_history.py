@@ -6,7 +6,7 @@ history imports and Spotify JSON file processing.
 """
 
 # pyright: reportExplicitAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
+# Legitimate Any: additional_options extensibility dict (line 68)
 
 from datetime import datetime
 from pathlib import Path

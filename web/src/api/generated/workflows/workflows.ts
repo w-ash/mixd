@@ -265,7 +265,7 @@ export const useCreateWorkflowApiV1WorkflowsPost = <TError = HTTPValidationError
       return useMutation(getCreateWorkflowApiV1WorkflowsPostMutationOptions(options), queryClient);
     }
     /**
- * List all available workflow node types with config schemas.
+ * List all available workflow node types with rich config field metadata.
  * @summary List Node Types
  */
 export type listNodeTypesApiV1WorkflowsNodesGetResponse200 = {

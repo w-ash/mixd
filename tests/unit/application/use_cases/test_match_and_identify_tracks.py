@@ -164,13 +164,18 @@ class TestMatchAndIdentifyTracksUseCase:
         # patch it at class level due to slots=True
         from unittest.mock import patch
 
-        evaluated_mappings = {2: MagicMock()}
+        from src.domain.matching.types import EvaluationResult
+
+        evaluation = EvaluationResult(
+            accepted={2: MagicMock()},
+            review_candidates={},
+        )
         with patch.object(
             MatchAndIdentifyTracksUseCase,
             "_evaluation_service",
             create=True,
         ) as mock_eval:
-            mock_eval.evaluate_raw_matches.return_value = evaluated_mappings
+            mock_eval.evaluate_raw_matches.return_value = evaluation
             result = await use_case.execute(command, mock_uow)
 
         assert result.resolved_count == 2  # 1 existing + 1 new

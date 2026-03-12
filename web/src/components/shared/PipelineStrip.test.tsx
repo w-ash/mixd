@@ -1,8 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NodeStatus } from "@/lib/sse-types";
 import { PipelineStrip } from "./PipelineStrip";
+
+// Override the global scrollIntoView no-op with a spy for assertion
+const scrollIntoViewMock = vi.fn();
+beforeEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoViewMock;
+});
+afterEach(() => {
+  scrollIntoViewMock.mockClear();
+});
 
 const mockTasks = [
   {
@@ -98,5 +107,46 @@ describe("PipelineStrip", () => {
     expect(screen.getByText("Initializing…")).toBeInTheDocument();
     // No step counter since no node statuses exist
     expect(screen.queryByText(/Step/)).not.toBeInTheDocument();
+  });
+
+  it("wraps dot chain in a scrollable container", () => {
+    render(<PipelineStrip tasks={mockTasks} />);
+
+    const dot = screen.getByTitle("Source: source");
+    const scrollContainer = dot.closest(".overflow-x-auto");
+    expect(scrollContainer).toBeInTheDocument();
+  });
+
+  it("scrolls active node into view during execution", () => {
+    const statuses = new Map<string, NodeStatus>([
+      [
+        "source",
+        {
+          nodeId: "source",
+          nodeType: "source.liked_tracks",
+          status: "completed",
+          executionOrder: 1,
+          totalNodes: 3,
+        },
+      ],
+      [
+        "filter",
+        {
+          nodeId: "filter",
+          nodeType: "filter.play_count",
+          status: "running",
+          executionOrder: 2,
+          totalNodes: 3,
+        },
+      ],
+    ]);
+
+    render(<PipelineStrip tasks={mockTasks} nodeStatuses={statuses} />);
+
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
   });
 });

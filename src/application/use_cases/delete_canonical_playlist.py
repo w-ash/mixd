@@ -6,7 +6,7 @@ and atomic transaction management to ensure data consistency.
 """
 
 # pyright: reportExplicitAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
+# Legitimate Any: operation_summary return type (line 64)
 
 from datetime import datetime
 from typing import Any, Never

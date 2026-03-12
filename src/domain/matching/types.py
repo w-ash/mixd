@@ -77,10 +77,12 @@ class ConfidenceEvidence:
     artist_similarity: float = 0.0
     duration_diff_ms: int = 0
     final_score: int = 0
+    isrc_suspect: bool = False
+    match_weight: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage in track_mappings.confidence_evidence."""
-        return {
+        result: dict[str, Any] = {
             "base_score": self.base_score,
             "title_score": round(self.title_score, 2),
             "artist_score": round(self.artist_score, 2),
@@ -90,6 +92,11 @@ class ConfidenceEvidence:
             "duration_diff_ms": self.duration_diff_ms,
             "final_score": self.final_score,
         }
+        if self.isrc_suspect:
+            result["isrc_suspect"] = True
+        if self.match_weight != 0.0:
+            result["match_weight"] = round(self.match_weight, 4)
+        return result
 
 
 @define(frozen=True, slots=True)
@@ -105,6 +112,7 @@ class MatchResult:
 
     track: Track
     success: bool
+    review_required: bool = False
     connector_id: str = ""  # ID in the target system
     confidence: int = 0
     match_method: str = ""  # "isrc", "mbid", "artist_title"
@@ -114,6 +122,14 @@ class MatchResult:
 
 # Type alias for match results by ID (defined after MatchResult class)
 MatchResultsById = dict[int, MatchResult]
+
+
+@define(frozen=True, slots=True)
+class EvaluationResult:
+    """Result of evaluating raw matches — separates accepted and review-required matches."""
+
+    accepted: MatchResultsById = field(factory=dict)
+    review_candidates: MatchResultsById = field(factory=dict)
 
 
 @define(frozen=True, slots=True)

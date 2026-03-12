@@ -5,11 +5,13 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.4.8
  */
+import type { ConfigFieldSchema } from './configFieldSchema';
 
 export interface NodeTypeInfoSchema {
   type: string;
   category: string;
   description: string;
+  config_fields?: ConfigFieldSchema[];
   required_config?: string[];
   optional_config?: string[];
 }

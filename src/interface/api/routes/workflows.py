@@ -50,8 +50,8 @@ from src.application.use_cases.workflow_versions import (
 )
 import src.application.workflows.node_catalog as _node_catalog  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers nodes
 from src.application.workflows.node_registry import list_nodes
+from src.application.workflows.node_config_fields import get_node_config_fields
 from src.application.workflows.validation import (
-    get_node_config_schema,
     is_validation_error,
     validate_workflow_def_detailed,
 )
@@ -74,6 +74,7 @@ from src.interface.api.schemas.workflows import (
     WorkflowValidationRequest,
     WorkflowValidationResponse,
     WorkflowVersionSchema,
+    config_field_to_schema,
     schema_to_workflow_def,
     to_run_detail,
     to_run_summary,
@@ -151,18 +152,20 @@ async def create_workflow(body: CreateWorkflowRequest) -> WorkflowDetailSchema:
 
 @router.get("/nodes")
 async def list_node_types() -> list[NodeTypeInfoSchema]:
-    """List all available workflow node types with config schemas."""
-    config_schemas = get_node_config_schema()
+    """List all available workflow node types with rich config field metadata."""
+    all_fields = get_node_config_fields()
     nodes = list_nodes()
     result: list[NodeTypeInfoSchema] = []
     for node_id, meta in nodes.items():
-        config_schema = config_schemas.get(node_id, {})
+        fields = all_fields.get(node_id, ())
         result.append(
             NodeTypeInfoSchema(
                 type=node_id,
                 category=meta["category"],
                 description=meta.get("description", ""),
-                required_config=list(config_schema.keys()),
+                config_fields=[config_field_to_schema(f) for f in fields],
+                required_config=[f.key for f in fields if f.required],
+                optional_config=[f.key for f in fields if not f.required],
             )
         )
     return result

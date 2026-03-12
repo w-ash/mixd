@@ -23,6 +23,7 @@ interface BaseWorkflowNodeProps {
   Icon: LucideIcon;
   accentColor: string;
   label: string;
+  configLabels?: Record<string, string>;
 }
 
 const STATUS_STYLES: Record<
@@ -53,10 +54,14 @@ export function BaseWorkflowNode({
   Icon,
   accentColor,
   label,
+  configLabels,
 }: BaseWorkflowNodeProps) {
   const configEntries = Object.entries(data.config)
     .slice(0, 3)
-    .map(([k, v]) => ({ key: k, value: String(v) }));
+    .map(([k, v]) => ({
+      key: configLabels?.[k] ?? k,
+      value: String(v),
+    }));
 
   const status = data.executionStatus;
   const statusStyle = status ? STATUS_STYLES[status] : undefined;

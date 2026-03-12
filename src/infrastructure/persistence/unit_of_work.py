@@ -17,6 +17,7 @@ from src.domain.repositories.interfaces import (
     ConnectorPlayRepositoryProtocol,
     ConnectorRepositoryProtocol,
     LikeRepositoryProtocol,
+    MatchReviewRepositoryProtocol,
     MetricsRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
@@ -207,6 +208,14 @@ class DatabaseUnitOfWork:  # noqa: PLR0904
         )
 
         return WorkflowVersionRepository(self._session)
+
+    def get_match_review_repository(self) -> MatchReviewRepositoryProtocol:
+        """Get match review repository for review queue operations."""
+        from src.infrastructure.persistence.repositories.match_review import (
+            MatchReviewRepository,
+        )
+
+        return MatchReviewRepository(self._session)
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

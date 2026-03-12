@@ -156,10 +156,13 @@ def _make_candidate(
     artist: str = "Radiohead",
     duration_ms: int = 238000,
 ) -> MagicMock:
+    artist_mock = MagicMock()
+    artist_mock.name = artist
+
     candidate = MagicMock()
     candidate.id = track_id
     candidate.name = name
-    candidate.artists = [MagicMock(name=artist)]
+    candidate.artists = [artist_mock]
     candidate.duration_ms = duration_ms
     return candidate
 

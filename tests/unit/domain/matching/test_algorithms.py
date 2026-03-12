@@ -56,10 +56,15 @@ class TestCalculateTitleSimilarity:
 
 
 class TestCalculateConfidence:
-    """Test cases for confidence calculation."""
+    """Test cases for Fellegi-Sunter probabilistic confidence calculation.
+
+    The model uses log-likelihood ratios instead of additive penalties.
+    Each attribute comparison contributes evidence for or against a match.
+    Final scores are sigmoid-mapped to 0-100.
+    """
 
     def test_perfect_isrc_match(self):
-        """Test that ISRC matches get high confidence."""
+        """ISRC matches with identical metadata should score very high."""
         internal_track = {
             "title": "Paranoid Android",
             "artists": ["Radiohead"],
@@ -75,12 +80,12 @@ class TestCalculateConfidence:
             internal_track, service_track, "isrc", config
         )
 
-        assert confidence >= 90  # Should be very high for ISRC match
-        assert evidence.base_score == 95  # Base ISRC score
+        assert confidence >= 95  # Very high for ISRC + perfect metadata
         assert evidence.final_score == confidence
+        assert evidence.match_weight > 0  # Positive evidence for match
 
     def test_good_artist_title_match(self):
-        """Test that good artist/title matches score well."""
+        """Good artist/title matches should score well."""
         internal_track = {
             "title": "Karma Police",
             "artists": ["Radiohead"],
@@ -96,12 +101,12 @@ class TestCalculateConfidence:
             internal_track, service_track, "artist_title", config
         )
 
-        assert confidence >= 85  # Should be high for good match
-        assert evidence.base_score == 90  # Base artist/title score
+        assert confidence >= 90  # High for exact title/artist + close duration
         assert evidence.title_similarity == 1.0  # Perfect title match
+        assert evidence.match_weight > 0
 
     def test_variation_match_penalty(self):
-        """Test that title variations receive appropriate penalties."""
+        """Title variations should produce lower match weight than exact matches."""
         internal_track = {
             "title": "Creep",
             "artists": ["Radiohead"],
@@ -113,15 +118,22 @@ class TestCalculateConfidence:
             "duration_ms": 245000,
         }
 
-        confidence, evidence = calculate_confidence(
+        _, variation_evidence = calculate_confidence(
             internal_track, service_track, "artist_title", config
         )
 
-        assert confidence < 85  # Should be penalized for variation
-        assert evidence.title_similarity == 0.6  # Variation similarity score
+        assert variation_evidence.title_similarity == 0.6  # Variation similarity score
+        # Variation should have lower match weight than a perfect match
+        _, perfect_evidence = calculate_confidence(
+            internal_track,
+            {"title": "Creep", "artist": "Radiohead", "duration_ms": 238000},
+            "artist_title",
+            config,
+        )
+        assert variation_evidence.match_weight < perfect_evidence.match_weight
 
-    def test_missing_duration_penalty(self):
-        """Test that missing duration data is penalized."""
+    def test_missing_duration_is_neutral(self):
+        """Missing duration contributes neutral evidence (no penalty, no boost)."""
         internal_track = {
             "title": "High and Dry",
             "artists": ["Radiohead"],
@@ -137,13 +149,13 @@ class TestCalculateConfidence:
             internal_track, service_track, "artist_title", config
         )
 
-        assert (
-            evidence.duration_score == -config.duration_missing_penalty
-        )  # Missing duration penalty
-        assert confidence < 90  # Should be reduced from base score
+        # Duration missing is neutral in Fellegi-Sunter (log(0.5/0.5) = 0)
+        assert evidence.duration_score == 0.0
+        # Should still score well from title + artist
+        assert confidence >= 85
 
-    def test_artist_mismatch_penalty(self):
-        """Test that artist mismatches are heavily penalized."""
+    def test_artist_mismatch_reduces_confidence(self):
+        """Artist mismatches should produce negative evidence and lower weight."""
         internal_track = {
             "title": "Yesterday",
             "artists": ["The Beatles"],
@@ -155,18 +167,25 @@ class TestCalculateConfidence:
             "duration_ms": 125000,
         }
 
-        confidence, evidence = calculate_confidence(
+        _, evidence = calculate_confidence(
             internal_track, service_track, "artist_title", config
         )
 
-        assert (
-            confidence < 80
-        )  # Should be significantly penalized (updated for current algorithm)
         assert evidence.artist_similarity < 0.5  # Low artist similarity
+        assert evidence.artist_score < 0  # Negative log-likelihood ratio
+
+        # Same track with correct artist should have higher weight
+        _, correct_evidence = calculate_confidence(
+            internal_track,
+            {"title": "Yesterday", "artist": "The Beatles", "duration_ms": 125000},
+            "artist_title",
+            config,
+        )
+        assert evidence.match_weight < correct_evidence.match_weight
 
     def test_confidence_bounds(self):
-        """Test that confidence scores stay within bounds."""
-        # Test with terrible match that could go negative
+        """Confidence scores must stay within 0-100."""
+        # Test with terrible match
         internal_track = {
             "title": "Track A",
             "artists": ["Artist A"],
@@ -184,6 +203,51 @@ class TestCalculateConfidence:
 
         assert 0 <= confidence <= 100  # Must stay within bounds
         assert evidence.final_score == confidence
+
+    def test_isrc_suspect_reduces_weight(self):
+        """Suspect ISRC (large duration diff) should produce lower weight."""
+        internal_track = {
+            "title": "Paranoid Android",
+            "artists": ["Radiohead"],
+            "duration_ms": 386000,
+        }
+
+        clean, clean_evidence = calculate_confidence(
+            internal_track,
+            {"title": "Paranoid Android", "artist": "Radiohead", "duration_ms": 386000},
+            "isrc",
+            config,
+        )
+        suspect, suspect_evidence = calculate_confidence(
+            internal_track,
+            {"title": "Paranoid Android", "artist": "Radiohead", "duration_ms": 406000},  # +20s
+            "isrc",
+            config,
+        )
+
+        assert suspect_evidence.isrc_suspect is True
+        assert clean_evidence.isrc_suspect is False
+        assert suspect_evidence.match_weight < clean_evidence.match_weight
+
+    def test_diacritic_insensitive_matching(self):
+        """Diacritics should not significantly affect confidence."""
+        internal_track = {
+            "title": "Hyperballad",
+            "artists": ["Björk"],
+            "duration_ms": 325000,
+        }
+        service_track = {
+            "title": "Hyperballad",
+            "artist": "Bjork",  # Without diacritics
+            "duration_ms": 325000,
+        }
+
+        confidence, evidence = calculate_confidence(
+            internal_track, service_track, "artist_title", config
+        )
+
+        assert confidence >= 90  # Should score very high despite diacritic diff
+        assert evidence.artist_similarity >= 0.85  # Phonetic or normalized match
 
 
 class TestConfidenceEvidence:

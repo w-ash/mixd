@@ -76,6 +76,9 @@
   --animate-fade-up: fade-up 300ms ease-out both;
   --animate-fade-in-row: fade-in-row 300ms ease-out both;
   --animate-text-breathe: text-breathe 2s ease-in-out infinite;
+  --animate-slide-in-right: slide-in-right 250ms cubic-bezier(0, 0, 0.2, 1) both;
+  --animate-slide-out-right: slide-out-right 200ms cubic-bezier(0.4, 0, 1, 1)
+    both;
 }
 
 /* ── shadcn/ui token bridge ──────────────────────────── */
@@ -282,4 +285,35 @@ body::after {
   50% {
     opacity: 1;
   }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ── Utility: hidden scrollbar ────────────────────── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

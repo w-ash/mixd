@@ -138,6 +138,14 @@ class MappingOrigin:
     MANUAL_OVERRIDE: Final = "manual_override"
 
 
+class ReviewStatus:
+    """Status of a match review item in the review queue."""
+
+    PENDING: Final = "pending"
+    ACCEPTED: Final = "accepted"
+    REJECTED: Final = "rejected"
+
+
 class MatchMethod:
     """Track resolution method identifiers.
 
@@ -167,6 +175,12 @@ class ConnectorPriority:
     """Connector preference order for metadata sourcing."""
 
     ORDER: Final[tuple[str, ...]] = ("spotify", "lastfm", "musicbrainz")
+
+
+class IntegrityConstants:
+    """Data integrity monitoring thresholds."""
+
+    STALE_REVIEW_DAYS: Final = 30  # pending reviews older than this are flagged
 
 
 class LastFMConstants:

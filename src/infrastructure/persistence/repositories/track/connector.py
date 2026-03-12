@@ -4,15 +4,14 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
-# pyright: reportImportCycles=false, reportExplicitAny=false, reportAny=false
-# Intentional lazy import cycle: mapper.py lazily imports this module to delegate
-# primary mapping promotion to set_primary_mapping() (avoids duplicating SQL logic).
+# pyright: reportExplicitAny=false, reportAny=false
+# Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
 from datetime import UTC, datetime
 from typing import Any, cast, override
 
 from attrs import define
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Integer, delete, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -177,7 +176,7 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
         )
 
 
-class TrackConnectorRepository:
+class TrackConnectorRepository:  # noqa: PLR0904
     """Connects internal tracks with external music services like Spotify and Last.fm.
 
     Handles ingesting tracks from external APIs, mapping them to canonical internal
@@ -1117,3 +1116,73 @@ class TrackConnectorRepository:
                 promoted += 1
 
         return promoted
+
+    # ── Integrity check queries ──────────────────────────────────────
+
+    @db_operation("find_multiple_primary_violations")
+    async def find_multiple_primary_violations(self) -> list[dict[str, object]]:
+        """Find tracks with more than one primary mapping per connector."""
+        stmt = (
+            select(
+                DBTrackMapping.track_id,
+                DBTrackMapping.connector_name,
+                func.sum(DBTrackMapping.is_primary.cast(Integer)).label("primary_count"),
+            )
+            .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
+            .having(func.sum(DBTrackMapping.is_primary.cast(Integer)) > 1)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "track_id": row.track_id,
+                "connector_name": row.connector_name,
+                "primary_count": row.primary_count,
+            }
+            for row in result.all()
+        ]
+
+    @db_operation("find_missing_primary_violations")
+    async def find_missing_primary_violations(self) -> list[dict[str, object]]:
+        """Find tracks with mappings for a connector but none marked primary."""
+        has_primary = (
+            select(DBTrackMapping.track_id, DBTrackMapping.connector_name)
+            .where(DBTrackMapping.is_primary == True)  # noqa: E712
+            .subquery()
+        )
+        stmt = (
+            select(
+                DBTrackMapping.track_id,
+                DBTrackMapping.connector_name,
+                func.count().label("mapping_count"),
+            )
+            .outerjoin(
+                has_primary,
+                (DBTrackMapping.track_id == has_primary.c.track_id)
+                & (DBTrackMapping.connector_name == has_primary.c.connector_name),
+            )
+            .where(has_primary.c.track_id.is_(None))
+            .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "track_id": row.track_id,
+                "connector_name": row.connector_name,
+                "mapping_count": row.mapping_count,
+            }
+            for row in result.all()
+        ]
+
+    @db_operation("count_orphaned_connector_tracks")
+    async def count_orphaned_connector_tracks(self) -> int:
+        """Count connector tracks with no track_mappings pointing to them."""
+        stmt = (
+            select(func.count(DBConnectorTrack.id))
+            .outerjoin(
+                DBTrackMapping,
+                DBConnectorTrack.id == DBTrackMapping.connector_track_id,
+            )
+            .where(DBTrackMapping.id.is_(None))
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()

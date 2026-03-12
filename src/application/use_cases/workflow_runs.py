@@ -9,7 +9,7 @@ in the application layer, keeping infrastructure concerns out of the route handl
 GetWorkflowRunsUseCase / GetWorkflowRunUseCase serve the run history UI.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportExplicitAny=false
 # Legitimate Any: SSE queue carries heterogeneous event dicts, Coroutine params
 
 import asyncio

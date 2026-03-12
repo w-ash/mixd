@@ -20,7 +20,12 @@ from src.domain.matching.algorithms import (
     calculate_confidence,
 )
 from src.domain.matching.config import MatchingConfig
-from src.domain.matching.types import MatchResult, MatchResultsById, RawProviderMatch
+from src.domain.matching.types import (
+    EvaluationResult,
+    MatchResult,
+    MatchResultsById,
+    RawProviderMatch,
+)
 
 logger = _loguru_logger.bind(module=__name__)
 
@@ -42,7 +47,7 @@ class TrackMatchEvaluationService:
     config: MatchingConfig
 
     def _get_threshold(self, match_method: str) -> int:
-        """Look up acceptance threshold for a match method."""
+        """Look up legacy acceptance threshold for a match method."""
         thresholds = {
             "isrc": self.config.threshold_isrc,
             "mbid": self.config.threshold_mbid,
@@ -51,16 +56,35 @@ class TrackMatchEvaluationService:
         return thresholds.get(match_method, self.config.threshold_default)
 
     def should_accept_match(self, confidence: int, match_method: str) -> bool:
-        """Business rule for determining if a match should be accepted.
+        """Business rule: auto-accept if above the upper threshold.
 
         Args:
-            confidence: Calculated confidence score (0-100)
-            match_method: Method used for matching ("isrc", "mbid", "artist_title")
+            confidence: Calculated confidence score (0-100).
+            match_method: Method used for matching ("isrc", "mbid", "artist_title").
 
         Returns:
-            True if match meets business criteria for acceptance
+            True if match should be auto-accepted.
         """
-        return confidence >= self._get_threshold(match_method)
+        return confidence >= self.config.auto_accept_threshold
+
+    def should_review_match(self, confidence: int, match_method: str) -> bool:
+        """Business rule: queue for review if in the gray zone.
+
+        The gray zone is between review_threshold and auto_accept_threshold.
+        Matches below review_threshold are auto-rejected.
+
+        Args:
+            confidence: Calculated confidence score (0-100).
+            match_method: Method used for matching ("isrc", "mbid", "artist_title").
+
+        Returns:
+            True if match should be queued for human review.
+        """
+        return (
+            self.config.review_threshold
+            <= confidence
+            < self.config.auto_accept_threshold
+        )
 
     def evaluate_single_match(
         self,
@@ -96,10 +120,14 @@ class TrackMatchEvaluationService:
             self.config,
         )
 
-        # Apply business rule for match acceptance
-        success = self.should_accept_match(confidence, raw_match["match_method"])
+        # Apply three-zone classification
+        match_method = raw_match["match_method"]
+        success = self.should_accept_match(confidence, match_method)
+        review_required = not success and self.should_review_match(
+            confidence, match_method
+        )
 
-        # Create updated track with connector mapping if successful
+        # Create updated track with connector mapping if auto-accepted
         if success:
             updated_track = track.with_connector_track_id(
                 connector, raw_match["connector_id"]
@@ -110,6 +138,7 @@ class TrackMatchEvaluationService:
         return MatchResult(
             track=updated_track,
             success=success,
+            review_required=review_required,
             connector_id=raw_match["connector_id"],
             confidence=confidence,
             match_method=raw_match["match_method"],
@@ -122,22 +151,24 @@ class TrackMatchEvaluationService:
         tracks: list[Track],
         raw_matches: dict[int, RawProviderMatch],
         connector: str,
-    ) -> MatchResultsById:
-        """Evaluate raw provider matches using pure business logic.
+    ) -> EvaluationResult:
+        """Evaluate raw provider matches using three-zone classification.
 
-        This is the MAIN method that applies domain business rules to raw data from
-        infrastructure providers. It centralizes ALL confidence calculation and
-        match acceptance logic.
+        Classifies each match into one of three zones:
+        - **Auto-accept**: confidence >= auto_accept_threshold → accepted immediately
+        - **Review**: review_threshold <= confidence < auto_accept_threshold → queued for human review
+        - **Auto-reject**: confidence < review_threshold → silently discarded
 
         Args:
-            tracks: List of internal track entities
-            raw_matches: Raw match data from providers (no business logic applied)
-            connector: Name of the external service connector
+            tracks: List of internal track entities.
+            raw_matches: Raw match data from providers (no business logic applied).
+            connector: Name of the external service connector.
 
         Returns:
-            Dictionary mapping track IDs to evaluated match results (accepted matches only)
+            EvaluationResult with accepted matches and review candidates.
         """
-        results: MatchResultsById = {}
+        accepted: MatchResultsById = {}
+        review_candidates: MatchResultsById = {}
 
         for track in tracks:
             if track.id is None or track.id not in raw_matches:
@@ -145,57 +176,55 @@ class TrackMatchEvaluationService:
 
             raw_match = raw_matches[track.id]
 
-            # Apply pure business logic to raw provider data
             match_result = self.evaluate_single_match(
                 track=track,
                 raw_match=raw_match,
                 connector=connector,
             )
 
-            # Only include successful matches (business rule)
             if match_result.success:
-                results[track.id] = match_result
-            else:
-                threshold = self._get_threshold(match_result.match_method)
-                logger.warning(
-                    f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
-                    + f"(confidence {match_result.confidence} < {threshold})",
+                accepted[track.id] = match_result
+            elif match_result.review_required:
+                review_candidates[track.id] = match_result
+                logger.info(
+                    f"Match queued for review: '{track.title}' "
+                    + f"(confidence {match_result.confidence}, "
+                    + f"review zone {self.config.review_threshold}-{self.config.auto_accept_threshold})",
                     track_id=track.id,
                     confidence=match_result.confidence,
-                    threshold=threshold,
+                    match_method=match_result.match_method,
+                    connector=connector,
+                )
+            else:
+                logger.warning(
+                    f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
+                    + f"(confidence {match_result.confidence} < {self.config.review_threshold})",
+                    track_id=track.id,
+                    confidence=match_result.confidence,
+                    threshold=self.config.review_threshold,
                     match_method=match_result.match_method,
                     connector=connector,
                 )
 
-        # Log evaluation summary with contextual insights
+        # Log evaluation summary
         total_tracks = len(tracks)
         raw_matches_found = len(raw_matches)
-        accepted_matches = len(results)
-        rejected_matches = raw_matches_found - accepted_matches
         no_matches_found = total_tracks - raw_matches_found
+        rejected = raw_matches_found - len(accepted) - len(review_candidates)
 
-        if accepted_matches > 0:
+        if len(accepted) > 0 or len(review_candidates) > 0:
             logger.info(
-                f"Match evaluation complete: {accepted_matches}/{total_tracks} tracks matched to {connector}",
+                f"Match evaluation: {len(accepted)} accepted, {len(review_candidates)} for review, "
+                + f"{rejected} rejected, {no_matches_found} not found ({connector})",
                 connector=connector,
-                accepted=accepted_matches,
-                rejected=rejected_matches,
+                accepted=len(accepted),
+                review=len(review_candidates),
+                rejected=rejected,
                 no_matches=no_matches_found,
                 total=total_tracks,
             )
 
-        if rejected_matches > 0:
-            logger.info(
-                f"Rejected {rejected_matches} matches with {connector} due to low confidence",
-                connector=connector,
-                rejected_count=rejected_matches,
-            )
-
-        if no_matches_found > 0:
-            logger.info(
-                f"{no_matches_found} tracks had no matches found in {connector}",
-                connector=connector,
-                no_matches_count=no_matches_found,
-            )
-
-        return results
+        return EvaluationResult(
+            accepted=accepted,
+            review_candidates=review_candidates,
+        )

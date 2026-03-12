@@ -38,6 +38,9 @@ from .track import (
     TrackMetric,
 )
 
+# Integrity monitoring
+from .integrity import CheckStatus, IntegrityCheckResult, IntegrityReport
+
 # Track mapping entity
 from .track_mapping import TrackMapping
 
@@ -46,7 +49,10 @@ from .workflow import WorkflowDef, WorkflowTaskDef
 
 __all__ = [
     "Artist",
+    "CheckStatus",
     "ConnectorPlaylist",
+    "IntegrityCheckResult",
+    "IntegrityReport",
     "ConnectorPlaylistItem",
     "ConnectorTrack",
     "ConnectorTrackMapping",

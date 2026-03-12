@@ -236,3 +236,39 @@ class TestListNodeTypes:
         assert "type" in node
         assert "category" in node
         assert "description" in node
+
+    async def test_returns_config_fields(self, client: httpx.AsyncClient) -> None:
+        response = await client.get("/api/v1/workflows/nodes")
+
+        body = response.json()
+        # Find source.playlist — it has required config fields
+        playlist_node = next(n for n in body if n["type"] == "source.playlist")
+        assert "config_fields" in playlist_node
+        fields = playlist_node["config_fields"]
+        assert len(fields) > 0
+
+        # Verify field structure
+        pid_field = next(f for f in fields if f["key"] == "playlist_id")
+        assert pid_field["label"] == "Source Playlist"
+        assert pid_field["field_type"] == "string"
+        assert pid_field["required"] is True
+        assert pid_field["description"] is not None
+
+        # Verify required_config derived from config_fields
+        assert "playlist_id" in playlist_node["required_config"]
+
+    async def test_config_fields_with_options(self, client: httpx.AsyncClient) -> None:
+        response = await client.get("/api/v1/workflows/nodes")
+
+        body = response.json()
+        # Find filter.by_metric — it has select fields with options
+        metric_node = next(n for n in body if n["type"] == "filter.by_metric")
+        fields = metric_node["config_fields"]
+
+        metric_field = next(f for f in fields if f["key"] == "metric_name")
+        assert metric_field["field_type"] == "select"
+        assert len(metric_field["options"]) > 0
+        # Verify option structure
+        opt = metric_field["options"][0]
+        assert "value" in opt
+        assert "label" in opt

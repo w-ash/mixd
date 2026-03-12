@@ -2,31 +2,54 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  type EdgeTypes,
   MiniMap,
   type NodeTypes,
   ReactFlow,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { SmartBezierEdge } from "@jalez/react-flow-smart-edge";
 import type { DragEvent } from "react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   BaseWorkflowNode,
   type WorkflowNodeData,
 } from "@/components/workflow/BaseWorkflowNode";
-import { NODE_CONFIG } from "@/lib/workflow-config";
+import { useNodeSchemas } from "@/hooks/useNodeSchemas";
+import { miniMapNodeColor, NODE_CONFIG } from "@/lib/workflow-config";
 import { useEditorStore } from "@/stores/editor-store";
 
-function createEditableNodeComponent(category: string) {
+function EditableNode({
+  data,
+  category,
+}: {
+  data: WorkflowNodeData;
+  category: string;
+}) {
   const config = NODE_CONFIG[category] ?? NODE_CONFIG.source;
-  return ({ data }: { data: WorkflowNodeData }) => (
+  const { getSchema } = useNodeSchemas();
+  const schema = getSchema(data.nodeType);
+  const configLabels = useMemo(
+    () => Object.fromEntries(schema.map((f) => [f.key, f.label])),
+    [schema],
+  );
+
+  return (
     <BaseWorkflowNode
       data={{ ...data, mode: "edit" }}
       Icon={config.Icon}
       accentColor={config.accentColor}
       label={config.label}
+      configLabels={configLabels}
     />
+  );
+}
+
+function createEditableNodeComponent(category: string) {
+  return ({ data }: { data: WorkflowNodeData }) => (
+    <EditableNode data={data} category={category} />
   );
 }
 
@@ -34,12 +57,7 @@ const nodeTypes: NodeTypes = Object.fromEntries(
   Object.keys(NODE_CONFIG).map((k) => [k, createEditableNodeComponent(k)]),
 );
 
-function miniMapNodeColor(node: { type?: string }) {
-  const accent = NODE_CONFIG[node.type ?? ""]?.accentColor;
-  return accent
-    ? `color-mix(in oklch, ${accent} 35%, oklch(0.15 0.01 60))`
-    : "oklch(0.25 0.01 60)";
-}
+const edgeTypes: EdgeTypes = { smart: SmartBezierEdge };
 
 export function EditorCanvas() {
   const nodes = useEditorStore((s) => s.nodes);
@@ -89,6 +107,7 @@ export function EditorCanvas() {
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}

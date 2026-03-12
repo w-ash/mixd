@@ -240,6 +240,47 @@ class DBTrackMapping(BaseEntity):
     )
 
 
+class DBMatchReview(BaseEntity):
+    """Proposed track-to-connector match awaiting human review.
+
+    Stores medium-confidence matches (between auto-reject and auto-accept
+    thresholds) as a staging area separate from track_mappings. On accept,
+    a real DBTrackMapping is created. On reject, the row is marked to
+    prevent re-queuing the same pair.
+    """
+
+    __tablename__: str = "match_reviews"
+
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    connector_track_id: Mapped[int] = mapped_column(
+        ForeignKey("connector_tracks.id", ondelete="CASCADE"),
+    )
+    match_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[int] = mapped_column(nullable=False)
+    match_weight: Mapped[float] = mapped_column(nullable=False)
+    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Relationships
+    track: Mapped[DBTrack] = relationship(passive_deletes=True)
+    connector_track: Mapped[DBConnectorTrack] = relationship(passive_deletes=True)
+
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint(
+            "track_id",
+            "connector_name",
+            "connector_track_id",
+            name="uq_match_reviews_track_connector",
+        ),
+        Index("ix_match_reviews_status", "status"),
+        Index("ix_match_reviews_track_id", "track_id"),
+    )
+
+
 class DBTrackMetric(BaseEntity):
     """Time-series metrics for tracks from external services.
 

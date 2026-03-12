@@ -1,17 +1,8 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
 import { RelinkMappingDialog } from "./RelinkMappingDialog";
-
-// cmdk uses ResizeObserver which doesn't exist in jsdom
-beforeAll(() => {
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-});
 
 const mockMapping = {
   mapping_id: 10,

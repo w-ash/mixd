@@ -28,6 +28,9 @@ def make_mock_track_repo(**overrides) -> AsyncMock:
     repo.find_tracks_by_ids.return_value = overrides.pop("find_tracks_by_ids", {})
     repo.save_track.side_effect = overrides.pop("save_track", None)
     repo.save_tracks.return_value = overrides.pop("save_tracks", [])
+    repo.find_duplicate_tracks_by_fingerprint.return_value = overrides.pop(
+        "find_duplicate_tracks_by_fingerprint", []
+    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -61,6 +64,15 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     )
     repo.get_full_mappings_for_track.return_value = overrides.pop(
         "get_full_mappings_for_track", []
+    )
+    repo.find_multiple_primary_violations.return_value = overrides.pop(
+        "find_multiple_primary_violations", []
+    )
+    repo.find_missing_primary_violations.return_value = overrides.pop(
+        "find_missing_primary_violations", []
+    )
+    repo.count_orphaned_connector_tracks.return_value = overrides.pop(
+        "count_orphaned_connector_tracks", 0
     )
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -139,6 +151,25 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
     repo.create_link.side_effect = overrides.pop("create_link", lambda link: link)
     repo.delete_link.return_value = overrides.pop("delete_link", True)
     repo.update_sync_status.return_value = overrides.pop("update_sync_status", None)
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
+def make_mock_match_review_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`MatchReviewRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.list_pending_reviews.return_value = overrides.pop(
+        "list_pending_reviews", ([], 0)
+    )
+    repo.get_review_by_id.return_value = overrides.pop("get_review_by_id", None)
+    repo.create_review.side_effect = overrides.pop("create_review", lambda r: r)
+    repo.create_reviews_batch.return_value = overrides.pop("create_reviews_batch", 0)
+    repo.update_review_status.return_value = overrides.pop(
+        "update_review_status", None
+    )
+    repo.count_pending.return_value = overrides.pop("count_pending", 0)
+    repo.count_stale_pending.return_value = overrides.pop("count_stale_pending", 0)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -278,6 +309,11 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.get_connector_playlist_repository = MagicMock(
         return_value=repo_overrides.get(
             "connector_playlist_repo", make_mock_connector_playlist_repo()
+        )
+    )
+    uow.get_match_review_repository = MagicMock(
+        return_value=repo_overrides.get(
+            "match_review_repo", make_mock_match_review_repo()
         )
     )
 

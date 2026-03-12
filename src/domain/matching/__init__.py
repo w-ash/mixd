@@ -8,11 +8,17 @@ from .algorithms import (
 )
 from .config import MatchingConfig
 from .protocols import CrossDiscoveryProvider, MatchProvider
-from .types import ConfidenceEvidence, MatchResult, MatchResultsById
+from .types import (
+    ConfidenceEvidence,
+    EvaluationResult,
+    MatchResult,
+    MatchResultsById,
+)
 
 __all__ = [
     "ConfidenceEvidence",
     "CrossDiscoveryProvider",
+    "EvaluationResult",
     "MatchProvider",
     "MatchResult",
     "MatchResultsById",

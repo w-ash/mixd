@@ -334,8 +334,22 @@ class MatchingConfig(BaseModel):
         default=90,
         description="Starting confidence for fuzzy artist+title matches.",
     )
+    isrc_suspect_base_confidence: ConfidenceScore = Field(
+        default=80,
+        description="Reduced starting confidence for ISRC matches flagged as suspect (e.g., duration mismatch suggesting remaster).",
+    )
 
-    # Confidence thresholds for match acceptance
+    # Three-zone classification thresholds
+    auto_accept_threshold: ConfidenceScore = Field(
+        default=85,
+        description="Confidence above which matches are auto-accepted without review.",
+    )
+    review_threshold: ConfidenceScore = Field(
+        default=50,
+        description="Confidence above which matches are queued for human review (below auto_accept). Below this, matches are auto-rejected.",
+    )
+
+    # Legacy per-method thresholds (used as floor within review zone)
     threshold_isrc: ConfidenceScore = Field(
         default=60,
         description="Minimum confidence to accept an ISRC-based match after penalties.",
@@ -385,6 +399,12 @@ class MatchingConfig(BaseModel):
     artist_max_penalty: ConfidenceScore = Field(
         default=30,
         description="Maximum confidence deduction from artist name dissimilarity.",
+    )
+
+    # Phonetic matching
+    phonetic_similarity_score: SimilarityScore = Field(
+        default=0.85,
+        description="Similarity score assigned when names match phonetically but not exactly (e.g., Björk vs Bjork).",
     )
 
     # Title similarity constants

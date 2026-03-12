@@ -1,6 +1,6 @@
 """Workflow repository for CRUD operations on persisted workflows."""
 
-# pyright: reportAny=false
+# pyright: reportExplicitAny=false
 
 from datetime import UTC, datetime
 

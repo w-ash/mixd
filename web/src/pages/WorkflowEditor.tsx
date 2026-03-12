@@ -15,7 +15,6 @@ export default function WorkflowEditor() {
   const [searchParams] = useSearchParams();
   const workflowId = id ? Number(id) : null;
   const templateSourceId = searchParams.get("from");
-  const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);
   const setName = useEditorStore((s) => s.setName);
   const isDirty = useEditorStore((s) => s.isDirty);
@@ -88,7 +87,7 @@ export default function WorkflowEditor() {
           <div className="flex-1">
             <EditorCanvas />
           </div>
-          {selectedNodeId && <NodeConfigPanel />}
+          <NodeConfigPanel />
         </div>
         <PreviewPanel />
       </div>

@@ -4,6 +4,14 @@ import { cleanup } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
+// jsdom polyfills — APIs missing from jsdom that components rely on
+globalThis.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+Element.prototype.scrollIntoView = () => {};
+
 import { getConnectorsMock } from "@/api/generated/connectors/connectors.msw";
 import { getHealthMock } from "@/api/generated/health/health.msw";
 import { getImportsMock } from "@/api/generated/imports/imports.msw";

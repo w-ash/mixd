@@ -493,6 +493,36 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         await self.session.execute(delete(DBTrack).where(DBTrack.id == track_id))
         logger.debug(f"Hard deleted track: {track_id}")
 
+    # ── Integrity check queries ──────────────────────────────────────
+
+    @db_operation("find_duplicate_tracks_by_fingerprint")
+    async def find_duplicate_tracks_by_fingerprint(self) -> list[dict[str, object]]:
+        """Find tracks with identical (title, first_artist, album) tuples."""
+        first_artist = func.json_extract(DBTrack.artists, "$.names[0]")
+        stmt = (
+            select(
+                DBTrack.title,
+                first_artist.label("first_artist"),
+                DBTrack.album,
+                func.count().label("count"),
+                func.group_concat(DBTrack.id).label("track_ids"),
+            )
+            .where(DBTrack.title.isnot(None), DBTrack.title != "")  # noqa: PLC1901
+            .group_by(DBTrack.title, first_artist, DBTrack.album)
+            .having(func.count() > 1)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "title": row.title,
+                "artist": row.first_artist,
+                "album": row.album,
+                "count": row.count,
+                "track_ids": [int(x) for x in str(row.track_ids).split(",")],
+            }
+            for row in result.all()
+        ]
+
     # -------------------------------------------------------------------------
     # PRIVATE HELPERS
     # -------------------------------------------------------------------------

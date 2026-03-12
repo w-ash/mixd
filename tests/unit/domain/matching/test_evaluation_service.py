@@ -1,7 +1,7 @@
-"""Tests for TrackMatchEvaluationService — pure domain evaluation logic.
+"""Tests for TrackMatchEvaluationService — three-zone classification.
 
-This test suite validates the business rules for match acceptance, single match
-evaluation, and batch evaluation of raw provider matches.
+Validates auto-accept, review, and auto-reject business rules,
+single match evaluation, and batch evaluation of raw provider matches.
 """
 
 from src.config import create_matching_config
@@ -32,48 +32,54 @@ def _make_raw_match(
     )
 
 
-class TestShouldAcceptMatch:
-    """Test threshold-based match acceptance business rules."""
+class TestThreeZoneClassification:
+    """Test three-zone match classification: accept, review, reject."""
 
     def setup_method(self) -> None:
         self.service = TrackMatchEvaluationService(config=config)
 
-    def test_isrc_above_threshold_accepted(self):
-        """ISRC match above threshold should be accepted."""
-        assert self.service.should_accept_match(config.threshold_isrc, "isrc")
+    def test_above_auto_accept_is_accepted(self):
+        assert self.service.should_accept_match(config.auto_accept_threshold, "isrc")
+        assert self.service.should_accept_match(100, "artist_title")
 
-    def test_isrc_below_threshold_rejected(self):
-        """ISRC match below threshold should be rejected."""
-        assert not self.service.should_accept_match(config.threshold_isrc - 1, "isrc")
-
-    def test_artist_title_above_threshold_accepted(self):
-        """Artist/title match above threshold should be accepted."""
-        assert self.service.should_accept_match(
-            config.threshold_artist_title, "artist_title"
-        )
-
-    def test_artist_title_below_threshold_rejected(self):
-        """Artist/title match below threshold should be rejected."""
+    def test_below_auto_accept_is_not_accepted(self):
         assert not self.service.should_accept_match(
-            config.threshold_artist_title - 1, "artist_title"
+            config.auto_accept_threshold - 1, "isrc"
         )
 
-    def test_mbid_above_threshold_accepted(self):
-        """MBID match above threshold should be accepted."""
-        assert self.service.should_accept_match(config.threshold_mbid, "mbid")
+    def test_in_review_zone_is_review(self):
+        """Confidence between review_threshold and auto_accept_threshold = review."""
+        mid = (config.review_threshold + config.auto_accept_threshold) // 2
+        assert self.service.should_review_match(mid, "isrc")
 
-    def test_mbid_below_threshold_rejected(self):
-        """MBID match below threshold should be rejected."""
-        assert not self.service.should_accept_match(config.threshold_mbid - 1, "mbid")
+    def test_at_review_threshold_is_review(self):
+        assert self.service.should_review_match(config.review_threshold, "isrc")
 
-    def test_unknown_method_uses_default_threshold(self):
-        """Unknown match method should use the default threshold."""
-        assert self.service.should_accept_match(
-            config.threshold_default, "unknown_method"
+    def test_below_review_threshold_is_rejected(self):
+        assert not self.service.should_review_match(
+            config.review_threshold - 1, "isrc"
         )
         assert not self.service.should_accept_match(
-            config.threshold_default - 1, "unknown_method"
+            config.review_threshold - 1, "isrc"
         )
+
+    def test_at_auto_accept_is_accepted_not_review(self):
+        """Exactly at auto_accept_threshold should be accepted, not review."""
+        assert self.service.should_accept_match(
+            config.auto_accept_threshold, "isrc"
+        )
+        assert not self.service.should_review_match(
+            config.auto_accept_threshold, "isrc"
+        )
+
+    def test_zones_are_exhaustive(self):
+        """Every score should fall into exactly one zone."""
+        for score in range(0, 101):
+            accepted = self.service.should_accept_match(score, "isrc")
+            review = self.service.should_review_match(score, "isrc")
+            rejected = not accepted and not review
+            # Exactly one should be True
+            assert sum([accepted, review, rejected]) == 1
 
 
 class TestEvaluateSingleMatch:
@@ -96,7 +102,7 @@ class TestEvaluateSingleMatch:
         result = self.service.evaluate_single_match(track, raw_match, "spotify")
 
         assert result.success is True
-        assert result.confidence >= config.threshold_isrc
+        assert result.review_required is False
         assert result.connector_id == "spotify:abc"
         assert result.match_method == "isrc"
 
@@ -139,16 +145,17 @@ class TestEvaluateSingleMatch:
         assert result.evidence is not None
         assert result.evidence.base_score > 0
         assert result.evidence.final_score == result.confidence
+        assert result.evidence.match_weight != 0.0
 
 
 class TestEvaluateRawMatches:
-    """Test batch evaluation of raw provider matches."""
+    """Test batch evaluation with three-zone classification."""
 
     def setup_method(self) -> None:
         self.service = TrackMatchEvaluationService(config=config)
 
-    def test_only_accepted_matches_in_results(self):
-        """Batch evaluation should only return accepted matches."""
+    def test_accepted_and_rejected_are_separated(self):
+        """Batch evaluation separates accepted from rejected."""
         tracks = [
             make_track(1, title="Good Match", artist="Artist"),
             make_track(2, title="Bad Match", artist="Artist", duration_ms=240_000),
@@ -167,12 +174,12 @@ class TestEvaluateRawMatches:
             ),
         }
 
-        results = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
+        result = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
 
-        assert 1 in results
-        assert results[1].success is True
-        # Track 2 should be rejected due to low confidence
-        assert 2 not in results
+        assert 1 in result.accepted
+        assert result.accepted[1].success is True
+        # Track 2 should be rejected (not in accepted or review)
+        assert 2 not in result.accepted
 
     def test_tracks_without_raw_matches_skipped(self):
         """Tracks with no corresponding raw match should be silently skipped."""
@@ -184,10 +191,11 @@ class TestEvaluateRawMatches:
             1: _make_raw_match(match_method="isrc", title="Song", artist="Artist"),
         }
 
-        results = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
+        result = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
 
-        assert 1 in results
-        assert 2 not in results
+        assert 1 in result.accepted
+        assert 2 not in result.accepted
+        assert 2 not in result.review_candidates
 
     def test_tracks_with_none_ids_skipped(self):
         """Tracks without database IDs should be skipped."""
@@ -195,18 +203,20 @@ class TestEvaluateRawMatches:
         tracks = [track_no_id]
         raw_matches: dict[int, RawProviderMatch] = {}
 
-        results = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
+        result = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
 
-        assert len(results) == 0
+        assert len(result.accepted) == 0
+        assert len(result.review_candidates) == 0
 
-    def test_empty_inputs_return_empty_dict(self):
-        """Empty tracks and matches should return empty results."""
-        results = self.service.evaluate_raw_matches([], {}, "spotify")
+    def test_empty_inputs_return_empty_result(self):
+        """Empty tracks and matches should return empty EvaluationResult."""
+        result = self.service.evaluate_raw_matches([], {}, "spotify")
 
-        assert results == {}
+        assert result.accepted == {}
+        assert result.review_candidates == {}
 
     def test_all_tracks_matched_returns_all(self):
-        """When all tracks match, all should appear in results."""
+        """When all tracks match well, all should appear in accepted."""
         tracks = [
             make_track(1, title="Song 1", artist="Artist"),
             make_track(2, title="Song 2", artist="Artist"),
@@ -226,8 +236,8 @@ class TestEvaluateRawMatches:
             ),
         }
 
-        results = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
+        result = self.service.evaluate_raw_matches(tracks, raw_matches, "spotify")
 
-        assert len(results) == 2
-        assert results[1].connector_id == "sp:1"
-        assert results[2].connector_id == "sp:2"
+        assert len(result.accepted) == 2
+        assert result.accepted[1].connector_id == "sp:1"
+        assert result.accepted[2].connector_id == "sp:2"

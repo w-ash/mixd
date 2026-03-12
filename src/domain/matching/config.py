@@ -23,8 +23,13 @@ class MatchingConfig:
     base_confidence_isrc: int
     base_confidence_mbid: int
     base_confidence_artist_title: int
+    isrc_suspect_base_confidence: int
 
-    # Acceptance thresholds
+    # Three-zone classification thresholds
+    auto_accept_threshold: int
+    review_threshold: int
+
+    # Legacy per-method thresholds (used as floor within review zone)
     threshold_isrc: int
     threshold_mbid: int
     threshold_artist_title: int
@@ -36,6 +41,9 @@ class MatchingConfig:
     # Penalty caps
     title_max_penalty: int
     artist_max_penalty: int
+
+    # Phonetic matching
+    phonetic_similarity_score: float
 
     # Duration penalty
     duration_missing_penalty: int

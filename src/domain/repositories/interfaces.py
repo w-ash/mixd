@@ -25,6 +25,7 @@ from src.domain.entities import (
     TrackMapping,
     TrackPlay,
 )
+from src.domain.entities.match_review import MatchReview
 from src.domain.entities.playlist_link import SyncDirection, SyncStatus
 from src.domain.entities.workflow import (
     RunStatus,
@@ -135,6 +136,14 @@ class TrackRepositoryProtocol(Protocol):
         Returns:
             Tuple of (tracks, total_count, liked_track_ids) where liked_track_ids
             contains IDs of tracks liked on any service (authoritative from track_likes).
+        """
+        ...
+
+    def find_duplicate_tracks_by_fingerprint(self) -> Awaitable[list[dict[str, object]]]:
+        """Find tracks with identical (title, first_artist, album) tuples.
+
+        Returns:
+            List of dicts with title, artist, album, track_ids, count.
         """
         ...
 
@@ -607,6 +616,26 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def find_multiple_primary_violations(self) -> Awaitable[list[dict[str, object]]]:
+        """Find tracks with more than one primary mapping per connector.
+
+        Returns:
+            List of dicts with track_id, connector_name, primary_count.
+        """
+        ...
+
+    def find_missing_primary_violations(self) -> Awaitable[list[dict[str, object]]]:
+        """Find tracks with mappings for a connector but none marked primary.
+
+        Returns:
+            List of dicts with track_id, connector_name, mapping_count.
+        """
+        ...
+
+    def count_orphaned_connector_tracks(self) -> Awaitable[int]:
+        """Count connector tracks with no track_mappings pointing to them."""
+        ...
+
 
 class ConnectorPlaylistRepositoryProtocol(Protocol):
     """Repository interface for connector playlist operations."""
@@ -996,7 +1025,47 @@ class WorkflowVersionRepositoryProtocol(Protocol):
         ...
 
 
-class UnitOfWorkProtocol(Protocol):
+class MatchReviewRepositoryProtocol(Protocol):
+    """Repository interface for match review queue operations."""
+
+    def list_pending_reviews(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "confidence_desc",
+    ) -> Awaitable[tuple[list[MatchReview], int]]:
+        """List pending reviews with pagination and sorting."""
+        ...
+
+    def get_review_by_id(self, review_id: int) -> Awaitable[MatchReview | None]:
+        """Get a single review by ID."""
+        ...
+
+    def create_review(self, review: MatchReview) -> Awaitable[MatchReview]:
+        """Create a new match review entry."""
+        ...
+
+    def create_reviews_batch(self, reviews: list[MatchReview]) -> Awaitable[int]:
+        """Create multiple review entries, skipping duplicates."""
+        ...
+
+    def update_review_status(
+        self, review_id: int, status: str
+    ) -> Awaitable[MatchReview]:
+        """Update a review's status (accept/reject)."""
+        ...
+
+    def count_pending(self) -> Awaitable[int]:
+        """Count pending reviews."""
+        ...
+
+    def count_stale_pending(self, older_than_days: int) -> Awaitable[int]:
+        """Count pending reviews older than the given threshold."""
+        ...
+
+
+class UnitOfWorkProtocol(Protocol):  # noqa: PLR0904
     """Unit of Work interface for transaction boundary management.
 
     This protocol follows Clean Architecture principles by allowing the application
@@ -1086,6 +1155,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_workflow_version_repository(self) -> WorkflowVersionRepositoryProtocol:
         """Get workflow version repository using this unit of work's transaction."""
+        ...
+
+    def get_match_review_repository(self) -> MatchReviewRepositoryProtocol:
+        """Get match review repository for review queue operations."""
         ...
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:

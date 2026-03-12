@@ -69,6 +69,14 @@ export function getNodeCategory(nodeType: string): NodeCategoryConfig {
   return NODE_CONFIG[getNodeCategoryName(nodeType)] ?? NODE_CONFIG.source;
 }
 
+/** Color function for React Flow MiniMap nodes — maps category accent to a muted fill. */
+export function miniMapNodeColor(node: { type?: string }) {
+  const accent = NODE_CONFIG[node.type ?? ""]?.accentColor;
+  return accent
+    ? `color-mix(in oklch, ${accent} 35%, oklch(0.15 0.01 60))`
+    : "oklch(0.25 0.01 60)";
+}
+
 /** Format a dotted node type into a human-readable display name (e.g. "by_metric" → "by metric"). */
 export function formatNodeTypeName(nodeType: string): string {
   return nodeType.split(".").pop()?.replace(/_/g, " ") ?? nodeType;

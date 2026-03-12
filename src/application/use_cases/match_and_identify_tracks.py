@@ -16,6 +16,7 @@ from attrs import define, field
 
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
+from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResultsById
@@ -207,25 +208,32 @@ class MatchAndIdentifyTracksUseCase:
                     # MatchAndIdentifyTracksUseCase naturally creates one canonical track
 
                     # STEP 4: Apply ALL business logic through domain service
-                    new_identity_mappings = (
-                        self._evaluation_service.evaluate_raw_matches(
-                            tracks=tracks_needing_resolution,
-                            raw_matches=raw_matches,
-                            connector=command.connector,
-                        )
+                    evaluation = self._evaluation_service.evaluate_raw_matches(
+                        tracks=tracks_needing_resolution,
+                        raw_matches=raw_matches,
+                        connector=command.connector,
                     )
 
-                    # STEP 5: Persist successful identity mappings (application responsibility)
-                    if new_identity_mappings:
+                    # STEP 5: Persist auto-accepted identity mappings
+                    if evaluation.accepted:
                         await track_identity_service.persist_identity_mappings(
-                            new_identity_mappings, command.connector
+                            evaluation.accepted, command.connector
                         )
                         logger.info(
-                            f"Persisted {len(new_identity_mappings)} new identity mappings"
+                            f"Persisted {len(evaluation.accepted)} new identity mappings"
                         )
 
-                    # Combine existing and new mappings
-                    identity_mappings = {**existing_mappings, **new_identity_mappings}
+                    # STEP 5b: Persist review candidates to match_reviews table
+                    if evaluation.review_candidates:
+                        await self._persist_review_candidates(
+                            evaluation.review_candidates, command.connector, uow
+                        )
+                        logger.info(
+                            f"{len(evaluation.review_candidates)} matches queued for review"
+                        )
+
+                    # Combine existing and newly accepted mappings
+                    identity_mappings = {**existing_mappings, **evaluation.accepted}
                 else:
                     logger.info("All tracks already have identity mappings")
                     identity_mappings = existing_mappings
@@ -255,6 +263,32 @@ class MatchAndIdentifyTracksUseCase:
                     execution_time_ms=timer.stop(),
                     errors=[error_msg],
                 )
+
+    async def _persist_review_candidates(
+        self,
+        review_candidates: MatchResultsById,
+        connector: str,
+        uow: UnitOfWorkProtocol,
+    ) -> None:
+        """Persist review-zone matches to the match_reviews table."""
+        review_repo = uow.get_match_review_repository()
+        reviews = [
+            MatchReview(
+                track_id=track_id,
+                connector_name=connector,
+                connector_track_id=int(match.connector_id) if match.connector_id else 0,
+                match_method=match.match_method,
+                confidence=match.confidence,
+                match_weight=match.evidence.match_weight if match.evidence else 0.0,
+                confidence_evidence=match.evidence.as_dict()
+                if match.evidence
+                else None,
+            )
+            for track_id, match in review_candidates.items()
+            if match.connector_id
+        ]
+        if reviews:
+            await review_repo.create_reviews_batch(reviews)
 
     # NOTE: _handle_spotify_relinking method removed in Phase 4
     # REASON: SpotifyConnector.get_tracks_by_ids() already handles relinking transparently

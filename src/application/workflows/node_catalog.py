@@ -20,6 +20,7 @@ from .node_factories import (
     make_combiner_node,
     make_node,
 )
+from .node_config_fields import get_enricher_attributes
 from .node_registry import node
 from .source_nodes import playlist_source, source_liked_tracks, source_played_tracks
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
@@ -54,7 +55,7 @@ _ = node(
     create_enricher_node(
         build_external_enrichment_config({
             "connector": "lastfm",
-            "attributes": ["lastfm_user_playcount", "lastfm_global_playcount"],
+            "attributes": get_enricher_attributes("enricher.lastfm"),
         }),
         enricher_label="lastfm",
     ),
@@ -70,7 +71,7 @@ _ = node(
     create_enricher_node(
         build_external_enrichment_config({
             "connector": "spotify",
-            "attributes": ["explicit_flag"],
+            "attributes": get_enricher_attributes("enricher.spotify"),
         }),
         enricher_label="spotify",
     ),

@@ -10,6 +10,8 @@ export * from './artistSchema';
 export * from './backupPlaylistRequest';
 export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost';
 export * from './checkpointStatusSchema';
+export * from './configFieldOptionSchema';
+export * from './configFieldSchema';
 export * from './connectorLinkBriefSchema';
 export * from './connectorMappingSchema';
 export * from './connectorStatusSchema';

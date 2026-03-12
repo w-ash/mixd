@@ -5,7 +5,7 @@ with ``dry_run=True`` so destination nodes skip writes. Results are delivered
 via SSE for real-time node status and a final ``preview_complete`` event.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportExplicitAny=false
 # Legitimate Any: SSE queue carries heterogeneous event dicts
 
 import asyncio

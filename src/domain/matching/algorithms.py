@@ -11,6 +11,17 @@ from attrs import define
 from rapidfuzz import fuzz
 
 from .config import MatchingConfig
+from .isrc_validation import assess_isrc_match_reliability
+from .probabilistic import (
+    AttributeResult,
+    calculate_match_weight,
+    classify_artist,
+    classify_duration,
+    classify_isrc,
+    classify_title,
+    weight_to_confidence,
+)
+from .text_normalization import are_phonetic_matches, normalize_for_comparison
 from .types import ConfidenceEvidence
 
 
@@ -30,12 +41,16 @@ class ServiceTrackData(TypedDict):
 def calculate_title_similarity(
     title1: str, title2: str, config: MatchingConfig
 ) -> float:
-    """Calculate title similarity accounting for variations like 'Live', 'Remix', etc."""
-    # Normalize titles
-    title1, title2 = title1.lower(), title2.lower()
+    """Calculate title similarity accounting for variations like 'Live', 'Remix', etc.
 
-    # 1. Check if titles are identical
-    if title1 == title2:
+    Applies text normalization (diacritics, equivalences) before comparison,
+    then checks exact → variation → phonetic → fuzzy in descending confidence.
+    """
+    # Normalize titles for comparison
+    lower1, lower2 = title1.lower(), title2.lower()
+
+    # 1. Check if titles are identical (case-insensitive)
+    if lower1 == lower2:
         return config.identical_similarity_score
 
     # 2. Check for containment with extra tokens
@@ -54,20 +69,28 @@ def calculate_title_similarity(
     ]
 
     # Check if one is contained in the other with variation markers
-    if title1 in title2:
-        # Title1 is contained in title2, check for variation markers
-        remaining = title2.replace(title1, "").strip("- ()[]").strip()
+    if lower1 in lower2:
+        remaining = lower2.replace(lower1, "").strip("- ()[]").strip()
         if any(marker in remaining.lower() for marker in variation_markers):
-            # Found variation marker, significantly reduce similarity
             return config.variation_similarity_score
-    elif title2 in title1:
-        # Same check in reverse
-        remaining = title1.replace(title2, "").strip("- ()[]").strip()
+    elif lower2 in lower1:
+        remaining = lower1.replace(lower2, "").strip("- ()[]").strip()
         if any(marker in remaining.lower() for marker in variation_markers):
             return config.variation_similarity_score
 
-    # 3. Use token_set_ratio for better handling of word order and extra words
-    return fuzz.token_set_ratio(title1, title2) / 100.0
+    # 3. Normalize (strip diacritics, equivalences) and check exact match
+    norm1 = normalize_for_comparison(title1)
+    norm2 = normalize_for_comparison(title2)
+
+    if norm1 == norm2:
+        return config.identical_similarity_score
+
+    # 4. Phonetic match (Metaphone) — intermediate tier
+    if are_phonetic_matches(title1, title2):
+        return config.phonetic_similarity_score
+
+    # 5. Fuzzy match on normalized text for better cross-service comparison
+    return fuzz.token_set_ratio(norm1, norm2) / 100.0
 
 
 @define(frozen=True, slots=True)
@@ -127,28 +150,21 @@ def calculate_confidence(
     match_method: str,
     config: MatchingConfig,
 ) -> tuple[int, ConfidenceEvidence]:
-    """
-    Calculate confidence score based on multiple attributes.
+    """Calculate confidence score using Fellegi-Sunter probabilistic model.
+
+    Each attribute comparison produces a log-likelihood ratio where rare
+    agreements provide stronger evidence than common ones. The composite
+    match weight is converted to a 0-100 confidence score via sigmoid.
 
     Args:
-        internal_track_data: Data from our internal track representation
-        service_track_data: Data from external service
-        match_method: How the track was matched ("isrc", "mbid", "artist_title")
+        internal_track_data: Data from our internal track representation.
+        service_track_data: Data from external service.
+        match_method: How the track was matched ("isrc", "mbid", "artist_title").
+        config: Matching configuration.
 
     Returns:
-        Tuple of (confidence_score, evidence)
+        Tuple of (confidence_score, evidence).
     """
-    # Initialize base confidence by match method
-    if match_method == "isrc":
-        base_score = config.base_confidence_isrc
-    elif match_method == "mbid":
-        base_score = config.base_confidence_mbid
-    else:  # artist_title or other
-        base_score = config.base_confidence_artist_title
-
-    # Initialize evidence object
-    evidence = ConfidenceEvidence(base_score=base_score)
-
     # Get track attributes
     internal_title = internal_track_data.get("title", "")
     internal_artists = internal_track_data.get("artists", [])
@@ -158,94 +174,104 @@ def calculate_confidence(
     service_artist = service_track_data.get("artist", "")
     service_duration = service_track_data.get("duration_ms")
 
-    # 1. Title similarity
+    # ── 1. Title comparison ─────────────────────────────────────────────
     title_similarity = 0.0
-    title_score = 0.0
+    title_is_variation = False
+    title_is_phonetic = False
+
     if internal_title and service_title:
-        # Use custom title similarity function
         title_similarity = calculate_title_similarity(
             internal_title, service_title, config
         )
-
-        if title_similarity >= config.high_similarity_threshold:
-            title_score = 0  # No deduction for high similarity
-        else:
-            # Linear penalty based on similarity
-            # If similarity is 0, apply full penalty
-            # If similarity is high_similarity (0.9), apply no penalty
-            # Scale linearly in between
-            penalty_factor = max(
-                0,
-                (config.high_similarity_threshold - title_similarity)
-                / config.high_similarity_threshold,
-            )
-            title_score = -config.title_max_penalty * penalty_factor
-
-    # 2. Artist similarity - only deductions
-    artist_similarity = 0.0
-    artist_score = 0.0
-    if internal_artists and service_artist:
-        internal_artist = internal_artists[0].lower()
-        service_artist = service_artist.lower()
-
-        artist_similarity = (
-            fuzz.token_sort_ratio(internal_artist, service_artist) / 100.0
+        title_is_variation = title_similarity == config.variation_similarity_score
+        title_is_phonetic = (
+            not title_is_variation
+            and title_similarity == config.phonetic_similarity_score
         )
 
-        if artist_similarity >= config.high_similarity_threshold:
-            artist_score = 0  # No deduction for high similarity
+    title_level = classify_title(
+        title_similarity,
+        is_phonetic_match=title_is_phonetic,
+        is_variation=title_is_variation,
+        high_similarity_threshold=config.high_similarity_threshold,
+    )
+
+    # ── 2. Artist comparison ────────────────────────────────────────────
+    artist_similarity = 0.0
+    artist_is_phonetic = False
+
+    if internal_artists and service_artist:
+        internal_artist_norm = normalize_for_comparison(internal_artists[0])
+        service_artist_norm = normalize_for_comparison(service_artist)
+
+        if internal_artist_norm == service_artist_norm:
+            artist_similarity = 1.0
+        elif are_phonetic_matches(internal_artists[0], service_artist):
+            artist_similarity = config.phonetic_similarity_score
+            artist_is_phonetic = True
         else:
-            # Quadratic or cubic penalty to penalize small differences more severely
-            penalty_factor = max(
-                0,
-                (config.high_similarity_threshold - artist_similarity)
-                / config.high_similarity_threshold,
+            artist_similarity = (
+                fuzz.token_sort_ratio(internal_artist_norm, service_artist_norm)
+                / 100.0
             )
-            # Square or cube the factor to make the penalty curve steeper
-            penalty_factor **= 2  # Square for quadratic curve
-            artist_score = -config.artist_max_penalty * penalty_factor
 
-    # 3. Duration comparison
-    duration_diff_ms = 0
-    duration_score = 0.0
+    artist_level = classify_artist(
+        artist_similarity,
+        is_phonetic_match=artist_is_phonetic,
+        high_similarity_threshold=config.high_similarity_threshold,
+    )
 
-    # Check if both tracks have duration data
+    # ── 3. Duration comparison ──────────────────────────────────────────
+    duration_diff_ms: int | None
     if not internal_duration or not service_duration:
-        # If either track is missing duration, apply flat penalty
-        duration_score = -config.duration_missing_penalty
+        duration_diff_ms = None
     else:
-        # Both tracks have duration, calculate difference
         duration_diff_ms = abs(internal_duration - service_duration)
 
-        # No deduction if within tolerance
-        if duration_diff_ms <= config.duration_tolerance_ms:
-            duration_score = 0
-        else:
-            # Convert ms difference to seconds
-            seconds_diff = (duration_diff_ms - config.duration_tolerance_ms) / 1000
-            # Round up to next second using integer division trick
-            seconds_penalty = int(seconds_diff) + (seconds_diff > int(seconds_diff))
-            duration_score = -min(
-                config.duration_per_second_penalty * seconds_penalty,
-                config.duration_max_penalty,
-            )
+    duration_level = classify_duration(duration_diff_ms)
 
-    # Calculate final confidence with all deductions
-    final_score = int(base_score + title_score + artist_score + duration_score)
+    # ── 4. ISRC comparison ──────────────────────────────────────────────
+    isrc_suspect = False
+    isrc_matched = match_method in ("isrc", "mbid")
+    isrc_available = isrc_matched  # ISRC was available if it was used to match
 
-    # Ensure score is within bounds (0-100)
-    final_score = max(0, min(final_score, 100))
+    if isrc_matched:
+        reliability = assess_isrc_match_reliability(duration_diff_ms)
+        isrc_suspect = reliability.suspect
 
-    # Update evidence object with all calculated values
+    isrc_level = classify_isrc(
+        isrc_matched=isrc_matched,
+        isrc_suspect=isrc_suspect,
+        isrc_available=isrc_available,
+    )
+
+    # ── 5. Aggregate via Fellegi-Sunter ─────────────────────────────────
+    attribute_results = [
+        AttributeResult("title", title_level),
+        AttributeResult("artist", artist_level),
+        AttributeResult("duration", duration_level),
+        AttributeResult("isrc", isrc_level),
+    ]
+
+    match_weight = calculate_match_weight(attribute_results)
+    final_score = weight_to_confidence(match_weight)
+
+    # Per-attribute contributions (log-likelihood ratios) for evidence display
+    title_score = title_level.log_likelihood_ratio
+    artist_score = artist_level.log_likelihood_ratio
+    duration_score = duration_level.log_likelihood_ratio
+
     evidence = ConfidenceEvidence(
-        base_score=base_score,
+        base_score=final_score,  # In probabilistic model, base_score = final (no penalties)
         title_score=title_score,
         artist_score=artist_score,
         duration_score=duration_score,
         title_similarity=title_similarity,
         artist_similarity=artist_similarity,
-        duration_diff_ms=duration_diff_ms,
+        duration_diff_ms=duration_diff_ms if duration_diff_ms is not None else 0,
         final_score=final_score,
+        isrc_suspect=isrc_suspect,
+        match_weight=match_weight,
     )
 
     return final_score, evidence

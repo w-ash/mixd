@@ -26,12 +26,18 @@ class TestSuccessfulDiscovery:
     """High-confidence matches should create a Spotify connector mapping."""
 
     async def test_creates_mapping_for_matching_track(self):
+        artist_mock = MagicMock()
+        artist_mock.name = "Radiohead"
+
+        album_mock = MagicMock()
+        album_mock.name = "Pablo Honey"
+
         spotify_match = MagicMock()
         spotify_match.id = "spotify123"
         spotify_match.name = "Creep"
-        spotify_match.artists = [MagicMock(name="Radiohead")]
+        spotify_match.artists = [artist_mock]
         spotify_match.duration_ms = 238000
-        spotify_match.album = MagicMock(name="Pablo Honey")
+        spotify_match.album = album_mock
         spotify_match.external_ids = MagicMock(isrc="GBAYE9300106")
         spotify_match.model_dump.return_value = {"id": "spotify123", "name": "Creep"}
 

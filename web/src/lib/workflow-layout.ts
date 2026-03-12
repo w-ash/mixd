@@ -12,6 +12,7 @@ const STAGGER_AMPLITUDE = 60;
 
 const EDGE_STYLE = {
   animated: true,
+  type: "smart" as const,
   style: { stroke: "oklch(0.5 0.02 60)" },
 } as const;
 

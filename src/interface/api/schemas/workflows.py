@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from src.application.workflows.node_config_fields import ConfigFieldDef, FieldType
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -110,12 +111,55 @@ class WorkflowValidationResponse(BaseModel):
 # --- Node catalog schema ---
 
 
+class ConfigFieldOptionSchema(BaseModel):
+    value: str
+    label: str
+    description: str | None = None
+
+
+class ConfigFieldSchema(BaseModel):
+    key: str
+    label: str
+    field_type: FieldType
+    required: bool = False
+    description: str | None = None
+    default: str | float | bool | None = None
+    placeholder: str | None = None
+    min: float | None = None
+    max: float | None = None
+    options: list[ConfigFieldOptionSchema] = []
+
+
 class NodeTypeInfoSchema(BaseModel):
     type: str
     category: str
     description: str
+    config_fields: list[ConfigFieldSchema] = []
     required_config: list[str] = []
     optional_config: list[str] = []
+
+
+def config_field_to_schema(field_def: ConfigFieldDef) -> ConfigFieldSchema:
+    """Convert an attrs ConfigFieldDef to its Pydantic API schema."""
+    return ConfigFieldSchema(
+        key=field_def.key,
+        label=field_def.label,
+        field_type=field_def.field_type,
+        required=field_def.required,
+        description=field_def.description,
+        default=field_def.default,
+        placeholder=field_def.placeholder,
+        min=field_def.min,
+        max=field_def.max,
+        options=[
+            ConfigFieldOptionSchema(
+                value=opt.value,
+                label=opt.label,
+                description=opt.description,
+            )
+            for opt in field_def.options
+        ],
+    )
 
 
 # --- Run schemas ---

@@ -14,20 +14,15 @@ from typing import Any
 
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
+from .node_config_fields import FieldType, get_enricher_metric_names, get_node_config_fields
 from .node_registry import get_node
 
-# Required config schema per node type — keys that must be present and their
-# expected types.  Nodes not listed here have no mandatory keys.
-# Values are single types or tuples of types (for isinstance() checks).
-_NODE_CONFIG_SCHEMA: dict[str, dict[str, type | tuple[type, ...]]] = {
-    "source.playlist": {"playlist_id": str},
-    "filter.by_metric": {"metric_name": str},
-    "filter.by_tracks": {"exclusion_source": str},
-    "filter.by_artists": {"exclusion_source": str},
-    "filter.by_liked_status": {"service": str},
-    "selector.percentage": {"percentage": (int, float)},
-    "destination.create_playlist": {"name": str},
-    "destination.update_playlist": {"playlist_id": str},
+# Type mapping from field_type strings to Python types for isinstance() checks.
+_FIELD_TYPE_MAP: dict[FieldType, type | tuple[type, ...]] = {
+    "string": str,
+    "number": (int, float),
+    "boolean": bool,
+    "select": str,
 }
 
 
@@ -67,23 +62,26 @@ def topological_sort(tasks: list[WorkflowTaskDef]) -> list[WorkflowTaskDef]:
 def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) -> None:
     """Validate that a node's config contains all required keys with correct types.
 
-    Called during workflow definition validation to catch config errors
-    before any expensive I/O operations run. Nodes not in _REQUIRED_CONFIG
-    have no mandatory keys and pass validation unconditionally.
+    Derives required keys and type checks from the rich config field registry
+    in node_config_fields.py. Nodes with no fields pass unconditionally.
 
     Raises:
         ValueError: If required config keys are missing, have wrong types,
             or are empty strings when a non-empty string is required.
     """
-    schema = _NODE_CONFIG_SCHEMA.get(node_type, {})
-    missing = [k for k in schema if k not in config]
+    fields = get_node_config_fields().get(node_type, ())
+
+    # Check for missing required keys
+    required_keys = [f.key for f in fields if f.required]
+    missing = [k for k in required_keys if k not in config]
     if missing:
         raise ValueError(
             f"Task '{task_id}' (type '{node_type}') missing required config: {missing}"
         )
 
     # Validate value types for required keys
-    for key, expected_type in schema.items():
+    required_type_map = {f.key: _FIELD_TYPE_MAP.get(f.field_type, str) for f in fields if f.required}
+    for key, expected_type in required_type_map.items():
         if key not in config:
             continue
         value = config[key]
@@ -171,20 +169,8 @@ def validate_connector_availability(
     return missing
 
 
-# Mapping from enricher node types to the metric names they provide.
-# Used by _validate_enrichment_dependencies() to check that filter/sort
-# nodes referencing external metrics have a corresponding upstream enricher.
-# Keep in sync with node_catalog.py enricher registrations (attributes → metrics).
-_ENRICHER_METRICS: dict[str, set[str]] = {
-    "enricher.lastfm": {"lastfm_user_playcount", "lastfm_global_playcount"},
-    "enricher.spotify": {"explicit_flag"},
-    "enricher.play_history": {
-        "total_plays",
-        "period_plays",
-        "last_played_dates",
-        "first_played_dates",
-    },
-}
+# Derived from the canonical ENRICHER_METRIC_DEFS in node_config_fields.py.
+_ENRICHER_METRICS: dict[str, set[str]] = get_enricher_metric_names()
 
 # Node types that reference metrics via config["metric_name"]
 _METRIC_CONSUMER_TYPES = {"filter.by_metric", "sorter.by_metric"}
@@ -314,10 +300,6 @@ def is_validation_error(item: dict[str, str]) -> bool:
     """True if a validation result item is an error (not a warning)."""
     return item.get("severity") != "warning"
 
-
-def get_node_config_schema() -> dict[str, dict[str, type | tuple[type, ...]]]:
-    """Public accessor for node config schema (used by API node catalog endpoint)."""
-    return _NODE_CONFIG_SCHEMA
 
 
 class ConnectorNotAvailableError(Exception):

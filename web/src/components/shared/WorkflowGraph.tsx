@@ -12,7 +12,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Edge, Node } from "@xyflow/react";
+import { SmartBezierEdge } from "@jalez/react-flow-smart-edge";
+import type { Edge, EdgeTypes, Node } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
@@ -21,7 +22,7 @@ import {
   type WorkflowNodeData,
 } from "@/components/workflow/BaseWorkflowNode";
 import type { NodeStatus } from "@/lib/sse-types";
-import { NODE_CONFIG } from "@/lib/workflow-config";
+import { miniMapNodeColor, NODE_CONFIG } from "@/lib/workflow-config";
 import {
   createInitialNodes,
   layoutWorkflow,
@@ -44,12 +45,7 @@ const nodeTypes: NodeTypes = Object.fromEntries(
   Object.keys(NODE_CONFIG).map((k) => [k, createNodeComponent(k)]),
 );
 
-function miniMapNodeColor(node: { type?: string }) {
-  const accent = NODE_CONFIG[node.type ?? ""]?.accentColor;
-  return accent
-    ? `color-mix(in oklch, ${accent} 35%, oklch(0.15 0.01 60))`
-    : "oklch(0.25 0.01 60)";
-}
+const edgeTypes: EdgeTypes = { smart: SmartBezierEdge };
 
 type LayoutPhase = "measuring" | "layouting" | "done";
 
@@ -212,6 +208,7 @@ function WorkflowGraphInner({
         nodes={displayNodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={true}
