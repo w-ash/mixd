@@ -1,6 +1,6 @@
 {
 	"scripts": {
-		"dev": "concurrently --raw \"poetry run narada-api\" \"pnpm --prefix web dev\""
+		"dev": "concurrently --raw \"uv run narada-api\" \"pnpm --prefix web dev\""
 	},
 	"devDependencies": {
 		"concurrently": "^9.2.1",

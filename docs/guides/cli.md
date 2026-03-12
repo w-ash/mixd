@@ -226,12 +226,12 @@ Suggestion: Check that the playlist exists and is accessible to your account
 ### Database Issues
 
 ```bash
-poetry run alembic current              # check migration status
-poetry run alembic upgrade head         # apply pending migrations
+uv run alembic current              # check migration status
+uv run alembic upgrade head         # apply pending migrations
 
 # full reset (destroys all data)
 rm data/db/narada.db
-poetry run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### Authentication

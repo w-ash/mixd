@@ -6,8 +6,8 @@ response data so you can inspect actual API shapes (which sometimes
 differ from Last.fm's documentation).
 
 Usage:
-    poetry run python scripts/diagnose_lastfm.py
-    poetry run python scripts/diagnose_lastfm.py --compact   # truncated output
+    uv run python scripts/diagnose_lastfm.py
+    uv run python scripts/diagnose_lastfm.py --compact   # truncated output
 """
 
 import asyncio

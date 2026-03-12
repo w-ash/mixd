@@ -69,9 +69,9 @@ Workflows are declarative pipelines: **Source → Enrich → Filter → Sort →
 
 ```bash
 git clone https://github.com/w-ash/narada.git && cd narada
-poetry install
+uv sync
 cp .env.example .env   # Add your Spotify and Last.fm API credentials
-poetry run alembic upgrade head
+uv run alembic upgrade head
 narada connectors      # Verify service connections
 ```
 

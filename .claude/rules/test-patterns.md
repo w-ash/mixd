@@ -6,7 +6,7 @@ paths:
 
 ## Mechanics
 - **ALWAYS** use `db_session` fixture for integration tests, NEVER `get_session()`
-- Use `poetry run` prefix for pytest, ruff, basedpyright
+- Use `uv run` prefix for pytest, ruff, basedpyright
 - No `--timeout` flag configured; don't pass it
 - Markers auto-applied by directory: `tests/unit/` → `unit`, `tests/integration/` → `integration`
 - Additional markers applied per-test: `slow` (>1s), `performance` (>5s), `diagnostic` — all skipped by default

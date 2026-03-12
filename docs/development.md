@@ -5,10 +5,10 @@
 ### Setup
 ```bash
 git clone <repository-url> && cd narada
-poetry install && source $(poetry env info --path)/bin/activate
+uv sync
 cp .env.example .env  # Edit with your service credentials
-poetry run alembic upgrade head
-poetry run pytest && poetry run narada --help  # Verify installation
+uv run alembic upgrade head
+uv run pytest && uv run narada --help  # Verify installation
 ```
 
 ## Quick Reference
@@ -65,8 +65,8 @@ See `.claude/skills/new-connector/` for the full step-by-step guide, or run `/ne
 
 ### Database Changes
 1. Update `src/infrastructure/persistence/database/db_models.py`
-2. Generate: `poetry run alembic revision --autogenerate`
-3. Apply: `poetry run alembic upgrade head`
+2. Generate: `uv run alembic revision --autogenerate`
+3. Apply: `uv run alembic upgrade head`
 
 ## Shared Utilities (`src/application/use_cases/_shared/`)
 
@@ -143,16 +143,16 @@ export LOGGING__FILE_LEVEL="INFO"
 ### Quick Fixes
 ```bash
 # Type errors
-poetry run basedpyright src/
+uv run basedpyright src/
 
 # Test failures
-poetry run pytest -v --tb=short --lf
+uv run pytest -v --tb=short --lf
 
 # Database reset
-rm data/narada.db && poetry run alembic upgrade head
+rm data/narada.db && uv run alembic upgrade head
 
 # Migration status
-poetry run alembic current
+uv run alembic current
 ```
 
 ## Subagent Usage Guide

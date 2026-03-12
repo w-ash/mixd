@@ -20,9 +20,7 @@ build/
 htmlcov/
 .ruff_cache/
 
-# Package management
-poetry.lock
-.python-version
+# Package management (uv.lock and .python-version are committed)
 
 # Jupyter Notebook
 .ipynb_checkpoints

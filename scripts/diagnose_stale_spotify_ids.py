@@ -8,9 +8,9 @@ real API, and classifies each as alive, redirected, or dead:
 - dead: API returns None (true 404)
 
 Usage:
-    poetry run python scripts/diagnose_stale_spotify_ids.py
-    poetry run python scripts/diagnose_stale_spotify_ids.py --file data/imports/Streaming_History_Audio_2011-2014_0.json
-    poetry run python scripts/diagnose_stale_spotify_ids.py --sample 50
+    uv run python scripts/diagnose_stale_spotify_ids.py
+    uv run python scripts/diagnose_stale_spotify_ids.py --file data/imports/Streaming_History_Audio_2011-2014_0.json
+    uv run python scripts/diagnose_stale_spotify_ids.py --sample 50
 """
 
 import asyncio

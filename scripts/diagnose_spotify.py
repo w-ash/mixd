@@ -6,8 +6,8 @@ JSON responses so you can inspect actual API shapes (which sometimes
 differ from Spotify's documentation).
 
 Usage:
-    poetry run python scripts/diagnose_spotify.py
-    poetry run python scripts/diagnose_spotify.py --compact   # truncated output
+    uv run python scripts/diagnose_spotify.py
+    uv run python scripts/diagnose_spotify.py --compact   # truncated output
 """
 
 import asyncio

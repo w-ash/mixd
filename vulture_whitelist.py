@@ -1,5 +1,5 @@
 # Vulture whitelist — false positives from framework patterns.
-# Run: poetry run vulture src/ vulture_whitelist.py
+# Run: uv run vulture src/ vulture_whitelist.py
 
 # --- Pydantic model_config (class-level config, not instance vars) ---
 model_config  # noqa

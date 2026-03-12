@@ -47,15 +47,15 @@ Layer-specific enforcement rules live in `.claude/rules/` and load automatically
 
 ```bash
 # Development
-poetry run pytest                    # Fast tests (<1min)
-poetry run pytest -m ""              # All tests including slow (~3.5min)
-poetry run ruff check . --fix        # Lint + autofix
-poetry run ruff format .             # Format
-poetry run basedpyright src/         # Type check
+uv run pytest                    # Fast tests (<1min)
+uv run pytest -m ""              # All tests including slow (~3.5min)
+uv run ruff check . --fix        # Lint + autofix
+uv run ruff format .             # Format
+uv run basedpyright src/         # Type check
 
 # Database
-poetry run alembic upgrade head      # Migrate
-poetry run alembic revision --autogenerate -m "description"  # Generate migration
+uv run alembic upgrade head      # Migrate
+uv run alembic revision --autogenerate -m "description"  # Generate migration
 
 # Web UI (frontend)
 pnpm --prefix web dev                # Dev server (Vite, port 5173)
@@ -85,23 +85,23 @@ Self-check after implementing:
 1. Write tests (happy path + at least one error/edge case)
 2. Right test level — domain=unit, use case=unit+mocks, repository=integration
 3. Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`)
-4. Run: `poetry run pytest tests/path/to/test_file.py -x`
+4. Run: `uv run pytest tests/path/to/test_file.py -x`
 
 ### When to Run What
 
 **During implementation** — targeted tests ONLY:
-- Run the specific test file for the code you changed: `poetry run pytest tests/path/to/test_file.py -x`
+- Run the specific test file for the code you changed: `uv run pytest tests/path/to/test_file.py -x`
 - Use `-k "test_name"` to iterate on a single failing test
 - Use `--lf` to rerun only previously-failed tests
 - Frontend: `pnpm --prefix web test src/path/to/Component.test.tsx`
 
 **Before committing** — full fast suite:
-- `poetry run pytest` (automatically excludes slow/diagnostic)
+- `uv run pytest` (automatically excludes slow/diagnostic)
 - `pnpm --prefix web test` (all frontend tests)
 
 **On version bump or explicit request only**:
-- `poetry run pytest -m ""` (all tests including slow)
-- `poetry run basedpyright src/` + `poetry run ruff check .`
+- `uv run pytest -m ""` (all tests including slow)
+- `uv run basedpyright src/` + `uv run ruff check .`
 - `pnpm --prefix web check && pnpm --prefix web build`
 
 **NEVER** run the full suite after every small edit — it breaks the feedback loop.

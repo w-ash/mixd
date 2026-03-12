@@ -1,7 +1,7 @@
 """FastAPI application factory and server entry point.
 
 create_app() builds a configured FastAPI instance with CORS, routers, and
-exception handlers. run_server() is the poetry script entry point for
+exception handlers. run_server() is the uv script entry point for
 `narada-api`.
 
 When web/dist/ exists (frontend build output), the app also serves the
