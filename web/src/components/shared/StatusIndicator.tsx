@@ -16,6 +16,14 @@ interface StatusIndicatorProps {
   size?: "sm" | "md";
 }
 
+export const variantColorClass: Record<StatusVariant, string> = {
+  success: "text-green-500",
+  warning: "text-yellow-500",
+  error: "text-red-500",
+  info: "text-blue-400",
+  neutral: "text-text-muted",
+};
+
 const variantConfig = {
   success: {
     icon: CheckCircle2,

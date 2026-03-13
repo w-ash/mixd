@@ -12,6 +12,7 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,
     SpotifyInwardResolver,
 )
+from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
 from tests.fixtures import make_spotify_track, make_track
 
 
@@ -223,6 +224,7 @@ def _make_uow_with_repos():
     uow = MagicMock()
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)
+    track_repo.find_tracks_by_title_artist.return_value = {}
     uow.get_track_repository.return_value = track_repo
 
     connector_repo = AsyncMock()
@@ -393,6 +395,115 @@ class TestFallbackSearch:
         assert resolver.fallback_resolved_ids == {"id2"}
 
 
+class TestPhase15CanonicalReuse:
+    """Phase 1.5: Spotify resolver reuses existing canonical tracks from fallback hints."""
+
+    async def test_reuses_existing_canonical_via_hint(self):
+        """When a canonical track exists and hint matches, creates Spotify mapping."""
+        existing_track = make_track(42, title="My Song", artist="Artist")
+
+        connector = AsyncMock()
+        # Batch fetch returns nothing — all IDs are "missing"
+        connector.get_tracks_by_ids.return_value = {}
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        # find_tracks_by_title_artist returns the existing canonical track
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("my song", "artist"): existing_track,
+        }
+        connector_repo.map_track_to_connector.return_value = existing_track
+
+        hints = {"sp_id_1": FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["sp_id_1"], uow, fallback_hints=hints
+        )
+
+        assert "sp_id_1" in result
+        assert result["sp_id_1"].id == 42
+        assert metrics.reused == 1
+        assert metrics.created == 0
+
+        # Verify mapping was created with CANONICAL_REUSE method
+        map_calls = connector_repo.map_track_to_connector.call_args_list
+        assert len(map_calls) == 1
+        assert map_calls[0].args[1] == "spotify"
+        assert map_calls[0].args[2] == "sp_id_1"
+        assert map_calls[0].args[3] == MatchMethod.CANONICAL_REUSE
+
+    async def test_no_reuse_without_hints(self):
+        """Without fallback hints, Phase 1.5 should not find any candidates."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        # No hints provided — Phase 1.5 returns empty
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["sp_id_1"], uow, fallback_hints=None
+        )
+
+        assert "sp_id_1" not in result
+        track_repo.find_tracks_by_title_artist.assert_not_called()
+
+    async def test_low_confidence_reuse_rejected(self):
+        """Candidates with low title similarity should be rejected in Phase 1.5."""
+        # Track title is very different from hint
+        existing_track = make_track(42, title="Completely Different", artist="Artist")
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("my song", "artist"): existing_track,
+        }
+
+        hints = {"sp_id_1": FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["sp_id_1"], uow, fallback_hints=hints
+        )
+
+        # Should be rejected due to low title similarity
+        assert "sp_id_1" not in result
+        assert metrics.reused == 0
+        # No mapping should be created
+        connector_repo.map_track_to_connector.assert_not_called()
+
+    async def test_reuse_plus_direct_import_combined(self):
+        """Phase 1.5 reuse and Phase 2 direct import work together."""
+        existing_track = make_track(42, title="Reused Song", artist="Artist A")
+
+        connector = AsyncMock()
+        # id2 found by API, id1 not found (will try Phase 1.5)
+        connector.get_tracks_by_ids.return_value = {
+            "id2": make_spotify_track("id2", "New Song", "Artist B"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("reused song", "artist a"): existing_track,
+        }
+        track_repo.save_track.return_value = make_track(99)
+        connector_repo.map_track_to_connector.return_value = existing_track
+
+        hints = {"id1": FallbackHint(artist_name="Artist A", track_name="Reused Song")}
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id1", "id2"], uow, fallback_hints=hints
+        )
+
+        assert "id1" in result
+        assert "id2" in result
+        assert metrics.reused == 1
+        assert metrics.created == 1
+
+
 class TestResolutionMethod:
     """get_resolution_method() returns correct tags for different resolution paths."""
 
@@ -415,3 +526,91 @@ class TestResolutionMethod:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         assert resolver.get_resolution_method("normal_id") == MatchMethod.PLAY_RESOLVER
+
+
+class TestISRCDedup:
+    """ISRC dedup: reuse existing canonical tracks when Spotify returns matching ISRC."""
+
+    async def test_isrc_dedup_reuses_existing_canonical(self):
+        """When Spotify returns a track with an ISRC that already exists, reuse it."""
+        existing_track = make_track(42, title="Same Song", artist="Same Artist")
+        spotify_id = "new_spotify_id_0000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(
+                spotify_id, "Same Song", "Same Artist",
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        # Existing track already has this ISRC
+        track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow
+        )
+
+        assert spotify_id in result
+        assert result[spotify_id].id == 42
+
+        # Should have created a mapping with ISRC_MATCH method, not saved a new track
+        map_calls = connector_repo.map_track_to_connector.call_args_list
+        assert any(
+            call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls
+        )
+        # save_track should NOT have been called (reused existing)
+        track_repo.save_track.assert_not_called()
+
+    async def test_no_isrc_dedup_when_isrc_not_in_db(self):
+        """When ISRC is not found in DB, normal track creation proceeds."""
+        spotify_id = "new_spotify_id_0000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(
+                spotify_id, "New Song", "New Artist",
+                external_ids=SpotifyExternalIds(isrc="USRC17000002"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        # No existing track with this ISRC
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.save_track.return_value = make_track(99)
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow
+        )
+
+        assert spotify_id in result
+        assert metrics.created == 1
+        track_repo.save_track.assert_called_once()
+
+    async def test_no_isrc_dedup_without_external_ids(self):
+        """Tracks without ISRCs skip ISRC dedup entirely."""
+        spotify_id = "no_isrc_id_0000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(spotify_id, "No ISRC Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.save_track.return_value = make_track(99)
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow
+        )
+
+        assert spotify_id in result
+        assert metrics.created == 1
+        # find_tracks_by_isrcs should not be called with empty list
+        # (it's called once with empty list at most, which returns {})
+        track_repo.save_track.assert_called_once()

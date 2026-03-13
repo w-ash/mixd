@@ -160,9 +160,52 @@ class MatchMethod:
     SPOTIFY_REDIRECT: Final = "spotify_redirect"
     PLAY_RESOLVER: Final = "spotify_connector_play_resolver"
     LASTFM_DISCOVERY: Final = "lastfm_discovery"
+    CANONICAL_REUSE: Final = "canonical_reuse"
+    ISRC_MATCH: Final = "isrc_match"
+    MBID_MATCH: Final = "mbid_match"
     # Secondary mappings for stale IDs (old ID → same canonical track)
     DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
+
+    # Confidence scores for automated resolution strategies
+    ISRC_MATCH_CONFIDENCE: Final = 95
+    LISTENBRAINZ_REUSE_CONFIDENCE: Final = 90
+
+    CATEGORY_ORDER: Final[tuple[str, ...]] = (
+        "Primary Import",
+        "Identity Resolution",
+        "Cross-Service Discovery",
+        "Error Recovery",
+        "Secondary Cache",
+    )
+
+    CATEGORIES: Final[dict[str, str]] = {
+        "direct_import": "Primary Import",
+        "artist_title": "Primary Import",
+        "canonical_reuse": "Identity Resolution",
+        "isrc_match": "Identity Resolution",
+        "mbid_match": "Identity Resolution",
+        "lastfm_discovery": "Cross-Service Discovery",
+        "spotify_connector_play_resolver": "Cross-Service Discovery",
+        "search_fallback": "Error Recovery",
+        "spotify_redirect": "Error Recovery",
+        "direct_import_stale_id": "Secondary Cache",
+        "search_fallback_stale_id": "Secondary Cache",
+    }
+
+    DESCRIPTIONS: Final[dict[str, str]] = {
+        "direct_import": "Standard Spotify import",
+        "artist_title": "Standard Last.fm import",
+        "canonical_reuse": "Phase 1.5 — existing track reuse",
+        "isrc_match": "ISRC dedup across services",
+        "mbid_match": "MusicBrainz ID bridging",
+        "lastfm_discovery": "Spotify found via Last.fm enrichment",
+        "spotify_connector_play_resolver": "Spotify play context resolution",
+        "search_fallback": "Dead Spotify ID → search fallback",
+        "spotify_redirect": "Spotify ID relinking detected",
+        "direct_import_stale_id": "Stale ID cache (redirect)",
+        "search_fallback_stale_id": "Stale ID cache (fallback)",
+    }
 
 
 class DenormalizedTrackColumns:
@@ -181,6 +224,30 @@ class IntegrityConstants:
     """Data integrity monitoring thresholds."""
 
     STALE_REVIEW_DAYS: Final = 30  # pending reviews older than this are flagged
+
+
+class PlayDeduplicationConstants:
+    """Cross-service play history deduplication parameters.
+
+    When importing plays from multiple services (Spotify export + Last.fm API),
+    the same listening event appears in both sources. These constants control
+    how cross-source duplicates are identified and merged.
+
+    Timestamp semantics differ by service:
+    - Spotify ``ts`` = END time (when playback stopped)
+    - Last.fm ``date.uts`` = START time (when track began playing)
+
+    Spotify plays are normalized to start time via ``played_at - ms_played``
+    before comparison. The tolerance window applies AFTER normalization.
+    """
+
+    CROSS_SERVICE_TOLERANCE_SECONDS: Final = 30
+    CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS: Final = 180  # when ms_played unavailable
+    PREFERRED_SOURCE_ORDER: Final[tuple[str, ...]] = ("spotify", "lastfm")
+
+    # Timestamp semantic: which end of the play does played_at represent?
+    END_TIME_SERVICES: Final[frozenset[str]] = frozenset({"spotify"})
+    START_TIME_SERVICES: Final[frozenset[str]] = frozenset({"lastfm"})
 
 
 class LastFMConstants:

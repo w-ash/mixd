@@ -74,6 +74,9 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     repo.count_orphaned_connector_tracks.return_value = overrides.pop(
         "count_orphaned_connector_tracks", 0
     )
+    repo.get_match_method_stats.return_value = overrides.pop(
+        "get_match_method_stats", []
+    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

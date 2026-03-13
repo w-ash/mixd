@@ -6,7 +6,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
-from typing import override
+from typing import Any, override
 
 from attrs import define
 from sqlalchemy import func, select
@@ -58,6 +58,7 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
             ms_played=db_model.ms_played,
             context=db_model.context,
             id=db_model.id,
+            source_services=db_model.source_services,
             import_timestamp=import_timestamp,
             import_source=db_model.import_source,
             import_batch_id=db_model.import_batch_id,
@@ -73,6 +74,7 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
             played_at=domain_model.played_at,
             ms_played=domain_model.ms_played,
             context=domain_model.context,
+            source_services=domain_model.source_services,
             import_timestamp=domain_model.import_timestamp,
             import_source=domain_model.import_source,
             import_batch_id=domain_model.import_batch_id,
@@ -152,6 +154,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 "played_at": play.played_at,
                 "ms_played": play.ms_played,
                 "context": play.context,
+                "source_services": play.source_services,
                 "import_timestamp": play.import_timestamp,
                 "import_source": play.import_source,
                 "import_batch_id": play.import_batch_id,
@@ -531,3 +534,75 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             order_by = ("played_at", True)  # ASC
 
         return await self.find_by([], limit=limit, order_by=order_by)
+
+    @db_operation("find_plays_in_time_range")
+    async def find_plays_in_time_range(
+        self,
+        track_ids: list[int],
+        start: datetime,
+        end: datetime,
+    ) -> list[TrackPlay]:
+        """Find existing plays for given tracks within a time range.
+
+        Used by cross-source deduplication to find candidate matches before
+        running the dedup algorithm. Leverages ``ix_track_plays_track_played``
+        composite index for efficient lookups.
+
+        Args:
+            track_ids: Canonical track IDs to search for.
+            start: Range start (inclusive, timezone-aware UTC).
+            end: Range end (inclusive, timezone-aware UTC).
+
+        Returns:
+            Matching plays within the time range.
+        """
+        if not track_ids:
+            return []
+
+        results: list[TrackPlay] = []
+        for batch in chunked(track_ids, 200):
+            plays = await self.find_by([
+                self.model_class.track_id.in_(batch),
+                self.model_class.played_at >= start,
+                self.model_class.played_at <= end,
+            ])
+            results.extend(plays)
+
+        return results
+
+    @db_operation("bulk_update_play_source_services")
+    async def bulk_update_play_source_services(
+        self,
+        updates: list[tuple[int, dict[str, Any]]],
+    ) -> None:
+        """Batch-update cross-source dedup metadata for multiple plays.
+
+        Loads all target plays in a single SELECT, applies per-play updates
+        in-memory, and lets SQLAlchemy flush the batch. Replaces the old
+        per-play ``update_play_source_services`` to eliminate N+1 queries.
+
+        Args:
+            updates: List of (play_id, update_fields) tuples. Each
+                update_fields dict may contain ``source_services``,
+                ``context``, and/or ``ms_played``.
+        """
+        if not updates:
+            return
+
+        play_ids = [pid for pid, _ in updates]
+        stmt = select(self.model_class).where(self.model_class.id.in_(play_ids))
+        result = await self.session.execute(stmt)
+        plays_by_id = {db_play.id: db_play for db_play in result.scalars().all()}
+
+        for play_id, fields in updates:
+            db_play = plays_by_id.get(play_id)
+            if db_play is None:
+                logger.warning(f"Play {play_id} not found for source_services update")
+                continue
+
+            if "source_services" in fields:
+                db_play.source_services = fields["source_services"]
+            if fields.get("context") is not None:
+                db_play.context = fields["context"]
+            if fields.get("ms_played") is not None and db_play.ms_played is None:
+                db_play.ms_played = fields["ms_played"]

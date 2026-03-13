@@ -139,6 +139,41 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
+    def find_tracks_by_title_artist(
+        self, pairs: list[tuple[str, str]]
+    ) -> Awaitable[dict[tuple[str, str], Track]]:
+        """Find existing tracks by (title, first_artist) pairs (case-insensitive).
+
+        Args:
+            pairs: List of (title, first_artist_name) tuples to search for.
+
+        Returns:
+            Dict keyed by lowercased (title, artist) → Track.
+        """
+        ...
+
+    def find_tracks_by_isrcs(self, isrcs: list[str]) -> Awaitable[dict[str, Track]]:
+        """Batch lookup tracks by ISRC.
+
+        Args:
+            isrcs: Normalized ISRC strings to search for.
+
+        Returns:
+            Dict keyed by ISRC → Track.
+        """
+        ...
+
+    def find_tracks_by_mbids(self, mbids: list[str]) -> Awaitable[dict[str, Track]]:
+        """Batch lookup tracks by MusicBrainz Recording ID.
+
+        Args:
+            mbids: MBID strings to search for.
+
+        Returns:
+            Dict keyed by MBID → Track.
+        """
+        ...
+
     def find_duplicate_tracks_by_fingerprint(self) -> Awaitable[list[dict[str, object]]]:
         """Find tracks with identical (title, first_artist, album) tuples.
 
@@ -321,6 +356,18 @@ class CheckpointRepositoryProtocol(Protocol):
     ) -> Awaitable[SyncCheckpoint]:
         """Save sync checkpoint."""
         ...
+
+
+class MatchMethodStatRow(TypedDict):
+    """Aggregated statistics for a single match_method + connector_name combination."""
+
+    match_method: str
+    connector_name: str
+    total_count: int
+    recent_count: int  # within recent_days window
+    avg_confidence: float
+    min_confidence: int
+    max_confidence: int
 
 
 class FullMappingInfo(TypedDict):
@@ -636,6 +683,19 @@ class ConnectorRepositoryProtocol(Protocol):
         """Count connector tracks with no track_mappings pointing to them."""
         ...
 
+    def get_match_method_stats(
+        self, recent_days: int = 30
+    ) -> Awaitable[list[MatchMethodStatRow]]:
+        """Aggregate match method statistics grouped by method and connector.
+
+        Args:
+            recent_days: Window for recent_count (mappings created within this many days).
+
+        Returns:
+            Rows ordered by total_count descending.
+        """
+        ...
+
 
 class ConnectorPlaylistRepositoryProtocol(Protocol):
     """Repository interface for connector playlist operations."""
@@ -809,6 +869,25 @@ class PlaysRepositoryProtocol(Protocol):
         Returns:
             Typed dictionary mapping metric names to {track_id: value} dictionaries.
         """
+        ...
+
+    def find_plays_in_time_range(
+        self,
+        track_ids: list[int],
+        start: datetime,
+        end: datetime,
+    ) -> Awaitable[list[TrackPlay]]:
+        """Find existing plays for given tracks within a time range.
+
+        Used by cross-source deduplication to find candidate matches.
+        """
+        ...
+
+    def bulk_update_play_source_services(
+        self,
+        updates: list[tuple[int, dict[str, Any]]],
+    ) -> Awaitable[None]:
+        """Batch-update cross-source dedup metadata for multiple plays."""
         ...
 
 

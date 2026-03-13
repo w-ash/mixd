@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
+from src.config.constants import MatchMethod
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
 from src.interface.cli.console import get_console
@@ -23,10 +24,16 @@ STATUS_STYLE: dict[str, str] = {
 }
 
 
+CATEGORY_ORDER = [*MatchMethod.CATEGORY_ORDER, "Unknown"]
+
+
 @app.callback(invoke_without_command=True)
 def stats(
     ctx: typer.Context,
     health: bool = typer.Option(False, "--health", help="Run data integrity checks"),
+    matching: bool = typer.Option(
+        False, "--matching", help="Show match method health report"
+    ),
 ) -> None:
     """Show library statistics and counts."""
     if ctx.invoked_subcommand is not None:
@@ -34,6 +41,10 @@ def stats(
 
     if health:
         _run_health_check()
+        return
+
+    if matching:
+        _run_matching_report()
         return
 
     async def _stats_async():
@@ -121,3 +132,63 @@ def _run_health_check() -> None:
         run_async(_health_async())
     except Exception as e:
         handle_cli_error(e, "Failed to run integrity checks")
+
+
+def _run_matching_report() -> None:
+    """Show match method health report grouped by category."""
+
+    async def _matching_async():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.get_match_method_health import (
+            GetMatchMethodHealthCommand,
+            GetMatchMethodHealthUseCase,
+        )
+
+        result = await execute_use_case(
+            lambda uow: GetMatchMethodHealthUseCase().execute(
+                GetMatchMethodHealthCommand(), uow
+            )
+        )
+
+        console.print(
+            Panel(
+                f"[cyan]Recent window:[/cyan] last {result.recent_days} days",
+                title=f"Match Method Health Report ({result.total_mappings:,} total mappings)",
+            )
+        )
+
+        if not result.stats:
+            console.print("[dim]No track mappings found.[/dim]")
+            return
+
+        by_category = result.by_category
+        for category in CATEGORY_ORDER:
+            group = by_category.get(category)
+            if not group:
+                continue
+
+            category_total = sum(s.total_count for s in group)
+            table = Table(title=f"  {category} ({category_total:,} mappings)")
+            table.add_column("Method", style="cyan")
+            table.add_column("Connector")
+            table.add_column("Total", justify="right")
+            table.add_column("Last 30d", justify="right")
+            table.add_column("Avg Conf", justify="right")
+            table.add_column("Min", justify="right")
+
+            for stat in group:
+                table.add_row(
+                    stat.match_method,
+                    stat.connector_name,
+                    f"{stat.total_count:,}",
+                    str(stat.recent_count),
+                    f"{stat.avg_confidence:.1f}",
+                    str(stat.min_confidence),
+                )
+
+            console.print(table)
+
+    try:
+        run_async(_matching_async())
+    except Exception as e:
+        handle_cli_error(e, "Failed to get matching report")

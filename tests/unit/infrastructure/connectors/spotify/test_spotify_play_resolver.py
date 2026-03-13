@@ -211,6 +211,7 @@ class TestResolverTrackResolution:
         track_repo = AsyncMock()
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
+        track_repo.find_tracks_by_title_artist.return_value = {}
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -231,6 +232,9 @@ class TestResolverTrackResolution:
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
+        track_repo = AsyncMock()
+        track_repo.find_tracks_by_title_artist.return_value = {}
+        uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
         plays, metrics = await resolver.resolve_connector_plays([play], uow)
@@ -268,6 +272,9 @@ class TestFallbackHintsIntegration:
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
+        track_repo = AsyncMock()
+        track_repo.find_tracks_by_title_artist.return_value = {}
+        uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(
             track_name="My Song", artist_name="My Artist", ms_played=300000
@@ -297,6 +304,7 @@ class TestFallbackHintsIntegration:
         track_repo = AsyncMock()
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
+        track_repo.find_tracks_by_title_artist.return_value = {}
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -330,6 +338,7 @@ class TestRedirectResolvedPlays:
         track_repo = AsyncMock()
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
+        track_repo.find_tracks_by_title_artist.return_value = {}
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -354,6 +363,7 @@ class TestRedirectResolvedPlays:
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(id=99)
+        track_repo.find_tracks_by_title_artist.return_value = {}
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)

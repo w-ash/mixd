@@ -7,11 +7,11 @@ tracks to canonical internal tracks, and stores service-specific metadata and ID
 # pyright: reportExplicitAny=false, reportAny=false
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast, override
 
 from attrs import define
-from sqlalchemy import Integer, delete, func, select, update
+from sqlalchemy import Integer, case, delete, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,7 @@ from src.config import get_logger
 from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import FullMappingInfo
+from src.domain.repositories.interfaces import FullMappingInfo, MatchMethodStatRow
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -1186,3 +1186,38 @@ class TrackConnectorRepository:  # noqa: PLR0904
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
+    @db_operation("get_match_method_stats")
+    async def get_match_method_stats(
+        self, recent_days: int = 30
+    ) -> list[MatchMethodStatRow]:
+        """Aggregate match method statistics grouped by method and connector."""
+        recent_cutoff = datetime.now(UTC) - timedelta(days=recent_days)
+        stmt = (
+            select(
+                DBTrackMapping.match_method,
+                DBTrackMapping.connector_name,
+                func.count().label("total_count"),
+                func.count(
+                    case((DBTrackMapping.created_at >= recent_cutoff, 1))
+                ).label("recent_count"),
+                func.avg(DBTrackMapping.confidence).label("avg_confidence"),
+                func.min(DBTrackMapping.confidence).label("min_confidence"),
+                func.max(DBTrackMapping.confidence).label("max_confidence"),
+            )
+            .group_by(DBTrackMapping.match_method, DBTrackMapping.connector_name)
+            .order_by(func.count().desc())
+        )
+        result = await self.session.execute(stmt)
+        return [
+            MatchMethodStatRow(
+                match_method=str(row.match_method),
+                connector_name=str(row.connector_name),
+                total_count=int(row.total_count),
+                recent_count=int(row.recent_count),
+                avg_confidence=round(float(row.avg_confidence), 1),
+                min_confidence=int(row.min_confidence),
+                max_confidence=int(row.max_confidence),
+            )
+            for row in result.fetchall()
+        ]

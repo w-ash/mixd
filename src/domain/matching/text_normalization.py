@@ -89,6 +89,24 @@ def phonetic_key(text: str) -> str:
     return jellyfish.metaphone(alpha_only)
 
 
+def strip_parentheticals(text: str) -> str:
+    """Remove parenthetical/bracket suffixes and dash-separated qualifiers.
+
+    Strips: (feat. X), (Remix), (Remastered 2024), (Live), [Deluxe],
+    - Radio Edit, - Bonus Track, etc.
+    """
+    # Remove (...) and [...] blocks
+    result = re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", text)
+    # Remove dash-separated qualifiers: " - Radio Edit", " - Remastered"
+    result = re.sub(
+        r"\s*-\s*(remix|remaster(?:ed)?|live|radio edit|extended|instrumental|bonus track|deluxe|single version|album version)\b.*",
+        "",
+        result,
+        flags=re.IGNORECASE,
+    )
+    return result.strip()
+
+
 def are_phonetic_matches(text_a: str, text_b: str) -> bool:
     """Check if two strings are phonetic matches via Metaphone.
 

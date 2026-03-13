@@ -309,6 +309,9 @@ class TrackPlay:
     context: dict[str, Any] | None = None
     id: int | None = None
 
+    # Cross-source deduplication: which services contributed to this play record
+    source_services: list[str] | None = None
+
     # Import tracking (service-agnostic)
     import_timestamp: datetime | None = field(
         default=None, validator=_validate_timezone_aware_datetime

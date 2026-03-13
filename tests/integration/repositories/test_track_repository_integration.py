@@ -209,3 +209,387 @@ class TestTrackRepositoryIntegration:
         assert (
             "musicbrainz" in final_track.connector_track_identifiers
         )  # New connector added
+
+
+class TestFindTracksByTitleArtist:
+    """Integration tests for find_tracks_by_title_artist batch lookup."""
+
+    async def test_finds_track_by_exact_title_artist(self, db_session, test_data_tracker):
+        """Basic case: finds a track by its title and first artist."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Creep",
+            artists=[Artist(name="Radiohead")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([("Creep", "Radiohead")])
+        assert ("creep", "radiohead") in result
+        assert result[("creep", "radiohead")].id == saved.id
+
+    async def test_case_insensitive_match(self, db_session, test_data_tracker):
+        """Title and artist matching should be case-insensitive."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Bohemian Rhapsody",
+            artists=[Artist(name="Queen")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("bohemian rhapsody", "queen"),
+        ])
+        assert ("bohemian rhapsody", "queen") in result
+        assert result[("bohemian rhapsody", "queen")].id == saved.id
+
+    async def test_no_match_returns_empty(self, db_session, test_data_tracker):
+        """When no track matches, returns empty dict."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Nonexistent Song", "Unknown Artist"),
+        ])
+        assert result == {}
+
+    async def test_empty_pairs_returns_empty(self, db_session, test_data_tracker):
+        """Empty input returns empty dict without DB query."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        result = await track_repo.find_tracks_by_title_artist([])
+        assert result == {}
+
+    async def test_multiple_pairs_batch_lookup(self, db_session, test_data_tracker):
+        """Multiple (title, artist) pairs should be resolved in one call."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track_a = await track_repo.save_track(Track(
+            id=None, title="Song A", artists=[Artist(name="Artist A")],
+        ))
+        track_b = await track_repo.save_track(Track(
+            id=None, title="Song B", artists=[Artist(name="Artist B")],
+        ))
+        test_data_tracker.add_track(track_a.id)
+        test_data_tracker.add_track(track_b.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Song A", "Artist A"),
+            ("Song B", "Artist B"),
+            ("Song C", "Artist C"),  # No match
+        ])
+
+        assert len(result) == 2
+        assert result[("song a", "artist a")].id == track_a.id
+        assert result[("song b", "artist b")].id == track_b.id
+
+    async def test_returns_oldest_when_duplicates_exist(self, db_session, test_data_tracker):
+        """When multiple tracks share title+artist, return the oldest (lowest ID)."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        first = await track_repo.save_track(Track(
+            id=None, title="Duplicate", artists=[Artist(name="Same Artist")],
+        ))
+        second = await track_repo.save_track(Track(
+            id=None, title="Duplicate", artists=[Artist(name="Same Artist")],
+        ))
+        test_data_tracker.add_track(first.id)
+        test_data_tracker.add_track(second.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Duplicate", "Same Artist"),
+        ])
+
+        assert len(result) == 1
+        assert result[("duplicate", "same artist")].id == first.id
+
+
+class TestNormalizedLookup:
+    """Integration tests for normalized fuzzy matching via title_normalized/artist_normalized."""
+
+    async def test_diacritics_match(self, db_session, test_data_tracker):
+        """'fusées' stored by Spotify should match 'fusees' searched by Last.fm."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Les Fusées",
+            artists=[Artist(name="Björk")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Les Fusees", "Bjork"),
+        ])
+        assert ("les fusees", "bjork") in result
+        assert result[("les fusees", "bjork")].id == saved.id
+
+    async def test_smart_quotes_match(self, db_session, test_data_tracker):
+        """Smart quotes (\u2018Don\u2019t\u2019) should match straight quotes ('Don't')."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Don\u2019t Stop Me Now",
+            artists=[Artist(name="Queen")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Don't Stop Me Now", "Queen"),
+        ])
+        assert ("don't stop me now", "queen") in result
+        assert result[("don't stop me now", "queen")].id == saved.id
+
+    async def test_article_prefix_match(self, db_session, test_data_tracker):
+        """'The Beatles' should match 'Beatles' (leading article stripped)."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Hey Jude",
+            artists=[Artist(name="The Beatles")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Hey Jude", "Beatles"),
+        ])
+        assert ("hey jude", "beatles") in result
+        assert result[("hey jude", "beatles")].id == saved.id
+
+    async def test_punctuation_match(self, db_session, test_data_tracker):
+        """'AC/DC' should match 'ACDC' (punctuation stripped)."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Thunderstruck",
+            artists=[Artist(name="AC/DC")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Thunderstruck", "ACDC"),
+        ])
+        assert ("thunderstruck", "acdc") in result
+        assert result[("thunderstruck", "acdc")].id == saved.id
+
+    async def test_feat_variation_match(self, db_session, test_data_tracker):
+        """'feat.' should match 'ft.' and 'featuring'."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Song feat. Guest",
+            artists=[Artist(name="Main Artist")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_title_artist([
+            ("Song ft. Guest", "Main Artist"),
+        ])
+        assert ("song ft. guest", "main artist") in result
+        assert result[("song ft. guest", "main artist")].id == saved.id
+
+    async def test_normalized_columns_populated_on_save(self, db_session, test_data_tracker):
+        """Verify that title_normalized and artist_normalized are set when saving."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Motörhead",
+            artists=[Artist(name="The Killers")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        # Query raw DB to verify normalized columns
+        from sqlalchemy import select
+
+        from src.infrastructure.persistence.database.db_models import DBTrack
+
+        stmt = select(DBTrack.title_normalized, DBTrack.artist_normalized).where(
+            DBTrack.id == saved.id
+        )
+        result = await db_session.execute(stmt)
+        row = result.one()
+        assert row.title_normalized == "motorhead"
+        assert row.artist_normalized == "killers"
+
+
+class TestParentheticalStripping:
+    """Integration tests for parenthetical stripping fallback matching."""
+
+    async def test_find_by_stripped_title(self, db_session, test_data_tracker):
+        """Track saved as 'Song (feat. X)' should be found by searching 'Song'."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="New Kind of Soft (feat. Neon Priest)",
+            artists=[Artist(name="Artist")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        # Search by bare title (without parenthetical)
+        result = await track_repo.find_tracks_by_title_artist([
+            ("New Kind of Soft", "Artist"),
+        ])
+        assert ("new kind of soft", "artist") in result
+        assert result[("new kind of soft", "artist")].id == saved.id
+
+    async def test_find_parenthetical_by_stripped(self, db_session, test_data_tracker):
+        """Track saved as 'Song' should be found by searching 'Song (feat. X)'."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="New Kind of Soft",
+            artists=[Artist(name="Artist")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        # Search by title with parenthetical added
+        result = await track_repo.find_tracks_by_title_artist([
+            ("New Kind of Soft (feat. Neon Priest)", "Artist"),
+        ])
+        key = ("new kind of soft (feat. neon priest)", "artist")
+        assert key in result
+        assert result[key].id == saved.id
+
+    async def test_title_stripped_column_populated(self, db_session, test_data_tracker):
+        """Verify title_stripped is populated on save."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="Song (Remix) [Deluxe]",
+            artists=[Artist(name="Artist")],
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        from sqlalchemy import select
+
+        from src.infrastructure.persistence.database.db_models import DBTrack
+
+        stmt = select(DBTrack.title_stripped).where(DBTrack.id == saved.id)
+        result = await db_session.execute(stmt)
+        row = result.one()
+        assert row.title_stripped == "song"
+
+
+class TestFindTracksByISRC:
+    """Integration tests for ISRC-based batch lookup."""
+
+    async def test_find_by_isrc(self, db_session, test_data_tracker):
+        """Track with ISRC should be found by ISRC lookup."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            id=None,
+            title="ISRC Track",
+            artists=[Artist(name="ISRC Artist")],
+            isrc="USRC17000001",
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_isrcs(["USRC17000001"])
+        assert "USRC17000001" in result
+        assert result["USRC17000001"].id == saved.id
+
+    async def test_find_by_isrc_not_found(self, db_session, test_data_tracker):
+        """Missing ISRC returns empty dict."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        result = await track_repo.find_tracks_by_isrcs(["NONEXISTENT123"])
+        assert result == {}
+
+    async def test_find_by_isrc_empty_list(self, db_session, test_data_tracker):
+        """Empty ISRC list returns empty dict."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        result = await track_repo.find_tracks_by_isrcs([])
+        assert result == {}
+
+
+class TestFindTracksByMBID:
+    """Integration tests for MBID-based batch lookup."""
+
+    async def test_find_by_mbid(self, db_session, test_data_tracker):
+        """Track with MBID should be found by MBID lookup."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        mbid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        track = Track(
+            id=None,
+            title="MBID Track",
+            artists=[Artist(name="MBID Artist")],
+            connector_track_identifiers={"musicbrainz": mbid},
+        )
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        result = await track_repo.find_tracks_by_mbids([mbid])
+        assert mbid in result
+        assert result[mbid].id == saved.id
+
+    async def test_mbid_upsert_path(self, db_session, test_data_tracker):
+        """Saving a track with same MBID should upsert, not create duplicate."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        mbid = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        track1 = Track(
+            id=None,
+            title="MBID Track V1",
+            artists=[Artist(name="Artist")],
+            connector_track_identifiers={"musicbrainz": mbid},
+        )
+        saved1 = await track_repo.save_track(track1)
+        test_data_tracker.add_track(saved1.id)
+
+        # Save another track with same MBID → should upsert
+        track2 = Track(
+            id=None,
+            title="MBID Track V2",
+            artists=[Artist(name="Artist")],
+            connector_track_identifiers={"musicbrainz": mbid},
+        )
+        saved2 = await track_repo.save_track(track2)
+
+        # Should be same row (upserted)
+        assert saved2.id == saved1.id
+        assert saved2.title == "MBID Track V2"

@@ -114,6 +114,13 @@ class DBTrack(BaseEntity):
     spotify_id: Mapped[str | None] = mapped_column(String(64), index=True)
     mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
+    # Pre-computed normalized text for fuzzy matching (diacritics stripped, lowercased, etc.)
+    title_normalized: Mapped[str | None] = mapped_column(String(255))
+    artist_normalized: Mapped[str | None] = mapped_column(String(255))
+    # Normalized title with parentheticals stripped — enables matching
+    # "Song (feat. X)" ↔ "Song" by comparing stripped forms
+    title_stripped: Mapped[str | None] = mapped_column(String(255))
+
     # Relationships
     mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="track",
@@ -148,6 +155,10 @@ class DBTrack(BaseEntity):
         UniqueConstraint("mbid", name="uq_tracks_mbid"),
         # Regular index for title searches
         Index("ix_tracks_title", "title"),
+        # Composite index for Phase 1.5 normalized fuzzy lookup
+        Index("ix_tracks_normalized_lookup", "title_normalized", "artist_normalized"),
+        # Composite index for parenthetical-stripped fallback matching
+        Index("ix_tracks_stripped_lookup", "title_stripped", "artist_normalized"),
     )
 
 
@@ -377,6 +388,9 @@ class DBTrackPlay(BaseEntity):
     )
     ms_played: Mapped[int | None]
     context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # Cross-source deduplication: which services contributed to this play record
+    source_services: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     # Import tracking (service-agnostic)
     import_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

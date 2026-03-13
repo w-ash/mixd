@@ -12,6 +12,7 @@ from src.domain.matching.text_normalization import (
     normalize_for_comparison,
     phonetic_key,
     strip_diacritics,
+    strip_parentheticals,
 )
 
 
@@ -159,3 +160,27 @@ class TestArePhoneticMatches:
         assert are_phonetic_matches("Björk", "Bjork") == are_phonetic_matches(
             "Bjork", "Björk"
         )
+
+
+class TestStripParentheticals:
+    """Test removal of parenthetical/bracket suffixes and dash-separated qualifiers."""
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            ("Song (feat. Artist)", "Song"),
+            ("Song (Remix)", "Song"),
+            ("Song (Remastered 2024)", "Song"),
+            ("Song (Live)", "Song"),
+            ("Song [Deluxe]", "Song"),
+            ("Song - Radio Edit", "Song"),
+            ("Song - Remastered", "Song"),
+            ("Song - Extended", "Song"),
+            ("Song (feat. X) (Remix)", "Song"),
+            ("Song With No Parens", "Song With No Parens"),
+            ("", ""),
+            ("Ultraviolet (feat. Neon Priest)", "Ultraviolet"),
+        ],
+    )
+    def test_strips_parentheticals(self, input_text: str, expected: str):
+        assert strip_parentheticals(input_text) == expected

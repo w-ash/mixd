@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.8"
+    "version": "0.4.9"
   },
   "paths": {
     "/api/v1/health": {
@@ -47,6 +47,72 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DashboardStatsSchema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats/integrity": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Integrity Report",
+        "description": "Run data integrity checks and return the report.",
+        "operationId": "get_integrity_report_api_v1_stats_integrity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrityReportSchema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats/matching": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Matching Health",
+        "description": "Get match method health statistics.",
+        "operationId": "get_matching_health_api_v1_stats_matching_get",
+        "parameters": [
+          {
+            "name": "recent_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Recent Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchMethodHealthSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2147,6 +2213,126 @@
           }
         }
       }
+    },
+    "/api/v1/reviews": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "List Reviews",
+        "description": "List pending match reviews with pagination.",
+        "operationId": "list_reviews_api_v1_reviews_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "confidence_desc",
+              "title": "Sort By"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchReviewListSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{review_id}/resolve": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Resolve Review",
+        "description": "Accept or reject a match review.",
+        "operationId": "resolve_review_api_v1_reviews__review_id__resolve_post",
+        "parameters": [
+          {
+            "name": "review_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Review Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2274,8 +2460,7 @@
             "title": "Label"
           },
           "field_type": {
-            "type": "string",
-            "title": "Field Type"
+            "$ref": "#/components/schemas/FieldType"
           },
           "required": {
             "type": "boolean",
@@ -2633,6 +2818,15 @@
         "title": "ExportLastfmLikesRequest",
         "description": "Request body for triggering a Last.fm likes export."
       },
+      "FieldType": {
+        "type": "string",
+        "enum": [
+          "string",
+          "number",
+          "boolean",
+          "select"
+        ]
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2726,6 +2920,66 @@
         "type": "object",
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
+      },
+      "IntegrityCheckSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "details": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Details",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "count"
+        ],
+        "title": "IntegrityCheckSchema",
+        "description": "Single integrity check result."
+      },
+      "IntegrityReportSchema": {
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrityCheckSchema"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "overall_status": {
+            "type": "string",
+            "title": "Overall Status"
+          },
+          "total_issues": {
+            "type": "integer",
+            "title": "Total Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checks",
+          "overall_status",
+          "total_issues"
+        ],
+        "title": "IntegrityReportSchema",
+        "description": "Full integrity report response."
       },
       "LastRunSchema": {
         "properties": {
@@ -2880,6 +3134,186 @@
         "title": "LikeStatusSchema",
         "description": "Per-service like status."
       },
+      "MatchMethodHealthSchema": {
+        "properties": {
+          "stats": {
+            "items": {
+              "$ref": "#/components/schemas/MethodHealthStatSchema"
+            },
+            "type": "array",
+            "title": "Stats"
+          },
+          "total_mappings": {
+            "type": "integer",
+            "title": "Total Mappings"
+          },
+          "recent_days": {
+            "type": "integer",
+            "title": "Recent Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stats",
+          "total_mappings",
+          "recent_days"
+        ],
+        "title": "MatchMethodHealthSchema",
+        "description": "Full match method health report response."
+      },
+      "MatchReviewListSchema": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/MatchReviewSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "MatchReviewListSchema",
+        "description": "Paginated list of match reviews."
+      },
+      "MatchReviewSchema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "track_id": {
+            "type": "integer",
+            "title": "Track Id"
+          },
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "connector_track_id": {
+            "type": "integer",
+            "title": "Connector Track Id"
+          },
+          "match_method": {
+            "type": "string",
+            "title": "Match Method"
+          },
+          "confidence": {
+            "type": "integer",
+            "title": "Confidence"
+          },
+          "match_weight": {
+            "type": "number",
+            "title": "Match Weight"
+          },
+          "confidence_evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Evidence"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "connector_track_title": {
+            "type": "string",
+            "title": "Connector Track Title"
+          },
+          "connector_track_artists": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Track Artists"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "track_id",
+          "connector_name",
+          "connector_track_id",
+          "match_method",
+          "confidence",
+          "match_weight",
+          "confidence_evidence",
+          "status",
+          "reviewed_at",
+          "created_at",
+          "updated_at",
+          "connector_track_title",
+          "connector_track_artists"
+        ],
+        "title": "MatchReviewSchema",
+        "description": "Single match review item for API responses."
+      },
       "MergeTrackRequest": {
         "properties": {
           "loser_id": {
@@ -2893,6 +3327,60 @@
         ],
         "title": "MergeTrackRequest",
         "description": "Request body for merging a duplicate track into a winner."
+      },
+      "MethodHealthStatSchema": {
+        "properties": {
+          "match_method": {
+            "type": "string",
+            "title": "Match Method"
+          },
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "recent_count": {
+            "type": "integer",
+            "title": "Recent Count"
+          },
+          "avg_confidence": {
+            "type": "number",
+            "title": "Avg Confidence"
+          },
+          "min_confidence": {
+            "type": "integer",
+            "title": "Min Confidence"
+          },
+          "max_confidence": {
+            "type": "integer",
+            "title": "Max Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_method",
+          "connector_name",
+          "category",
+          "description",
+          "total_count",
+          "recent_count",
+          "avg_confidence",
+          "min_confidence",
+          "max_confidence"
+        ],
+        "title": "MethodHealthStatSchema",
+        "description": "Single match method + connector aggregation row."
       },
       "NodeTypeInfoSchema": {
         "properties": {
@@ -3442,6 +3930,42 @@
         ],
         "title": "RelinkMappingRequest",
         "description": "Request body for relinking a mapping to a different track."
+      },
+      "ResolveReviewRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject"
+            ],
+            "title": "Action"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ResolveReviewRequest",
+        "description": "Request body for accepting or rejecting a review."
+      },
+      "ResolveReviewResponse": {
+        "properties": {
+          "review": {
+            "$ref": "#/components/schemas/MatchReviewSchema"
+          },
+          "mapping_created": {
+            "type": "boolean",
+            "title": "Mapping Created"
+          }
+        },
+        "type": "object",
+        "required": [
+          "review",
+          "mapping_created"
+        ],
+        "title": "ResolveReviewResponse",
+        "description": "Response after resolving a review."
       },
       "SyncLinkRequest": {
         "properties": {

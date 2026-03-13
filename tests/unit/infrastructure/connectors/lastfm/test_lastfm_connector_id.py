@@ -26,6 +26,8 @@ def _make_uow(
 
     track_repo = uow.get_track_repository()
     track_repo.save_track.return_value = default_track
+    # Phase 1.5: default to no title+artist matches
+    track_repo.find_tracks_by_title_artist.return_value = {}
 
     connector_repo = uow.get_connector_repository()
     connector_repo.find_tracks_by_connectors.return_value = existing_tracks or {}

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.8
+ * OpenAPI spec version: 0.4.9
  */
 import {
   faker
@@ -18,7 +18,9 @@ import type {
 } from 'msw';
 
 import type {
-  DashboardStatsSchema
+  DashboardStatsSchema,
+  IntegrityReportSchema,
+  MatchMethodHealthSchema
 } from '../model';
 
 
@@ -32,6 +34,10 @@ export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideR
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, ...overrideResponse})
 
+export const getGetIntegrityReportApiV1StatsIntegrityGetResponseMock = (overrideResponse: Partial<Extract<IntegrityReportSchema, object>> = {}): IntegrityReportSchema => ({checks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), count: faker.number.int(), details: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({}))})), overall_status: faker.string.alpha({length: {min: 10, max: 20}}), total_issues: faker.number.int(), ...overrideResponse})
+
+export const getGetMatchingHealthApiV1StatsMatchingGetResponseMock = (overrideResponse: Partial<Extract<MatchMethodHealthSchema, object>> = {}): MatchMethodHealthSchema => ({stats: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({match_method: faker.string.alpha({length: {min: 10, max: 20}}), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), total_count: faker.number.int(), recent_count: faker.number.int(), avg_confidence: faker.number.float({fractionDigits: 2}), min_confidence: faker.number.int(), max_confidence: faker.number.int()})), total_mappings: faker.number.int(), recent_days: faker.number.int(), ...overrideResponse})
+
 
 export const getGetDashboardStatsApiV1StatsDashboardGetMockHandler = (overrideResponse?: DashboardStatsSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DashboardStatsSchema> | DashboardStatsSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/stats/dashboard', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
@@ -44,6 +50,32 @@ export const getGetDashboardStatsApiV1StatsDashboardGetMockHandler = (overrideRe
       })
   }, options)
 }
+
+export const getGetIntegrityReportApiV1StatsIntegrityGetMockHandler = (overrideResponse?: IntegrityReportSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<IntegrityReportSchema> | IntegrityReportSchema), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/stats/integrity', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetIntegrityReportApiV1StatsIntegrityGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getGetMatchingHealthApiV1StatsMatchingGetMockHandler = (overrideResponse?: MatchMethodHealthSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MatchMethodHealthSchema> | MatchMethodHealthSchema), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/stats/matching', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  
+  
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetMatchingHealthApiV1StatsMatchingGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 export const getStatsMock = () => [
-  getGetDashboardStatsApiV1StatsDashboardGetMockHandler()
+  getGetDashboardStatsApiV1StatsDashboardGetMockHandler(),
+  getGetIntegrityReportApiV1StatsIntegrityGetMockHandler(),
+  getGetMatchingHealthApiV1StatsMatchingGetMockHandler()
 ]

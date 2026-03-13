@@ -12,6 +12,7 @@ so token injection and 401-retry are handled transparently.
 # pyright: reportExplicitAny=false
 # Legitimate Any: API response data, framework types
 
+import functools
 from importlib.metadata import metadata
 from typing import Any
 
@@ -23,10 +24,21 @@ SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com"
 LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0"
 MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2"
+LISTENBRAINZ_LABS_BASE = "https://labs.api.listenbrainz.org"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
 _HTTP_ERROR_THRESHOLD = 400
+
+
+@functools.cache
+def _build_user_agent() -> str:
+    """Build User-Agent string from package metadata. Cached — metadata never changes at runtime."""
+    pkg_meta = metadata("narada")
+    app_name = pkg_meta.get("Name", "Narada")
+    app_version = pkg_meta.get("Version", "0.1.0")
+    app_url = pkg_meta.get("Home-page", "https://github.com/user/narada")
+    return f"{app_name}/{app_version} ({app_url})"
 
 
 # -------------------------------------------------------------------------
@@ -146,23 +158,40 @@ def make_musicbrainz_client() -> httpx.AsyncClient:
     and fmt=json query param. MusicBrainz requires a descriptive User-Agent.
     No authentication needed for read-only requests.
     """
-    pkg_meta = metadata("narada")
-    app_name = pkg_meta.get("Name", "Narada")
-    app_version = pkg_meta.get("Version", "0.1.0")
-    app_url = pkg_meta.get("Home-page", "https://github.com/user/narada")
-    user_agent = f"{app_name}/{app_version} ({app_url})"
-
     return httpx.AsyncClient(
         base_url=MUSICBRAINZ_API_BASE,
         headers={
             "Accept": "application/json",
-            "User-Agent": user_agent,
+            "User-Agent": _build_user_agent(),
         },
         params={"fmt": "json"},
         timeout=httpx.Timeout(
             connect=5.0,
             read=15.0,
             write=10.0,
+            pool=5.0,
+        ),
+        event_hooks=_EVENT_HOOKS,
+    )
+
+
+def make_listenbrainz_client() -> httpx.AsyncClient:
+    """Return a configured AsyncClient for ListenBrainz Labs API calls.
+
+    No authentication required. Used for metadata lookups (e.g. Spotify ID
+    resolution from artist+title). Conservative timeout since it's a
+    supplementary lookup, not a critical path.
+    """
+    return httpx.AsyncClient(
+        base_url=LISTENBRAINZ_LABS_BASE,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": _build_user_agent(),
+        },
+        timeout=httpx.Timeout(
+            connect=5.0,
+            read=10.0,
+            write=5.0,
             pool=5.0,
         ),
         event_hooks=_EVENT_HOOKS,

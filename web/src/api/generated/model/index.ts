@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.8
+ * OpenAPI spec version: 0.4.9
  */
 
 export * from './artistSchema';
@@ -24,22 +24,33 @@ export * from './dashboardStatsSchemaPlaylistsByConnector';
 export * from './dashboardStatsSchemaPlaysByConnector';
 export * from './dashboardStatsSchemaTracksByConnector';
 export * from './exportLastfmLikesRequest';
+export * from './fieldType';
+export * from './getMatchingHealthApiV1StatsMatchingGetParams';
 export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams';
 export * from './healthCheckApiV1HealthGet200';
 export * from './hTTPValidationError';
 export * from './importLastfmHistoryRequest';
 export * from './importLastfmHistoryRequestMode';
 export * from './importSpotifyLikesRequest';
+export * from './integrityCheckSchema';
+export * from './integrityCheckSchemaDetailsItem';
+export * from './integrityReportSchema';
 export * from './lastRunSchema';
 export * from './lastRunSchemaStatus';
 export * from './libraryTrackSchema';
 export * from './likeStatusSchema';
 export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
+export * from './listReviewsApiV1ReviewsGetParams';
 export * from './listTracksApiV1TracksGetParams';
 export * from './listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams';
 export * from './listWorkflowsApiV1WorkflowsGetParams';
+export * from './matchMethodHealthSchema';
+export * from './matchReviewListSchema';
+export * from './matchReviewSchema';
+export * from './matchReviewSchemaConfidenceEvidence';
 export * from './mergeTrackRequest';
+export * from './methodHealthStatSchema';
 export * from './nodeTypeInfoSchema';
 export * from './operationStartedResponse';
 export * from './paginatedResponseLibraryTrackSchema';
@@ -56,6 +67,9 @@ export * from './playSummarySchema';
 export * from './previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams';
 export * from './previewStartedResponse';
 export * from './relinkMappingRequest';
+export * from './resolveReviewRequest';
+export * from './resolveReviewRequestAction';
+export * from './resolveReviewResponse';
 export * from './syncLinkRequest';
 export * from './syncPreviewResponse';
 export * from './syncStartedResponse';

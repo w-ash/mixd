@@ -12,6 +12,7 @@ pluggable importer instances from the infrastructure layer.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from attrs import define
@@ -19,6 +20,10 @@ from attrs import define
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.matching.play_dedup import (
+    compute_dedup_time_range,
+    deduplicate_cross_source_plays,
+)
 from src.domain.repositories import (
     PlayImporterProtocol,
     PlayResolverProtocol,
@@ -130,13 +135,55 @@ class PlayImportOrchestrator:
                 combined_metrics["resolved_plays"] += len(track_plays)
                 combined_metrics["error_count"] += metrics.get("error_count", 0)
 
-        # Save all resolved track_plays to database
+        # Cross-source dedup then save to database
+        dedup_stats: dict[str, int] = {}
         if all_track_plays:
             async with uow:
                 plays_repo = uow.get_plays_repository()
-                _ = await plays_repo.bulk_insert_plays(all_track_plays)
+
+                # Query existing plays in the time range for dedup comparison
+                time_range = compute_dedup_time_range(all_track_plays)
+                if time_range is not None:
+                    start_epoch, end_epoch = time_range
+                    track_ids = list({
+                        p.track_id for p in all_track_plays if p.track_id is not None
+                    })
+                    start_dt = datetime.fromtimestamp(start_epoch, tz=UTC)
+                    end_dt = datetime.fromtimestamp(end_epoch, tz=UTC)
+                    existing_plays = await plays_repo.find_plays_in_time_range(
+                        track_ids, start_dt, end_dt
+                    )
+                else:
+                    existing_plays = []
+
+                # Run cross-source dedup
+                dedup_result = deduplicate_cross_source_plays(
+                    new_plays=all_track_plays, existing_plays=existing_plays
+                )
+                dedup_stats = dedup_result.stats
+
+                if dedup_result.stats.get("cross_source_matches", 0) > 0:
+                    logger.info(
+                        "Cross-source dedup matched plays",
+                        matches=dedup_result.stats.get("cross_source_matches", 0),
+                        suppressed=len(dedup_result.suppressed_plays),
+                    )
+
+                # Batch-update existing plays enriched by cross-source match
+                if dedup_result.plays_to_update:
+                    await plays_repo.bulk_update_play_source_services(
+                        dedup_result.plays_to_update
+                    )
+
+                # Insert only truly new plays (after dedup)
+                if dedup_result.plays_to_insert:
+                    _ = await plays_repo.bulk_insert_plays(dedup_result.plays_to_insert)
+
                 await uow.commit()
-                logger.info(f"Saved {len(all_track_plays)} resolved track plays")
+                logger.info(
+                    f"Saved {len(dedup_result.plays_to_insert)} plays "
+                    f"({len(dedup_result.suppressed_plays)} suppressed by cross-source dedup)"
+                )
 
         # Convert to OperationResult with summary metrics
         result = OperationResult(
@@ -146,21 +193,31 @@ class PlayImportOrchestrator:
 
         # Add metadata
         result.metadata.update(combined_metrics)
+        if dedup_stats:
+            result.metadata["cross_source_dedup"] = dedup_stats
 
         # Add summary metrics
         total_plays = combined_metrics["total_plays"]
         resolved = len(all_track_plays)
         errors = combined_metrics["error_count"]
         filtered = total_plays - resolved - errors
+        cross_source_matches = dedup_stats.get("cross_source_matches", 0)
 
         result.summary_metrics.add("total", total_plays, "Total Plays", significance=0)
         result.summary_metrics.add(
             "resolved", resolved, "Track Plays Resolved", significance=1
         )
+        if cross_source_matches > 0:
+            result.summary_metrics.add(
+                "cross_source_dedup",
+                cross_source_matches,
+                "Cross-Source Dedup",
+                significance=2,
+            )
         if filtered > 0:
-            result.summary_metrics.add("filtered", filtered, "Filtered", significance=2)
+            result.summary_metrics.add("filtered", filtered, "Filtered", significance=3)
         if errors > 0:
-            result.summary_metrics.add("errors", errors, "Errors", significance=3)
+            result.summary_metrics.add("errors", errors, "Errors", significance=4)
 
         return result
 

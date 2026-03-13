@@ -174,6 +174,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         2. Incremental: no dates (checkpoint-bounded, last run to now)
         """
         # Unified checkpoint resolution
+        explicit_range = from_date is not None
         checkpoint = await self._resolve_checkpoint(username=username, uow=uow)
 
         # Smart date range determination
@@ -191,6 +192,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             checkpoint=checkpoint,  # Pass resolved checkpoint to avoid redundant lookup
             progress_emitter=progress_emitter,
             uow=uow,
+            explicit_range=explicit_range,
             **kwargs,
         )
 
@@ -274,6 +276,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
+        explicit_range: bool = False,
         **additional_options: Any,
     ) -> list[PlayRecord]:
         """Download scrobbles using smart daily chunking with auto-scaling for power users.
@@ -281,6 +284,11 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         MIGRATED sophisticated chunking logic from original importer.
         Most users listen to <200 tracks/day, so we optimize for daily chunks.
         Only sub-chunk when a day returns exactly 200 tracks (power user case).
+
+        Args:
+            explicit_range: When True, the caller explicitly requested this date range.
+                The checkpoint will NOT override the start date, allowing historical
+                fetches even when the checkpoint is ahead of the requested range.
         """
         _ = additional_options, progress_emitter  # Reserved for future extensibility
         username = username or self.lastfm_connector.lastfm_username
@@ -305,8 +313,10 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         original_start_date = from_date.date()
         original_end_date = to_date.date()
 
-        if checkpoint and checkpoint.cursor:
-            # Resume from checkpoint - always re-process checkpoint day to catch new plays
+        if checkpoint and checkpoint.cursor and not explicit_range:
+            # Resume from checkpoint - always re-process checkpoint day to catch new plays.
+            # Skip when explicit_range=True: the caller explicitly requested this date
+            # range, so respect it even if the checkpoint is ahead.
             try:
                 checkpoint_date = datetime.fromisoformat(checkpoint.cursor).date()
 
@@ -328,9 +338,14 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                 start_date = original_start_date
         else:
             start_date = original_start_date
-            logger.debug(
-                f"No checkpoint found, starting from requested date: {start_date}"
-            )
+            if explicit_range:
+                logger.debug(
+                    f"Explicit date range requested, ignoring checkpoint. Starting from: {start_date}"
+                )
+            else:
+                logger.debug(
+                    f"No checkpoint found, starting from requested date: {start_date}"
+                )
 
         end_date = original_end_date
         total_days = (end_date - start_date).days + 1

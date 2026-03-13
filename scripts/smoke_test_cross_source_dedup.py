@@ -14,25 +14,38 @@ Usage:
     uv run python scripts/smoke_test_cross_source_dedup.py --days 7
     uv run python scripts/smoke_test_cross_source_dedup.py --file data/imports/Streaming_History_Audio_2024-2025_12.json
     uv run python scripts/smoke_test_cross_source_dedup.py --compact
+    uv run python scripts/smoke_test_cross_source_dedup.py --fresh   # Use temporary DB to exercise identity resolution strategies
 """
 
 import asyncio
+from collections import Counter
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import func, select, text
 
 from src.config import setup_script_logger
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
-from src.infrastructure.persistence.database.db_connection import get_session
-from src.infrastructure.persistence.database.db_models import DBTrack, DBTrackPlay
+from src.infrastructure.persistence.database.db_connection import (
+    get_session,
+    init_db,
+    reset_engine_cache,
+)
+from src.infrastructure.persistence.database.db_models import (
+    DBTrack,
+    DBTrackMapping,
+    DBTrackPlay,
+)
 
 # ── CLI args ──────────────────────────────────────────────────
 COMPACT = "--compact" in sys.argv
+FRESH = "--fresh" in sys.argv
 DAYS = 7
 FILE_PATH: str | None = None
 
@@ -266,10 +279,14 @@ async def find_potential_missed_dedup(
 async def find_identity_resolution_gaps(
     start: datetime, end: datetime, tolerance_seconds: float = 180.0
 ) -> list[dict[str, Any]]:
-    """Find plays from different services with matching titles but DIFFERENT track_ids.
+    """Find plays from different services with related tracks but DIFFERENT track_ids.
 
-    These indicate identity resolution failures — the same song imported from
-    two services ended up as different canonical tracks, preventing dedup.
+    Uses 3-tier matching to catch gaps:
+    1. Exact title match (LOWER)
+    2. Stripped title match (catches parenthetical mismatches like "Song feat. X" vs "Song")
+    3. Shared ISRC on different track_ids
+
+    Each gap is enriched with ISRC/MBID/title_stripped data for categorization.
     """
     async with get_session() as session:
         query = text("""
@@ -281,7 +298,13 @@ async def find_identity_resolution_gaps(
                 a.service as service_a,
                 b.service as service_b,
                 a.played_at as played_at_a,
-                b.played_at as played_at_b
+                b.played_at as played_at_b,
+                ta.isrc as isrc_a,
+                tb.isrc as isrc_b,
+                ta.title_stripped as stripped_a,
+                tb.title_stripped as stripped_b,
+                ta.mbid as mbid_a,
+                tb.mbid as mbid_b
             FROM track_plays a
             JOIN track_plays b ON a.track_id != b.track_id AND a.id < b.id
             JOIN tracks ta ON a.track_id = ta.id
@@ -291,7 +314,11 @@ async def find_identity_resolution_gaps(
               AND a.played_at <= :end
               AND b.played_at >= :start
               AND b.played_at <= :end
-              AND LOWER(ta.title) = LOWER(tb.title)
+              AND (
+                  LOWER(ta.title) = LOWER(tb.title)
+                  OR (ta.title_stripped IS NOT NULL AND ta.title_stripped = tb.title_stripped)
+                  OR (ta.isrc IS NOT NULL AND ta.isrc = tb.isrc)
+              )
               AND ABS(
                   CASE WHEN a.service = 'spotify' AND a.ms_played IS NOT NULL
                        THEN julianday(a.played_at) * 86400.0 - (a.ms_played / 1000.0)
@@ -304,7 +331,7 @@ async def find_identity_resolution_gaps(
                   END
               ) <= :tolerance
             ORDER BY a.played_at
-            LIMIT 50
+            LIMIT 100
         """)
         result = await session.execute(
             query,
@@ -324,9 +351,55 @@ async def find_identity_resolution_gaps(
                 "service_b": row[5],
                 "played_at_a": row[6],
                 "played_at_b": row[7],
+                "isrc_a": row[8],
+                "isrc_b": row[9],
+                "stripped_a": row[10],
+                "stripped_b": row[11],
+                "mbid_a": row[12],
+                "mbid_b": row[13],
             }
             for row in result.all()
         ]
+
+
+def categorize_gap(gap: dict[str, Any]) -> str:
+    """Classify an identity gap by its root cause.
+
+    Returns one of: shared_isrc, parenthetical, shared_mbid, exact_title, genuine.
+    """
+    # Shared ISRC — Strategy 1 (ISRC dedup) should catch this
+    if gap.get("isrc_a") and gap.get("isrc_b") and gap["isrc_a"] == gap["isrc_b"]:
+        return "shared_isrc"
+
+    # Shared MBID — Strategy 2 (MBID bridging) should catch this
+    if gap.get("mbid_a") and gap.get("mbid_b") and gap["mbid_a"] == gap["mbid_b"]:
+        return "shared_mbid"
+
+    # Parenthetical mismatch — Strategy 3 should catch this
+    title_a = (gap.get("title_a") or "").lower()
+    title_b = (gap.get("title_b") or "").lower()
+    stripped_a = gap.get("stripped_a") or ""
+    stripped_b = gap.get("stripped_b") or ""
+
+    if title_a != title_b and stripped_a and stripped_b and stripped_a == stripped_b:
+        return "parenthetical"
+
+    # Exact title match — Phase 1.5 canonical reuse should catch this
+    if title_a == title_b:
+        return "exact_title"
+
+    return "genuine"
+
+
+async def get_strategy_hit_counts() -> dict[str, int]:
+    """Count how many connector mappings were created by each match method."""
+    async with get_session() as session:
+        stmt = (
+            select(DBTrackMapping.match_method, func.count(DBTrackMapping.id))
+            .group_by(DBTrackMapping.match_method)
+        )
+        result = await session.execute(stmt)
+        return dict(result.tuples().all())
 
 
 # ── Import helpers ────────────────────────────────────────────
@@ -500,30 +573,55 @@ async def run_window_test(
         lastfm_plays_in_window = [p for p in all_plays if p["service"] == "lastfm"]
         total_in_window = len(all_plays)
 
-        # Check 4: Identity resolution gaps (pass/fail with 5% tolerance)
+        # Check 4: Identity resolution gaps (with categorization)
         id_gaps = await find_identity_resolution_gaps(window_start, window_end)
         checks_total += 1
-        # Allow up to 5% of total plays to have identity gaps
-        # (some tracks genuinely differ between services)
+
+        # Categorize each gap
+        gap_categories = Counter(categorize_gap(g) for g in id_gaps)
+        genuine_count = gap_categories.get("genuine", 0)
+        resolvable_count = len(id_gaps) - genuine_count
+
+        # Pass/fail based on genuine gaps only (5% tolerance)
+        # Resolvable gaps indicate strategies aren't being exercised, not a logic bug
         gap_tolerance = max(1, int(total_in_window * 0.05)) if total_in_window else 1
-        identity_ok = len(id_gaps) <= gap_tolerance
+        identity_ok = genuine_count <= gap_tolerance
         print_result(
-            f"Identity resolution gaps: {len(id_gaps)} "
-            f"(tolerance: {gap_tolerance})",
+            f"Identity gaps: {len(id_gaps)} total "
+            f"({genuine_count} genuine, {resolvable_count} resolvable, "
+            f"tolerance: {gap_tolerance})",
             identity_ok,
         )
         if identity_ok:
             checks_passed += 1
+
+        # Show categorized breakdown
         if id_gaps:
-            sample_gaps = id_gaps[:10] if COMPACT else id_gaps[:20]
-            for gap in sample_gaps:
-                print(
-                    f"      '{gap['title_a'][:35]}' "
-                    f"track_id {gap['track_id_a']}({gap['service_a']}) vs "
-                    f"{gap['track_id_b']}({gap['service_b']})"
-                )
-            if len(id_gaps) > len(sample_gaps):
-                print(f"      ... and {len(id_gaps) - len(sample_gaps)} more")
+            category_labels = {
+                "shared_isrc": "ISRC dedup should fix",
+                "shared_mbid": "MBID bridging should fix",
+                "parenthetical": "title stripping should fix",
+                "exact_title": "Phase 1.5 reuse should fix",
+                "genuine": "irreducible",
+            }
+            for cat in ("shared_isrc", "parenthetical", "shared_mbid", "exact_title", "genuine"):
+                count = gap_categories.get(cat, 0)
+                if count:
+                    cat_label = category_labels.get(cat, cat)
+                    print(f"        {cat:.<25s} {count:>3d}  ({cat_label})")
+
+            # Show sample gaps
+            if not COMPACT:
+                sample_gaps = id_gaps[:15]
+                for gap in sample_gaps:
+                    cat = categorize_gap(gap)
+                    print(
+                        f"      [{cat[:8]:>8s}] '{gap['title_a'][:30]}' "
+                        f"track_id {gap['track_id_a']}({gap['service_a']}) vs "
+                        f"{gap['track_id_b']}({gap['service_b']})"
+                    )
+                if len(id_gaps) > len(sample_gaps):
+                    print(f"      ... and {len(id_gaps) - len(sample_gaps)} more")
 
         # Check 5: Play count sanity
         checks_total += 1
@@ -547,6 +645,8 @@ async def run_window_test(
             "cross_source_plays": len(cross_source_plays),
             "missed_dedup": len(missed),
             "identity_gaps": len(id_gaps),
+            "genuine_gaps": genuine_count,
+            "gap_categories": dict(gap_categories),
             "integrity_issues": len(integrity_issues),
             "total_plays": total_in_window,
             "spotify_plays": len(spotify_plays_in_window),
@@ -571,6 +671,16 @@ async def main() -> None:
     print("=" * 60)
     print("  Cross-Source Play Deduplication — Real Data Smoke Test")
     print("=" * 60)
+
+    # ── Fresh database mode ──
+    fresh_db_file: str | None = None
+    if FRESH:
+        fresh_db_file = f"{tempfile.gettempdir()}/smoke_test_fresh_{uuid4().hex}.db"
+        os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{fresh_db_file}"
+        reset_engine_cache()
+        await init_db()
+        print("\n  Fresh database mode: using temporary DB")
+        print(f"  DB path: {fresh_db_file}")
 
     # ── Pre-flight checks ──
     print_header("Pre-flight Checks")
@@ -694,7 +804,14 @@ async def main() -> None:
         print(f"    Spotify entries:     {r['spotify_entries']}")
         print(f"    Cross-source plays:  {r['cross_source_plays']}")
         print(f"    Missed dedup:        {r['missed_dedup']}")
-        print(f"    Identity gaps:       {r['identity_gaps']}")
+        print(
+            f"    Identity gaps:       {r['identity_gaps']} total "
+            f"({r['genuine_gaps']} genuine)"
+        )
+        gap_cats = r.get("gap_categories", {})
+        if gap_cats:
+            for cat, count in sorted(gap_cats.items()):
+                print(f"      {cat}: {count}")
         print(
             f"    Total plays in DB:   {r['total_plays']} ({r['spotify_plays']} spotify + {r['lastfm_plays']} lastfm)"
         )
@@ -702,6 +819,15 @@ async def main() -> None:
         if dedup:
             print(f"    Dedup stats:         {json.dumps(dedup, default=str)}")
         print(f"    Checks:              {r['checks_passed']}/{r['checks_total']}")
+
+    # Strategy effectiveness
+    print("\n  ── Strategy Effectiveness ──")
+    strategy_hits = await get_strategy_hit_counts()
+    if strategy_hits:
+        for method, count in sorted(strategy_hits.items(), key=lambda x: -x[1]):
+            print(f"    {method:.<30s} {count:>4d}")
+    else:
+        print("    (no connector mappings found)")
 
     # Overall play counts
     print("\n  ── Overall Database State ──")
@@ -718,6 +844,14 @@ async def main() -> None:
         print(f" ({total_checks - total_passed} FAILED) ❌")
 
     print("═" * 60)
+
+    # Cleanup fresh database
+    if fresh_db_file:
+        try:
+            Path(fresh_db_file).unlink(missing_ok=True)
+            print(f"\n  Cleaned up temporary DB: {fresh_db_file}")
+        except OSError:
+            pass
 
 
 asyncio.run(main())

@@ -4,7 +4,7 @@
 # Legitimate Unknown: SQLAlchemy ColumnElement types from ilike/in_/cast expressions
 
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import String, cast, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
+from src.domain.matching.text_normalization import (
+    normalize_for_comparison,
+    strip_parentheticals,
+)
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylistTrack,
     DBTrack,
@@ -103,15 +107,28 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             "isrc": track.isrc,
         }
 
+        # Pre-compute normalized text for fuzzy matching index
+        values["title_normalized"] = normalize_for_comparison(track.title)
+        values["artist_normalized"] = (
+            normalize_for_comparison(track.artists[0].name) if track.artists else None
+        )
+        values["title_stripped"] = normalize_for_comparison(
+            strip_parentheticals(track.title)
+        )
+
         # Add denormalized connector IDs (fast-path lookup columns)
         for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
             if connector in track.connector_track_identifiers:
                 values[column] = track.connector_track_identifiers[connector]
 
-        # Handle lookups by ISRC or Spotify ID - leverage the improved upsert with direct values
-        # The upsert method has been updated to use a two-phase approach that avoids greenlet issues
+        # Handle lookups by ISRC, MBID, or Spotify ID
+        # The upsert method uses a two-phase approach that avoids greenlet issues
         if track.isrc:
             return await self.upsert({"isrc": track.isrc}, values)
+        elif "musicbrainz" in track.connector_track_identifiers:
+            return await self.upsert(
+                {"mbid": track.connector_track_identifiers["musicbrainz"]}, values
+            )
         elif "spotify" in track.connector_track_identifiers:
             return await self.upsert(
                 {"spotify_id": track.connector_track_identifiers["spotify"]}, values
@@ -493,6 +510,96 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         await self.session.execute(delete(DBTrack).where(DBTrack.id == track_id))
         logger.debug(f"Hard deleted track: {track_id}")
 
+    # ── Lookup queries ───────────────────────────────────────────────
+
+    @db_operation("find_tracks_by_title_artist")
+    async def find_tracks_by_title_artist(
+        self, pairs: list[tuple[str, str]]
+    ) -> dict[tuple[str, str], Track]:
+        """Find existing tracks matching (title, first_artist) pairs.
+
+        Uses pre-computed normalized columns for fuzzy matching that handles
+        diacritics, smart quotes, articles, and feat./ft. variations.
+        Also matches via parenthetical-stripped form so "Song (feat. X)" ↔ "Song".
+        Returns only the first match per pair (oldest track by ID).
+
+        Args:
+            pairs: List of (title, first_artist_name) tuples to search for.
+
+        Returns:
+            Dict keyed by lowercased (title, artist) → Track.
+        """
+        if not pairs:
+            return {}
+
+        # Normalize input pairs for comparison against indexed columns
+        normalized_pairs = [
+            (normalize_for_comparison(title), normalize_for_comparison(artist))
+            for title, artist in pairs
+        ]
+
+        # Also compute stripped versions for parenthetical fallback matching
+        stripped_pairs = [
+            normalize_for_comparison(strip_parentheticals(title))
+            for title, _artist in pairs
+        ]
+
+        # Build OR conditions: match on normalized title OR stripped title
+        # This enables "Song (feat. X)" in DB to match query "Song" and vice versa
+        conditions = [
+            (
+                (DBTrack.title_normalized == norm_title)
+                | (DBTrack.title_stripped == stripped_title)
+                | (DBTrack.title_normalized == stripped_title)
+                | (DBTrack.title_stripped == norm_title)
+            )
+            & (DBTrack.artist_normalized == norm_artist)
+            for (norm_title, norm_artist), stripped_title in zip(
+                normalized_pairs, stripped_pairs, strict=True
+            )
+        ]
+
+        stmt = (
+            select(DBTrack)
+            .where(or_(*conditions))
+            .order_by(DBTrack.id.asc())
+        )
+        result = await self.session.execute(stmt)
+        rows = result.scalars().all()
+
+        # Build O(1) lookup index: (title_variant, artist_normalized) -> lower_key
+        # Each query pair produces up to 4 lookup keys (norm*norm, norm*stripped, etc.)
+        lookup_to_lower: dict[tuple[str, str], tuple[str, str]] = {}
+        for (title, artist), (norm_title, norm_artist), stripped_title in zip(
+            pairs, normalized_pairs, stripped_pairs, strict=True
+        ):
+            lower_key = (title.lower(), artist.lower())
+            # All four title variants that the DB WHERE clause also matches
+            for title_variant in {norm_title, stripped_title}:
+                lookup_to_lower.setdefault((title_variant, norm_artist), lower_key)
+
+        # Match DB rows via O(1) dict lookup instead of O(N*M) nested loop
+        matched: dict[tuple[str, str], Track] = {}
+        for db_track in rows:
+            artist_norm = db_track.artist_normalized or ""
+            for title_val in {db_track.title_normalized or "", db_track.title_stripped or ""}:
+                lower_key = lookup_to_lower.get((title_val, artist_norm))
+                if lower_key and lower_key not in matched:
+                    matched[lower_key] = await self.mapper.to_domain(db_track)
+                    break
+
+        return matched
+
+    @db_operation("find_tracks_by_isrcs")
+    async def find_tracks_by_isrcs(self, isrcs: list[str]) -> dict[str, Track]:
+        """Batch lookup tracks by ISRC. Returns {isrc: Track} for found tracks."""
+        return await self._find_tracks_by_unique_column(DBTrack.isrc, isrcs)
+
+    @db_operation("find_tracks_by_mbids")
+    async def find_tracks_by_mbids(self, mbids: list[str]) -> dict[str, Track]:
+        """Batch lookup tracks by MusicBrainz Recording ID (MBID)."""
+        return await self._find_tracks_by_unique_column(DBTrack.mbid, mbids)
+
     # ── Integrity check queries ──────────────────────────────────────
 
     @db_operation("find_duplicate_tracks_by_fingerprint")
@@ -526,6 +633,25 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # -------------------------------------------------------------------------
     # PRIVATE HELPERS
     # -------------------------------------------------------------------------
+
+    async def _find_tracks_by_unique_column(
+        self, column: Any, values: list[str]
+    ) -> dict[str, Track]:
+        """Batch lookup tracks by a unique string column (ISRC, MBID, etc.)."""
+        if not values:
+            return {}
+
+        stmt = self.select().where(column.in_(values))
+        stmt = self.with_default_relationships(stmt)
+        result = await self.session.execute(stmt)
+        rows = result.scalars().all()
+
+        matched: dict[str, Track] = {}
+        for db_track in rows:
+            key = getattr(db_track, column.key)
+            if key:
+                matched[key] = await self.mapper.to_domain(db_track)
+        return matched
 
     async def _merge_track_likes(self, from_id: int, to_id: int, now: datetime) -> None:
         """Merge track likes with conflict resolution for duplicate (track_id, service)."""

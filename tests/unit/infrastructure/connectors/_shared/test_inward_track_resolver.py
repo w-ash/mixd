@@ -11,7 +11,7 @@ import pytest
 from src.domain.entities import Track
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
-    ResolutionMetrics,
+    TrackResolutionMetrics,
 )
 from tests.fixtures import make_track
 
@@ -19,9 +19,15 @@ from tests.fixtures import make_track
 class FakeInwardResolver(InwardTrackResolver):
     """Test double that records calls and returns configured results."""
 
-    def __init__(self, batch_results: dict[str, Track] | None = None):
+    def __init__(
+        self,
+        batch_results: dict[str, Track] | None = None,
+        reuse_results: dict[str, Track] | None = None,
+    ):
         self._batch_results = batch_results or {}
+        self._reuse_results = reuse_results or {}
         self.create_calls: list[list[str]] = []
+        self.reuse_calls: list[list[str]] = []
 
     @property
     def connector_name(self) -> str:
@@ -29,6 +35,18 @@ class FakeInwardResolver(InwardTrackResolver):
 
     def _normalize_id(self, raw_id: str) -> str:
         return raw_id.strip().lower()
+
+    async def _reuse_existing_canonical_tracks(
+        self,
+        missing_ids: list[str],
+        uow: object,
+    ) -> dict[str, Track]:
+        self.reuse_calls.append(missing_ids)
+        return {
+            mid: self._reuse_results[mid]
+            for mid in missing_ids
+            if mid in self._reuse_results
+        }
 
     async def _create_tracks_batch(
         self,
@@ -211,14 +229,122 @@ class TestNormalization:
         assert "id_a" in result
 
 
-class TestResolutionMetrics:
-    """ResolutionMetrics is a frozen attrs class."""
+class TestTrackResolutionMetrics:
+    """TrackResolutionMetrics is a frozen attrs class."""
 
     def test_metrics_frozen(self):
-        metrics = ResolutionMetrics(existing=1, created=2, failed=3)
+        metrics = TrackResolutionMetrics(existing=1, reused=0, created=2, failed=3)
         with pytest.raises(AttributeError):
             metrics.existing = 5  # type: ignore[misc]
 
     def test_metrics_total(self):
-        metrics = ResolutionMetrics(existing=10, created=5, failed=2)
-        assert metrics.total == 17
+        metrics = TrackResolutionMetrics(existing=10, reused=3, created=5, failed=2)
+        assert metrics.total == 20
+
+    def test_metrics_total_with_reused(self):
+        metrics = TrackResolutionMetrics(existing=5, reused=10, created=2, failed=1)
+        assert metrics.total == 18
+        assert metrics.reused == 10
+
+    def test_metrics_defaults_to_zero_reused(self):
+        metrics = TrackResolutionMetrics(existing=1, created=2, failed=0)
+        assert metrics.reused == 0
+        assert metrics.total == 3
+
+
+class TestPhase15ReuseHook:
+    """Phase 1.5 reuses existing canonical tracks before creating new ones."""
+
+    async def test_reused_tracks_skip_creation(self):
+        """When Phase 1.5 finds existing tracks, Phase 2 should not create them."""
+        reused_track = make_track(10, "Reused Song")
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = FakeInwardResolver(reuse_results={"id_a": reused_track})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow
+        )
+
+        assert result == {"id_a": reused_track}
+        assert metrics.reused == 1
+        assert metrics.created == 0
+        assert metrics.failed == 0
+        # Phase 2 should not have been called (no remaining missing IDs)
+        assert resolver.create_calls == []
+
+    async def test_mixed_reuse_and_create(self):
+        """Phase 1.5 handles some IDs, Phase 2 creates the rest."""
+        reused_track = make_track(10, "Reused")
+        created_track = make_track(20, "Created")
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = FakeInwardResolver(
+            reuse_results={"id_a": reused_track},
+            batch_results={"id_b": created_track},
+        )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a", "id_b"], uow
+        )
+
+        assert result == {"id_a": reused_track, "id_b": created_track}
+        assert metrics.reused == 1
+        assert metrics.created == 1
+        # Only id_b should have been passed to Phase 2
+        assert len(resolver.create_calls) == 1
+        assert resolver.create_calls[0] == ["id_b"]
+
+    async def test_all_three_phases(self):
+        """Phase 1 finds some, Phase 1.5 reuses some, Phase 2 creates the rest."""
+        existing_track = make_track(1, "Existing")
+        reused_track = make_track(10, "Reused")
+        created_track = make_track(20, "Created")
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {
+            ("fake", "id_existing"): existing_track,
+        }
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = FakeInwardResolver(
+            reuse_results={"id_reused": reused_track},
+            batch_results={"id_new": created_track},
+        )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_existing", "id_reused", "id_new"], uow
+        )
+
+        assert result["id_existing"] == existing_track
+        assert result["id_reused"] == reused_track
+        assert result["id_new"] == created_track
+        assert metrics.existing == 1
+        assert metrics.reused == 1
+        assert metrics.created == 1
+        assert metrics.failed == 0
+        assert metrics.total == 3
+
+    async def test_default_reuse_returns_empty(self):
+        """Base class default returns empty — no reuse without override."""
+        # Use a resolver WITHOUT reuse_results configured
+        track = make_track(1, "New")
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = FakeInwardResolver(batch_results={"id_a": track})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow
+        )
+
+        assert metrics.reused == 0
+        assert metrics.created == 1

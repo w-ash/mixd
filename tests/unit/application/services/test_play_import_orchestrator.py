@@ -5,7 +5,7 @@ short-circuit on empty ingestion, and error handling.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -36,6 +36,17 @@ def _make_ingestion_result(
             "duplicates", duplicates, "Filtered (Duplicates)", significance=3
         )
     return result
+
+
+def _make_resolved_track_play(track_id: int = 1) -> TrackPlay:
+    """Create a real TrackPlay for testing resolution output."""
+    return TrackPlay(
+        track_id=track_id,
+        service="spotify",
+        played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
+        ms_played=240000,
+        import_source="spotify_export",
+    )
 
 
 def _make_connector_play(track_name: str = "Test Song") -> ConnectorTrackPlay:
@@ -100,7 +111,7 @@ class TestTwoPhaseHappyPath:
 
         # Configure the injected resolver for this test
         mock_resolver.resolve_connector_plays.return_value = (
-            [MagicMock(spec=TrackPlay) for _ in range(3)],
+            [_make_resolved_track_play(track_id=i + 1) for i in range(3)],
             {"error_count": 0},
         )
 
@@ -122,7 +133,7 @@ class TestTwoPhaseHappyPath:
         )
 
         mock_resolver.resolve_connector_plays.return_value = (
-            [MagicMock(spec=TrackPlay)],
+            [_make_resolved_track_play()],
             {"error_count": 0},
         )
 

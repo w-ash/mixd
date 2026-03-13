@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import override
 
 from src.config import get_logger
+from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import CrossDiscoveryProvider
@@ -67,6 +68,99 @@ class LastfmInwardResolver(InwardTrackResolver):
     def _normalize_id(self, raw_id: str) -> str:
         """Normalize to lowercase stripped format for dedup."""
         return raw_id.strip().lower()
+
+    @override
+    async def _reuse_existing_canonical_tracks(
+        self,
+        missing_ids: list[str],
+        uow: UnitOfWorkProtocol,
+    ) -> dict[str, Track]:
+        """Phase 1.5: Find existing canonical tracks by title+artist.
+
+        When a second service imports, the first service's tracks already exist
+        in the DB but have no connector mapping for the new service. This method
+        searches by normalized title+artist for candidates, then evaluates each
+        via ``TrackMatchEvaluationService`` to prevent false positives (e.g. live
+        versions, remixes with identical titles). Only accepted matches get a
+        connector mapping created.
+        """
+        # Parse identifiers → (title, artist) pairs for batch lookup
+        pairs: list[tuple[str, str]] = []
+        id_to_pair: dict[str, tuple[str, str]] = {}
+        for identifier in missing_ids:
+            artist_name, track_name = parse_lastfm_identifier(identifier)
+            pair = (track_name.strip().lower(), artist_name.strip().lower())
+            pairs.append(pair)
+            id_to_pair[identifier] = pair
+
+        candidates = await uow.get_track_repository().find_tracks_by_title_artist(pairs)
+        if not candidates:
+            return {}
+
+        # Evaluate each candidate through the matching system
+        result: dict[str, Track] = {}
+        for identifier in missing_ids:
+            pair = id_to_pair[identifier]
+            candidate = candidates.get(pair)
+            if not candidate:
+                continue
+
+            artist_name, track_name = parse_lastfm_identifier(identifier)
+            connector_id = f"{artist_name.strip()}::{track_name.strip()}"
+
+            # Evaluate match quality — same pipeline as _create_lastfm_mapping
+            raw_match = RawProviderMatch(
+                connector_id=connector_id,
+                match_method=MatchMethod.CANONICAL_REUSE,
+                service_data={
+                    "title": track_name,
+                    "artist": artist_name,
+                    "duration_ms": None,
+                    "artist_name": artist_name,
+                    "track_name": track_name,
+                },
+            )
+            match_result = self._match_evaluation_service.evaluate_single_match(
+                candidate, raw_match, "lastfm"
+            )
+
+            # Require both high overall confidence AND high title similarity.
+            # The Fellegi-Sunter model can produce high confidence from artist
+            # match alone — insufficient for candidate discovery where we don't
+            # have a priori belief the tracks are the same.
+            title_sim = match_result.evidence.title_similarity if match_result.evidence else 0.0
+            title_threshold = self._match_evaluation_service.config.high_similarity_threshold
+
+            if not match_result.success or title_sim < title_threshold:
+                logger.debug(
+                    f"Phase 1.5 rejected candidate {candidate.id} for {identifier} "
+                    f"(confidence: {match_result.confidence}, title_sim: {title_sim:.2f})"
+                )
+                continue
+
+            try:
+                await uow.get_connector_repository().map_track_to_connector(
+                    candidate,
+                    "lastfm",
+                    connector_id,
+                    MatchMethod.CANONICAL_REUSE,
+                    confidence=match_result.confidence,
+                    metadata={"artist_name": artist_name, "track_name": track_name},
+                    confidence_evidence=match_result.evidence.as_dict()
+                    if match_result.evidence
+                    else None,
+                )
+                result[identifier] = candidate
+                logger.info(
+                    f"Reused canonical track {candidate.id} for {identifier} "
+                    f"(confidence: {match_result.confidence})"
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to create reuse mapping for {identifier}: {e}"
+                )
+
+        return result
 
     @override
     async def _create_tracks_batch(
@@ -144,7 +238,12 @@ class LastfmInwardResolver(InwardTrackResolver):
         track_name: str,
         uow: UnitOfWorkProtocol,
     ) -> tuple[Track, str | None]:
-        """Enrich track with track.getInfo data. Returns (track, lastfm_url)."""
+        """Enrich track with track.getInfo data. Returns (track, lastfm_url).
+
+        Populates album, duration, and MBID (MusicBrainz Recording ID) from
+        Last.fm's track.getInfo response. MBID enables cross-service identity
+        bridging — tracks with the same MBID are the same recording.
+        """
         try:
             info = await self._lastfm_client.get_track_info_comprehensive(
                 artist_name, track_name
@@ -155,8 +254,20 @@ class LastfmInwardResolver(InwardTrackResolver):
             lastfm_url = info.lastfm_url
             new_album = track.album or info.lastfm_album_name
             new_duration = track.duration_ms or info.lastfm_duration
+            new_mbid = info.lastfm_mbid
 
-            if new_album != track.album or new_duration != track.duration_ms:
+            # Build connector identifiers with MBID if available
+            new_connector_ids = dict(track.connector_track_identifiers)
+            if new_mbid and "musicbrainz" not in new_connector_ids:
+                new_connector_ids["musicbrainz"] = new_mbid
+
+            has_changes = (
+                new_album != track.album
+                or new_duration != track.duration_ms
+                or new_connector_ids != track.connector_track_identifiers
+            )
+
+            if has_changes:
                 enriched = Track(
                     id=track.id,
                     title=track.title,
@@ -164,10 +275,12 @@ class LastfmInwardResolver(InwardTrackResolver):
                     album=new_album,
                     duration_ms=new_duration,
                     isrc=track.isrc,
+                    connector_track_identifiers=new_connector_ids,
                 )
                 track = await uow.get_track_repository().save_track(enriched)
                 logger.debug(
-                    f"Enriched from track.getInfo: {artist_name} - {track_name} (duration={new_duration}, album={new_album})"
+                    f"Enriched from track.getInfo: {artist_name} - {track_name} "
+                    f"(duration={new_duration}, album={new_album}, mbid={new_mbid})"
                 )
         except Exception as e:
             logger.debug(

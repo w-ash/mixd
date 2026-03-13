@@ -19,7 +19,7 @@ from src.infrastructure.connectors._shared.failure_handling import (
 )
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
-    ResolutionMetrics,
+    TrackResolutionMetrics,
 )
 from src.infrastructure.connectors._shared.isrc import (
     normalize_isrc,
@@ -42,7 +42,7 @@ __all__ = [
     "InwardTrackResolver",
     "MatchProvider",
     "MetricConfigProviderImpl",
-    "ResolutionMetrics",
+    "TrackResolutionMetrics",
     "classify_unknown_error",
     "create_and_log_failure",
     "get_all_connectors_metrics",
