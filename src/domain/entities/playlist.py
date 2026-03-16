@@ -7,14 +7,15 @@ Pure playlist representations and related value objects with zero external depen
 # Legitimate Any: service_metadata, raw_data dicts, factory patterns
 
 from datetime import UTC, datetime
-from typing import Any, Self
+from typing import Any, Final, Self
 
 from attrs import define, evolve, field, validators
 
-from src.config.constants import ConnectorConstants
-
 from .shared import utc_now_factory
 from .track import Track, TrackList
+
+# Pseudo-connector name for internal DB track IDs (filtered from API responses)
+DB_PSEUDO_CONNECTOR: Final = "db"
 
 
 @define(frozen=True, slots=True)
@@ -159,7 +160,7 @@ class Playlist:
                        Do not use "db" or "internal" here - use the id field for that.
             external_id: The ID of this playlist in the external service
         """
-        if connector in (ConnectorConstants.DB_PSEUDO_CONNECTOR, "internal"):
+        if connector in (DB_PSEUDO_CONNECTOR, "internal"):
             raise ValueError(
                 f"Cannot use '{connector}' as connector name - use the id field instead",
             )

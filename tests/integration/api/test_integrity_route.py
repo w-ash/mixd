@@ -5,7 +5,6 @@ with all six checks.
 """
 
 import httpx
-import pytest
 
 
 class TestGetIntegrityReport:

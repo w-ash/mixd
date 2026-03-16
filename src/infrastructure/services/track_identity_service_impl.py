@@ -164,7 +164,5 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
                     connector_id=match_result.connector_id,
                     match_method=match_result.match_method,
                     confidence=match_result.confidence,
-                    confidence_evidence=match_result.evidence.as_dict()
-                    if match_result.evidence
-                    else None,
+                    confidence_evidence=match_result.evidence_dict,
                 )

@@ -7,7 +7,6 @@ for the review queue endpoints.
 from datetime import UTC, datetime
 
 import httpx
-import pytest
 from sqlalchemy import text
 
 

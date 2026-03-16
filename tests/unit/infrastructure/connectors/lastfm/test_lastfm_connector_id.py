@@ -26,7 +26,7 @@ def _make_uow(
 
     track_repo = uow.get_track_repository()
     track_repo.save_track.return_value = default_track
-    # Phase 1.5: default to no title+artist matches
+    # Canonical Reuse: default to no title+artist matches
     track_repo.find_tracks_by_title_artist.return_value = {}
 
     connector_repo = uow.get_connector_repository()
@@ -117,7 +117,7 @@ class TestInwardResolverUsesUrlFormat:
         assert any("::" in cid and "last.fm" not in cid for cid in connector_ids)
 
     async def test_bulk_lookup_finds_existing_url_tracks(self):
-        """Phase 1 bulk lookup should find tracks stored with artist::title dedup key."""
+        """Mapping lookup should find tracks stored with artist::title dedup key."""
         resolver = LastfmInwardResolver(
             lastfm_client=AsyncMock(),
         )

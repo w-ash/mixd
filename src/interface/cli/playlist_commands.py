@@ -15,7 +15,13 @@ import typer
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
-from src.interface.cli.console import get_console, get_error_console
+from src.interface.cli.console import (
+    GOLD,
+    brand_panel,
+    brand_status,
+    get_console,
+    get_error_console,
+)
 
 console = get_console()
 err_console = get_error_console()
@@ -158,7 +164,7 @@ def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
         max_width=settings.cli.playlist_description_max_width,
     )
     table.add_column("Tracks", style="yellow", justify="right")
-    table.add_column("Last Updated", style="blue", no_wrap=True)
+    table.add_column("Last Updated", style=GOLD, no_wrap=True)
 
     for playlist in playlists:
         # Note: Domain entities don't expose timestamp fields by design
@@ -267,16 +273,16 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
     from src.application.services.playlist_backup_service import run_playlist_backup
 
     console.print(
-        Panel.fit(
+        brand_panel(
             f"[bold]{connector_name.title()} Playlist Backup[/bold]\n"
             + f"[dim]Playlist ID: {playlist_id}[/dim]",
-            title="[bold bright_blue]🎵 Starting Backup[/bold bright_blue]",
-            border_style="blue",
+            "Starting Backup",
+            emoji="🎵",
         )
     )
 
     try:
-        with console.status(f"[bold blue]Backing up playlist from {connector_name}..."):
+        with brand_status(f"Backing up playlist from {connector_name}..."):
             result = await run_playlist_backup(
                 connector_name=connector_name, playlist_id=playlist_id
             )

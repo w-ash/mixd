@@ -15,7 +15,7 @@ from typing import Any
 from attrs import define, field
 
 from src.application.utilities.timing import ExecutionTimer
-from src.config import get_logger
+from src.config import create_evaluation_service, get_logger
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -106,11 +106,7 @@ class MatchAndIdentifyTracksUseCase:
     _evaluation_service: TrackMatchEvaluationService = field(init=False)
 
     def __attrs_post_init__(self) -> None:
-        from src.config import create_matching_config
-
-        self._evaluation_service = TrackMatchEvaluationService(
-            config=create_matching_config()
-        )
+        self._evaluation_service = create_evaluation_service()
 
     # Note: TrackMappingService removed - SpotifyConnector already handles relinking transparently
 
@@ -280,9 +276,7 @@ class MatchAndIdentifyTracksUseCase:
                 match_method=match.match_method,
                 confidence=match.confidence,
                 match_weight=match.evidence.match_weight if match.evidence else 0.0,
-                confidence_evidence=match.evidence.as_dict()
-                if match.evidence
-                else None,
+                confidence_evidence=match.evidence_dict,
             )
             for track_id, match in review_candidates.items()
             if match.connector_id

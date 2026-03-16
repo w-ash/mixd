@@ -8,7 +8,7 @@ import typer
 from src.config.constants import BusinessLimits
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import parse_iso_date
-from src.interface.cli.console import get_console, get_error_console
+from src.interface.cli.console import brand_status, get_console, get_error_console
 from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
 from src.interface.cli.ui import display_operation_result
 
@@ -77,7 +77,7 @@ def import_spotify_cmd(
     from src.application.use_cases.sync_likes import run_spotify_likes_import
 
     # Execute the import
-    with console.status("[bold blue]Importing liked tracks from Spotify..."):
+    with brand_status("Importing liked tracks from Spotify..."):
         result = run_async(
             run_spotify_likes_import(
                 user_id=BusinessLimits.DEFAULT_USER_ID,
@@ -140,7 +140,7 @@ def export_lastfm_cmd(
     from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
     # Execute the export
-    with console.status("[bold blue]Exporting liked tracks to Last.fm..."):
+    with brand_status("Exporting liked tracks to Last.fm..."):
         result = run_async(
             run_lastfm_likes_export(
                 user_id=BusinessLimits.DEFAULT_USER_ID,

@@ -18,7 +18,7 @@ from src.application.workflows.node_registry import list_nodes
 VALID_FIELD_TYPES = {"string", "number", "boolean", "select"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def registry() -> dict[str, tuple[ConfigFieldDef, ...]]:
     """Return the full config fields registry."""
     return get_node_config_fields()

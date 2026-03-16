@@ -32,6 +32,7 @@ from src.domain.entities.progress import (
     ProgressEvent,
     ProgressOperation,
 )
+from src.interface.cli.console import GOLD
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -111,7 +112,7 @@ class RichProgressProvider:
         # Create Rich progress display with custom columns
         progress_columns: list[ProgressColumn | str] = [
             SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn(f"[bold {GOLD}]{{task.description}}", justify="left"),
             BarColumn(bar_width=None),
             MofNCompleteColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),

@@ -229,7 +229,7 @@ class TestFindTracksByTitleArtist:
 
         result = await track_repo.find_tracks_by_title_artist([("Creep", "Radiohead")])
         assert ("creep", "radiohead") in result
-        assert result[("creep", "radiohead")].id == saved.id
+        assert result["creep", "radiohead"].id == saved.id
 
     async def test_case_insensitive_match(self, db_session, test_data_tracker):
         """Title and artist matching should be case-insensitive."""
@@ -248,7 +248,7 @@ class TestFindTracksByTitleArtist:
             ("bohemian rhapsody", "queen"),
         ])
         assert ("bohemian rhapsody", "queen") in result
-        assert result[("bohemian rhapsody", "queen")].id == saved.id
+        assert result["bohemian rhapsody", "queen"].id == saved.id
 
     async def test_no_match_returns_empty(self, db_session, test_data_tracker):
         """When no track matches, returns empty dict."""
@@ -289,8 +289,8 @@ class TestFindTracksByTitleArtist:
         ])
 
         assert len(result) == 2
-        assert result[("song a", "artist a")].id == track_a.id
-        assert result[("song b", "artist b")].id == track_b.id
+        assert result["song a", "artist a"].id == track_a.id
+        assert result["song b", "artist b"].id == track_b.id
 
     async def test_returns_oldest_when_duplicates_exist(self, db_session, test_data_tracker):
         """When multiple tracks share title+artist, return the oldest (lowest ID)."""
@@ -311,7 +311,7 @@ class TestFindTracksByTitleArtist:
         ])
 
         assert len(result) == 1
-        assert result[("duplicate", "same artist")].id == first.id
+        assert result["duplicate", "same artist"].id == first.id
 
 
 class TestNormalizedLookup:
@@ -334,7 +334,7 @@ class TestNormalizedLookup:
             ("Les Fusees", "Bjork"),
         ])
         assert ("les fusees", "bjork") in result
-        assert result[("les fusees", "bjork")].id == saved.id
+        assert result["les fusees", "bjork"].id == saved.id
 
     async def test_smart_quotes_match(self, db_session, test_data_tracker):
         """Smart quotes (\u2018Don\u2019t\u2019) should match straight quotes ('Don't')."""
@@ -353,7 +353,7 @@ class TestNormalizedLookup:
             ("Don't Stop Me Now", "Queen"),
         ])
         assert ("don't stop me now", "queen") in result
-        assert result[("don't stop me now", "queen")].id == saved.id
+        assert result["don't stop me now", "queen"].id == saved.id
 
     async def test_article_prefix_match(self, db_session, test_data_tracker):
         """'The Beatles' should match 'Beatles' (leading article stripped)."""
@@ -372,7 +372,7 @@ class TestNormalizedLookup:
             ("Hey Jude", "Beatles"),
         ])
         assert ("hey jude", "beatles") in result
-        assert result[("hey jude", "beatles")].id == saved.id
+        assert result["hey jude", "beatles"].id == saved.id
 
     async def test_punctuation_match(self, db_session, test_data_tracker):
         """'AC/DC' should match 'ACDC' (punctuation stripped)."""
@@ -391,7 +391,7 @@ class TestNormalizedLookup:
             ("Thunderstruck", "ACDC"),
         ])
         assert ("thunderstruck", "acdc") in result
-        assert result[("thunderstruck", "acdc")].id == saved.id
+        assert result["thunderstruck", "acdc"].id == saved.id
 
     async def test_feat_variation_match(self, db_session, test_data_tracker):
         """'feat.' should match 'ft.' and 'featuring'."""
@@ -410,7 +410,7 @@ class TestNormalizedLookup:
             ("Song ft. Guest", "Main Artist"),
         ])
         assert ("song ft. guest", "main artist") in result
-        assert result[("song ft. guest", "main artist")].id == saved.id
+        assert result["song ft. guest", "main artist"].id == saved.id
 
     async def test_normalized_columns_populated_on_save(self, db_session, test_data_tracker):
         """Verify that title_normalized and artist_normalized are set when saving."""
@@ -460,7 +460,7 @@ class TestParentheticalStripping:
             ("New Kind of Soft", "Artist"),
         ])
         assert ("new kind of soft", "artist") in result
-        assert result[("new kind of soft", "artist")].id == saved.id
+        assert result["new kind of soft", "artist"].id == saved.id
 
     async def test_find_parenthetical_by_stripped(self, db_session, test_data_tracker):
         """Track saved as 'Song' should be found by searching 'Song (feat. X)'."""

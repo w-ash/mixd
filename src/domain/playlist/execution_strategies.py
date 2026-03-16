@@ -9,12 +9,11 @@ the same diff logic with different execution approaches.
 # Legitimate Any: service_metadata, raw_data dicts, factory patterns
 
 import bisect
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from attrs import define
 from loguru import logger as _loguru_logger
 
-from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 from src.domain.playlist.diff_engine import (
@@ -25,6 +24,8 @@ from src.domain.playlist.diff_engine import (
 from src.domain.transforms.playlist_operations import reorder_to_match_target
 
 logger = _loguru_logger.bind(module=__name__)
+
+_DEBUG_TRUNCATION: Final = 10
 
 
 @define(frozen=True, slots=True)
@@ -331,9 +332,9 @@ class APIExecutionStrategy:
         logger.debug(
             f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
             removed_positions=removed_positions[
-                : BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
+                : _DEBUG_TRUNCATION
             ]
-            if len(removed_positions) > BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
+            if len(removed_positions) > _DEBUG_TRUNCATION
             else removed_positions,
         )
 

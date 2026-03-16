@@ -13,6 +13,7 @@ touching transform_definitions.py.
 
 from .destination_nodes import create_playlist, update_playlist
 from .enricher_nodes import enrich_spotify_liked_status
+from .node_config_fields import get_enricher_attributes
 from .node_factories import (
     build_external_enrichment_config,
     build_play_history_enrichment_config,
@@ -20,7 +21,6 @@ from .node_factories import (
     make_combiner_node,
     make_node,
 )
-from .node_config_fields import get_enricher_attributes
 from .node_registry import node
 from .source_nodes import playlist_source, source_liked_tracks, source_played_tracks
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY

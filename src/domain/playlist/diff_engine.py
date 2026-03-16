@@ -7,15 +7,17 @@ re-identification of tracks that already have known Spotify mappings.
 """
 
 from enum import Enum
+from typing import Final
 
 from attrs import define, field
 from loguru import logger as _loguru_logger
 
-from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
 logger = _loguru_logger.bind(module=__name__)
+
+_DEBUG_TRUNCATION: Final = 10
 
 
 def _get_track_uri(track: Track) -> str | None:
@@ -404,10 +406,10 @@ def calculate_lis_reorder_operations(
 
     if (
         tracks_to_move
-        and len(tracks_to_move) <= BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT
+        and len(tracks_to_move) <= _DEBUG_TRUNCATION
     ):  # Only log if small number
         logger.debug(
-            f"Tracks identified as needing moves: {tracks_to_move[: BusinessLimits.DEBUG_LOG_TRUNCATION_LIMIT]}"
+            f"Tracks identified as needing moves: {tracks_to_move[: _DEBUG_TRUNCATION]}"
         )
 
     # Generate move operations only for track instances not in LIS

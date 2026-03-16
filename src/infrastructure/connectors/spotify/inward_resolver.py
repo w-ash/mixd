@@ -22,14 +22,14 @@ from typing import ClassVar, override
 
 from attrs import define
 
-from src.config import create_matching_config, get_logger, settings
+from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
+    ReuseMetadata,
     TrackResolutionMetrics,
 )
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
@@ -70,7 +70,6 @@ class SpotifyInwardResolver(InwardTrackResolver):
     """
 
     _spotify_connector: SpotifyConnector
-    _match_evaluation_service: TrackMatchEvaluationService
     _fallback_hints: dict[str, FallbackHint]
     _fallback_resolved_ids: set[str]
     _redirect_resolved_ids: set[str]
@@ -80,12 +79,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
         spotify_connector: SpotifyConnector,
         match_evaluation_service: TrackMatchEvaluationService | None = None,
     ):
+        super().__init__(match_evaluation_service)
         self._spotify_connector = spotify_connector
-        if match_evaluation_service is None:
-            match_evaluation_service = TrackMatchEvaluationService(
-                config=create_matching_config()
-            )
-        self._match_evaluation_service = match_evaluation_service
         self._fallback_hints = {}
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
@@ -132,98 +127,19 @@ class SpotifyInwardResolver(InwardTrackResolver):
         return await super().resolve_to_canonical_tracks(connector_ids, uow)
 
     @override
-    async def _reuse_existing_canonical_tracks(
-        self,
-        missing_ids: list[str],
-        uow: UnitOfWorkProtocol,
-    ) -> dict[str, Track]:
-        """Phase 1.5: Reuse existing canonical tracks by title+artist from fallback hints.
-
-        When Last.fm has already created a canonical track but no Spotify mapping exists,
-        this searches by normalized title+artist and creates a Spotify mapping to the
-        existing canonical. Mirrors LastfmInwardResolver._reuse_existing_canonical_tracks.
-        """
-        # Build (title, artist) pairs from fallback hints
-        pairs: list[tuple[str, str]] = []
-        id_to_pair: dict[str, tuple[tuple[str, str], FallbackHint]] = {}
-        for spotify_id in missing_ids:
-            hint = self._fallback_hints.get(spotify_id)
-            if not hint:
-                continue
-            pair = (hint.track_name.strip().lower(), hint.artist_name.strip().lower())
-            pairs.append(pair)
-            id_to_pair[spotify_id] = (pair, hint)
-
-        if not pairs:
-            return {}
-
-        candidates = await uow.get_track_repository().find_tracks_by_title_artist(pairs)
-        if not candidates:
-            return {}
-
-        result: dict[str, Track] = {}
-        for spotify_id in missing_ids:
-            entry = id_to_pair.get(spotify_id)
-            if not entry:
-                continue
-            pair, hint = entry
-            candidate = candidates.get(pair)
-            if not candidate:
-                continue
-
-            # Evaluate via same confidence pipeline
-            raw_match = RawProviderMatch(
-                connector_id=spotify_id,
-                match_method=MatchMethod.CANONICAL_REUSE,
-                service_data={
-                    "title": hint.track_name,
-                    "artist": hint.artist_name,
-                    "duration_ms": None,
-                },
-            )
-            match_result = self._match_evaluation_service.evaluate_single_match(
-                candidate, raw_match, "spotify"
-            )
-            title_sim = (
-                match_result.evidence.title_similarity if match_result.evidence else 0.0
-            )
-            title_threshold = (
-                self._match_evaluation_service.config.high_similarity_threshold
-            )
-
-            if not match_result.success or title_sim < title_threshold:
-                logger.debug(
-                    f"Phase 1.5 rejected candidate {candidate.id} for {spotify_id} "
-                    f"(confidence: {match_result.confidence}, title_sim: {title_sim:.2f})"
-                )
-                continue
-
-            try:
-                await uow.get_connector_repository().map_track_to_connector(
-                    candidate,
-                    "spotify",
-                    spotify_id,
-                    MatchMethod.CANONICAL_REUSE,
-                    confidence=match_result.confidence,
-                    metadata={
-                        "artist_name": hint.artist_name,
-                        "track_name": hint.track_name,
-                    },
-                    confidence_evidence=(
-                        match_result.evidence.as_dict() if match_result.evidence else None
-                    ),
-                )
-                result[spotify_id] = candidate
-                logger.info(
-                    f"Reused canonical track {candidate.id} for spotify:{spotify_id} "
-                    f"(confidence: {match_result.confidence})"
-                )
-            except Exception as e:
-                logger.debug(
-                    f"Failed to create reuse mapping for {spotify_id}: {e}"
-                )
-
-        return result
+    def _extract_reuse_metadata(
+        self, identifier: str
+    ) -> ReuseMetadata | None:
+        """Extract artist+title from fallback hints for canonical reuse."""
+        hint = self._fallback_hints.get(identifier)
+        if not hint:
+            return None
+        return ReuseMetadata(
+            artist=hint.artist_name,
+            title=hint.track_name,
+            connector_id=identifier,
+            lookup_pair=(hint.track_name.strip().lower(), hint.artist_name.strip().lower()),
+        )
 
     # Map from primary match method to its stale-ID variant
     _STALE_ID_METHODS: ClassVar[dict[str, str]] = {
@@ -247,7 +163,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         - The RETURNED ID is the current canonical Spotify ID -> primary mapping
         - The REQUESTED ID is stale but must be cached -> secondary mapping
         Both mappings point to the same canonical track, ensuring future lookups
-        for either ID resolve instantly via bulk lookup (Phase 1 fast path).
+        for either ID resolve instantly via the Mapping Lookup fast path.
         """
         current_id = spotify_track.id or requested_id
         track_data = create_track_from_spotify_data(current_id, spotify_track)
@@ -270,7 +186,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 canonical_track,
                 "spotify",
                 requested_id,
-                self._STALE_ID_METHODS.get(match_method, f"{match_method}_stale_id"),
+                self._STALE_ID_METHODS[match_method],
                 confidence=confidence,
                 auto_set_primary=False,
             )
@@ -385,7 +301,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
             f"Attempting fallback search for {len(hinted_ids)} dead Spotify IDs"
         )
 
-        # Phase 1: Concurrent API searches (I/O-bound, safe to parallelize)
+        # Step 1: Concurrent API searches (I/O-bound, safe to parallelize)
         semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
         search_results: dict[str, _FallbackSearchResult] = {}
 
@@ -399,7 +315,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
             for did in hinted_ids:
                 _ = tg.create_task(_search_one(did))
 
-        # Phase 2: Sequential DB writes (session is not concurrency-safe)
+        # Step 2: Sequential DB writes (session is not concurrency-safe)
         result: dict[str, Track] = {}
         for dead_id, search_result in search_results.items():
             try:

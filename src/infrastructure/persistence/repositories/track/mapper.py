@@ -10,8 +10,8 @@ from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.config.constants import ConnectorConstants
 from src.domain.entities import Artist, Track, ensure_utc
+from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -106,7 +106,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         # Add internal ID first
         if db_model.id:
-            connector_track_identifiers[ConnectorConstants.DB_PSEUDO_CONNECTOR] = str(
+            connector_track_identifiers[DB_PSEUDO_CONNECTOR] = str(
                 db_model.id
             )
 

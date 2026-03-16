@@ -15,8 +15,16 @@ References:
 """
 
 import math
+from typing import Final
 
 from attrs import define
+
+# Classification tier boundaries for fuzzy similarity and duration comparisons.
+# These define where one ComparisonLevel ends and the next begins.
+_MODERATE_SIMILARITY: Final[float] = 0.7
+_DURATION_CLOSE_MS: Final = 1_000
+_DURATION_NEAR_MS: Final = 3_000
+_DURATION_MODERATE_MS: Final = 10_000
 
 
 @define(frozen=True, slots=True)
@@ -140,7 +148,7 @@ def classify_title(
         return TITLE_PHONETIC
     if similarity >= high_similarity_threshold:
         return TITLE_HIGH_FUZZY
-    if similarity >= 0.7:
+    if similarity >= _MODERATE_SIMILARITY:
         return TITLE_MODERATE_FUZZY
     return TITLE_MISMATCH
 
@@ -158,7 +166,7 @@ def classify_artist(
         return ARTIST_PHONETIC
     if similarity >= high_similarity_threshold:
         return ARTIST_HIGH_FUZZY
-    if similarity >= 0.7:
+    if similarity >= _MODERATE_SIMILARITY:
         return ARTIST_LOW_FUZZY
     return ARTIST_MISMATCH
 
@@ -167,11 +175,11 @@ def classify_duration(duration_diff_ms: int | None) -> ComparisonLevel:
     """Classify a duration comparison into the appropriate level."""
     if duration_diff_ms is None:
         return DURATION_MISSING
-    if duration_diff_ms <= 1_000:
+    if duration_diff_ms <= _DURATION_CLOSE_MS:
         return DURATION_CLOSE
-    if duration_diff_ms <= 3_000:
+    if duration_diff_ms <= _DURATION_NEAR_MS:
         return DURATION_NEAR
-    if duration_diff_ms <= 10_000:
+    if duration_diff_ms <= _DURATION_MODERATE_MS:
         return DURATION_MODERATE
     return DURATION_MISMATCH
 

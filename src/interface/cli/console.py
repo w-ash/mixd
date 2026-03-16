@@ -10,6 +10,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from rich.console import Console
+from rich.panel import Panel
 
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config import get_logger
@@ -18,6 +19,74 @@ if TYPE_CHECKING:
     from .progress_provider import RichProgressProvider
 
 logger = get_logger(__name__)
+
+# Brand colors for Rich CLI output (warm gold identity)
+GOLD = "#C59A2B"
+GOLD_BRIGHT = "#D4AC35"
+GOLD_DIM = "#9E7B1F"
+
+
+# Block-letter NARADA art (raw, no markup — colorized at render time)
+_BANNER_ART = (
+    "███░  ██░  █████░  ██████░   █████░  ██████░   █████░ ",
+    "████░ ██░ ██░  ██░ ██░  ██░ ██░  ██░ ██░  ██░ ██░  ██░",
+    "██░██░██░ ███████░ ██████░  ███████░ ██░  ██░ ███████░",
+    "██░ ████░ ██░  ██░ ██░ ██░  ██░  ██░ ██░  ██░ ██░  ██░",
+    "██░  ███░ ██░  ██░ ██░  ██░ ██░  ██░ ██████░  ██░  ██░",
+    " ░░   ░░░  ░░   ░░  ░░   ░░  ░░   ░░  ░░░░░░   ░░   ░░",
+)
+
+
+def _colorize_blocks(line: str) -> str:
+    """Convert raw block art to Rich markup: █ → GOLD_BRIGHT, ░ → GOLD_DIM."""
+    result: list[str] = []
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if char in ("█", "░"):
+            j = i + 1
+            while j < len(line) and line[j] == char:
+                j += 1
+            color = GOLD_BRIGHT if char == "█" else GOLD_DIM
+            result.append(f"[{color}]{line[i:j]}[/]")
+            i = j
+        else:
+            result.append(char)
+            i += 1
+    return "".join(result)
+
+
+def print_banner(version: str) -> None:
+    """Print the block-letter NARADA banner with gold color tiers."""
+    console = get_console()
+    pad = " " * 13
+    lines = [pad + _colorize_blocks(line) for line in _BANNER_ART]
+    lines.append("")
+    version_text = f"v{version}"
+    inner_pad = (len(_BANNER_ART[0]) - len(version_text)) // 2
+    lines.append(f"{pad}{' ' * inner_pad}[dim]{version_text}[/]")
+    console.print("\n".join(lines))
+
+
+def brand_panel(content: str, title: str, *, emoji: str = "") -> Panel:
+    """Create a Panel with gold brand styling."""
+    prefix = f"{emoji} " if emoji else ""
+    return Panel.fit(
+        content,
+        title=f"[bold {GOLD}]{prefix}{title}[/]",
+        border_style=GOLD,
+    )
+
+
+def brand_status(message: str):
+    """Create a status spinner with gold styling."""
+    return get_console().status(f"[bold {GOLD}]{message}")
+
+
+def print_brand_title(text: str) -> None:
+    """Print a section title in bold gold."""
+    get_console().print(f"\n[bold {GOLD}]{text}[/]")
+
 
 # Global shared consoles for entire CLI application
 _console: Console | None = None

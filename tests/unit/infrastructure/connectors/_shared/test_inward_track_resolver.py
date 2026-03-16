@@ -1,7 +1,7 @@
 """Tests for InwardTrackResolver base class.
 
-Validates the shared 'resolve inward' pattern: bulk lookup existing,
-identify missing, batch-create missing, return combined map.
+Validates the shared 'resolve inward' pattern: mapping lookup for existing,
+canonical reuse for unresolved, and batch creation for the rest.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -24,6 +24,7 @@ class FakeInwardResolver(InwardTrackResolver):
         batch_results: dict[str, Track] | None = None,
         reuse_results: dict[str, Track] | None = None,
     ):
+        super().__init__()
         self._batch_results = batch_results or {}
         self._reuse_results = reuse_results or {}
         self.create_calls: list[list[str]] = []
@@ -62,7 +63,7 @@ class FakeInwardResolver(InwardTrackResolver):
 
 
 class TestAllExisting:
-    """When all IDs are found in bulk lookup, no creation should happen."""
+    """When all IDs are found in mapping lookup, no creation should happen."""
 
     async def test_all_ids_found_skips_creation(self):
         track_a = make_track(1, "Song A")
@@ -252,11 +253,11 @@ class TestTrackResolutionMetrics:
         assert metrics.total == 3
 
 
-class TestPhase15ReuseHook:
-    """Phase 1.5 reuses existing canonical tracks before creating new ones."""
+class TestCanonicalReuseHook:
+    """Canonical reuse matches existing tracks before creating new ones."""
 
     async def test_reused_tracks_skip_creation(self):
-        """When Phase 1.5 finds existing tracks, Phase 2 should not create them."""
+        """When canonical reuse finds existing tracks, track creation is skipped."""
         reused_track = make_track(10, "Reused Song")
 
         uow = MagicMock()
@@ -273,11 +274,11 @@ class TestPhase15ReuseHook:
         assert metrics.reused == 1
         assert metrics.created == 0
         assert metrics.failed == 0
-        # Phase 2 should not have been called (no remaining missing IDs)
+        # Track creation should not have been called (no remaining missing IDs)
         assert resolver.create_calls == []
 
     async def test_mixed_reuse_and_create(self):
-        """Phase 1.5 handles some IDs, Phase 2 creates the rest."""
+        """Canonical reuse handles some IDs, track creation creates the rest."""
         reused_track = make_track(10, "Reused")
         created_track = make_track(20, "Created")
 
@@ -297,12 +298,12 @@ class TestPhase15ReuseHook:
         assert result == {"id_a": reused_track, "id_b": created_track}
         assert metrics.reused == 1
         assert metrics.created == 1
-        # Only id_b should have been passed to Phase 2
+        # Only id_b should have been passed to track creation
         assert len(resolver.create_calls) == 1
         assert resolver.create_calls[0] == ["id_b"]
 
-    async def test_all_three_phases(self):
-        """Phase 1 finds some, Phase 1.5 reuses some, Phase 2 creates the rest."""
+    async def test_all_three_steps(self):
+        """Mapping lookup, canonical reuse, and track creation all resolve different IDs."""
         existing_track = make_track(1, "Existing")
         reused_track = make_track(10, "Reused")
         created_track = make_track(20, "Created")

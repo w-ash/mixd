@@ -25,8 +25,6 @@ from typing import Annotated, Any, ClassVar, Literal, cast
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
-
 # =============================================================================
 # CONSTRAINED TYPE ALIASES
 # =============================================================================
@@ -550,11 +548,3 @@ settings.data_dir.mkdir(exist_ok=True)
 # etc.
 
 
-def create_matching_config() -> DomainMatchingConfig:
-    """Create domain MatchingConfig from application settings.
-
-    Bridges the Pydantic settings layer to the domain value object,
-    keeping domain code free of config imports. Uses model_dump() so
-    adding a field to one side but not the other fails loudly (TypeError).
-    """
-    return DomainMatchingConfig(**settings.matching.model_dump())

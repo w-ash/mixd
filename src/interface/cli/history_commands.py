@@ -15,7 +15,7 @@ from src.interface.cli.cli_helpers import (
     validate_date_range,
     validate_file_path,
 )
-from src.interface.cli.console import get_console
+from src.interface.cli.console import get_console, print_brand_title
 from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
 from src.interface.cli.ui import display_operation_result
 
@@ -175,9 +175,7 @@ def _import_all_spotify_files(batch_size: int | None) -> None:
         return
 
     # Display files to be imported
-    console.print(
-        f"[bold blue]Found {len(pending_files)} file(s) to import[/bold blue]"
-    )
+    print_brand_title(f"Found {len(pending_files)} file(s) to import")
     for idx, file_path in enumerate(pending_files, 1):
         console.print(f"  {idx}. {file_path.name}")
 

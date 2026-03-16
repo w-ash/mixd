@@ -17,12 +17,22 @@ Before comparing, Spotify plays are normalized to start time via
 
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any
+from typing import Any, Final
 
 from attrs import define, field
 
-from src.config.constants import PlayDeduplicationConstants
 from src.domain.entities import TrackPlay
+
+# Cross-service deduplication parameters (domain business rules).
+# Timestamp semantics differ by service:
+#   Spotify ts = END time (when playback stopped)
+#   Last.fm date.uts = START time (when track began playing)
+# Spotify plays are normalized to start time via played_at - ms_played
+# before comparison. The tolerance window applies AFTER normalization.
+CROSS_SERVICE_TOLERANCE_SECONDS: Final = 30
+CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS: Final = 180  # when ms_played unavailable
+PREFERRED_SOURCE_ORDER: Final[tuple[str, ...]] = ("spotify", "lastfm")
+END_TIME_SERVICES: Final[frozenset[str]] = frozenset({"spotify"})
 
 
 @define(frozen=True, slots=True)
@@ -55,7 +65,7 @@ def _normalize_to_start_time(play: TrackPlay) -> float:
     """
     epoch = play.played_at.timestamp()
 
-    if play.service in PlayDeduplicationConstants.END_TIME_SERVICES and play.ms_played:
+    if play.service in END_TIME_SERVICES and play.ms_played:
         return epoch - (play.ms_played / 1000.0)
 
     return epoch
@@ -70,18 +80,18 @@ def _get_tolerance(play_a: TrackPlay, play_b: TrackPlay) -> float:
     """
     needs_fallback = False
     for p in (play_a, play_b):
-        if p.service in PlayDeduplicationConstants.END_TIME_SERVICES and not p.ms_played:
+        if p.service in END_TIME_SERVICES and not p.ms_played:
             needs_fallback = True
             break
 
     if needs_fallback:
-        return float(PlayDeduplicationConstants.CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS)
-    return float(PlayDeduplicationConstants.CROSS_SERVICE_TOLERANCE_SECONDS)
+        return float(CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS)
+    return float(CROSS_SERVICE_TOLERANCE_SECONDS)
 
 
 def _source_priority(service: str) -> int:
     """Lower number = higher priority (preferred source)."""
-    order = PlayDeduplicationConstants.PREFERRED_SOURCE_ORDER
+    order = PREFERRED_SOURCE_ORDER
     try:
         return order.index(service)
     except ValueError:
@@ -253,7 +263,7 @@ def compute_dedup_time_range(
         return None
 
     tolerance = timedelta(
-        seconds=PlayDeduplicationConstants.CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS
+        seconds=CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS
     )
     # Use raw played_at (not normalized) since we need to cover both
     # end-time and start-time semantics in the query range

@@ -7,10 +7,9 @@ pattern used by history, likes, and workflow command menus.
 from collections.abc import Callable
 
 from attrs import define
-from rich.panel import Panel
 from rich.prompt import Prompt
 
-from src.interface.cli.console import get_console
+from src.interface.cli.console import brand_panel, get_console
 
 console = get_console()
 
@@ -49,13 +48,7 @@ def run_interactive_menu(
         options: Ordered list of menu options.
         pre_menu: Optional callback to display extra info before the options list.
     """
-    console.print(
-        Panel.fit(
-            subtitle,
-            title=f"[bold blue]{title}[/bold blue]",
-            border_style="blue",
-        )
-    )
+    console.print(brand_panel(subtitle, title))
 
     if pre_menu:
         pre_menu()

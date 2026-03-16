@@ -10,7 +10,7 @@ from rich.table import Table
 
 from src.domain.entities import OperationResult
 from src.domain.entities.summary_metrics import SummaryMetricFormat
-from src.interface.cli.console import get_console
+from src.interface.cli.console import GOLD, get_console, print_brand_title
 
 console = get_console()
 
@@ -78,7 +78,7 @@ def _display_table_result(
     """Display result as formatted tables with summary metrics and track details."""
     # Display title
     display_title = title or result.operation_name or "Operation Results"
-    console.print(f"\n[bold blue]{display_title}[/bold blue]")
+    print_brand_title(display_title)
 
     # Create summary table
     summary_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -103,7 +103,7 @@ def _display_table_result(
         details_table.add_column("#", style="dim", justify="right")
         details_table.add_column("Artist", style="cyan")
         details_table.add_column("Track", style="green")
-        details_table.add_column("Source", style="blue")
+        details_table.add_column("Source", style=GOLD)
 
         # Add metric columns - sorted for consistent display
         metric_columns = sorted(result.metrics.keys()) if result.metrics else []

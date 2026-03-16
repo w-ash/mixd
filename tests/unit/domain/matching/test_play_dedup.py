@@ -7,11 +7,8 @@ and matching within a tolerance window.
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from src.domain.entities import TrackPlay
 from src.domain.matching.play_dedup import (
-    PlayDeduplicationResult,
     _normalize_to_start_time,
     compute_dedup_time_range,
     deduplicate_cross_source_plays,

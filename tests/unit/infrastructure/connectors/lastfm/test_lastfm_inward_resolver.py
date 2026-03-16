@@ -25,7 +25,7 @@ def _make_uow(
 
     track_repo = uow.get_track_repository()
     track_repo.save_track.return_value = default_track
-    # Phase 1.5: default to no title+artist matches
+    # Canonical Reuse: default to no title+artist matches
     track_repo.find_tracks_by_title_artist.return_value = {}
 
     connector_repo = uow.get_connector_repository()
@@ -287,8 +287,8 @@ class TestDelegatesToBaseLookup:
         lastfm_client.get_track_info_comprehensive.assert_not_called()
 
 
-class TestPhase15CanonicalReuse:
-    """Phase 1.5 finds existing canonical tracks by title+artist and creates mappings."""
+class TestCanonicalReuse:
+    """Canonical reuse finds existing canonical tracks by title+artist and creates mappings."""
 
     async def test_reuses_existing_track_by_title_artist(self):
         """When a canonical track exists with matching title+artist, reuse it."""
@@ -304,9 +304,9 @@ class TestPhase15CanonicalReuse:
         track_repo = uow.get_track_repository()
         connector_repo = uow.get_connector_repository()
 
-        # Phase 1: no connector mapping found
+        # Mapping Lookup: no connector mapping found
         connector_repo.find_tracks_by_connectors.return_value = {}
-        # Phase 1.5: title+artist lookup finds the existing track
+        # Canonical Reuse: title+artist lookup finds the existing track
         track_repo.find_tracks_by_title_artist.return_value = {
             ("creep", "radiohead"): existing_track,
         }
@@ -331,7 +331,7 @@ class TestPhase15CanonicalReuse:
         track_repo.save_track.assert_not_called()
 
     async def test_no_reuse_when_no_title_artist_match(self):
-        """When no existing track matches title+artist, fall through to Phase 2."""
+        """When no existing track matches title+artist, fall through to track creation."""
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
@@ -348,9 +348,9 @@ class TestPhase15CanonicalReuse:
         track_repo = uow.get_track_repository()
         connector_repo = uow.get_connector_repository()
 
-        # Phase 1: no connector mapping
+        # Mapping Lookup: no connector mapping
         connector_repo.find_tracks_by_connectors.return_value = {}
-        # Phase 1.5: no title+artist match
+        # Canonical Reuse: no title+artist match
         track_repo.find_tracks_by_title_artist.return_value = {}
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
@@ -365,7 +365,7 @@ class TestPhase15CanonicalReuse:
         lastfm_client.get_track_info_comprehensive.assert_called_once()
 
     async def test_reuse_mixed_with_existing_and_new(self):
-        """Phase 1, 1.5, and 2 all resolve different IDs."""
+        """Mapping lookup, canonical reuse, and track creation all resolve different IDs."""
         existing_via_mapping = make_track(id=1, title="Existing", artist="Band A")
         existing_via_reuse = make_track(id=2, title="Reused", artist="Band B")
         created_new = make_track(id=3, title="New", artist="Band C")
@@ -385,11 +385,11 @@ class TestPhase15CanonicalReuse:
         track_repo = uow.get_track_repository()
         connector_repo = uow.get_connector_repository()
 
-        # Phase 1: one found via connector mapping
+        # Mapping Lookup: one found via connector mapping
         connector_repo.find_tracks_by_connectors.return_value = {
             ("lastfm", "band a::existing"): existing_via_mapping,
         }
-        # Phase 1.5: one found via title+artist
+        # Canonical Reuse: one found via title+artist
         track_repo.find_tracks_by_title_artist.return_value = {
             ("reused", "band b"): existing_via_reuse,
         }
@@ -404,7 +404,7 @@ class TestPhase15CanonicalReuse:
         assert metrics.created == 1
 
     async def test_reuse_rejected_when_evaluation_fails(self):
-        """Phase 1.5 should reject candidates that fail match evaluation.
+        """Canonical reuse should reject candidates that fail match evaluation.
 
         A candidate with very different title (e.g. live version) should be
         rejected by the evaluation service even if the DB query returned it.
@@ -440,7 +440,7 @@ class TestPhase15CanonicalReuse:
             ["radiohead::creep"], uow
         )
 
-        # Should reject the candidate and fall through to Phase 2
+        # Should reject the candidate and fall through to track creation
         assert metrics.reused == 0
         assert metrics.created == 1
-        assert result["radiohead::creep"].id == 42  # Phase 2 created track
+        assert result["radiohead::creep"].id == 42  # Track creation created track

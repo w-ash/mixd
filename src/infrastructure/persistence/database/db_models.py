@@ -155,7 +155,7 @@ class DBTrack(BaseEntity):
         UniqueConstraint("mbid", name="uq_tracks_mbid"),
         # Regular index for title searches
         Index("ix_tracks_title", "title"),
-        # Composite index for Phase 1.5 normalized fuzzy lookup
+        # Composite index for Canonical Reuse normalized fuzzy lookup
         Index("ix_tracks_normalized_lookup", "title_normalized", "artist_normalized"),
         # Composite index for parenthetical-stripped fallback matching
         Index("ix_tracks_stripped_lookup", "title_stripped", "artist_normalized"),

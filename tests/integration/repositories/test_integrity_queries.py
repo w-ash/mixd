@@ -7,7 +7,6 @@ orphaned connector tracks, duplicate tracks, and stale pending reviews.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import ReviewStatus

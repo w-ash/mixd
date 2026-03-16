@@ -8,8 +8,6 @@ For user-configurable values, see settings.py instead.
 
 from typing import Final, Literal
 
-from src.domain.entities.workflow import RunStatus
-
 # Workflow progress tracking types
 type Phase = Literal["fetch", "enrich", "query", "save", "sync"]
 type NodeType = Literal[
@@ -78,13 +76,6 @@ class SSEConstants:
     MAX_CONCURRENT_OPERATIONS: Final = 3  # each holds a task, SSE queue, and DB session
 
 
-class ConnectorConstants:
-    """Connector identification constants."""
-
-    # Pseudo-connector name for internal DB track IDs (filtered from API responses)
-    DB_PSEUDO_CONNECTOR: Final = "db"
-
-
 class WorkflowConstants:
     """Workflow execution constants: asyncio.timeout budgets and run lifecycle.
 
@@ -100,11 +91,11 @@ class WorkflowConstants:
     DESTINATION_TIMEOUT_SECONDS: Final = 300  # 5min — external API writes
 
     # Run status lifecycle: PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
-    RUN_STATUS_PENDING: Final[RunStatus] = "pending"
-    RUN_STATUS_RUNNING: Final[RunStatus] = "running"
-    RUN_STATUS_COMPLETED: Final[RunStatus] = "completed"
-    RUN_STATUS_FAILED: Final[RunStatus] = "failed"
-    RUN_STATUS_CANCELLED: Final[RunStatus] = "cancelled"
+    RUN_STATUS_PENDING: Final = "pending"
+    RUN_STATUS_RUNNING: Final = "running"
+    RUN_STATUS_COMPLETED: Final = "completed"
+    RUN_STATUS_FAILED: Final = "failed"
+    RUN_STATUS_CANCELLED: Final = "cancelled"
 
     # Error message limits (matches DB column String(2000))
     ERROR_MESSAGE_MAX_LENGTH: Final = 2000
@@ -160,6 +151,7 @@ class MatchMethod:
     SPOTIFY_REDIRECT: Final = "spotify_redirect"
     PLAY_RESOLVER: Final = "spotify_connector_play_resolver"
     LASTFM_DISCOVERY: Final = "lastfm_discovery"
+    LASTFM_IMPORT: Final = "lastfm_import"
     CANONICAL_REUSE: Final = "canonical_reuse"
     ISRC_MATCH: Final = "isrc_match"
     MBID_MATCH: Final = "mbid_match"
@@ -182,6 +174,7 @@ class MatchMethod:
     CATEGORIES: Final[dict[str, str]] = {
         "direct_import": "Primary Import",
         "artist_title": "Primary Import",
+        "lastfm_import": "Primary Import",
         "canonical_reuse": "Identity Resolution",
         "isrc_match": "Identity Resolution",
         "mbid_match": "Identity Resolution",
@@ -196,7 +189,8 @@ class MatchMethod:
     DESCRIPTIONS: Final[dict[str, str]] = {
         "direct_import": "Standard Spotify import",
         "artist_title": "Standard Last.fm import",
-        "canonical_reuse": "Phase 1.5 — existing track reuse",
+        "lastfm_import": "Standard Last.fm import (with confidence)",
+        "canonical_reuse": "Canonical reuse — existing track matched",
         "isrc_match": "ISRC dedup across services",
         "mbid_match": "MusicBrainz ID bridging",
         "lastfm_discovery": "Spotify found via Last.fm enrichment",
@@ -224,30 +218,6 @@ class IntegrityConstants:
     """Data integrity monitoring thresholds."""
 
     STALE_REVIEW_DAYS: Final = 30  # pending reviews older than this are flagged
-
-
-class PlayDeduplicationConstants:
-    """Cross-service play history deduplication parameters.
-
-    When importing plays from multiple services (Spotify export + Last.fm API),
-    the same listening event appears in both sources. These constants control
-    how cross-source duplicates are identified and merged.
-
-    Timestamp semantics differ by service:
-    - Spotify ``ts`` = END time (when playback stopped)
-    - Last.fm ``date.uts`` = START time (when track began playing)
-
-    Spotify plays are normalized to start time via ``played_at - ms_played``
-    before comparison. The tolerance window applies AFTER normalization.
-    """
-
-    CROSS_SERVICE_TOLERANCE_SECONDS: Final = 30
-    CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS: Final = 180  # when ms_played unavailable
-    PREFERRED_SOURCE_ORDER: Final[tuple[str, ...]] = ("spotify", "lastfm")
-
-    # Timestamp semantic: which end of the play does played_at represent?
-    END_TIME_SERVICES: Final[frozenset[str]] = frozenset({"spotify"})
-    START_TIME_SERVICES: Final[frozenset[str]] = frozenset({"lastfm"})
 
 
 class LastFMConstants:

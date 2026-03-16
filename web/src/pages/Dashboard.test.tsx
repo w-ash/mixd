@@ -46,7 +46,7 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
       match_method: "canonical_reuse",
       connector_name: "lastfm",
       category: "Identity Resolution",
-      description: "Phase 1.5 — existing track reuse",
+      description: "Canonical reuse — existing track matched",
       total_count: 242,
       recent_count: 12,
       avg_confidence: 92.3,

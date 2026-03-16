@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.8
-**Current Initiative**: Data Integrity & Quality Audit
+**Current Version**: 0.4.10
+**Current Initiative**: CLI Unification & Polish
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -27,8 +27,9 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.6** | Track provenance & duplicate merge | ✅ Completed | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
 | **v0.4.7** | Track relink & unlink | ✅ Completed | [details](v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
 | **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
-| **v0.4.9** | Data integrity & quality audit | 🔜 Not Started | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
-| **v0.4.10** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v0410-cli-unification--polish) |
+| **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
+| **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
+| **v0.4.11** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v0411-cli-unification--polish) |
 | **v0.5.0** | CI/CD + PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
 | **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |
@@ -46,7 +47,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 |------------|--------------|-------------------|-------------------|---------------------|
 | **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ Same |
 | **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
-| **Deployment** | ✅ Poetry install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
+| **Deployment** | ✅ uv install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
 | **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ + Email alerts |
 | **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify OAuth | ✅ + Email/password |
 | **Database** | ✅ SQLite | ✅ SQLite | ✅ PostgreSQL | ✅ PostgreSQL |

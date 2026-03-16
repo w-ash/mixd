@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.config import get_logger
+from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -44,11 +44,7 @@ class SpotifyCrossDiscoveryProvider:
     ):
         self._spotify_connector = spotify_connector
         if match_evaluation_service is None:
-            from src.config import create_matching_config
-
-            match_evaluation_service = TrackMatchEvaluationService(
-                config=create_matching_config()
-            )
+            match_evaluation_service = create_evaluation_service()
         self._match_evaluation_service = match_evaluation_service
         self._listenbrainz_lookup = listenbrainz_lookup
 
@@ -161,9 +157,7 @@ class SpotifyCrossDiscoveryProvider:
                 MatchMethod.LASTFM_DISCOVERY,
                 confidence=match_result.confidence,
                 metadata=best_dict,
-                confidence_evidence=match_result.evidence.as_dict()
-                if match_result.evidence
-                else None,
+                confidence_evidence=match_result.evidence_dict,
             )
 
             # Backfill canonical track with Spotify metadata if still skeletal

@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from src.config import setup_loguru_logger
-from src.interface.cli.console import get_console
+from src.interface.cli.console import get_console, print_banner
 
 VERSION = version("narada")
 
@@ -29,9 +29,7 @@ app = typer.Typer(
 @app.command(name="version", rich_help_panel="⚙️ System")
 def version_command() -> None:
     """Show version information."""
-    console.print(
-        f"[bold bright_blue]🎵 Narada[/bold bright_blue] [dim]v{VERSION}[/dim]"
-    )
+    print_banner(VERSION)
 
 
 @app.callback()

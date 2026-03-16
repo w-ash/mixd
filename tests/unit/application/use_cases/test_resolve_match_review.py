@@ -4,7 +4,7 @@ Tests accept and reject actions on match reviews, including mapping creation
 on accept and error handling for invalid states.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

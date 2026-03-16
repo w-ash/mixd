@@ -395,8 +395,8 @@ class TestFallbackSearch:
         assert resolver.fallback_resolved_ids == {"id2"}
 
 
-class TestPhase15CanonicalReuse:
-    """Phase 1.5: Spotify resolver reuses existing canonical tracks from fallback hints."""
+class TestCanonicalReuse:
+    """Canonical Reuse: Spotify resolver reuses existing canonical tracks from fallback hints."""
 
     async def test_reuses_existing_canonical_via_hint(self):
         """When a canonical track exists and hint matches, creates Spotify mapping."""
@@ -433,14 +433,14 @@ class TestPhase15CanonicalReuse:
         assert map_calls[0].args[3] == MatchMethod.CANONICAL_REUSE
 
     async def test_no_reuse_without_hints(self):
-        """Without fallback hints, Phase 1.5 should not find any candidates."""
+        """Without fallback hints, canonical reuse should not find any candidates."""
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {}
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
 
-        # No hints provided — Phase 1.5 returns empty
+        # No hints provided — canonical reuse returns empty
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["sp_id_1"], uow, fallback_hints=None
         )
@@ -449,7 +449,7 @@ class TestPhase15CanonicalReuse:
         track_repo.find_tracks_by_title_artist.assert_not_called()
 
     async def test_low_confidence_reuse_rejected(self):
-        """Candidates with low title similarity should be rejected in Phase 1.5."""
+        """Candidates with low title similarity should be rejected in canonical reuse."""
         # Track title is very different from hint
         existing_track = make_track(42, title="Completely Different", artist="Artist")
 
@@ -475,11 +475,11 @@ class TestPhase15CanonicalReuse:
         connector_repo.map_track_to_connector.assert_not_called()
 
     async def test_reuse_plus_direct_import_combined(self):
-        """Phase 1.5 reuse and Phase 2 direct import work together."""
+        """Canonical reuse and track creation work together."""
         existing_track = make_track(42, title="Reused Song", artist="Artist A")
 
         connector = AsyncMock()
-        # id2 found by API, id1 not found (will try Phase 1.5)
+        # id2 found by API, id1 not found (will try canonical reuse)
         connector.get_tracks_by_ids.return_value = {
             "id2": make_spotify_track("id2", "New Song", "Artist B"),
         }

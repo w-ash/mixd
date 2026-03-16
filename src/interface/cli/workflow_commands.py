@@ -20,8 +20,10 @@ from src.domain.entities.workflow import WorkflowDef
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
 from src.interface.cli.console import (
+    brand_panel,
     get_console,
     get_error_console,
+    print_banner,
     progress_coordination_context,
 )
 from src.interface.cli.ui import display_operation_result
@@ -136,11 +138,15 @@ def _show_interactive_workflow_browser() -> None:
         console.print("[red]No workflows found.[/red]")
         return
 
+    from importlib.metadata import version
+
+    print_banner(version("narada"))
+    console.print()
     console.print(
-        Panel.fit(
+        brand_panel(
             "🎵 [bold]Workflow Browser[/bold]\n[dim]Discover and execute playlist transformation workflows[/dim]",
-            title="[bold bright_blue]⚡ Narada Workflows[/bold bright_blue]",
-            border_style="blue",
+            "Narada Workflows",
+            emoji="⚡",
         )
     )
 
@@ -199,10 +205,10 @@ def _execute_workflow(
     try:
         if not quiet:
             console.print(
-                Panel.fit(
+                brand_panel(
                     f"[bold]{workflow_def.name}[/bold]\n[dim]{workflow_def.description}[/dim]\n[cyan]Tasks: [bold]{len(workflow_def.tasks)}[/bold][/cyan]",
-                    title="[bold bright_blue]⚡ Executing Workflow[/bold bright_blue]",
-                    border_style="blue",
+                    "Executing Workflow",
+                    emoji="⚡",
                 )
             )
 

@@ -45,7 +45,7 @@ class TestSpotifyThenLastfm:
     async def test_lastfm_reuses_spotify_canonicals_via_title_artist(
         self, db_session, test_data_tracker
     ):
-        """Last.fm resolution should find Spotify-created tracks via Phase 1.5."""
+        """Last.fm resolution should find Spotify-created tracks via canonical reuse."""
         uow = get_unit_of_work(db_session)
 
         # Step 1: Import 3 tracks via Spotify resolver
@@ -73,7 +73,7 @@ class TestSpotifyThenLastfm:
 
         # Step 2: Resolve Last.fm identifiers for the same tracks
         lastfm_client = AsyncMock()
-        # Track.getInfo won't be called for reused tracks (Phase 1.5 short-circuits)
+        # Track.getInfo won't be called for reused tracks (canonical reuse short-circuits)
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url="https://www.last.fm/music/Band/_/Different+Song",
             lastfm_duration=180000,
@@ -131,7 +131,7 @@ class TestLastfmThenSpotify:
         )
         test_data_tracker.add_track(track_a.id)
         await uow.get_connector_repository().map_track_to_connector(
-            track_a, "lastfm", "radiohead::creep", "lastfm_import", confidence=85
+            track_a, "lastfm", "radiohead::creep", MatchMethod.LASTFM_IMPORT, confidence=85
         )
 
         track_b = await track_repo.save_track(
@@ -146,7 +146,7 @@ class TestLastfmThenSpotify:
         test_data_tracker.add_track(track_b.id)
         await uow.get_connector_repository().map_track_to_connector(
             track_b, "lastfm", "radiohead::everything in its right place",
-            "lastfm_import", confidence=85,
+            MatchMethod.LASTFM_IMPORT, confidence=85,
         )
 
         # Step 2: Spotify resolver encounters different Spotify IDs but same ISRCs
@@ -164,8 +164,8 @@ class TestLastfmThenSpotify:
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
 
-        # Phase 1: no existing Spotify mappings
-        # Phase 2: ISRC dedup should catch both
+        # Mapping Lookup: no existing Spotify mappings
+        # Track Creation: ISRC dedup should catch both
         result, metrics = await spotify_resolver.resolve_to_canonical_tracks(
             ["sp_new_creep", "sp_new_eiirp"], uow
         )
@@ -208,12 +208,12 @@ class TestMixedResolutionPaths:
     """Multiple resolution paths active simultaneously."""
 
     async def test_mixed_existing_reused_created(self, db_session, test_data_tracker):
-        """Phase 1, Phase 1.5, and Phase 2 all resolve different IDs in one call."""
+        """Mapping lookup, canonical reuse, and track creation all resolve different IDs in one call."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
         connector_repo = uow.get_connector_repository()
 
-        # Track A: has existing Last.fm connector mapping (Phase 1 hit)
+        # Track A: has existing Last.fm connector mapping (Mapping Lookup hit)
         track_a = await track_repo.save_track(
             Track(
                 id=None,
@@ -224,10 +224,10 @@ class TestMixedResolutionPaths:
         test_data_tracker.add_track(track_a.id)
         await connector_repo.map_track_to_connector(
             track_a, "lastfm", "band a::already mapped",
-            "lastfm_import", confidence=85,
+            MatchMethod.LASTFM_IMPORT, confidence=85,
         )
 
-        # Track B: exists in DB (from Spotify) but no Last.fm mapping (Phase 1.5 hit)
+        # Track B: exists in DB (from Spotify) but no Last.fm mapping (Canonical Reuse hit)
         track_b = await track_repo.save_track(
             Track(
                 id=None,
@@ -249,9 +249,9 @@ class TestMixedResolutionPaths:
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [
-                "band a::already mapped",  # Phase 1: existing mapping
-                "band b::needs reuse",  # Phase 1.5: title+artist match
-                "band c::brand new track",  # Phase 2: create new
+                "band a::already mapped",  # Mapping Lookup: existing mapping
+                "band b::needs reuse",  # Canonical Reuse: title+artist match
+                "band c::brand new track",  # Track Creation: create new
             ],
             uow,
         )

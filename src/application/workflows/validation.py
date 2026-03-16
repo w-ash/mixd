@@ -14,7 +14,11 @@ from typing import Any
 
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
-from .node_config_fields import FieldType, get_enricher_metric_names, get_node_config_fields
+from .node_config_fields import (
+    FieldType,
+    get_enricher_metric_names,
+    get_node_config_fields,
+)
 from .node_registry import get_node
 
 # Type mapping from field_type strings to Python types for isinstance() checks.
@@ -299,7 +303,6 @@ def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, 
 def is_validation_error(item: dict[str, str]) -> bool:
     """True if a validation result item is an error (not a warning)."""
     return item.get("severity") != "warning"
-
 
 
 class ConnectorNotAvailableError(Exception):

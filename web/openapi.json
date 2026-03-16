@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.9"
+    "version": "0.4.10"
   },
   "paths": {
     "/api/v1/health": {

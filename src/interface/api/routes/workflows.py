@@ -49,8 +49,8 @@ from src.application.use_cases.workflow_versions import (
     RevertWorkflowVersionUseCase,
 )
 import src.application.workflows.node_catalog as _node_catalog  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers nodes
-from src.application.workflows.node_registry import list_nodes
 from src.application.workflows.node_config_fields import get_node_config_fields
+from src.application.workflows.node_registry import list_nodes
 from src.application.workflows.validation import (
     is_validation_error,
     validate_workflow_def_detailed,

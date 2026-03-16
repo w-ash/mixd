@@ -119,6 +119,11 @@ class MatchResult:
     service_data: dict[str, Any] = field(factory=dict)  # Data from external service
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
 
+    @property
+    def evidence_dict(self) -> dict[str, Any] | None:
+        """Serialize evidence for DB storage, returning None when absent."""
+        return self.evidence.as_dict() if self.evidence else None
+
 
 # Type alias for match results by ID (defined after MatchResult class)
 MatchResultsById = dict[int, MatchResult]

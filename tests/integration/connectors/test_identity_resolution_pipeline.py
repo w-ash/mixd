@@ -1,13 +1,12 @@
 """Integration tests for identity resolution pipeline.
 
-Tests the full resolver flow (Phase 1 → 1.5 → 2) with real database
-operations and mocked API clients, verifying that each identity resolution
-strategy (ISRC dedup, parenthetical stripping, MBID upsert, cross-discovery
+Tests the full resolver flow (Mapping Lookup → Canonical Reuse → Track Creation)
+with real database operations and mocked API clients, verifying that each identity
+resolution strategy (ISRC dedup, parenthetical stripping, MBID upsert, cross-discovery
 ISRC collision) correctly resolves tracks in realistic scenarios.
 """
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
 
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
@@ -22,8 +21,8 @@ from src.infrastructure.connectors.spotify.models import (
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
-class TestLastfmPhase15ParentheticalReuse:
-    """Phase 1.5 should reuse existing tracks via title_stripped matching."""
+class TestLastfmCanonicalParentheticalReuse:
+    """Canonical reuse should reuse existing tracks via title_stripped matching."""
 
     async def test_finds_existing_track_via_stripped_title(
         self, db_session, test_data_tracker
@@ -44,7 +43,7 @@ class TestLastfmPhase15ParentheticalReuse:
         )
         test_data_tracker.add_track(existing.id)
 
-        # Create connector mapping so Phase 1 knows this is a Spotify track
+        # Create connector mapping so Mapping Lookup knows this is a Spotify track
         await uow.get_connector_repository().map_track_to_connector(
             existing, "spotify", "sp_123", MatchMethod.DIRECT_IMPORT, confidence=100
         )
@@ -57,7 +56,7 @@ class TestLastfmPhase15ParentheticalReuse:
             ["ultraviolet::new kind of soft"], uow
         )
 
-        # Phase 1.5 should find the existing track via title_stripped
+        # Canonical reuse should find the existing track via title_stripped
         assert "ultraviolet::new kind of soft" in result
         assert result["ultraviolet::new kind of soft"].id == existing.id
         assert metrics.reused == 1
@@ -94,7 +93,7 @@ class TestLastfmPhase15ParentheticalReuse:
 
 
 class TestSpotifyISRCDedup:
-    """Spotify resolver should reuse existing tracks by ISRC in Phase 2."""
+    """Spotify resolver should reuse existing tracks by ISRC in Track Creation."""
 
     async def test_reuses_track_with_same_isrc(self, db_session, test_data_tracker):
         """When Spotify API returns a track with an ISRC already in DB, reuse it."""
@@ -129,8 +128,8 @@ class TestSpotifyISRCDedup:
 
         resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
 
-        # Phase 1 finds nothing (no Spotify mapping exists)
-        # Phase 2 should detect ISRC collision and reuse existing
+        # Mapping Lookup finds nothing (no Spotify mapping exists)
+        # Track Creation should detect ISRC collision and reuse existing
         result = await resolver._create_tracks_batch(["new_spotify_id_456"], uow)
 
         assert "new_spotify_id_456" in result
@@ -237,7 +236,7 @@ class TestCrossDiscoveryISRCCollision:
             [("spotify", "sp_different_release")]
         )
         assert ("spotify", "sp_different_release") in mappings
-        mapped_track = mappings[("spotify", "sp_different_release")]
+        mapped_track = mappings["spotify", "sp_different_release"]
         assert mapped_track.id == track_a.id
 
 

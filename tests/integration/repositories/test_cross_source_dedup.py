@@ -7,8 +7,6 @@ a real SQLite database to verify SQL correctness and index usage.
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
-
 from src.domain.entities import Artist, Track, TrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 

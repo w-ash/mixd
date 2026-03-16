@@ -7,12 +7,12 @@ through the full request → route → registry → response cycle.
 import httpx
 import pytest
 
+import src.interface.api.services.progress as _progress_mod
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     SSEOperationRegistry,
     get_operation_registry,
 )
-import src.interface.api.services.progress as _progress_mod
 
 
 @pytest.fixture(autouse=True)

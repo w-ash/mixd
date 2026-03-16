@@ -10,7 +10,7 @@ import typer
 from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
-from src.interface.cli.console import get_console
+from src.interface.cli.console import GOLD, get_console, print_brand_title
 
 console = get_console()
 
@@ -78,7 +78,7 @@ def merge_tracks(
         loser_track = loser_result.track
 
         # Step 2: Show track details
-        console.print("\n[bold blue]Track Merge Preview[/bold blue]")
+        print_brand_title("Track Merge Preview")
 
         table = Table(title="Tracks to Merge")
         table.add_column("Role", style="bold")
@@ -130,7 +130,7 @@ def merge_tracks(
                 raise typer.Exit(0)
 
         # Step 4: Perform merge via use case
-        console.print("\n[blue]Merging tracks...[/blue]")
+        console.print(f"\n[{GOLD}]Merging tracks...[/]")
 
         result = await execute_use_case(
             lambda uow: MergeTracksUseCase().execute(

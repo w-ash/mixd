@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.9
+ * OpenAPI spec version: 0.4.10
  */
 import type { LastRunSchemaStatus } from './lastRunSchemaStatus';
 

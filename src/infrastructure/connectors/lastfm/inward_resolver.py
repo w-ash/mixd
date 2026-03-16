@@ -24,9 +24,13 @@ from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
+    ReuseMetadata,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
-from src.infrastructure.connectors.lastfm.identifiers import parse_lastfm_identifier
+from src.infrastructure.connectors.lastfm.identifiers import (
+    make_lastfm_identifier,
+    parse_lastfm_identifier,
+)
 
 logger = get_logger(__name__)
 
@@ -41,7 +45,6 @@ class LastfmInwardResolver(InwardTrackResolver):
 
     _lastfm_client: LastFMAPIClient
     _cross_discovery: CrossDiscoveryProvider | None
-    _match_evaluation_service: TrackMatchEvaluationService
 
     def __init__(
         self,
@@ -49,15 +52,9 @@ class LastfmInwardResolver(InwardTrackResolver):
         cross_discovery: CrossDiscoveryProvider | None = None,
         match_evaluation_service: TrackMatchEvaluationService | None = None,
     ):
+        super().__init__(match_evaluation_service)
         self._lastfm_client = lastfm_client
         self._cross_discovery = cross_discovery
-        if match_evaluation_service is None:
-            from src.config import create_matching_config
-
-            match_evaluation_service = TrackMatchEvaluationService(
-                config=create_matching_config()
-            )
-        self._match_evaluation_service = match_evaluation_service
 
     @property
     @override
@@ -70,97 +67,18 @@ class LastfmInwardResolver(InwardTrackResolver):
         return raw_id.strip().lower()
 
     @override
-    async def _reuse_existing_canonical_tracks(
-        self,
-        missing_ids: list[str],
-        uow: UnitOfWorkProtocol,
-    ) -> dict[str, Track]:
-        """Phase 1.5: Find existing canonical tracks by title+artist.
-
-        When a second service imports, the first service's tracks already exist
-        in the DB but have no connector mapping for the new service. This method
-        searches by normalized title+artist for candidates, then evaluates each
-        via ``TrackMatchEvaluationService`` to prevent false positives (e.g. live
-        versions, remixes with identical titles). Only accepted matches get a
-        connector mapping created.
-        """
-        # Parse identifiers → (title, artist) pairs for batch lookup
-        pairs: list[tuple[str, str]] = []
-        id_to_pair: dict[str, tuple[str, str]] = {}
-        for identifier in missing_ids:
-            artist_name, track_name = parse_lastfm_identifier(identifier)
-            pair = (track_name.strip().lower(), artist_name.strip().lower())
-            pairs.append(pair)
-            id_to_pair[identifier] = pair
-
-        candidates = await uow.get_track_repository().find_tracks_by_title_artist(pairs)
-        if not candidates:
-            return {}
-
-        # Evaluate each candidate through the matching system
-        result: dict[str, Track] = {}
-        for identifier in missing_ids:
-            pair = id_to_pair[identifier]
-            candidate = candidates.get(pair)
-            if not candidate:
-                continue
-
-            artist_name, track_name = parse_lastfm_identifier(identifier)
-            connector_id = f"{artist_name.strip()}::{track_name.strip()}"
-
-            # Evaluate match quality — same pipeline as _create_lastfm_mapping
-            raw_match = RawProviderMatch(
-                connector_id=connector_id,
-                match_method=MatchMethod.CANONICAL_REUSE,
-                service_data={
-                    "title": track_name,
-                    "artist": artist_name,
-                    "duration_ms": None,
-                    "artist_name": artist_name,
-                    "track_name": track_name,
-                },
-            )
-            match_result = self._match_evaluation_service.evaluate_single_match(
-                candidate, raw_match, "lastfm"
-            )
-
-            # Require both high overall confidence AND high title similarity.
-            # The Fellegi-Sunter model can produce high confidence from artist
-            # match alone — insufficient for candidate discovery where we don't
-            # have a priori belief the tracks are the same.
-            title_sim = match_result.evidence.title_similarity if match_result.evidence else 0.0
-            title_threshold = self._match_evaluation_service.config.high_similarity_threshold
-
-            if not match_result.success or title_sim < title_threshold:
-                logger.debug(
-                    f"Phase 1.5 rejected candidate {candidate.id} for {identifier} "
-                    f"(confidence: {match_result.confidence}, title_sim: {title_sim:.2f})"
-                )
-                continue
-
-            try:
-                await uow.get_connector_repository().map_track_to_connector(
-                    candidate,
-                    "lastfm",
-                    connector_id,
-                    MatchMethod.CANONICAL_REUSE,
-                    confidence=match_result.confidence,
-                    metadata={"artist_name": artist_name, "track_name": track_name},
-                    confidence_evidence=match_result.evidence.as_dict()
-                    if match_result.evidence
-                    else None,
-                )
-                result[identifier] = candidate
-                logger.info(
-                    f"Reused canonical track {candidate.id} for {identifier} "
-                    f"(confidence: {match_result.confidence})"
-                )
-            except Exception as e:
-                logger.debug(
-                    f"Failed to create reuse mapping for {identifier}: {e}"
-                )
-
-        return result
+    def _extract_reuse_metadata(
+        self, identifier: str
+    ) -> ReuseMetadata | None:
+        """Extract artist+title from Last.fm identifier for canonical reuse."""
+        artist_name, track_name = parse_lastfm_identifier(identifier)
+        connector_id = make_lastfm_identifier(artist_name, track_name)
+        return ReuseMetadata(
+            artist=artist_name,
+            title=track_name,
+            connector_id=connector_id,
+            lookup_pair=(track_name.strip().lower(), artist_name.strip().lower()),
+        )
 
     @override
     async def _create_tracks_batch(
@@ -189,14 +107,12 @@ class LastfmInwardResolver(InwardTrackResolver):
                 )
 
                 # Step 3: Create connector mapping(s)
-                connector_id = (
-                    lastfm_url or f"{artist_name.strip()}::{track_name.strip()}"
-                )
+                fallback_id = make_lastfm_identifier(artist_name, track_name)
+                connector_id = lastfm_url or fallback_id
                 await self._create_lastfm_mapping(
                     track, artist_name, track_name, connector_id, uow
                 )
                 # Secondary artist::title mapping for fast dedup lookups
-                fallback_id = f"{artist_name.strip()}::{track_name.strip()}"
                 if connector_id != fallback_id:
                     await self._create_lastfm_mapping(
                         track, artist_name, track_name, fallback_id, uow
@@ -301,28 +217,24 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Create a Last.fm connector mapping with domain-calculated confidence."""
         raw_match = RawProviderMatch(
             connector_id=connector_id,
-            match_method="artist_title",
+            match_method=MatchMethod.ARTIST_TITLE,
             service_data={
                 "title": track_name,
                 "artist": artist_name,
                 "duration_ms": None,
-                "artist_name": artist_name,
-                "track_name": track_name,
             },
         )
 
         match_result = self._match_evaluation_service.evaluate_single_match(
-            track, raw_match, "lastfm"
+            track, raw_match, self.connector_name
         )
 
         _ = await uow.get_connector_repository().map_track_to_connector(
             track,
-            "lastfm",
+            self.connector_name,
             connector_id,
-            "lastfm_import",
+            MatchMethod.LASTFM_IMPORT,
             confidence=match_result.confidence,
             metadata={"artist_name": artist_name, "track_name": track_name},
-            confidence_evidence=match_result.evidence.as_dict()
-            if match_result.evidence
-            else None,
+            confidence_evidence=match_result.evidence_dict,
         )

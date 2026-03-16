@@ -2,6 +2,8 @@
 
 # Track-related entities
 # Operation-related entities
+# Integrity monitoring
+from .integrity import CheckStatus, IntegrityCheckResult, IntegrityReport
 from .operations import (
     ConnectorTrackPlay,
     OperationResult,
@@ -14,6 +16,7 @@ from .operations import (
 
 # Playlist-related entities
 from .playlist import (
+    DB_PSEUDO_CONNECTOR,
     ConnectorPlaylist,
     ConnectorPlaylistItem,
     Playlist,
@@ -38,9 +41,6 @@ from .track import (
     TrackMetric,
 )
 
-# Integrity monitoring
-from .integrity import CheckStatus, IntegrityCheckResult, IntegrityReport
-
 # Track mapping entity
 from .track_mapping import TrackMapping
 
@@ -48,15 +48,16 @@ from .track_mapping import TrackMapping
 from .workflow import WorkflowDef, WorkflowTaskDef
 
 __all__ = [
+    "DB_PSEUDO_CONNECTOR",
     "Artist",
     "CheckStatus",
     "ConnectorPlaylist",
-    "IntegrityCheckResult",
-    "IntegrityReport",
     "ConnectorPlaylistItem",
     "ConnectorTrack",
     "ConnectorTrackMapping",
     "ConnectorTrackPlay",
+    "IntegrityCheckResult",
+    "IntegrityReport",
     "MetadataKey",
     "MetricValue",
     "OperationResult",

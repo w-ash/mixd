@@ -16,8 +16,8 @@ from src.application.use_cases.get_track_details import (
     PlaySummary,
     TrackDetailsResult,
 )
-from src.config.constants import ConnectorConstants
 from src.domain.entities import Playlist
+from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.track import Track
 from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
 
@@ -127,7 +127,7 @@ def _get_connector_names(track: Track) -> list[str]:
     return [
         c
         for c in track.connector_track_identifiers
-        if c != ConnectorConstants.DB_PSEUDO_CONNECTOR
+        if c != DB_PSEUDO_CONNECTOR
     ]
 
 

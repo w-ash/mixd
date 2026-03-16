@@ -5,9 +5,9 @@ paths:
 # Test Rules
 
 ## Mechanics
-- **ALWAYS** use `db_session` fixture for integration tests, NEVER `get_session()`
+- Use `db_session` fixture for all integration tests (not `get_session()`)
 - Use `uv run` prefix for pytest, ruff, basedpyright
-- No `--timeout` flag configured; don't pass it
+- No `--timeout` flag configured; omit it
 - Markers auto-applied by directory: `tests/unit/` → `unit`, `tests/integration/` → `integration`
 - Additional markers applied per-test: `slow` (>1s), `performance` (>5s), `diagnostic` — all skipped by default
 
@@ -30,7 +30,7 @@ paths:
 - Repositories → always integration (test real SQL behavior)
 - API routes → always integration (test real request/response cycle via httpx AsyncClient)
 
-## Factories and Mocks (use existing, don't reinvent)
+## Factories and Mocks (use existing)
 - `from tests.fixtures import make_track, make_tracks, make_playlist, make_mock_uow`
 - `from tests.fixtures import make_connector_track, make_connector_playlist`
 - `from tests.fixtures import make_mock_track_repo, make_mock_playlist_repo`

@@ -5,8 +5,8 @@ for ISRC-based matches to detect known problems like remaster reuse and
 clean/explicit version duplication.
 """
 
-import re
 from collections import defaultdict
+import re
 
 from attrs import define
 

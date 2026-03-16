@@ -7,19 +7,17 @@ update status — using the db_session fixture with SQLite.
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import ReviewStatus
+from src.domain.entities.match_review import MatchReview
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
-    DBMatchReview,
     DBTrack,
 )
 from src.infrastructure.persistence.repositories.match_review import (
     MatchReviewRepository,
 )
-from src.domain.entities.match_review import MatchReview
 
 
 async def _seed_track_and_connector_track(

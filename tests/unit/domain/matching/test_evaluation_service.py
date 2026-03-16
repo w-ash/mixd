@@ -74,7 +74,7 @@ class TestThreeZoneClassification:
 
     def test_zones_are_exhaustive(self):
         """Every score should fall into exactly one zone."""
-        for score in range(0, 101):
+        for score in range(101):
             accepted = self.service.should_accept_match(score, "isrc")
             review = self.service.should_review_match(score, "isrc")
             rejected = not accepted and not review
