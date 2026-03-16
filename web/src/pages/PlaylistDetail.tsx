@@ -9,7 +9,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import type {
   PlaylistLinkSchema,
@@ -31,6 +31,7 @@ import {
   useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
 } from "@/api/generated/playlists/playlists";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/shared/BackLink";
 import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
 import {
   ConnectorIcon,
@@ -39,6 +40,7 @@ import {
 import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { OperationProgress } from "@/components/shared/OperationProgress";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import {
   StatusIndicator,
   syncStatusVariant,
@@ -542,9 +544,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
   return (
     <section className="mb-8">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-text-muted">
-          Linked Services
-        </h2>
+        <SectionHeader title="Linked Services" />
         <LinkPlaylistDialog playlistId={playlistId} />
       </div>
 
@@ -604,7 +604,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-xs text-text-muted hover:text-red-400"
+                      className="h-7 px-2 text-xs text-text-muted hover:text-destructive"
                       title="Removes the sync link. Your external playlist is unchanged."
                       disabled={deleteLinkMutation.isPending}
                       onClick={() =>
@@ -726,6 +726,7 @@ export function PlaylistDetail() {
   return (
     <div>
       <title>{playlist.name} — Narada</title>
+      <BackLink to="/playlists">Playlists</BackLink>
       <PageHeader
         title={playlist.name}
         description={
@@ -825,8 +826,13 @@ export function PlaylistDetail() {
                 <TableCell className="text-right tabular-nums text-text-muted">
                   {entry.position}
                 </TableCell>
-                <TableCell className="font-medium">
-                  {entry.track.title}
+                <TableCell>
+                  <Link
+                    to={`/library/${entry.track.id}`}
+                    className="font-medium text-text hover:text-primary transition-colors"
+                  >
+                    {entry.track.title}
+                  </Link>
                 </TableCell>
                 <TableCell className="text-text-muted">
                   {formatArtists(entry.track.artists)}

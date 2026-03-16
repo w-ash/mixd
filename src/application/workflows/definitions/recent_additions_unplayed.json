@@ -7,7 +7,6 @@
       "id": "liked_tracks",
       "type": "source.liked_tracks",
       "config": {
-        "limit": 5000,
         "connector_filter": "spotify"
       }
     },

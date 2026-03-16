@@ -6,10 +6,9 @@
   "tasks": [
     {
       "id": "source_liked_songs",
-      "type": "source.playlist",
+      "type": "source.liked_tracks",
       "config": {
-        "playlist_id": "YOUR_LIKED_SONGS_PLAYLIST_ID",
-        "connector": "spotify"
+        "connector_filter": "spotify"
       }
     },
     {

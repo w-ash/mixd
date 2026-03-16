@@ -192,9 +192,9 @@ describe("TrackDetail", () => {
       );
     });
 
-    const backLink = screen.getByText(/Back to Library/);
+    const backLink = screen.getByRole("link", { name: /Library/ });
     expect(backLink).toBeInTheDocument();
-    expect(backLink.closest("a")).toHaveAttribute("href", "/library");
+    expect(backLink).toHaveAttribute("href", "/library");
   });
 
   it("shows merge button", async () => {

@@ -1,4 +1,4 @@
-import { ArrowLeft, HelpCircle, Lock, Pencil, Play } from "lucide-react";
+import { HelpCircle, Lock, Pencil, Play } from "lucide-react";
 import { Link, useParams } from "react-router";
 import type { WorkflowRunSummarySchema } from "@/api/generated/model";
 import {
@@ -6,10 +6,12 @@ import {
   useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet,
 } from "@/api/generated/workflows/workflows";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/shared/BackLink";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { LastRunCard } from "@/components/shared/LastRunCard";
 import { PipelineStrip } from "@/components/shared/PipelineStrip";
 import { RunStatusBadge } from "@/components/shared/RunStatusBadge";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,10 +49,8 @@ function RunHistoryTable({
   if (runs.length === 0) return null;
 
   return (
-    <section className="mt-10">
-      <h2 className="mb-3 font-display text-base font-semibold text-text">
-        Execution History
-      </h2>
+    <section className="mt-10 space-y-3">
+      <SectionHeader title="Execution History" />
       <Table>
         <TableHeader>
           <TableRow>
@@ -71,10 +71,10 @@ function RunHistoryTable({
               <TableCell>
                 <RunStatusBadge status={run.status} />
               </TableCell>
-              <TableCell className="text-right font-mono text-xs text-text-muted">
+              <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
                 {formatDuration(run.duration_ms)}
               </TableCell>
-              <TableCell className="text-right font-mono text-xs text-text-muted">
+              <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
                 {run.output_track_count ?? "\u2014"}
               </TableCell>
               <TableCell className="text-right text-xs text-text-muted">
@@ -136,13 +136,7 @@ export function WorkflowDetail() {
   return (
     <div>
       <title>{workflow.name} — Narada</title>
-      <Link
-        to="/workflows"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors"
-      >
-        <ArrowLeft size={14} />
-        Workflows
-      </Link>
+      <BackLink to="/workflows">Workflows</BackLink>
 
       <PageHeader
         title={workflow.name}

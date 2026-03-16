@@ -24,6 +24,7 @@ import {
   confidenceVariant,
   variantColorClass,
 } from "@/components/shared/StatusIndicator";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -347,12 +348,9 @@ export function Dashboard() {
             heading="No data yet"
             description="Connect services in Settings to get started."
             action={
-              <Link
-                to="/settings/integrations"
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 font-display text-sm font-medium text-surface transition-colors hover:bg-primary/90"
-              >
-                Go to Settings
-              </Link>
+              <Button size="sm" asChild>
+                <Link to="/settings/integrations">Go to Settings</Link>
+              </Button>
             }
           />
         ) : (

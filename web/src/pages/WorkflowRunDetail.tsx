@@ -1,13 +1,12 @@
 import {
   AlertTriangle,
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   HelpCircle,
   Play,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import type { WorkflowRunNodeSchema } from "@/api/generated/model";
 import {
@@ -15,11 +14,13 @@ import {
   useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet,
 } from "@/api/generated/workflows/workflows";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/shared/BackLink";
 import { EmptyState } from "@/components/shared/EmptyState";
 import {
   getStatusConfig,
   RunStatusBadge,
 } from "@/components/shared/RunStatusBadge";
+import { SectionHeader } from "@/components/shared/SectionHeader";
 import { WorkflowGraph } from "@/components/shared/WorkflowGraph";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -200,11 +201,11 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
           )}
         </div>
         <RunStatusBadge status={node.status} />
-        <span className="font-mono text-xs text-text-muted w-16 text-right">
+        <span className="font-mono text-xs tabular-nums text-text-muted w-16 text-right">
           {formatDuration(node.duration_ms || undefined)}
         </span>
         {node.input_track_count != null && node.output_track_count != null && (
-          <span className="font-mono text-xs text-text-muted">
+          <span className="font-mono text-xs tabular-nums text-text-muted">
             {node.input_track_count} &rarr; {node.output_track_count}
           </span>
         )}
@@ -230,10 +231,8 @@ function OutputTracksTable({
   if (tracks.length === 0) return null;
 
   return (
-    <section className="mt-10">
-      <h2 className="mb-3 font-display text-base font-semibold text-text">
-        Output Tracks
-      </h2>
+    <section className="mt-10 space-y-3">
+      <SectionHeader title="Output Tracks" />
       <Table>
         <TableHeader>
           <TableRow>
@@ -250,7 +249,7 @@ function OutputTracksTable({
         <TableBody>
           {tracks.map((track, i) => (
             <TableRow key={String(track.track_id ?? i)}>
-              <TableCell className="text-right font-mono text-xs text-text-faint">
+              <TableCell className="text-right font-mono text-xs tabular-nums text-text-faint">
                 {(track.rank as number) ?? i + 1}
               </TableCell>
               <TableCell className="font-medium text-text">
@@ -262,7 +261,7 @@ function OutputTracksTable({
               {metricColumns.map((col) => (
                 <TableCell
                   key={col}
-                  className="text-right font-mono text-xs text-text-muted"
+                  className="text-right font-mono text-xs tabular-nums text-text-muted"
                 >
                   {formatMetricValue(
                     (track.metrics as Record<string, unknown>)?.[col],
@@ -343,13 +342,7 @@ export function WorkflowRunDetail() {
   return (
     <div>
       <title>{`Run #${run.id} — Narada`}</title>
-      <Link
-        to={`/workflows/${workflowId}`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors"
-      >
-        <ArrowLeft size={14} />
-        {workflowName}
-      </Link>
+      <BackLink to={`/workflows/${workflowId}`}>{workflowName}</BackLink>
 
       <PageHeader
         title={`Run #${run.id}`}
@@ -441,10 +434,8 @@ export function WorkflowRunDetail() {
 
       {/* Per-node execution details (expandable) */}
       {sortedNodes.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 font-display text-base font-semibold text-text">
-            Node Execution Details
-          </h2>
+        <section className="mt-10 space-y-3">
+          <SectionHeader title="Node Execution Details" />
           <div className="space-y-2">
             {sortedNodes.map((node) => (
               <NodeExecutionRow key={node.node_id} node={node} />

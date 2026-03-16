@@ -8,6 +8,9 @@ SSE ``node_status`` events for live DAG visualization in the web UI. DB
 persistence is injected via a ``NodeStatusUpdater`` callable so this module
 stays free of infrastructure imports.
 
+CompositeNodeObserver delegates to multiple observers, enabling CLI to get
+both Rich progress bars AND database run history simultaneously.
+
 NullNodeObserver is the null-object default — eliminates None checks in the
 orchestration loop when no observer is provided.
 """
@@ -28,7 +31,7 @@ from src.config.logging import get_logger
 from src.domain.entities.progress import ProgressStatus, create_progress_event
 from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
 
-from .protocols import NodeResult, NodeStatusUpdater
+from .protocols import NodeExecutionObserver, NodeResult, NodeStatusUpdater
 
 logger = get_logger(__name__)
 
@@ -124,6 +127,29 @@ class NullNodeObserver:
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
         pass
+
+
+class CompositeNodeObserver:
+    """Delegates to multiple observers — enables CLI progress + DB history simultaneously."""
+
+    _observers: list[NodeExecutionObserver]
+
+    def __init__(self, observers: list[NodeExecutionObserver]) -> None:
+        self._observers = observers
+
+    async def on_node_starting(self, event: NodeExecutionEvent) -> None:
+        for obs in self._observers:
+            await obs.on_node_starting(event)
+
+    async def on_node_completed(
+        self, event: NodeExecutionEvent, result: NodeResult
+    ) -> None:
+        for obs in self._observers:
+            await obs.on_node_completed(event, result)
+
+    async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
+        for obs in self._observers:
+            await obs.on_node_failed(event, error)
 
 
 class ProgressNodeObserver:

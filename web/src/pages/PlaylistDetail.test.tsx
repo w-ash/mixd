@@ -179,6 +179,41 @@ describe("PlaylistDetail", () => {
     expect(screen.getByText("2 min")).toBeInTheDocument();
   });
 
+  it("renders back link to playlists list", async () => {
+    setupHandlers(makePlaylistDetail(), []);
+
+    renderPlaylistDetail();
+
+    await waitFor(() => {
+      const backLink = screen.getByRole("link", { name: /Playlists/ });
+      expect(backLink).toHaveAttribute("href", "/playlists");
+    });
+  });
+
+  it("renders track titles as links to library detail", async () => {
+    const entries = makePlaylistEntries([
+      {
+        title: "Midnight City",
+        artist: "M83",
+        duration_ms: 244_000,
+        added_at: "2026-02-20T08:30:00Z",
+      },
+    ]);
+    setupHandlers(makePlaylistDetail(), entries);
+
+    renderPlaylistDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Midnight City")).toBeInTheDocument();
+    });
+
+    const trackLink = screen.getByRole("link", { name: "Midnight City" });
+    expect(trackLink).toHaveAttribute(
+      "href",
+      expect.stringContaining("/library/"),
+    );
+  });
+
   it("renders empty state when playlist has no tracks", async () => {
     setupHandlers(makePlaylistDetail({ track_count: 0 }), []);
 

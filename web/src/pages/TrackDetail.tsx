@@ -1,12 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  ExternalLink,
-  HelpCircle,
-  Link2Off,
-  Repeat,
-  Star,
-} from "lucide-react";
+import { ExternalLink, HelpCircle, Link2Off, Repeat, Star } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
@@ -18,6 +11,7 @@ import {
   useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
 } from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BackLink } from "@/components/shared/BackLink";
 import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
@@ -83,7 +77,7 @@ function Section({
 }) {
   return (
     <section className="rounded-lg border-l-2 border-primary/30 bg-surface-sunken p-5">
-      <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wider text-text-muted">
+      <h2 className="mb-3 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
         {title}
       </h2>
       {children}
@@ -219,7 +213,7 @@ function MappingList({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2 text-xs text-text-faint hover:text-red-400"
+                    className="h-7 px-2 text-xs text-text-faint hover:text-destructive"
                     onClick={() => setUnlinkMapping(m)}
                   >
                     <Link2Off className="mr-1 size-3" />
@@ -270,7 +264,7 @@ function MappingList({
 
               {/* Title mismatch warning */}
               {titleDiffers && (
-                <p className="mt-1 rounded bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                <p className="mt-1 rounded bg-status-expired/10 px-2 py-0.5 text-xs text-status-expired">
                   Service title differs: &ldquo;
                   {m.connector_track_title}&rdquo;
                 </p>
@@ -362,15 +356,7 @@ export function TrackDetail() {
   return (
     <div>
       <title>{track.title} — Narada</title>
-      <div className="mb-2">
-        <Link
-          to="/library"
-          className="text-sm text-text-muted hover:text-text transition-colors"
-        >
-          <ArrowLeft className="inline size-3.5 -translate-y-px" /> Back to
-          Library
-        </Link>
-      </div>
+      <BackLink to="/library">Library</BackLink>
 
       <PageHeader
         title={track.title}

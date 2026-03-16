@@ -1,9 +1,12 @@
 /** Sync status configuration — shared across playlist list and detail views. */
 
 export const syncStatusConfig = {
-  synced: { label: "Synced", dotClass: "bg-green-500" },
-  syncing: { label: "Syncing\u2026", dotClass: "bg-blue-400 animate-pulse" },
-  error: { label: "Sync failed", dotClass: "bg-red-500" },
+  synced: { label: "Synced", dotClass: "bg-status-connected" },
+  syncing: {
+    label: "Syncing\u2026",
+    dotClass: "bg-status-syncing animate-pulse",
+  },
+  error: { label: "Sync failed", dotClass: "bg-destructive" },
   never_synced: { label: "Never synced", dotClass: "bg-text-muted/40" },
 } as const;
 

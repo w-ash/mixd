@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -56,7 +57,10 @@ export function CreatePlaylistModal() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>New Playlist</Button>
+        <Button size="sm">
+          <Plus size={14} />
+          New Playlist
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <form onSubmit={handleSubmit}>

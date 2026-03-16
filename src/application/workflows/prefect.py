@@ -623,17 +623,26 @@ async def run_workflow(
                     f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
                 )
 
-            # Auto-create ProgressNodeObserver when progress_manager is active and no
-            # explicit observer was provided
-            effective_observer: NodeExecutionObserver | None = observer  # type: ignore[assignment]  # Pydantic requires object; callers pass NodeExecutionObserver
-            if (
-                effective_observer is None
-                and progress_manager
-                and workflow_operation_id
-            ):
-                effective_observer = ProgressNodeObserver(
-                    progress_manager, workflow_operation_id
+            # Compose observers: always add ProgressNodeObserver when progress_manager
+            # is active, even if an explicit observer (e.g. RunHistoryObserver) is provided.
+            # This enables CLI to get both Rich progress bars AND DB run history.
+            from .observers import CompositeNodeObserver
+
+            typed_observers: list[NodeExecutionObserver] = []
+            if observer is not None:
+                typed_observers.append(observer)  # type: ignore[arg-type]  # Prefect boundary uses object; narrowed here
+            if progress_manager and workflow_operation_id:
+                typed_observers.append(
+                    ProgressNodeObserver(progress_manager, workflow_operation_id)
                 )
+
+            effective_observer: NodeExecutionObserver | None
+            if len(typed_observers) > 1:
+                effective_observer = CompositeNodeObserver(typed_observers)
+            elif typed_observers:
+                effective_observer = typed_observers[0]
+            else:
+                effective_observer = None
 
             # Register SIGTERM handler for graceful shutdown between nodes
             global _shutdown_requested

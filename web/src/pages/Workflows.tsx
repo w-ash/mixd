@@ -214,6 +214,14 @@ export function Workflows() {
           icon={<GitBranch className="size-10" />}
           heading="No workflows yet"
           description="Workflows define how your music is filtered, sorted, and assembled into playlists."
+          action={
+            <Button size="sm" asChild className="gap-1.5">
+              <Link to="/workflows/new">
+                <Plus size={14} />
+                New Workflow
+              </Link>
+            </Button>
+          }
         />
       )}
 

@@ -17,29 +17,29 @@ interface StatusIndicatorProps {
 }
 
 export const variantColorClass: Record<StatusVariant, string> = {
-  success: "text-green-500",
-  warning: "text-yellow-500",
-  error: "text-red-500",
-  info: "text-blue-400",
+  success: "text-status-connected",
+  warning: "text-status-expired",
+  error: "text-destructive",
+  info: "text-status-syncing",
   neutral: "text-text-muted",
 };
 
 const variantConfig = {
   success: {
     icon: CheckCircle2,
-    colorClass: "text-green-500",
+    colorClass: "text-status-connected",
   },
   warning: {
     icon: AlertTriangle,
-    colorClass: "text-yellow-500",
+    colorClass: "text-status-expired",
   },
   error: {
     icon: XCircle,
-    colorClass: "text-red-500",
+    colorClass: "text-destructive",
   },
   info: {
     icon: Info,
-    colorClass: "text-blue-400",
+    colorClass: "text-status-syncing",
   },
   neutral: {
     icon: Circle,

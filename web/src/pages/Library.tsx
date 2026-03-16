@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { TablePagination } from "@/components/shared/TablePagination";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -308,6 +309,13 @@ export function Library() {
             hasFilters
               ? "Try adjusting your search or filters."
               : "Import your music from Spotify or Last.fm to see your library here."
+          }
+          action={
+            !hasFilters ? (
+              <Button size="sm" asChild>
+                <Link to="/settings/sync">Import Music</Link>
+              </Button>
+            ) : undefined
           }
         />
       )}

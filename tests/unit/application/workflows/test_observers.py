@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.application.workflows.observers import (
+    CompositeNodeObserver,
     NullNodeObserver,
     ProgressNodeObserver,
     RunHistoryObserver,
@@ -253,6 +254,42 @@ class TestRunHistoryObserver:
         await observer.on_node_failed(event, ValueError("x"))
 
         assert observer.persist_failure_count == 3
+
+
+class TestCompositeNodeObserver:
+    """Tests for CompositeNodeObserver multi-observer delegation."""
+
+    async def test_delegates_to_all_observers(self, task_def, sample_result):
+        """All lifecycle methods are forwarded to every inner observer."""
+        obs_a = AsyncMock()
+        obs_b = AsyncMock()
+        composite = CompositeNodeObserver([obs_a, obs_b])
+
+        event = NodeExecutionEvent(
+            task_def=task_def, execution_order=1, total_nodes=3, duration_ms=100
+        )
+
+        await composite.on_node_starting(event)
+        obs_a.on_node_starting.assert_called_once_with(event)
+        obs_b.on_node_starting.assert_called_once_with(event)
+
+        await composite.on_node_completed(event, sample_result)
+        obs_a.on_node_completed.assert_called_once_with(event, sample_result)
+        obs_b.on_node_completed.assert_called_once_with(event, sample_result)
+
+        error = ValueError("boom")
+        await composite.on_node_failed(event, error)
+        obs_a.on_node_failed.assert_called_once_with(event, error)
+        obs_b.on_node_failed.assert_called_once_with(event, error)
+
+    async def test_single_observer_still_works(self, task_def, sample_result):
+        """Composite with one observer delegates correctly."""
+        obs = AsyncMock()
+        composite = CompositeNodeObserver([obs])
+        event = NodeExecutionEvent(task_def=task_def, execution_order=1, total_nodes=1)
+
+        await composite.on_node_starting(event)
+        obs.on_node_starting.assert_called_once()
 
 
 class TestNullNodeObserver:

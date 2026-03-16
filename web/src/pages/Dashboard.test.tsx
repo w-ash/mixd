@@ -233,13 +233,13 @@ describe("Matching Health Section", () => {
       expect(screen.getByText("Match Method Health")).toBeInTheDocument();
     });
 
-    // High confidence (100.0) — green
+    // High confidence (100.0) — success token
     const highConf = screen.getByText("100.0");
-    expect(highConf).toHaveClass("text-green-500");
+    expect(highConf).toHaveClass("text-status-connected");
 
-    // Low confidence (42.0) — red
+    // Low confidence (42.0) — error token
     const lowConf = screen.getByText("42.0");
-    expect(lowConf).toHaveClass("text-red-500");
+    expect(lowConf).toHaveClass("text-destructive");
   });
 
   it("displays formatted counts in table cells", async () => {
