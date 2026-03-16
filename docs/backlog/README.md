@@ -29,7 +29,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
 | **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
 | **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
-| **v0.4.11** | CLI unification & polish | 🔜 Not Started | [details](v0.4.x.md#v0411-cli-unification--polish) |
+| **v0.4.11** | CLI unification & polish | 🔨 In Progress | [details](v0.4.x.md#v0411-cli-unification--polish) |
 | **v0.5.0** | CI/CD + PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
 | **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
 | **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |

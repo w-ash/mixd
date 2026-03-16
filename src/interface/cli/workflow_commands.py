@@ -2,15 +2,18 @@
 
 Database-backed workflow commands using the same use cases as the web API.
 CLI `workflow run` creates run records for unified execution history visible
-from both CLI and web UI.
+from both CLI and web UI. Full CRUD commands support `--format json` for
+machine-readable output consumed by the workflow-manager agent.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types, **kwargs pass-through
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types, **kwargs pass-through, json.loads()
 
 from collections.abc import Sequence
 import contextlib
 from datetime import datetime
+from pathlib import Path
+import sys
 from typing import Annotated, Any, Literal
 
 from rich.panel import Panel
@@ -181,6 +184,298 @@ def list_workflows(
         )
     else:
         _display_workflows_table(workflows)
+
+
+@app.command()
+def get(
+    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """Show a workflow's full definition."""
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    if output_format == "json":
+        print(_serialize_workflow_json(selected))
+    else:
+        _display_workflow_detail(selected)
+
+
+@app.command()
+def create(
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file", "-f", help="JSON definition file (reads stdin if omitted)"
+        ),
+    ] = None,
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format")
+    ] = "table",
+) -> None:
+    """Create a workflow from a JSON definition."""
+    import json as json_mod
+
+    from src.domain.entities.workflow import parse_workflow_def
+
+    raw_json = _read_json_input(file)
+    try:
+        raw = json_mod.loads(raw_json)
+        definition = parse_workflow_def(raw)
+    except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
+        err_console.print(f"[red]Error: Invalid JSON definition: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    async def _create():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_crud import (
+            CreateWorkflowCommand,
+            CreateWorkflowUseCase,
+        )
+        from src.interface.cli.db_bootstrap import ensure_cli_db_ready
+
+        await ensure_cli_db_ready()
+        result = await execute_use_case(
+            lambda uow: CreateWorkflowUseCase().execute(
+                CreateWorkflowCommand(definition=definition), uow
+            )
+        )
+        return result.workflow
+
+    try:
+        workflow = run_async(_create())
+    except Exception as e:
+        handle_cli_error(e, "Failed to create workflow")
+
+    if output_format == "json":
+        print(_serialize_workflow_json(workflow))
+    else:
+        console.print(
+            f"[green]Created workflow[/green] [bold]{workflow.definition.name}[/bold] (ID: {workflow.id})"
+        )
+
+
+@app.command()
+def update(
+    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file", "-f", help="JSON definition file (reads stdin if omitted)"
+        ),
+    ] = None,
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format")
+    ] = "table",
+) -> None:
+    """Update a workflow's definition from JSON.
+
+    Template workflows cannot be modified. Task changes auto-version.
+    """
+    import json as json_mod
+
+    from src.domain.entities.workflow import parse_workflow_def
+
+    # Resolve to DB id first
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    raw_json = _read_json_input(file)
+    try:
+        raw = json_mod.loads(raw_json)
+        definition = parse_workflow_def(raw)
+    except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
+        err_console.print(f"[red]Error: Invalid JSON definition: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    async def _update():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_crud import (
+            UpdateWorkflowCommand,
+            UpdateWorkflowUseCase,
+        )
+
+        result = await execute_use_case(
+            lambda uow: UpdateWorkflowUseCase().execute(
+                UpdateWorkflowCommand(
+                    workflow_id=selected.id or 0, definition=definition
+                ),
+                uow,
+            )
+        )
+        return result.workflow
+
+    try:
+        workflow = run_async(_update())
+    except Exception as e:
+        handle_cli_error(e, "Failed to update workflow")
+
+    if output_format == "json":
+        print(_serialize_workflow_json(workflow))
+    else:
+        console.print(
+            f"[green]Updated workflow[/green] [bold]{workflow.definition.name}[/bold] "
+            f"(v{workflow.definition_version})"
+        )
+
+
+@app.command()
+def delete(
+    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+) -> None:
+    """Delete a workflow. Template workflows cannot be deleted."""
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    async def _delete():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_crud import (
+            DeleteWorkflowCommand,
+            DeleteWorkflowUseCase,
+        )
+
+        await execute_use_case(
+            lambda uow: DeleteWorkflowUseCase().execute(
+                DeleteWorkflowCommand(workflow_id=selected.id or 0), uow
+            )
+        )
+
+    try:
+        run_async(_delete())
+    except Exception as e:
+        handle_cli_error(e, "Failed to delete workflow")
+
+    console.print(
+        f"[green]Deleted workflow[/green] [bold]{selected.definition.name}[/bold] (ID: {selected.id})"
+    )
+
+
+@app.command()
+def validate(
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file", "-f", help="JSON definition file (reads stdin if omitted)"
+        ),
+    ] = None,
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format")
+    ] = "table",
+) -> None:
+    """Validate a workflow definition without saving."""
+    import json as json_mod
+
+    from src.application.workflows.validation import (
+        is_validation_error,
+        validate_workflow_def_detailed,
+    )
+    from src.domain.entities.workflow import parse_workflow_def
+
+    raw_json = _read_json_input(file)
+    try:
+        raw = json_mod.loads(raw_json)
+        definition = parse_workflow_def(raw)
+    except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
+        err_console.print(f"[red]Error: Invalid JSON: {e}[/red]")
+        raise typer.Exit(1) from e
+
+    issues = validate_workflow_def_detailed(definition)
+    errors = [i for i in issues if is_validation_error(i)]
+    warnings = [i for i in issues if not is_validation_error(i)]
+
+    if output_format == "json":
+        print(
+            json_mod.dumps(
+                {
+                    "valid": len(errors) == 0,
+                    "errors": errors,
+                    "warnings": warnings,
+                },
+                indent=2,
+            )
+        )
+    else:
+        if errors:
+            for e in errors:
+                console.print(
+                    f"[red]ERROR[/red] [{e.get('task_id', '')}] {e.get('field', '')}: {e['message']}"
+                )
+        if warnings:
+            for w in warnings:
+                console.print(
+                    f"[yellow]WARN[/yellow]  [{w.get('task_id', '')}] {w.get('field', '')}: {w['message']}"
+                )
+        if not errors and not warnings:
+            console.print("[green]Valid[/green] — no errors or warnings")
+        elif not errors:
+            console.print(f"[green]Valid[/green] with {len(warnings)} warning(s)")
+
+    if errors:
+        raise typer.Exit(1)
+
+
+@app.command()
+def nodes(
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """List available node types with their config fields."""
+    import json as json_mod
+
+    from attrs import asdict
+
+    from src.application.workflows.node_config_fields import get_node_config_fields
+    from src.application.workflows.node_registry import list_nodes
+
+    all_nodes = list_nodes()
+    config_fields = get_node_config_fields()
+
+    if output_format == "json":
+        catalog: list[dict[str, Any]] = []
+        for node_id, meta in sorted(all_nodes.items()):
+            fields = config_fields.get(node_id, ())
+            catalog.append({
+                "id": node_id,
+                "category": meta.get("category", ""),
+                "description": meta.get("description", ""),
+                "config_fields": [asdict(f) for f in fields],
+            })
+        print(json_mod.dumps(catalog, indent=2, default=str))
+    else:
+        table = Table(
+            title="Available Node Types",
+            show_header=True,
+            header_style="bold magenta",
+            expand=True,
+        )
+        table.add_column("Node Type", style="green", ratio=1)
+        table.add_column("Category", min_width=10)
+        table.add_column("Description", style="dim", ratio=2)
+        table.add_column("Required Config", ratio=1)
+
+        for node_id, meta in sorted(all_nodes.items()):
+            fields = config_fields.get(node_id, ())
+            required = [f.key for f in fields if f.required]
+            table.add_row(
+                node_id,
+                str(meta.get("category", "")),
+                str(meta.get("description", "")),
+                ", ".join(required) if required else "[dim]none[/dim]",
+            )
+
+        console.print(table)
 
 
 # ---------------------------------------------------------------------------
@@ -424,3 +719,66 @@ def _get_available_workflows() -> list[Workflow]:
         return run_async(_fetch())
     except Exception as e:
         handle_cli_error(e, "Failed to load workflows")
+
+
+def _read_json_input(file: Path | None) -> str:
+    """Read JSON from --file path or stdin."""
+    if file is not None:
+        if not file.exists():
+            err_console.print(f"[red]Error: File not found: {file}[/red]")
+            raise typer.Exit(1)
+        return file.read_text(encoding="utf-8")
+    if sys.stdin.isatty():
+        err_console.print(
+            "[red]Error: No input. Use --file or pipe JSON via stdin.[/red]"
+        )
+        raise typer.Exit(1)
+    return sys.stdin.read()
+
+
+def _serialize_workflow_json(workflow: Workflow) -> str:
+    """Serialize a Workflow entity to JSON string for CLI output."""
+    import json as json_mod
+
+    from attrs import asdict
+
+    data = asdict(workflow)
+    return json_mod.dumps(data, indent=2, default=str)
+
+
+def _display_workflow_detail(workflow: Workflow) -> None:
+    """Display a single workflow's full definition in Rich panels."""
+    d = workflow.definition
+    type_badge = (
+        "[dim]template[/dim]" if workflow.is_template else "[cyan]custom[/cyan]"
+    )
+
+    header = (
+        f"[bold]{d.name}[/bold] {type_badge}\n"
+        f"[dim]{d.description}[/dim]\n"
+        f"[cyan]DB ID: {workflow.id} | Slug: {d.id} | Version: v{workflow.definition_version} | Tasks: {len(d.tasks)}[/cyan]"
+    )
+    console.print(Panel(header, title="Workflow Detail", border_style="green"))
+
+    # Task pipeline
+    table = Table(
+        title="Tasks",
+        show_header=True,
+        header_style="bold magenta",
+        expand=True,
+    )
+    table.add_column("ID", style="green")
+    table.add_column("Type")
+    table.add_column("Upstream", style="dim")
+    table.add_column("Config", style="dim", ratio=2)
+
+    for task in d.tasks:
+        config_summary = ", ".join(f"{k}={v!r}" for k, v in task.config.items())
+        table.add_row(
+            task.id,
+            task.type,
+            ", ".join(task.upstream) if task.upstream else "-",
+            config_summary or "-",
+        )
+
+    console.print(table)

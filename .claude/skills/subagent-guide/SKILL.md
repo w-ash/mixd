@@ -1,6 +1,6 @@
 ---
 name: subagent-guide
-description: When and how to use narada's specialized subagents — architecture-guardian, test-pyramid-architect, sqlalchemy-async-optimizer, log-diagnostician, react-architecture-specialist, vitest-strategy-architect. Use when delegating to subagents or choosing which agent to invoke.
+description: When and how to use narada's specialized subagents — architecture-guardian, test-pyramid-architect, sqlalchemy-async-optimizer, log-diagnostician, react-architecture-specialist, vitest-strategy-architect, workflow-manager. Use when delegating to subagents or choosing which agent to invoke.
 user-invocable: false
 ---
 
@@ -8,7 +8,7 @@ user-invocable: false
 
 Narada uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
 
-## Available Subagents (6 Total, 3 Active at a Time)
+## Available Subagents (7 Total, 3 Active at a Time)
 
 **Backend Agents**:
 1. **sqlalchemy-async-optimizer** - SQLAlchemy 2.0 async patterns, SQLite concurrency, N+1 query prevention
@@ -19,6 +19,9 @@ Narada uses specialized Claude Code subagents for deep technical expertise. Main
 **Frontend Agents** (v0.3.0+):
 5. **react-architecture-specialist** - React + TypeScript patterns, Tanstack Query, performance optimization
 6. **vitest-strategy-architect** - Vitest component testing, React Testing Library, Playwright E2E
+
+**Task Agents**:
+7. **workflow-manager** - Create, update, validate, and debug workflow definitions via `narada workflow` CLI
 
 ## Rotation Strategy (Maximize 3 Active)
 
@@ -95,6 +98,17 @@ Narada uses specialized Claude Code subagents for deep technical expertise. Main
 
 **Output**: Test strategy with component/integration split, mocking patterns, test case outlines
 
+### workflow-manager
+**Use when**:
+- User asks to create, update, or modify a workflow
+- Debugging a workflow definition (validation errors, missing enrichers)
+- Cloning a template workflow into a custom one
+- Building a new workflow from scratch based on user criteria
+
+**Example**: "Create a workflow that filters liked tracks unplayed for 3 months"
+
+**Output**: Validated workflow created in the database, ready to run
+
 ## Subagent Response Pattern
 
 All subagents follow this structure:
@@ -105,21 +119,37 @@ All subagents follow this structure:
 4. **Anticipate Issues** - Potential pitfalls, edge cases, testing considerations
 5. **Success Criteria** - How to verify the solution works correctly
 
-## Tool Scope (Read-Only by Default)
+## Agent Configuration
 
-| Agent | Read | Glob | Grep | Bash | Edit | Write |
-|-------|------|------|------|------|------|-------|
-| sqlalchemy-async-optimizer | Yes | Yes | Yes | Yes* | No | No |
-| architecture-guardian | Yes | Yes | Yes | No | No | No |
-| test-pyramid-architect | Yes | Yes | Yes | Yes* | No | No |
-| react-architecture-specialist | Yes | Yes | Yes | Yes* | No | No |
-| vitest-strategy-architect | Yes | Yes | Yes | Yes* | No | No |
+All agents use modern Claude Code frontmatter fields:
 
-**Bash restrictions**:
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `tools` | Tool allowlist | `Read, Glob, Grep, Bash` |
+| `maxTurns` | Upper bound on agent turns | `10` (prevents runaway agents) |
+| `skills` | Preload skills into agent context | `database-schema` |
+| `permissionMode` | Permission enforcement | `plan` (read-only) |
+| `memory` | Persistent cross-session memory | `project` (version-controlled) |
+
+### Tool Scope
+
+| Agent | Tools | maxTurns | Preloaded Skills | Special |
+|-------|-------|----------|-----------------|---------|
+| architecture-guardian | Read, Glob, Grep | 8 | subagent-guide | `permissionMode: plan` |
+| sqlalchemy-async-optimizer | Read, Glob, Grep, Bash* | 10 | database-schema | `memory: project` |
+| test-pyramid-architect | Read, Glob, Grep, Bash* | 12 | — | |
+| react-architecture-specialist | Read, Glob, Grep, Bash* | 10 | frontend-design, api-contracts | |
+| vitest-strategy-architect | Read, Glob, Grep, Bash* | 10 | api-contracts | |
+| log-diagnostician | Read, Glob, Grep, Bash* | 12 | — | |
+| workflow-manager | Read, Glob, Grep, Bash* | 15 | — | |
+
+**Bash restrictions** (agents with Bash* can only run specific commands):
 - sqlalchemy-async-optimizer: `sqlite3`, `alembic` (inspection only, no migrations)
 - test-pyramid-architect: `pytest` execution, coverage analysis
 - react-architecture-specialist: `vite build`, `vitest` execution
 - vitest-strategy-architect: `vitest`, `playwright test` execution
+- log-diagnostician: `jq`, `grep`, `sqlite3` (log analysis)
+- workflow-manager: `narada workflow *` commands only
 
 **Why read-only**: Subagents provide expert guidance, main agent implements with full context. This preserves:
 - Context awareness (main agent sees full picture)
