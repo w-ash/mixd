@@ -19,7 +19,7 @@ coerce_single_to_list  # @field_validator — called by Pydantic
 
 # --- FastAPI route handlers (registered via @router.get/post decorators) ---
 list_playlists  # FastAPI route
-backup  # FastAPI route
+backup  # Typer command
 backup_playlist  # FastAPI route
 show_track  # FastAPI route
 track_playlists  # FastAPI route
@@ -50,6 +50,19 @@ get_workflow_run  # FastAPI route
 list_workflow_versions  # FastAPI route
 get_workflow_version  # FastAPI route
 revert_workflow_version  # FastAPI route
+list_playlist_links  # FastAPI route
+create_playlist_link  # FastAPI route
+delete_playlist_link  # FastAPI route
+update_playlist_link  # FastAPI route
+preview_playlist_sync  # FastAPI route
+sync_playlist_link  # FastAPI route
+list_reviews  # FastAPI route
+resolve_review  # FastAPI route
+get_integrity_report  # FastAPI route
+get_matching_health  # FastAPI route
+merge_track  # FastAPI route
+relink_mapping  # FastAPI route
+unlink_mapping  # FastAPI route
 spa_catchall  # FastAPI catch-all for SPA routing
 run_server  # CLI entry point for uvicorn
 
@@ -69,6 +82,7 @@ history_main  # Typer command
 checkpoints_cmd  # Typer command
 likes_main  # Typer command
 workflow_main  # Typer command
+export  # Typer command (workflow export)
 
 # --- Rich renderable protocol ---
 render  # Rich __rich_console__ / render protocol
@@ -100,7 +114,7 @@ preserve_timestamps  # attrs field
 max_api_calls  # attrs field
 decision  # attrs field on WorkflowNodeSummary
 metric_value  # attrs field on WorkflowNodeSummary
-track_decisions  # attrs field
+node_details  # NodeResult TypedDict key
 source_count  # attrs field on Track
 source_playlist_name  # attrs field on Track
 factory_created  # attrs field
@@ -118,6 +132,11 @@ dependencies  # attrs field on connector protocol
 last_event_time  # attrs field on ProgressCoordinator
 lastfm_album_mbid  # attrs field in connector conversion
 lastfm_artist_mbid  # attrs field in connector conversion
+country_code  # attrs field on ISRCValidationResult
+registrant_code  # attrs field on ISRCValidationResult
+year  # attrs field on ISRCValidationResult
+designation_code  # attrs field on ISRCValidationResult
+attribute_name  # attrs field on probabilistic matcher
 
 # --- Pydantic model fields (serialization, not direct access) ---
 token_type  # Pydantic field on SpotifyTokenResponse
@@ -126,6 +145,22 @@ ean  # Pydantic field on SpotifyExternalIds
 upc  # Pydantic field on SpotifyExternalIds
 previous  # Pydantic field on SpotifyPaginatedResponse
 SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
+
+# --- MatchingConfig / MatchingSettings fields (attrs + Pydantic, accessed via config object) ---
+base_confidence_isrc  # MatchingConfig field
+base_confidence_mbid  # MatchingConfig field
+base_confidence_artist_title  # MatchingConfig field
+isrc_suspect_base_confidence  # MatchingConfig field
+threshold_isrc  # MatchingConfig field
+threshold_mbid  # MatchingConfig field
+threshold_artist_title  # MatchingConfig field
+threshold_default  # MatchingConfig field
+duration_missing_penalty  # MatchingConfig field
+duration_max_penalty  # MatchingConfig field
+duration_tolerance_ms  # MatchingConfig field
+duration_per_second_penalty  # MatchingConfig field
+title_max_penalty  # MatchingConfig field
+artist_max_penalty  # MatchingConfig field
 
 # --- Enum members (completeness of the enum, used externally or for display) ---
 STARTED  # ProgressStatus enum
@@ -142,6 +177,7 @@ REASON_END  # SpotifyExportField enum
 SHUFFLE  # SpotifyExportField enum
 OFFLINE  # SpotifyExportField enum
 INCOGNITO_MODE  # SpotifyExportField enum
+PULL  # SyncDirection enum
 
 # --- Protocol/interface methods (implementations called at runtime) ---
 save_node_record  # WorkflowRunRepositoryProtocol
@@ -149,11 +185,14 @@ get_latest_run_for_workflow  # WorkflowRunRepositoryProtocol
 delete_versions_for_workflow  # WorkflowVersionRepositoryProtocol
 get_connector_metadata  # ConnectorRepositoryProtocol
 error_classifier  # BaseAPIConnector property — Protocol contract
+enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
+find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
+validate_isrc_structure  # Domain matching function — tested, public API
+create_review  # MatchReviewRepositoryProtocol — called by match_and_identify use case
 
 # --- Test-only methods (public API exercised by tests, not yet consumed in prod) ---
 is_display_active  # RichProgressProvider property
 active_operation_count  # RichProgressProvider property
-enrich_track_with_lastfm_metadata  # LastFMOperations — tested, not yet consumed
 get_plays_by_batch  # PlaysRepository — tested in integration
 with_custom  # MetadataBuilder — tested
 build_dict  # MetadataBuilder — tested
@@ -180,6 +219,7 @@ RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 
 # --- Settings fields (used by Pydantic model construction) ---
 database  # NaradaSettings nested model field
+last_sync_started_at  # DB model column on DBPlaylistLink
 
 # --- Use case validators (used in attrs field(validator=...)) ---
 tracklist_or_connector_playlist  # attrs validator

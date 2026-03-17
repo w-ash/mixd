@@ -37,6 +37,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_loguru_logger()
     intercept_prefect_loggers()
 
+    from src.config import log_startup_warnings
+
+    log_startup_warnings()
+
     from src.application.services.progress_manager import get_progress_manager
     from src.interface.api.services.progress import (
         SSEProgressSubscriber,
@@ -170,10 +174,12 @@ def run_server() -> None:
     """Script entry point for `narada-api`."""
     import uvicorn
 
+    from src.config import settings
+
     uvicorn.run(
         "src.interface.api.app:app",
-        host="0.0.0.0",  # noqa: S104
-        port=8000,
+        host=settings.server.host,
+        port=settings.server.port,
         reload=True,
         reload_dirs=["src"],
         reload_includes=["*.py"],

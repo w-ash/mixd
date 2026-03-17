@@ -117,9 +117,7 @@ The `execute_use_case[TResult]()` function in `application/runner.py` is the sin
 
 ```python
 # Both CLI and FastAPI use the same runner
-result = await execute_use_case(
-    lambda uow: ImportTracksUseCase(uow).execute(command)
-)
+result = await execute_use_case(lambda uow: ImportTracksUseCase(uow).execute(command))
 
 # CLI wraps this in run_async() for sync Typer commands
 # FastAPI calls execute_use_case() directly (natively async)
@@ -144,6 +142,7 @@ class UnitOfWorkProtocol(Protocol):
     def get_track_repository(self) -> TrackRepository: ...
     def get_playlist_repository(self) -> PlaylistRepository: ...
 
+
 # Application layer usage
 class SyncPlaylistUseCase:
     async def execute(self, command: SyncPlaylistCommand, uow: UnitOfWorkProtocol):
@@ -153,7 +152,9 @@ class SyncPlaylistUseCase:
 
             # Orchestrate business process
             current_playlist = await playlist_repo.get_by_id(command.playlist_id)
-            updated_tracks = await self._apply_sync_changes(current_playlist, command.changes)
+            updated_tracks = await self._apply_sync_changes(
+                current_playlist, command.changes
+            )
             validated_tracks = self._validate_sync_rules(updated_tracks)
 
             # Application decides transaction outcome
@@ -251,11 +252,15 @@ Declarative transformation pipelines.
 ```python
 # JSON workflow definition
 {
-  "tasks": [
-    {"type": "source.spotify_playlist", "config": {"playlist_id": "..."}},
-    {"type": "enricher.lastfm", "upstream": ["source"]},
-    {"type": "sorter.by_metric", "config": {"metric": "play_count"}, "upstream": ["enricher"]}
-  ]
+    "tasks": [
+        {"type": "source.spotify_playlist", "config": {"playlist_id": "..."}},
+        {"type": "enricher.lastfm", "upstream": ["source"]},
+        {
+            "type": "sorter.by_metric",
+            "config": {"metric": "play_count"},
+            "upstream": ["enricher"],
+        },
+    ]
 }
 ```
 
@@ -268,9 +273,7 @@ Declarative transformation pipelines.
 # application/runner.py — both interfaces use this
 from src.application.runner import execute_use_case
 
-result = await execute_use_case(
-    lambda uow: SyncLikesUseCase(uow).execute(command)
-)
+result = await execute_use_case(lambda uow: SyncLikesUseCase(uow).execute(command))
 ```
 
 #### CLI Sync-to-Async Bridge
@@ -319,6 +322,7 @@ class MatchProvider(Protocol):
 
     @property
     def service_name(self) -> str: ...
+
 
 # Service-specific implementations
 # - src/infrastructure/connectors/spotify/matching_provider.py

@@ -19,7 +19,7 @@ app = typer.Typer(
     help=f"🎵 Narada v{VERSION} - Your personal music integration platform",
     no_args_is_help=True,
     rich_markup_mode="rich",
-    add_completion=False,
+    add_completion=True,
     pretty_exceptions_enable=True,
     pretty_exceptions_short=True,
     pretty_exceptions_show_locals=False,
@@ -42,6 +42,10 @@ def init_cli(
     """Initialize Narada CLI with Rich console management."""
     setup_loguru_logger(verbose)
     Path("data").mkdir(exist_ok=True)
+
+    from src.config import log_startup_warnings
+
+    log_startup_warnings()
 
 
 def _register_commands() -> None:

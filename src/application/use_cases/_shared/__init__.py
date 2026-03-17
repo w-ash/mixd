@@ -20,6 +20,7 @@ from src.application.use_cases._shared.playlist_results import (
     ApiMetadata,
     AppendOperationResult,
     OperationCounts,
+    build_playlist_changes,
 )
 from src.application.use_cases._shared.playlist_validator import (
     classify_connector_api_error,
@@ -32,6 +33,7 @@ __all__ = [
     "AppendOperationResult",
     "OperationCounts",
     "build_api_execution_metadata",
+    "build_playlist_changes",
     "classify_connector_api_error",
     "classify_database_error",
     "count_operation_types",

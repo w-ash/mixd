@@ -17,9 +17,7 @@ def lastfm_client() -> LastFMAPIClient:
 
     Tests needing custom settings or retry behaviour should build their own client.
     """
-    with patch(
-        "src.infrastructure.connectors.lastfm.client.settings"
-    ) as mock_settings:
+    with patch("src.infrastructure.connectors.lastfm.client.settings") as mock_settings:
         mock_settings.credentials.lastfm_key = "test_key"
         mock_settings.credentials.lastfm_secret.get_secret_value.return_value = (
             "test_secret"

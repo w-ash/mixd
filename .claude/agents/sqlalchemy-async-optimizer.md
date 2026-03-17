@@ -115,9 +115,7 @@ When consulted, follow this structure:
    ```python
    # Example repository method
    async def get_tracks_with_metrics(
-       self,
-       session: AsyncSession,
-       track_ids: list[UUID]
+       self, session: AsyncSession, track_ids: list[UUID]
    ) -> list[TrackModel]:
        result = await session.execute(
            select(TrackModel)

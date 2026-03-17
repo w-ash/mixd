@@ -237,9 +237,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return {str(row[0]): int(row[1]) for row in result.fetchall()}
 
     @db_operation("get_full_mappings_for_track")
-    async def get_full_mappings_for_track(
-        self, track_id: int
-    ) -> list[FullMappingInfo]:
+    async def get_full_mappings_for_track(self, track_id: int) -> list[FullMappingInfo]:
         """Get all mappings for a track with joined connector track metadata."""
         stmt = (
             select(
@@ -258,7 +256,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 DBTrackMapping.connector_track_id == DBConnectorTrack.id,
             )
             .where(DBTrackMapping.track_id == track_id)
-            .order_by(DBTrackMapping.is_primary.desc(), DBTrackMapping.confidence.desc())
+            .order_by(
+                DBTrackMapping.is_primary.desc(), DBTrackMapping.confidence.desc()
+            )
         )
         result = await self.session.execute(stmt)
         return [
@@ -462,7 +462,8 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
             if manual_override_ct_ids:
                 mapping_data = [
-                    d for d in mapping_data
+                    d
+                    for d in mapping_data
                     if d["connector_track_id"] not in manual_override_ct_ids
                 ]
 
@@ -789,9 +790,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return await TrackMappingMapper.to_domain(row)
 
     @db_operation("count_mappings_for_connector_track")
-    async def count_mappings_for_connector_track(
-        self, connector_track_id: int
-    ) -> int:
+    async def count_mappings_for_connector_track(self, connector_track_id: int) -> int:
         """Count remaining mappings for a given connector track."""
         result = await self.session.execute(
             select(func.count())
@@ -814,8 +813,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
             .order_by(DBTrackMapping.confidence.desc())
         )
         return [
-            await TrackMappingMapper.to_domain(row)
-            for row in result.scalars().all()
+            await TrackMappingMapper.to_domain(row) for row in result.scalars().all()
         ]
 
     @db_operation("get_connector_track_by_id")
@@ -848,7 +846,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
             return
         # Promote highest-confidence mapping
         best = remaining[0]
-        await self.set_primary_mapping(track_id, connector_name, best.connector_track_id)
+        await self.set_primary_mapping(
+            track_id, connector_name, best.connector_track_id
+        )
         # Sync denormalized ID column
         ct_result = await self.session.execute(
             select(DBConnectorTrack.connector_track_identifier).where(
@@ -1126,7 +1126,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
             select(
                 DBTrackMapping.track_id,
                 DBTrackMapping.connector_name,
-                func.sum(DBTrackMapping.is_primary.cast(Integer)).label("primary_count"),
+                func.sum(DBTrackMapping.is_primary.cast(Integer)).label(
+                    "primary_count"
+                ),
             )
             .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
             .having(func.sum(DBTrackMapping.is_primary.cast(Integer)) > 1)
@@ -1198,9 +1200,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 DBTrackMapping.match_method,
                 DBTrackMapping.connector_name,
                 func.count().label("total_count"),
-                func.count(
-                    case((DBTrackMapping.created_at >= recent_cutoff, 1))
-                ).label("recent_count"),
+                func.count(case((DBTrackMapping.created_at >= recent_cutoff, 1))).label(
+                    "recent_count"
+                ),
                 func.avg(DBTrackMapping.confidence).label("avg_confidence"),
                 func.min(DBTrackMapping.confidence).label("min_confidence"),
                 func.max(DBTrackMapping.confidence).label("max_confidence"),

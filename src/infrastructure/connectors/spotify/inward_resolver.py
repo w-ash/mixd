@@ -127,9 +127,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         return await super().resolve_to_canonical_tracks(connector_ids, uow)
 
     @override
-    def _extract_reuse_metadata(
-        self, identifier: str
-    ) -> ReuseMetadata | None:
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
         """Extract artist+title from fallback hints for canonical reuse."""
         hint = self._fallback_hints.get(identifier)
         if not hint:
@@ -138,7 +136,10 @@ class SpotifyInwardResolver(InwardTrackResolver):
             artist=hint.artist_name,
             title=hint.track_name,
             connector_id=identifier,
-            lookup_pair=(hint.track_name.strip().lower(), hint.artist_name.strip().lower()),
+            lookup_pair=(
+                hint.track_name.strip().lower(),
+                hint.artist_name.strip().lower(),
+            ),
         )
 
     # Map from primary match method to its stale-ID variant

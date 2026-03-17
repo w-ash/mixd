@@ -16,6 +16,7 @@ from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
+    ProgressCallback,
     ProviderMatchResult,
     RawProviderMatch,
 )
@@ -81,6 +82,7 @@ class BaseMatchingProvider(ABC):
     async def fetch_raw_matches_for_tracks(
         self,
         tracks: list[Track],
+        progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
     ) -> ProviderMatchResult:
         """Orchestrate matching workflow using template method pattern.
@@ -94,6 +96,8 @@ class BaseMatchingProvider(ABC):
 
         Args:
             tracks: Tracks to match against external service.
+            progress_callback: Optional async callback invoked with
+                (completed_count, total, description) after each matching phase.
             **additional_options: Additional options (acknowledged but unused).
 
         Returns:
@@ -105,8 +109,10 @@ class BaseMatchingProvider(ABC):
         if not tracks:
             return ProviderMatchResult()
 
+        total = len(tracks)
+
         with logger.contextualize(
-            operation=f"match_{self.service_name}", track_count=len(tracks)
+            operation=f"match_{self.service_name}", track_count=total
         ):
             # Partition tracks by matching method
             isrc_tracks, artist_title_tracks, unprocessable_tracks = (
@@ -126,11 +132,20 @@ class BaseMatchingProvider(ABC):
                 if t.id
             ]
 
+            completed = len(unprocessable_tracks)
+
             # Process ISRC tracks
             isrc_matches: dict[int, RawProviderMatch] = {}
             isrc_failures: list[MatchFailure] = []
             if isrc_tracks:
                 isrc_matches, isrc_failures = await self._match_by_isrc(isrc_tracks)
+                completed += len(isrc_tracks)
+                if progress_callback is not None:
+                    await progress_callback(
+                        completed,
+                        total,
+                        f"ISRC matching complete ({len(isrc_matches)} matched)",
+                    )
 
             # Fallback: failed ISRC tracks with valid artist/title get a second chance
             failed_isrc_tracks = [
@@ -156,6 +171,13 @@ class BaseMatchingProvider(ABC):
                     artist_title_matches,
                     artist_title_failures,
                 ) = await self._match_by_artist_title(remaining_tracks)
+                completed += len(remaining_tracks)
+                if progress_callback is not None:
+                    await progress_callback(
+                        completed,
+                        total,
+                        f"Artist/title matching complete ({len(artist_title_matches)} matched)",
+                    )
 
             # Merge all results
             all_matches = {**isrc_matches, **artist_title_matches}

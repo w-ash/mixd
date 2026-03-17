@@ -82,15 +82,20 @@ export function formatNodeTypeName(nodeType: string): string {
   return nodeType.split(".").pop()?.replace(/_/g, " ") ?? nodeType;
 }
 
-/** Per-track audit record from backend TrackDecision. */
-export interface TrackDecision {
+/** Lightweight track summary for playlist change evidence. */
+export interface PlaylistChangeTrack {
   track_id: number;
   title: string;
   artists: string;
-  decision: "kept" | "removed" | "added";
-  reason: string;
-  metric_name?: string | null;
-  metric_value?: number | null;
-  threshold?: number | null;
-  rank?: number | null;
+}
+
+/** Evidence of what changed in a playlist destination node. */
+export interface PlaylistChanges {
+  tracks_added: PlaylistChangeTrack[];
+  tracks_removed: PlaylistChangeTrack[];
+  tracks_added_total?: number;
+  tracks_removed_total?: number;
+  tracks_moved: number;
+  playlist_id: string;
+  connector?: string | null;
 }

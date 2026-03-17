@@ -331,9 +331,7 @@ class APIExecutionStrategy:
 
         logger.debug(
             f"Adjusting {len(move_ops)} move operations for {len(removed_positions)} removals",
-            removed_positions=removed_positions[
-                : _DEBUG_TRUNCATION
-            ]
+            removed_positions=removed_positions[:_DEBUG_TRUNCATION]
             if len(removed_positions) > _DEBUG_TRUNCATION
             else removed_positions,
         )

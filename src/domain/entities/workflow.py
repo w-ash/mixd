@@ -14,26 +14,6 @@ from attrs import define, field
 
 NodeExecutionStatus = Literal["completed", "failed", "skipped", "degraded"]
 RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
-TrackDecisionType = Literal["kept", "removed", "added"]
-
-
-@define(frozen=True, slots=True)
-class TrackDecision:
-    """Per-track audit record explaining why a node kept, removed, or added a track.
-
-    Generated at the node factory level (not in pure domain transforms) by diffing
-    input vs output tracklists. Persisted as JSON in ``workflow_run_nodes.node_details``.
-    """
-
-    track_id: int
-    title: str
-    artists: str  # comma-joined
-    decision: TrackDecisionType
-    reason: str
-    metric_name: str | None = None
-    metric_value: float | None = None
-    threshold: float | None = None
-    rank: int | None = None
 
 
 @define(frozen=True, slots=True)

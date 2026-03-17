@@ -4,7 +4,7 @@ Tests the identity resolution pipeline: existing mapping lookup, raw match
 fetching, domain evaluation, and mapping persistence.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -162,7 +162,6 @@ class TestMatchAndIdentifyTracksUseCase:
 
         # The evaluation service is internal to the use case; we need to
         # patch it at class level due to slots=True
-        from unittest.mock import patch
 
         from src.domain.matching.types import EvaluationResult
 
@@ -241,3 +240,173 @@ class TestMatchAndIdentifyTracksUseCase:
 
         assert result.track_count == 3  # All tracks counted
         assert result.resolved_count == 2  # Only valid tracks resolved
+
+
+class TestMatchAndIdentifyTracksProgress:
+    """Test progress reporting integration in the use case."""
+
+    async def test_creates_sub_operation_when_progress_manager_provided(
+        self, mock_uow, mock_connector
+    ):
+        """Use case creates a matching sub-operation and completes it on success."""
+        tracks = [make_track(1), make_track(2)]
+        tracklist = TrackList(tracks=tracks)
+
+        identity_service = mock_uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.return_value = {}
+
+        mock_progress = AsyncMock()
+        mock_progress.start_operation = AsyncMock(return_value="sub-op-1")
+        mock_progress.emit_progress = AsyncMock()
+        mock_progress.complete_operation = AsyncMock()
+
+        command = MatchAndIdentifyTracksCommand(
+            tracklist=tracklist,
+            connector="spotify",
+            connector_instance=mock_connector,
+            progress_manager=mock_progress,
+            parent_operation_id="parent-op-1",
+        )
+
+        from src.domain.matching.types import EvaluationResult
+
+        evaluation = EvaluationResult(accepted={}, review_candidates={})
+
+        use_case = MatchAndIdentifyTracksUseCase()
+        with patch.object(
+            MatchAndIdentifyTracksUseCase,
+            "_evaluation_service",
+            create=True,
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, mock_uow)
+
+        assert not result.errors
+
+        # Verify sub-operation was started
+        mock_progress.start_operation.assert_called_once()
+        start_op_args = mock_progress.start_operation.call_args.args[0]
+        assert start_op_args.description == "Matching tracks to spotify"
+        assert start_op_args.total_items == 2
+
+        # Verify sub-operation was completed
+        mock_progress.complete_operation.assert_called_once()
+
+        # Verify progress_callback was passed to get_raw_external_matches
+        call_kwargs = identity_service.get_raw_external_matches.call_args.kwargs
+        assert call_kwargs["progress_callback"] is not None
+
+    async def test_no_sub_operation_without_progress_manager(
+        self, mock_uow, mock_connector
+    ):
+        """Use case does not create sub-operations when progress_manager is None."""
+        tracks = [make_track(1)]
+        tracklist = TrackList(tracks=tracks)
+
+        identity_service = mock_uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.return_value = {}
+
+        command = MatchAndIdentifyTracksCommand(
+            tracklist=tracklist,
+            connector="spotify",
+            connector_instance=mock_connector,
+            # No progress_manager or parent_operation_id
+        )
+
+        from src.domain.matching.types import EvaluationResult
+
+        evaluation = EvaluationResult(accepted={}, review_candidates={})
+
+        use_case = MatchAndIdentifyTracksUseCase()
+        with patch.object(
+            MatchAndIdentifyTracksUseCase,
+            "_evaluation_service",
+            create=True,
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, mock_uow)
+
+        assert not result.errors
+
+        # Verify progress_callback was None (no progress_manager provided)
+        call_kwargs = identity_service.get_raw_external_matches.call_args.kwargs
+        assert call_kwargs["progress_callback"] is None
+
+    async def test_sub_operation_completed_as_failed_on_error(
+        self, mock_uow, mock_connector
+    ):
+        """Sub-operation is marked as failed when matching raises an exception."""
+        tracks = [make_track(1)]
+        tracklist = TrackList(tracks=tracks)
+
+        identity_service = mock_uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.side_effect = RuntimeError(
+            "API error"
+        )
+
+        mock_progress = AsyncMock()
+        mock_progress.start_operation = AsyncMock(return_value="sub-op-fail")
+        mock_progress.emit_progress = AsyncMock()
+        mock_progress.complete_operation = AsyncMock()
+
+        command = MatchAndIdentifyTracksCommand(
+            tracklist=tracklist,
+            connector="lastfm",
+            connector_instance=mock_connector,
+            progress_manager=mock_progress,
+            parent_operation_id="parent-op-2",
+        )
+
+        use_case = MatchAndIdentifyTracksUseCase()
+        result = await use_case.execute(command, mock_uow)
+
+        # Error should be captured in result
+        assert len(result.errors) == 1
+        assert "API error" in result.errors[0]
+
+        # Sub-operation was started
+        mock_progress.start_operation.assert_called_once()
+
+        # Sub-operation was completed as FAILED
+        from src.domain.entities.progress import OperationStatus
+
+        mock_progress.complete_operation.assert_called_once()
+        complete_args = mock_progress.complete_operation.call_args.args
+        assert complete_args[0] == "sub-op-fail"
+        assert complete_args[1] == OperationStatus.FAILED
+
+    async def test_no_sub_operation_when_all_tracks_already_mapped(
+        self, mock_uow, mock_connector
+    ):
+        """No sub-operation is created when all tracks already have mappings."""
+        tracks = [make_track(1)]
+        tracklist = TrackList(tracks=tracks)
+
+        identity_service = mock_uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {
+            1: MagicMock(),
+        }
+
+        mock_progress = AsyncMock()
+        mock_progress.start_operation = AsyncMock(return_value="sub-op-unused")
+
+        command = MatchAndIdentifyTracksCommand(
+            tracklist=tracklist,
+            connector="spotify",
+            connector_instance=mock_connector,
+            progress_manager=mock_progress,
+            parent_operation_id="parent-op-3",
+        )
+
+        use_case = MatchAndIdentifyTracksUseCase()
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.resolved_count == 1
+        assert not result.errors
+
+        # No sub-operation created because all tracks were already mapped
+        mock_progress.start_operation.assert_not_called()
+        identity_service.get_raw_external_matches.assert_not_called()

@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from src.domain.entities import Track
 from src.domain.repositories import UnitOfWorkProtocol
 
-from .types import ProviderMatchResult
+from .types import ProgressCallback, ProviderMatchResult
 
 
 class MatchProvider(Protocol):
@@ -28,12 +28,15 @@ class MatchProvider(Protocol):
     async def fetch_raw_matches_for_tracks(
         self,
         tracks: list[Track],
+        progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
     ) -> ProviderMatchResult:
         """Fetch raw matches for tracks from external service.
 
         Args:
             tracks: Internal Track objects to match
+            progress_callback: Optional async callback invoked with
+                (completed_count, total, description) after each matching phase.
             **additional_options: Provider-specific options
 
         Returns:

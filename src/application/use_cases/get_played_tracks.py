@@ -33,7 +33,7 @@ class GetPlayedTracksCommand:
     """Parameters for retrieving tracks from listening history.
 
     Attributes:
-        limit: Maximum number of tracks to return (1-10000).
+        limit: Maximum number of tracks to return.
         days_back: Number of days to look back for plays (None for all time).
         connector_filter: Filter by music service ("spotify", "lastfm", etc.).
         sort_by: Sort order ("played_at_desc", "total_plays_desc", "title_asc", etc.).
@@ -41,8 +41,8 @@ class GetPlayedTracksCommand:
     """
 
     limit: int = field(
-        default=10000,
-        validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
+        default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
+        validator=positive_int_in_range(),
     )
     days_back: int | None = field(default=None, validator=optional_positive_int)
     connector_filter: str | None = (
@@ -68,11 +68,13 @@ class GetPlayedTracksResult:
 
     Attributes:
         tracklist: Retrieved tracks with play count metadata.
+        total_available: Total tracks before limit was applied.
         execution_time_ms: How long the operation took in milliseconds.
         errors: Any errors that occurred during retrieval.
     """
 
     tracklist: TrackList
+    total_available: int = 0
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
@@ -122,10 +124,11 @@ class GetPlayedTracksUseCase:
 
         async with uow:
             try:
-                tracklist = await self._get_played_tracks(command, uow)
+                tracklist, total_available = await self._get_played_tracks(command, uow)
 
                 result = GetPlayedTracksResult(
                     tracklist=tracklist,
+                    total_available=total_available,
                     execution_time_ms=timer.stop(),
                 )
 
@@ -151,7 +154,7 @@ class GetPlayedTracksUseCase:
 
     async def _get_played_tracks(
         self, command: GetPlayedTracksCommand, uow: UnitOfWorkProtocol
-    ) -> TrackList:
+    ) -> tuple[TrackList, int]:
         """Queries database for tracks matching the search criteria.
 
         Args:
@@ -159,7 +162,7 @@ class GetPlayedTracksUseCase:
             uow: Database connection manager.
 
         Returns:
-            TrackList with found tracks and play count metadata.
+            Tuple of (TrackList with play count metadata, total available before limit).
         """
         plays_repo = uow.get_plays_repository()
         track_repo = uow.get_track_repository()
@@ -192,6 +195,7 @@ class GetPlayedTracksUseCase:
             })
 
         # Apply limit
+        total_available = len(track_ids)
         if len(track_ids) > command.limit:
             track_ids = track_ids[: command.limit]
 
@@ -225,4 +229,4 @@ class GetPlayedTracksUseCase:
             ),
         )
 
-        return tracklist
+        return tracklist, total_available

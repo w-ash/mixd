@@ -272,18 +272,14 @@ class TestDeduplicateCrossSourcePlays:
             _make_play(service="spotify", ms_played=240000),
             _make_play(service="lastfm", ms_played=None),
         ]
-        result = deduplicate_cross_source_plays(
-            new_plays=plays, existing_plays=[]
-        )
+        result = deduplicate_cross_source_plays(new_plays=plays, existing_plays=[])
         assert len(result.plays_to_insert) == 2
         assert len(result.suppressed_plays) == 0
 
     def test_null_track_id_passes_through(self):
         """Plays with no track_id should pass through to insert."""
         play = _make_play(track_id=None, service="spotify")  # type: ignore[arg-type]
-        result = deduplicate_cross_source_plays(
-            new_plays=[play], existing_plays=[]
-        )
+        result = deduplicate_cross_source_plays(new_plays=[play], existing_plays=[])
         assert len(result.plays_to_insert) == 1
         assert result.stats.get("no_track_id", 0) == 1
 

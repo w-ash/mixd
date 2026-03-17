@@ -46,15 +46,6 @@ class TrackMatchEvaluationService:
 
     config: MatchingConfig
 
-    def _get_threshold(self, match_method: str) -> int:
-        """Look up legacy acceptance threshold for a match method."""
-        thresholds = {
-            "isrc": self.config.threshold_isrc,
-            "mbid": self.config.threshold_mbid,
-            "artist_title": self.config.threshold_artist_title,
-        }
-        return thresholds.get(match_method, self.config.threshold_default)
-
     def should_accept_match(self, confidence: int, match_method: str) -> bool:
         """Business rule: auto-accept if above the upper threshold.
 

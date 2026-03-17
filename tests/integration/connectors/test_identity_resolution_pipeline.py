@@ -137,9 +137,9 @@ class TestSpotifyISRCDedup:
 
         # Verify connector mapping was created with ISRC_MATCH method
         connector_repo = uow.get_connector_repository()
-        mappings = await connector_repo.find_tracks_by_connectors(
-            [("spotify", "new_spotify_id_456")]
-        )
+        mappings = await connector_repo.find_tracks_by_connectors([
+            ("spotify", "new_spotify_id_456")
+        ])
         assert ("spotify", "new_spotify_id_456") in mappings
 
     async def test_creates_new_track_when_isrc_not_in_db(
@@ -225,16 +225,14 @@ class TestCrossDiscoveryISRCCollision:
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        result = await provider.attempt_discovery(
-            track_b, "Radiohead", "Creep", uow
-        )
+        result = await provider.attempt_discovery(track_b, "Radiohead", "Creep", uow)
 
         assert result is True
 
         # Verify the mapping was created on Track A (ISRC owner), NOT Track B
-        mappings = await uow.get_connector_repository().find_tracks_by_connectors(
-            [("spotify", "sp_different_release")]
-        )
+        mappings = await uow.get_connector_repository().find_tracks_by_connectors([
+            ("spotify", "sp_different_release")
+        ])
         assert ("spotify", "sp_different_release") in mappings
         mapped_track = mappings["spotify", "sp_different_release"]
         assert mapped_track.id == track_a.id

@@ -56,18 +56,12 @@ class TestThreeZoneClassification:
         assert self.service.should_review_match(config.review_threshold, "isrc")
 
     def test_below_review_threshold_is_rejected(self):
-        assert not self.service.should_review_match(
-            config.review_threshold - 1, "isrc"
-        )
-        assert not self.service.should_accept_match(
-            config.review_threshold - 1, "isrc"
-        )
+        assert not self.service.should_review_match(config.review_threshold - 1, "isrc")
+        assert not self.service.should_accept_match(config.review_threshold - 1, "isrc")
 
     def test_at_auto_accept_is_accepted_not_review(self):
         """Exactly at auto_accept_threshold should be accepted, not review."""
-        assert self.service.should_accept_match(
-            config.auto_accept_threshold, "isrc"
-        )
+        assert self.service.should_accept_match(config.auto_accept_threshold, "isrc")
         assert not self.service.should_review_match(
             config.auto_accept_threshold, "isrc"
         )

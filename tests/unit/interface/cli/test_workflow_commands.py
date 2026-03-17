@@ -4,7 +4,8 @@ Tests that workflow list and run commands use database-backed use cases
 rather than file-based workflow loading.
 """
 
-from unittest.mock import AsyncMock, patch
+import json
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -24,11 +25,21 @@ _TEMPLATES = [
     ),
     make_workflow(
         id=2,
-        definition=make_workflow_def(id="current_obsessions", name="Current Obsessions"),
+        definition=make_workflow_def(
+            id="current_obsessions", name="Current Obsessions"
+        ),
         is_template=True,
         source_template="current_obsessions",
     ),
 ]
+
+_CUSTOM = make_workflow(
+    id=3,
+    definition=make_workflow_def(id="my_mix", name="My Mix"),
+    is_template=False,
+)
+
+_MIXED = [*_TEMPLATES, _CUSTOM]
 
 
 def _mock_list_result() -> ListWorkflowsResult:
@@ -124,3 +135,115 @@ class TestWorkflowRun:
 
             assert result.exit_code == 1
             assert "not found" in result.output
+
+
+class TestWorkflowExport:
+    """Tests for workflow export command."""
+
+    def test_export_requires_all_or_id(self):
+        """Must provide --all or --id."""
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(app, ["workflow", "export"])
+
+            assert result.exit_code == 1
+            assert "Provide either --all or --id" in result.output
+
+    def test_export_all_and_id_mutually_exclusive(self):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "export", "--all", "--id", "my_mix"]
+            )
+
+            assert result.exit_code == 1
+            assert "mutually exclusive" in result.output
+
+    def test_export_all_writes_non_template_workflows(self, tmp_path):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "export", "--all", "-o", str(tmp_path)]
+            )
+
+            assert result.exit_code == 0
+            assert "Exported 1 workflow(s)" in result.output
+
+            exported = tmp_path / "my_mix.json"
+            assert exported.exists()
+            data = json.loads(exported.read_text())
+            assert data["definition"]["name"] == "My Mix"
+
+            # Templates should NOT be exported
+            assert not (tmp_path / "hidden_gems.json").exists()
+            assert not (tmp_path / "current_obsessions.json").exists()
+
+    def test_export_by_id(self, tmp_path):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "export", "--id", "my_mix", "-o", str(tmp_path)]
+            )
+
+            assert result.exit_code == 0
+            assert "Exported 1 workflow(s)" in result.output
+
+            exported = tmp_path / "my_mix.json"
+            assert exported.exists()
+            data = json.loads(exported.read_text())
+            assert data["definition"]["id"] == "my_mix"
+
+    def test_export_by_numeric_id(self, tmp_path):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "export", "--id", "3", "-o", str(tmp_path)]
+            )
+
+            assert result.exit_code == 0
+            exported = tmp_path / "my_mix.json"
+            assert exported.exists()
+
+    def test_export_unknown_id_exits_with_error(self):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(app, ["workflow", "export", "--id", "nonexistent"])
+
+            assert result.exit_code == 1
+            assert "not found" in result.output
+
+    def test_export_all_only_templates_shows_message(self):
+        """When --all is used but only template workflows exist."""
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_TEMPLATES,
+        ):
+            result = runner.invoke(app, ["workflow", "export", "--all"])
+
+            assert result.exit_code == 0
+            assert "No non-template workflows" in result.output
+
+    def test_export_creates_output_dir(self, tmp_path):
+        nested = tmp_path / "subdir" / "exports"
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=_MIXED,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "export", "--id", "my_mix", "-o", str(nested)]
+            )
+
+            assert result.exit_code == 0
+            assert (nested / "my_mix.json").exists()

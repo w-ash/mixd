@@ -211,8 +211,7 @@ def calculate_confidence(
             artist_is_phonetic = True
         else:
             artist_similarity = (
-                fuzz.token_sort_ratio(internal_artist_norm, service_artist_norm)
-                / 100.0
+                fuzz.token_sort_ratio(internal_artist_norm, service_artist_norm) / 100.0
             )
 
     artist_level = classify_artist(

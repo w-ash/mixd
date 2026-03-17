@@ -15,6 +15,7 @@ Follow these 5 steps to add a new connector. Each step creates one file in `src/
 class NewServiceBaseModel(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
+
 class NewServiceTrack(NewServiceBaseModel):
     id: str
     name: str
@@ -42,6 +43,7 @@ class NewServiceConnector(BaseAPIConnector):
 
     def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
         from .conversions import convert_new_service_track
+
         return convert_new_service_track(track_data)
 ```
 

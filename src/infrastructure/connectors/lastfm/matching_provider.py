@@ -19,6 +19,7 @@ from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
+    ProgressCallback,
     ProviderMatchResult,
     RawProviderMatch,
 )
@@ -59,12 +60,15 @@ class LastFMProvider:
     async def fetch_raw_matches_for_tracks(
         self,
         tracks: list[Track],
+        progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
     ) -> ProviderMatchResult:
         """Fetch raw track matches from LastFM.
 
         Args:
             tracks: Tracks to match against LastFM catalog.
+            progress_callback: Optional async callback invoked with
+                (completed_count, total, description) after matching completes.
             **additional_options: Additional options (unused).
 
         Returns:
@@ -144,6 +148,14 @@ class LastFMProvider:
                     )
                     for track in tracks
                     if track.id
+                )
+
+            # Report progress after batch processing
+            if progress_callback is not None:
+                await progress_callback(
+                    len(tracks),
+                    len(tracks),
+                    f"LastFM batch matching complete ({len(matches)} matched)",
                 )
 
             # Log summary

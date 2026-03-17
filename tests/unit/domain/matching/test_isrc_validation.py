@@ -8,10 +8,8 @@ import pytest
 
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
-    find_isrc_collisions,
     validate_isrc_structure,
 )
-from tests.fixtures import make_track
 
 
 class TestValidateISRCStructure:
@@ -108,51 +106,3 @@ class TestAssessISRCMatchReliability:
     def test_zero_duration_diff_is_not_suspect(self):
         result = assess_isrc_match_reliability(0)
         assert result.suspect is False
-
-
-class TestFindISRCCollisions:
-    """Test ISRC collision detection for data integrity monitoring."""
-
-    def test_no_collisions(self):
-        tracks = [
-            make_track(id=1, isrc="USRC17607839"),
-            make_track(id=2, isrc="GBAYE0000351"),
-            make_track(id=3, isrc="FRUM71500001"),
-        ]
-        assert find_isrc_collisions(tracks) == {}
-
-    def test_detects_collision(self):
-        shared_isrc = "USRC17607839"
-        tracks = [
-            make_track(id=1, isrc=shared_isrc),
-            make_track(id=2, isrc=shared_isrc),
-            make_track(id=3, isrc="GBAYE0000351"),
-        ]
-        collisions = find_isrc_collisions(tracks)
-        assert shared_isrc in collisions
-        assert len(collisions[shared_isrc]) == 2
-
-    def test_multiple_collision_groups(self):
-        tracks = [
-            make_track(id=1, isrc="AAA"),
-            make_track(id=2, isrc="AAA"),
-            make_track(id=3, isrc="BBB"),
-            make_track(id=4, isrc="BBB"),
-            make_track(id=5, isrc="BBB"),
-            make_track(id=6, isrc="CCC"),
-        ]
-        collisions = find_isrc_collisions(tracks)
-        assert len(collisions) == 2
-        assert len(collisions["AAA"]) == 2
-        assert len(collisions["BBB"]) == 3
-
-    def test_tracks_without_isrc_ignored(self):
-        tracks = [
-            make_track(id=1, isrc=None),
-            make_track(id=2, isrc=None),
-            make_track(id=3, isrc="USRC17607839"),
-        ]
-        assert find_isrc_collisions(tracks) == {}
-
-    def test_empty_list(self):
-        assert find_isrc_collisions([]) == {}

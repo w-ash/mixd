@@ -419,6 +419,16 @@ class MatchingConfig(BaseModel):
 class ServerConfig(BaseModel):
     """HTTP server and middleware configuration."""
 
+    host: str = Field(
+        default="0.0.0.0",  # noqa: S104
+        description="Server bind address. Use 0.0.0.0 for all interfaces (Docker), 127.0.0.1 for local only.",
+    )
+    port: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+        description="Server port.",
+    )
     cors_origins: list[str] = Field(
         default=["http://localhost:5173"],
         description="Allowed CORS origins. Defaults to Vite dev server. Add production domains when deploying.",
@@ -506,6 +516,8 @@ class Settings(BaseSettings):
         "lastfm_username": ("credentials", None),
         "lastfm_password": ("credentials", None),
         # Server
+        "server_host": ("server", "host"),
+        "server_port": ("server", "port"),
         "cors_origins": ("server", None),
     }
 
@@ -539,6 +551,35 @@ settings = Settings()
 settings.data_dir.mkdir(exist_ok=True)
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def get_database_url() -> str:
+    """Get the database URL, respecting runtime environment overrides.
+
+    Reads from os.environ first to support test fixtures that modify
+    DATABASE_URL after the settings singleton is created at import time.
+    Falls back to the settings default.
+    """
+    import os
+
+    return os.environ.get("DATABASE_URL", "") or settings.database.url
+
+
+def log_startup_warnings() -> None:
+    """Log warnings for unconfigured services. Called once at startup."""
+    from src.config.logging import get_logger
+
+    logger = get_logger(__name__)
+
+    if not settings.credentials.spotify_client_id:
+        logger.warning("Spotify not configured — Spotify features will be unavailable")
+    if not settings.credentials.lastfm_key:
+        logger.warning("Last.fm not configured — scrobble and play count features will be unavailable")
+
+
+# =============================================================================
 # MODERN SETTINGS API
 # =============================================================================
 # Use the settings object directly for all configuration access:
@@ -546,5 +587,3 @@ settings.data_dir.mkdir(exist_ok=True)
 #   settings.database.url
 #   settings.credentials.spotify_client_id
 # etc.
-
-

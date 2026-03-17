@@ -37,7 +37,7 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistUseCase,
 )
 from src.domain.entities.track import TrackList
-from src.domain.entities.workflow import NodeExecutionEvent, RunStatus, TrackDecision
+from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
 from src.domain.repositories import UnitOfWorkProtocol
 
 
@@ -238,13 +238,12 @@ class NodeResult(TypedDict):
     """Minimum contract for all workflow node outputs.
 
     Every node (source, transform, destination) returns at least a tracklist.
-    Destination nodes also return operation-specific keys; structural typing
-    allows those extra keys while enforcing the tracklist contract.
-    ``track_decisions`` is optional — only transform/destination nodes produce it.
+    Destination nodes may include ``node_details`` with operation-specific
+    evidence (e.g., playlist changes showing which tracks were added/removed).
     """
 
     tracklist: TrackList
-    track_decisions: NotRequired[list[TrackDecision]]
+    node_details: NotRequired[dict[str, Any]]
 
 
 class NodeExecutionObserver(Protocol):

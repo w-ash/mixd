@@ -72,6 +72,12 @@ const mockRun = {
         config: { metric_name: "play_count", min_value: 3 },
         upstream: ["source"],
       },
+      {
+        id: "update",
+        type: "destination.update_playlist",
+        config: { playlist_id: "test-playlist", connector: "spotify" },
+        upstream: ["filter"],
+      },
     ],
   },
   nodes: [
@@ -101,29 +107,32 @@ const mockRun = {
       output_track_count: 15,
       error_message: null,
       execution_order: 2,
+      node_details: null,
+    },
+    {
+      id: 3,
+      node_id: "update",
+      node_type: "destination.update_playlist",
+      status: "completed",
+      started_at: "2026-02-15T10:01:01Z",
+      completed_at: "2026-02-15T10:01:30Z",
+      duration_ms: 29000,
+      input_track_count: 15,
+      output_track_count: 15,
+      error_message: null,
+      execution_order: 3,
       node_details: {
-        track_decisions: [
-          {
-            track_id: 1,
-            title: "Midnight City",
-            artists: "M83",
-            decision: "kept",
-            reason: "play_count >= 3",
-            metric_name: "play_count",
-            metric_value: 12,
-            threshold: 3,
-          },
-          {
-            track_id: 2,
-            title: "Fade to Black",
-            artists: "Metallica",
-            decision: "removed",
-            reason: "play_count < 3",
-            metric_name: "play_count",
-            metric_value: 1,
-            threshold: 3,
-          },
-        ],
+        playlist_changes: {
+          tracks_added: [
+            { track_id: 1, title: "Midnight City", artists: "M83" },
+          ],
+          tracks_removed: [
+            { track_id: 2, title: "Fade to Black", artists: "Metallica" },
+          ],
+          tracks_moved: 0,
+          playlist_id: "test-playlist",
+          connector: "spotify",
+        },
       },
     },
   ],
@@ -243,26 +252,26 @@ describe("WorkflowRunDetail", () => {
     renderWithProviders(<WorkflowRunDetail />);
 
     await waitFor(() => {
-      expect(screen.getByText("filter")).toBeInTheDocument();
+      expect(screen.getByText("update")).toBeInTheDocument();
     });
 
     // "Fade to Black" (removed track) should NOT be visible before expanding
     expect(screen.queryByText("Fade to Black")).not.toBeInTheDocument();
 
-    // The filter node has track_decisions, so it should be expandable
-    const filterRow = screen.getByText("filter").closest("[role='button']");
-    expect(filterRow).toBeInTheDocument();
+    // The destination node has playlist_changes, so it should be expandable
+    const updateRow = screen.getByText("update").closest("[role='button']");
+    expect(updateRow).toBeInTheDocument();
 
     // biome-ignore lint/style/noNonNullAssertion: guarded by assertion above
-    await user.click(filterRow!);
+    await user.click(updateRow!);
 
-    // Now track decisions should be visible
+    // Now playlist changes should be visible
     await waitFor(() => {
       expect(screen.getByText("Fade to Black")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Kept (1)")).toBeInTheDocument();
-    expect(screen.getByText("Removed (1)")).toBeInTheDocument();
+    expect(screen.getByText("Added to playlist (1)")).toBeInTheDocument();
+    expect(screen.getByText("Removed from playlist (1)")).toBeInTheDocument();
   });
 
   it("renders output tracks table", async () => {

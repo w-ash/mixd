@@ -100,9 +100,7 @@ METRIC_OPTIONS: tuple[ConfigFieldOption, ...] = tuple(
     opt for opts in ENRICHER_METRIC_DEFS.values() for opt in opts
 )
 
-SERVICE_OPTIONS = (
-    ConfigFieldOption("spotify", "Spotify"),
-)
+SERVICE_OPTIONS = (ConfigFieldOption("spotify", "Spotify"),)
 
 SELECTION_METHOD_OPTIONS = (
     ConfigFieldOption("first", "First", "Take from the beginning of the list"),
@@ -112,7 +110,9 @@ SELECTION_METHOD_OPTIONS = (
 
 EXPLICIT_FILTER_OPTIONS = (
     ConfigFieldOption("explicit", "Explicit Only", "Keep only tracks marked explicit"),
-    ConfigFieldOption("clean", "Clean Only", "Keep only tracks without explicit content"),
+    ConfigFieldOption(
+        "clean", "Clean Only", "Keep only tracks without explicit content"
+    ),
     ConfigFieldOption("all", "All Tracks", "Don't filter by explicit status"),
 )
 
@@ -139,7 +139,9 @@ SORT_BY_LIKED_OPTIONS = (
 )
 
 SORT_BY_PLAYED_OPTIONS = (
-    ConfigFieldOption("played_at_desc", "Recently played", "Most recently played first"),
+    ConfigFieldOption(
+        "played_at_desc", "Recently played", "Most recently played first"
+    ),
     ConfigFieldOption("played_at_asc", "Earliest played", "Earliest played first"),
     ConfigFieldOption("total_plays_desc", "Most played", "Highest play count first"),
     ConfigFieldOption("random", "Random", "Random order"),

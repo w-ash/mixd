@@ -24,7 +24,6 @@ SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com"
 LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0"
 MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2"
-LISTENBRAINZ_LABS_BASE = "https://labs.api.listenbrainz.org"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -175,24 +174,3 @@ def make_musicbrainz_client() -> httpx.AsyncClient:
     )
 
 
-def make_listenbrainz_client() -> httpx.AsyncClient:
-    """Return a configured AsyncClient for ListenBrainz Labs API calls.
-
-    No authentication required. Used for metadata lookups (e.g. Spotify ID
-    resolution from artist+title). Conservative timeout since it's a
-    supplementary lookup, not a critical path.
-    """
-    return httpx.AsyncClient(
-        base_url=LISTENBRAINZ_LABS_BASE,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": _build_user_agent(),
-        },
-        timeout=httpx.Timeout(
-            connect=5.0,
-            read=10.0,
-            write=5.0,
-            pool=5.0,
-        ),
-        event_hooks=_EVENT_HOOKS,
-    )

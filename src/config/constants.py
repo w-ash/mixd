@@ -9,7 +9,7 @@ For user-configurable values, see settings.py instead.
 from typing import Final, Literal
 
 # Workflow progress tracking types
-type Phase = Literal["fetch", "enrich", "query", "save", "sync"]
+type Phase = Literal["fetch", "enrich", "match", "query", "save", "sync"]
 type NodeType = Literal[
     "source", "enricher", "destination", "filter", "sorter", "selector"
 ]
@@ -52,12 +52,15 @@ class BusinessLimits:
     # API pagination
     DEFAULT_PAGE_SIZE: Final = 50
     MAX_PAGE_SIZE: Final = 200
-    MAX_USER_LIMIT: Final = 10000
     MIN_SEARCH_LENGTH: Final = 2
 
     # Import processing
     MAX_UPLOAD_BYTES: Final = 100 * 1024 * 1024  # 100 MB
     DUPLICATE_RATE_EARLY_STOP: Final = 0.8
+
+    # User-facing library limits
+    DEFAULT_LIBRARY_QUERY_LIMIT: Final = 50_000  # default for liked/played source nodes
+    MAX_USER_LIMIT: Final = 1_000_000  # sanity guard for limit params
 
     # Matching
     FULL_CONFIDENCE_SCORE: Final = 100
@@ -154,7 +157,6 @@ class MatchMethod:
     LASTFM_IMPORT: Final = "lastfm_import"
     CANONICAL_REUSE: Final = "canonical_reuse"
     ISRC_MATCH: Final = "isrc_match"
-    MBID_MATCH: Final = "mbid_match"
     # Secondary mappings for stale IDs (old ID → same canonical track)
     DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
@@ -225,3 +227,11 @@ class LastFMConstants:
 
     RECENT_TRACKS_PAGE_SIZE: Final = 200  # hard API limit per page
     FULL_HISTORY_LIMIT: Final = 10000  # above this, use full-history pagination
+
+
+def truncate_error_message(msg: str, max_len: int) -> str:
+    """Truncate an error message, appending an indicator when content is lost."""
+    if len(msg) <= max_len:
+        return msg
+    suffix = " … [truncated]"
+    return msg[: max_len - len(suffix)] + suffix

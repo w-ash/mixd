@@ -51,16 +51,23 @@ class TestSpotifyThenLastfm:
         # Step 1: Import 3 tracks via Spotify resolver
         spotify_connector = AsyncMock()
         spotify_connector.get_tracks_by_ids.return_value = {
-            "sp_001": _make_spotify_track("sp_001", "Creep", "Radiohead", "GBAYE9300106"),
+            "sp_001": _make_spotify_track(
+                "sp_001", "Creep", "Radiohead", "GBAYE9300106"
+            ),
             "sp_002": _make_spotify_track(
                 "sp_002", "Song (feat. X)", "Artist", "USRC17000001"
             ),
-            "sp_003": _make_spotify_track("sp_003", "Unique Song", "Band", "USRC17000002"),
+            "sp_003": _make_spotify_track(
+                "sp_003", "Unique Song", "Band", "USRC17000002"
+            ),
         }
         spotify_connector.connector_name = "spotify"
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
-        spotify_result, spotify_metrics = await spotify_resolver.resolve_to_canonical_tracks(
+        (
+            spotify_result,
+            spotify_metrics,
+        ) = await spotify_resolver.resolve_to_canonical_tracks(
             ["sp_001", "sp_002", "sp_003"], uow
         )
 
@@ -81,7 +88,10 @@ class TestSpotifyThenLastfm:
         )
 
         lastfm_resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
-        lastfm_result, lastfm_metrics = await lastfm_resolver.resolve_to_canonical_tracks(
+        (
+            lastfm_result,
+            lastfm_metrics,
+        ) = await lastfm_resolver.resolve_to_canonical_tracks(
             [
                 "radiohead::creep",  # Should match sp_001 via title+artist
                 "artist::song",  # Should match sp_002 via parenthetical stripping
@@ -131,7 +141,11 @@ class TestLastfmThenSpotify:
         )
         test_data_tracker.add_track(track_a.id)
         await uow.get_connector_repository().map_track_to_connector(
-            track_a, "lastfm", "radiohead::creep", MatchMethod.LASTFM_IMPORT, confidence=85
+            track_a,
+            "lastfm",
+            "radiohead::creep",
+            MatchMethod.LASTFM_IMPORT,
+            confidence=85,
         )
 
         track_b = await track_repo.save_track(
@@ -145,8 +159,11 @@ class TestLastfmThenSpotify:
         )
         test_data_tracker.add_track(track_b.id)
         await uow.get_connector_repository().map_track_to_connector(
-            track_b, "lastfm", "radiohead::everything in its right place",
-            MatchMethod.LASTFM_IMPORT, confidence=85,
+            track_b,
+            "lastfm",
+            "radiohead::everything in its right place",
+            MatchMethod.LASTFM_IMPORT,
+            confidence=85,
         )
 
         # Step 2: Spotify resolver encounters different Spotify IDs but same ISRCs
@@ -156,7 +173,9 @@ class TestLastfmThenSpotify:
                 "sp_new_creep", "Creep", "Radiohead", "GBAYE9300106"
             ),
             "sp_new_eiirp": _make_spotify_track(
-                "sp_new_eiirp", "Everything In Its Right Place", "Radiohead",
+                "sp_new_eiirp",
+                "Everything In Its Right Place",
+                "Radiohead",
                 "GBAYE0000289",
             ),
         }
@@ -175,8 +194,11 @@ class TestLastfmThenSpotify:
         assert result["sp_new_eiirp"].id == track_b.id
 
         # Verify Spotify mappings were created on the existing tracks
-        spotify_mappings = await uow.get_connector_repository().find_tracks_by_connectors(
-            [("spotify", "sp_new_creep"), ("spotify", "sp_new_eiirp")]
+        spotify_mappings = (
+            await uow.get_connector_repository().find_tracks_by_connectors([
+                ("spotify", "sp_new_creep"),
+                ("spotify", "sp_new_eiirp"),
+            ])
         )
         assert len(spotify_mappings) == 2
 
@@ -223,8 +245,11 @@ class TestMixedResolutionPaths:
         )
         test_data_tracker.add_track(track_a.id)
         await connector_repo.map_track_to_connector(
-            track_a, "lastfm", "band a::already mapped",
-            MatchMethod.LASTFM_IMPORT, confidence=85,
+            track_a,
+            "lastfm",
+            "band a::already mapped",
+            MatchMethod.LASTFM_IMPORT,
+            confidence=85,
         )
 
         # Track B: exists in DB (from Spotify) but no Last.fm mapping (Canonical Reuse hit)

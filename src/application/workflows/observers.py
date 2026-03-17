@@ -22,7 +22,6 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-import attrs
 from attrs import define
 
 from src.application.services.progress_manager import AsyncProgressManager
@@ -309,14 +308,6 @@ class RunHistoryObserver:
     ) -> None:
         now = datetime.now(UTC)
 
-        # Serialize track_decisions to JSON-safe dict for node_details
-        node_details: dict[str, Any] | None = None
-        decisions = result.get("track_decisions")
-        if decisions:
-            node_details = {
-                "track_decisions": [attrs.asdict(d, recurse=False) for d in decisions],
-            }
-
         await self._persist_node_status(
             event,
             status=WorkflowConstants.RUN_STATUS_COMPLETED,
@@ -324,7 +315,7 @@ class RunHistoryObserver:
             duration_ms=event.duration_ms,
             input_track_count=event.input_track_count,
             output_track_count=event.output_track_count,
-            node_details=node_details,
+            node_details=result.get("node_details"),
         )
         self._event_counter = await _push_sse_node_event(
             self._sse_queue,

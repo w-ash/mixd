@@ -102,7 +102,8 @@ class InwardTrackResolver(ABC):
         ...
 
     def _extract_reuse_metadata(
-        self, identifier: str  # noqa: ARG002
+        self,
+        identifier: str,  # noqa: ARG002
     ) -> ReuseMetadata | None:
         """Extract metadata for canonical reuse matching.
 
@@ -136,9 +137,7 @@ class InwardTrackResolver(ABC):
         if not pairs:
             return {}
 
-        candidates = await uow.get_track_repository().find_tracks_by_title_artist(
-            pairs
-        )
+        candidates = await uow.get_track_repository().find_tracks_by_title_artist(pairs)
         if not candidates:
             return {}
 
@@ -170,9 +169,7 @@ class InwardTrackResolver(ABC):
             # match alone — insufficient for candidate discovery where we don't
             # have a priori belief the tracks are the same.
             title_sim = (
-                match_result.evidence.title_similarity
-                if match_result.evidence
-                else 0.0
+                match_result.evidence.title_similarity if match_result.evidence else 0.0
             )
             title_threshold = (
                 self._match_evaluation_service.config.high_similarity_threshold
@@ -201,9 +198,7 @@ class InwardTrackResolver(ABC):
                     f"(confidence: {match_result.confidence})"
                 )
             except Exception as e:
-                logger.debug(
-                    f"Failed to create reuse mapping for {identifier}: {e}"
-                )
+                logger.debug(f"Failed to create reuse mapping for {identifier}: {e}")
 
         return result
 
@@ -256,7 +251,9 @@ class InwardTrackResolver(ABC):
         reused_count = 0
 
         if missing_ids:
-            reused_tracks = await self._reuse_existing_canonical_tracks(missing_ids, uow)
+            reused_tracks = await self._reuse_existing_canonical_tracks(
+                missing_ids, uow
+            )
             result.update(reused_tracks)
             reused_count = len(reused_tracks)
             if reused_count:

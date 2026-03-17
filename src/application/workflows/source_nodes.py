@@ -40,11 +40,13 @@ logger = get_logger(__name__)
 def _extract_library_config(
     config: dict[str, Any], default_sort: str
 ) -> tuple[int, str | None, str]:
-    """Extract shared config for library source nodes (liked/played)."""
-    limit = min(
-        int(config.get("limit", BusinessLimits.MAX_USER_LIMIT)),
-        BusinessLimits.MAX_USER_LIMIT,
-    )
+    """Extract shared config for library source nodes (liked/played).
+
+    When no limit is specified in config, uses DEFAULT_LIBRARY_QUERY_LIMIT.
+    User-specified limits pass through without clamping — the command
+    validator enforces the upper bound (1M sanity guard).
+    """
+    limit = int(config["limit"]) if "limit" in config else BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
     connector_filter: str | None = config.get("connector_filter")
     sort_by = str(config.get("sort_by", default_sort))
     return limit, connector_filter, sort_by
@@ -206,7 +208,7 @@ async def source_liked_tracks(
     Args:
         context: Workflow execution context.
         config: Optional parameters:
-            - limit (int): Max tracks to return (default/max: MAX_USER_LIMIT).
+            - limit (int): Max tracks to return (default: DEFAULT_LIBRARY_QUERY_LIMIT).
             - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
             - sort_by (str): Sort method ("liked_at_desc", "liked_at_asc",
                 "title_asc", "random").
@@ -234,6 +236,13 @@ async def source_liked_tracks(
         workflow_context.use_cases.get_liked_tracks_use_case, command
     )
 
+    if result.total_available > len(result.tracklist.tracks):
+        logger.warning(
+            "Source limit applied — increase 'limit' config to include all tracks",
+            returned=len(result.tracklist.tracks),
+            total_available=result.total_available,
+        )
+
     logger.info(
         "source_liked_tracks complete",
         track_count=len(result.tracklist.tracks),
@@ -256,7 +265,7 @@ async def source_played_tracks(
     Args:
         context: Workflow execution context.
         config: Optional parameters:
-            - limit (int): Max tracks to return (default/max: MAX_USER_LIMIT).
+            - limit (int): Max tracks to return (default: DEFAULT_LIBRARY_QUERY_LIMIT).
             - days_back (int): Time window in days (e.g., 90 for last 3 months).
             - connector_filter (str): Filter by service ("spotify", "lastfm", etc.).
             - sort_by (str): Sort method ("played_at_desc", "total_plays_desc", etc.).
@@ -285,6 +294,13 @@ async def source_played_tracks(
     result = await workflow_context.execute_use_case(
         workflow_context.use_cases.get_played_tracks_use_case, command
     )
+
+    if result.total_available > len(result.tracklist.tracks):
+        logger.warning(
+            "Source limit applied — increase 'limit' config to include all tracks",
+            returned=len(result.tracklist.tracks),
+            total_available=result.total_available,
+        )
 
     logger.info(
         "source_played_tracks complete",

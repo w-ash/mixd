@@ -220,7 +220,11 @@ class TestCalculateConfidence:
         )
         suspect, suspect_evidence = calculate_confidence(
             internal_track,
-            {"title": "Paranoid Android", "artist": "Radiohead", "duration_ms": 406000},  # +20s
+            {
+                "title": "Paranoid Android",
+                "artist": "Radiohead",
+                "duration_ms": 406000,
+            },  # +20s
             "isrc",
             config,
         )

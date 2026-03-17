@@ -6,8 +6,6 @@ This keeps infrastructure free of application imports while enabling granular
 progress tracking for rate-limited batch processing and phased operations.
 """
 
-from collections.abc import Awaitable, Callable
-
 from src.config import get_logger
 from src.config.constants import NodeType, Phase
 from src.domain.entities.progress import (
@@ -15,13 +13,11 @@ from src.domain.entities.progress import (
     ProgressOperation,
     create_progress_event,
 )
+from src.domain.matching.types import ProgressCallback
 
 from .progress_manager import AsyncProgressManager
 
 logger = get_logger(__name__).bind(service="sub_operation_progress")
-
-# Type alias for the infrastructure-compatible callback
-type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 
 
 async def create_sub_operation(

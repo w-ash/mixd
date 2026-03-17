@@ -24,6 +24,7 @@ import typer
 from src.domain.entities.workflow import RunStatus, Workflow
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.completions import complete_workflow_id
 from src.interface.cli.console import (
     brand_panel,
     get_console,
@@ -118,7 +119,11 @@ def workflow_main(ctx: typer.Context) -> None:
 @app.command()
 def run(
     workflow_id: Annotated[
-        str | None, typer.Argument(help="Workflow ID (number or slug) to execute")
+        str | None,
+        typer.Argument(
+            help="Workflow ID (number or slug) to execute",
+            autocompletion=complete_workflow_id,
+        ),
     ] = None,
     show_results: Annotated[bool, typer.Option("--show-results/--no-results")] = True,
     output_format: Annotated[
@@ -188,7 +193,13 @@ def list_workflows(
 
 @app.command()
 def get(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
     output_format: Annotated[
         Literal["table", "json"], typer.Option("--format", "-f")
     ] = "table",
@@ -262,7 +273,13 @@ def create(
 
 @app.command()
 def update(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
     file: Annotated[
         Path | None,
         typer.Option(
@@ -329,7 +346,13 @@ def update(
 
 @app.command()
 def delete(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID (number or slug)")],
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
 ) -> None:
     """Delete a workflow. Template workflows cannot be deleted."""
     workflows = _get_available_workflows()
@@ -358,6 +381,56 @@ def delete(
 
     console.print(
         f"[green]Deleted workflow[/green] [bold]{selected.definition.name}[/bold] (ID: {selected.id})"
+    )
+
+
+@app.command()
+def export(
+    all_workflows: Annotated[
+        bool, typer.Option("--all", help="Export all non-template workflows")
+    ] = False,
+    workflow_id: Annotated[
+        str | None, typer.Option("--id", help="Export a single workflow by ID or slug")
+    ] = None,
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", "-o", help="Output directory")
+    ] = Path(),
+) -> None:
+    """Export workflow definitions to JSON files."""
+    if not all_workflows and workflow_id is None:
+        err_console.print("[red]Error: Provide either --all or --id.[/red]")
+        raise typer.Exit(1)
+    if all_workflows and workflow_id is not None:
+        err_console.print("[red]Error: --all and --id are mutually exclusive.[/red]")
+        raise typer.Exit(1)
+
+    workflows = _get_available_workflows()
+    if not workflows:
+        console.print("[red]No workflows found.[/red]")
+        raise typer.Exit(1)
+
+    if all_workflows:
+        to_export = [wf for wf in workflows if not wf.is_template]
+        if not to_export:
+            console.print("[yellow]No non-template workflows to export.[/yellow]")
+            return
+    else:
+        selected = _resolve_workflow(workflows, workflow_id)  # type: ignore[arg-type]
+        if selected is None:
+            err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+            raise typer.Exit(1)
+        to_export = [selected]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for wf in to_export:
+        filename = f"{wf.definition.id}.json"
+        (output_dir / filename).write_text(
+            _serialize_workflow_json(wf), encoding="utf-8"
+        )
+
+    console.print(
+        f"[green]Exported {len(to_export)} workflow(s) to {output_dir}[/green]"
     )
 
 
@@ -592,7 +665,7 @@ def _execute_workflow(
             )
             from src.application.workflows.observers import RunHistoryObserver
             from src.application.workflows.prefect import run_workflow
-            from src.config.constants import WorkflowConstants
+            from src.config.constants import WorkflowConstants, truncate_error_message
 
             # 1. Create PENDING run record
             run_result = await execute_use_case(
@@ -626,7 +699,7 @@ def _execute_workflow(
                     await _update_run_status(
                         run_id,
                         WorkflowConstants.RUN_STATUS_FAILED,
-                        error_message=str(exc)[:500],
+                        error_message=truncate_error_message(str(exc), 500),
                     )
                 raise
             else:

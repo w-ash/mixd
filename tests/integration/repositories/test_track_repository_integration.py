@@ -214,7 +214,9 @@ class TestTrackRepositoryIntegration:
 class TestFindTracksByTitleArtist:
     """Integration tests for find_tracks_by_title_artist batch lookup."""
 
-    async def test_finds_track_by_exact_title_artist(self, db_session, test_data_tracker):
+    async def test_finds_track_by_exact_title_artist(
+        self, db_session, test_data_tracker
+    ):
         """Basic case: finds a track by its title and first artist."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
@@ -273,12 +275,20 @@ class TestFindTracksByTitleArtist:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        track_a = await track_repo.save_track(Track(
-            id=None, title="Song A", artists=[Artist(name="Artist A")],
-        ))
-        track_b = await track_repo.save_track(Track(
-            id=None, title="Song B", artists=[Artist(name="Artist B")],
-        ))
+        track_a = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Song A",
+                artists=[Artist(name="Artist A")],
+            )
+        )
+        track_b = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Song B",
+                artists=[Artist(name="Artist B")],
+            )
+        )
         test_data_tracker.add_track(track_a.id)
         test_data_tracker.add_track(track_b.id)
 
@@ -292,17 +302,27 @@ class TestFindTracksByTitleArtist:
         assert result["song a", "artist a"].id == track_a.id
         assert result["song b", "artist b"].id == track_b.id
 
-    async def test_returns_oldest_when_duplicates_exist(self, db_session, test_data_tracker):
+    async def test_returns_oldest_when_duplicates_exist(
+        self, db_session, test_data_tracker
+    ):
         """When multiple tracks share title+artist, return the oldest (lowest ID)."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        first = await track_repo.save_track(Track(
-            id=None, title="Duplicate", artists=[Artist(name="Same Artist")],
-        ))
-        second = await track_repo.save_track(Track(
-            id=None, title="Duplicate", artists=[Artist(name="Same Artist")],
-        ))
+        first = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Duplicate",
+                artists=[Artist(name="Same Artist")],
+            )
+        )
+        second = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Duplicate",
+                artists=[Artist(name="Same Artist")],
+            )
+        )
         test_data_tracker.add_track(first.id)
         test_data_tracker.add_track(second.id)
 
@@ -412,7 +432,9 @@ class TestNormalizedLookup:
         assert ("song ft. guest", "main artist") in result
         assert result["song ft. guest", "main artist"].id == saved.id
 
-    async def test_normalized_columns_populated_on_save(self, db_session, test_data_tracker):
+    async def test_normalized_columns_populated_on_save(
+        self, db_session, test_data_tracker
+    ):
         """Verify that title_normalized and artist_normalized are set when saving."""
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()

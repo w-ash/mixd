@@ -73,9 +73,9 @@ class SpotifyCrossDiscoveryProvider:
                 )
                 if lb_spotify_id:
                     existing = (
-                        await uow.get_connector_repository().find_tracks_by_connectors(
-                            [("spotify", lb_spotify_id)]
-                        )
+                        await uow.get_connector_repository().find_tracks_by_connectors([
+                            ("spotify", lb_spotify_id)
+                        ])
                     )
                     if existing:
                         existing_track = existing["spotify", lb_spotify_id]
@@ -129,9 +129,9 @@ class SpotifyCrossDiscoveryProvider:
                 else None
             )
             if spotify_isrc:
-                existing = await uow.get_track_repository().find_tracks_by_isrcs(
-                    [spotify_isrc]
-                )
+                existing = await uow.get_track_repository().find_tracks_by_isrcs([
+                    spotify_isrc
+                ])
                 if existing:
                     isrc_track = next(iter(existing.values()))
                     if isrc_track.id != track.id:

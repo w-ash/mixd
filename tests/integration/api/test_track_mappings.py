@@ -27,8 +27,11 @@ async def _create_track_with_mapping(
             saved = await track_repo.save_track(track)
 
             await connector_repo.map_track_to_connector(
-                saved, connector, external_id,
-                match_method="direct", confidence=100,
+                saved,
+                connector,
+                external_id,
+                match_method="direct",
+                confidence=100,
                 auto_set_primary=True,
             )
             await uow.commit()
@@ -76,9 +79,7 @@ class TestRelinkMappingEndpoint:
         # After relink, the source track should have fewer mappings
         assert body["id"] == track_id
 
-    async def test_self_relink_returns_400(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_self_relink_returns_400(self, client: httpx.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.patch(
@@ -129,9 +130,7 @@ class TestRelinkMappingEndpoint:
 class TestUnlinkMappingEndpoint:
     """DELETE /api/v1/tracks/{track_id}/mappings/{mapping_id} unlinks a mapping."""
 
-    async def test_unlink_returns_result(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_unlink_returns_result(self, client: httpx.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.delete(
@@ -149,9 +148,7 @@ class TestUnlinkMappingEndpoint:
     ) -> None:
         track_id, _ = await _create_track_with_mapping(client)
 
-        response = await client.delete(
-            f"/api/v1/tracks/{track_id}/mappings/99999"
-        )
+        response = await client.delete(f"/api/v1/tracks/{track_id}/mappings/99999")
 
         assert response.status_code == 404
 
@@ -171,9 +168,7 @@ class TestUnlinkMappingEndpoint:
 class TestSetPrimaryMappingEndpoint:
     """PATCH /api/v1/tracks/{track_id}/mappings/{mapping_id}/primary sets primary."""
 
-    async def test_set_primary_returns_track(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_set_primary_returns_track(self, client: httpx.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.patch(

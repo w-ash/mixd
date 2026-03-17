@@ -41,7 +41,11 @@ import {
 } from "@/lib/format";
 import type { NodeStatus } from "@/lib/sse-types";
 import { cn } from "@/lib/utils";
-import { getNodeCategory, type TrackDecision } from "@/lib/workflow-config";
+import {
+  getNodeCategory,
+  type PlaylistChanges,
+  type PlaylistChangeTrack,
+} from "@/lib/workflow-config";
 
 // --- Sub-components ---
 
@@ -57,87 +61,75 @@ function RunDetailSkeleton() {
   );
 }
 
-/** Expandable panel showing per-track decisions for a node. */
-function NodeDetailsPanel({ node }: { node: WorkflowRunNodeSchema }) {
-  const details = node.node_details;
-  if (!details) return null;
-
-  const decisions = (details.track_decisions ?? []) as TrackDecision[];
-  if (decisions.length === 0) return null;
-
-  const kept = decisions.filter((d) => d.decision === "kept");
-  const removed = decisions.filter((d) => d.decision === "removed");
-  const added = decisions.filter((d) => d.decision === "added");
+/** Expandable panel showing playlist changes for destination nodes. */
+function PlaylistChangesPanel({ node }: { node: WorkflowRunNodeSchema }) {
+  const changes = node.node_details?.playlist_changes as
+    | PlaylistChanges
+    | undefined;
+  if (!changes) return null;
 
   return (
     <div className="mt-3 space-y-3">
-      {removed.length > 0 && (
-        <DecisionGroup
-          label="Removed"
-          decisions={removed}
+      {changes.tracks_removed.length > 0 && (
+        <TrackChangeGroup
+          label="Removed from playlist"
+          tracks={changes.tracks_removed}
+          total={changes.tracks_removed_total}
           className="text-destructive/80"
         />
       )}
-      {added.length > 0 && (
-        <DecisionGroup
-          label="Added"
-          decisions={added}
+      {changes.tracks_added.length > 0 && (
+        <TrackChangeGroup
+          label="Added to playlist"
+          tracks={changes.tracks_added}
+          total={changes.tracks_added_total}
           className="text-status-connected/80"
         />
       )}
-      {kept.length > 0 && (
-        <DecisionGroup
-          label="Kept"
-          decisions={kept}
-          className="text-text-muted"
-        />
+      {changes.tracks_moved > 0 && (
+        <p className="px-2 text-xs text-text-muted">
+          {changes.tracks_moved} track{changes.tracks_moved !== 1 ? "s" : ""}{" "}
+          reordered
+        </p>
       )}
     </div>
   );
 }
 
-function DecisionGroup({
+function TrackChangeGroup({
   label,
-  decisions,
+  tracks,
+  total,
   className,
 }: {
   label: string;
-  decisions: TrackDecision[];
+  tracks: PlaylistChangeTrack[];
+  total?: number;
   className?: string;
 }) {
+  const actualTotal = total ?? tracks.length;
+  const remaining = actualTotal - tracks.length;
+
   return (
     <div>
       <p className={cn("mb-1 font-display text-xs font-medium", className)}>
-        {label} ({decisions.length})
+        {label} ({actualTotal})
       </p>
       <div className="space-y-px">
-        {decisions.map((d) => (
+        {tracks.map((t) => (
           <div
-            key={`${d.track_id}-${d.decision}`}
+            key={t.track_id}
             className="flex items-baseline gap-3 rounded px-2 py-1 text-xs hover:bg-surface-sunken/50"
           >
-            {d.rank != null && (
-              <span className="font-mono text-text-faint w-5 text-right shrink-0">
-                #{d.rank}
-              </span>
-            )}
-            <span className="min-w-0 truncate text-text">{d.title}</span>
-            <span className="shrink-0 text-text-faint">{d.artists}</span>
-            {d.metric_name && d.metric_value != null && (
-              <span className="ml-auto shrink-0 font-mono text-text-muted">
-                {d.metric_name}: {d.metric_value}
-                {d.threshold != null && (
-                  <span className="text-text-faint"> (min {d.threshold})</span>
-                )}
-              </span>
-            )}
-            {!d.metric_name && d.reason && (
-              <span className="ml-auto shrink-0 text-text-faint italic">
-                {d.reason}
-              </span>
-            )}
+            <span className="min-w-0 truncate text-text">{t.title}</span>
+            <span className="shrink-0 text-text-faint">{t.artists}</span>
           </div>
         ))}
+        {remaining > 0 && (
+          <p className="px-2 py-1 text-xs text-text-muted">
+            and {remaining} more
+          </p>
+        )}
       </div>
     </div>
   );
@@ -146,10 +138,7 @@ function DecisionGroup({
 /** Single node row with expand/collapse for details. */
 function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
   const [expanded, setExpanded] = useState(false);
-  const hasDetails =
-    node.node_details &&
-    Array.isArray(node.node_details.track_decisions) &&
-    node.node_details.track_decisions.length > 0;
+  const hasDetails = Boolean(node.node_details?.playlist_changes);
 
   const categoryConfig = getNodeCategory(node.node_type);
 
@@ -215,7 +204,7 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
           </span>
         )}
       </div>
-      {expanded && <NodeDetailsPanel node={node} />}
+      {expanded && <PlaylistChangesPanel node={node} />}
     </div>
   );
 }

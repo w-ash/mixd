@@ -31,15 +31,15 @@ class GetLikedTracksCommand:
     """Configuration for retrieving liked tracks.
 
     Attributes:
-        limit: Maximum number of tracks to return (1-10000).
+        limit: Maximum number of tracks to return.
         connector_filter: Optional service name to filter by ("spotify", "lastfm").
         sort_by: Optional sort method ("liked_at_desc", "liked_at_asc", "title_asc", "random").
         timestamp: When the command was created.
     """
 
     limit: int = field(
-        default=10000,
-        validator=positive_int_in_range(1, BusinessLimits.MAX_USER_LIMIT),
+        default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
+        validator=positive_int_in_range(),
     )
     connector_filter: str | None = (
         None  # Optional service filter ("spotify", "lastfm", etc.)
@@ -62,11 +62,13 @@ class GetLikedTracksResult:
 
     Attributes:
         tracklist: Retrieved tracks with metadata.
+        total_available: Total tracks before limit was applied.
         execution_time_ms: How long the operation took in milliseconds.
         errors: List of error messages if any occurred.
     """
 
     tracklist: TrackList
+    total_available: int = 0
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
@@ -114,10 +116,11 @@ class GetLikedTracksUseCase:
 
         async with uow:
             try:
-                tracklist = await self._get_liked_tracks(command, uow)
+                tracklist, total_available = await self._get_liked_tracks(command, uow)
 
                 result = GetLikedTracksResult(
                     tracklist=tracklist,
+                    total_available=total_available,
                     execution_time_ms=timer.stop(),
                 )
 
@@ -141,7 +144,7 @@ class GetLikedTracksUseCase:
 
     async def _get_liked_tracks(
         self, command: GetLikedTracksCommand, uow: UnitOfWorkProtocol
-    ) -> TrackList:
+    ) -> tuple[TrackList, int]:
         """Fetches liked tracks from database repositories.
 
         Args:
@@ -149,7 +152,7 @@ class GetLikedTracksUseCase:
             uow: Database connection manager.
 
         Returns:
-            TrackList with liked tracks and operation metadata.
+            Tuple of (TrackList with liked tracks, total available before limit).
         """
         like_repo = uow.get_like_repository()
         track_repo = uow.get_track_repository()
@@ -168,6 +171,7 @@ class GetLikedTracksUseCase:
 
         # Extract track IDs and apply limit
         track_ids = [like.track_id for like in track_likes]
+        total_available = len(track_ids)
         if len(track_ids) > command.limit:
             track_ids = track_ids[: command.limit]
 
@@ -185,4 +189,4 @@ class GetLikedTracksUseCase:
             },
         )
 
-        return tracklist
+        return tracklist, total_available

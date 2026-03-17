@@ -139,7 +139,12 @@ class TestMatchMethodStatsRecentWindow:
         # 2 recent, 1 old — all same method/connector
         await _insert_mapping(db_session, t1, ct1, "direct_import", 100, created_at=now)
         await _insert_mapping(
-            db_session, t2, ct2, "direct_import", 100, created_at=now - timedelta(days=5)
+            db_session,
+            t2,
+            ct2,
+            "direct_import",
+            100,
+            created_at=now - timedelta(days=5),
         )
         await _insert_mapping(
             db_session, t3, ct3, "direct_import", 100, created_at=old_date

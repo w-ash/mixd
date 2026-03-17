@@ -53,6 +53,7 @@ pnpm --prefix web sync-api
 
 from src.application.workflows.node_catalog import node
 
+
 @node("sorter.custom_sort", category="sorter")
 async def custom_sort_node(tracklist: TrackList, config: dict) -> TrackList:
     # Your sorting logic
@@ -75,23 +76,19 @@ Use these utilities to eliminate duplication in playlist-related use cases:
 ```python
 from src.application.use_cases._shared import (
     # Operation counting for playlist diffs
-    count_operation_types,           # Returns OperationCounts(added, removed, moved)
-
+    count_operation_types,  # Returns OperationCounts(added, removed, moved)
     # Type-safe result objects (replace tuple returns)
-    OperationCounts,                 # Instead of tuple[int, int, int]
-    ApiExecutionResult,              # For API operation results
-    AppendOperationResult,           # For append operations
-
+    OperationCounts,  # Instead of tuple[int, int, int]
+    ApiExecutionResult,  # For API operation results
+    AppendOperationResult,  # For append operations
     # Fluent metadata builders (replace dict construction)
-    PlaylistMetadataBuilder,         # .with_timestamp().with_operations().build()
+    PlaylistMetadataBuilder,  # .with_timestamp().with_operations().build()
     build_api_execution_metadata,
     build_database_update_metadata,
-
     # Validation and error classification
-    classify_connector_api_error,    # Pattern matching for API errors
+    classify_connector_api_error,  # Pattern matching for API errors
     classify_database_error,
     ConnectorPlaylistUpdateValidator,
-
     # Playlist item factories
     create_connector_playlist_items_from_tracks,
 )
@@ -114,10 +111,12 @@ logger.info("Operation complete", batch_size=100, status="success")
 ```python
 from src.config.logging import resilient_operation
 
+
 @resilient_operation("spotify_sync")
 async def sync_playlist(playlist_id: str):
     # Auto-logs timing, errors with HTTP classification
     return await spotify.get_playlist(playlist_id)
+
 
 @resilient_operation("batch_import", include_timing=False)
 async def import_batch(items: list):

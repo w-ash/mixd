@@ -76,29 +76,53 @@ class TestClassifyTitle:
     """Test title comparison level classification."""
 
     def test_exact_match(self):
-        assert classify_title(1.0, is_phonetic_match=False, is_variation=False) is TITLE_EXACT
+        assert (
+            classify_title(1.0, is_phonetic_match=False, is_variation=False)
+            is TITLE_EXACT
+        )
 
     def test_variation_detected(self):
-        assert classify_title(0.6, is_phonetic_match=False, is_variation=True) is TITLE_VARIATION
+        assert (
+            classify_title(0.6, is_phonetic_match=False, is_variation=True)
+            is TITLE_VARIATION
+        )
 
     def test_phonetic_match(self):
-        assert classify_title(0.85, is_phonetic_match=True, is_variation=False) is TITLE_PHONETIC
+        assert (
+            classify_title(0.85, is_phonetic_match=True, is_variation=False)
+            is TITLE_PHONETIC
+        )
 
     def test_high_fuzzy(self):
-        assert classify_title(0.92, is_phonetic_match=False, is_variation=False) is TITLE_HIGH_FUZZY
+        assert (
+            classify_title(0.92, is_phonetic_match=False, is_variation=False)
+            is TITLE_HIGH_FUZZY
+        )
 
     def test_moderate_fuzzy(self):
-        assert classify_title(0.75, is_phonetic_match=False, is_variation=False) is TITLE_MODERATE_FUZZY
+        assert (
+            classify_title(0.75, is_phonetic_match=False, is_variation=False)
+            is TITLE_MODERATE_FUZZY
+        )
 
     def test_mismatch(self):
-        assert classify_title(0.3, is_phonetic_match=False, is_variation=False) is TITLE_MISMATCH
+        assert (
+            classify_title(0.3, is_phonetic_match=False, is_variation=False)
+            is TITLE_MISMATCH
+        )
 
     def test_variation_takes_precedence_over_phonetic(self):
         """Variation marker is a stronger signal than phonetic match."""
-        assert classify_title(0.85, is_phonetic_match=True, is_variation=True) is TITLE_VARIATION
+        assert (
+            classify_title(0.85, is_phonetic_match=True, is_variation=True)
+            is TITLE_VARIATION
+        )
 
     def test_exact_takes_precedence_over_all(self):
-        assert classify_title(1.0, is_phonetic_match=True, is_variation=True) is TITLE_EXACT
+        assert (
+            classify_title(1.0, is_phonetic_match=True, is_variation=True)
+            is TITLE_EXACT
+        )
 
 
 class TestClassifyArtist:
@@ -149,17 +173,29 @@ class TestClassifyISRC:
     """Test ISRC comparison level classification."""
 
     def test_exact_match(self):
-        assert classify_isrc(isrc_matched=True, isrc_suspect=False, isrc_available=True) is ISRC_EXACT
+        assert (
+            classify_isrc(isrc_matched=True, isrc_suspect=False, isrc_available=True)
+            is ISRC_EXACT
+        )
 
     def test_suspect_match(self):
-        assert classify_isrc(isrc_matched=True, isrc_suspect=True, isrc_available=True) is ISRC_SUSPECT
+        assert (
+            classify_isrc(isrc_matched=True, isrc_suspect=True, isrc_available=True)
+            is ISRC_SUSPECT
+        )
 
     def test_not_available(self):
-        assert classify_isrc(isrc_matched=False, isrc_suspect=False, isrc_available=False) is ISRC_ABSENT
+        assert (
+            classify_isrc(isrc_matched=False, isrc_suspect=False, isrc_available=False)
+            is ISRC_ABSENT
+        )
 
     def test_available_but_no_match(self):
         """ISRC available but didn't match — treat as neutral (absent)."""
-        assert classify_isrc(isrc_matched=False, isrc_suspect=False, isrc_available=True) is ISRC_ABSENT
+        assert (
+            classify_isrc(isrc_matched=False, isrc_suspect=False, isrc_available=True)
+            is ISRC_ABSENT
+        )
 
 
 class TestCalculateMatchWeight:

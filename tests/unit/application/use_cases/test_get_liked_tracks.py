@@ -23,7 +23,7 @@ class TestGetLikedTracksCommand:
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
         command = GetLikedTracksCommand()
-        assert command.limit == 10000
+        assert command.limit == 50000
         assert command.sort_by is None
 
     def test_valid_command_with_sorting(self):
@@ -40,9 +40,9 @@ class TestGetLikedTracksCommand:
             GetLikedTracksCommand(limit=0)
 
     def test_invalid_limit_too_large(self):
-        """Test command validation fails for limit exceeding max at construction."""
+        """Test command validation fails for limit exceeding 1M sanity guard."""
         with pytest.raises(ValueError, match="must be between"):
-            GetLikedTracksCommand(limit=10001)
+            GetLikedTracksCommand(limit=1_000_001)
 
     def test_invalid_sort_option(self):
         """Test command validation fails for invalid sort option at construction."""

@@ -130,9 +130,7 @@ async def relink_mapping(
 
 
 @router.delete("/{track_id}/mappings/{mapping_id}")
-async def unlink_mapping(
-    track_id: int, mapping_id: int
-) -> UnlinkMappingResponse:
+async def unlink_mapping(track_id: int, mapping_id: int) -> UnlinkMappingResponse:
     """Unlink a connector mapping from this track."""
     command = UnlinkConnectorTrackCommand(
         mapping_id=mapping_id, current_track_id=track_id
@@ -147,14 +145,10 @@ async def unlink_mapping(
 
 
 @router.patch("/{track_id}/mappings/{mapping_id}/primary")
-async def set_primary_mapping(
-    track_id: int, mapping_id: int
-) -> TrackDetailSchema:
+async def set_primary_mapping(track_id: int, mapping_id: int) -> TrackDetailSchema:
     """Set a mapping as the primary for its connector on this track."""
     command = SetPrimaryMappingCommand(mapping_id=mapping_id, track_id=track_id)
-    await execute_use_case(
-        lambda uow: SetPrimaryMappingUseCase().execute(command, uow)
-    )
+    await execute_use_case(lambda uow: SetPrimaryMappingUseCase().execute(command, uow))
     # Fresh read
     detail_cmd = GetTrackDetailsCommand(track_id=track_id)
     result = await execute_use_case(

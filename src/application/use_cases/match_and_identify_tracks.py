@@ -10,17 +10,21 @@ This replaces MatchTracksUseCase and will become the single way to resolve track
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.application.services.progress_manager import AsyncProgressManager
 
 from attrs import define, field
 
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
 from src.domain.entities.match_review import MatchReview
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.types import MatchResultsById
+from src.domain.matching.types import MatchResultsById, RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import TrackIdentityServiceProtocol
 
 # Note: TrackMappingService and spotify_track_lookup removed - redundant with SpotifyConnector behavior
 
@@ -38,6 +42,8 @@ class MatchAndIdentifyTracksCommand:
         connector_instance: API client instance for the service.
         max_age_hours: Cache expiration time. None means use any cached data.
         additional_options: Service-specific configuration parameters.
+        progress_manager: Optional progress manager for sub-operation tracking.
+        parent_operation_id: Parent operation ID for sub-operation nesting.
     """
 
     tracklist: TrackList
@@ -45,6 +51,8 @@ class MatchAndIdentifyTracksCommand:
     connector_instance: Any  # ServiceConnectorProvider.get_connector() returns Any
     max_age_hours: float | None = None
     additional_options: dict[str, Any] = field(factory=dict)
+    progress_manager: AsyncProgressManager | None = None
+    parent_operation_id: str | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validates required parameters are provided."""
@@ -192,11 +200,10 @@ class MatchAndIdentifyTracksUseCase:
                     )
 
                     # STEP 3: Get raw matches from infrastructure (no business logic)
-                    raw_matches = await track_identity_service.get_raw_external_matches(
-                        tracks_needing_resolution,
-                        command.connector,
-                        command.connector_instance,
-                        **command.additional_options,
+                    raw_matches = await self._fetch_raw_matches_with_progress(
+                        track_identity_service=track_identity_service,
+                        tracks=tracks_needing_resolution,
+                        command=command,
                     )
 
                     # STEP 3.5: NOTE: Spotify relinking handling removed - now automatic
@@ -259,6 +266,64 @@ class MatchAndIdentifyTracksUseCase:
                     execution_time_ms=timer.stop(),
                     errors=[error_msg],
                 )
+
+    async def _fetch_raw_matches_with_progress(
+        self,
+        track_identity_service: TrackIdentityServiceProtocol,
+        tracks: list[Track],
+        command: MatchAndIdentifyTracksCommand,
+    ) -> dict[int, RawProviderMatch]:
+        """Fetch raw matches with optional progress sub-operation tracking.
+
+        Creates a sub-operation on the progress manager when available, threads
+        the callback to the matching provider, and ensures proper completion/failure
+        status reporting.
+
+        Args:
+            track_identity_service: The TrackIdentityServiceProtocol instance from UoW.
+            tracks: Tracks needing identity resolution.
+            command: The command containing connector and progress configuration.
+
+        Returns:
+            Raw matches dict from the provider.
+        """
+        from src.application.services.sub_operation_progress import (
+            complete_sub_operation,
+            create_sub_operation,
+        )
+        from src.domain.entities.progress import OperationStatus
+
+        progress_callback = None
+        sub_op_id: str | None = None
+        try:
+            if command.progress_manager and command.parent_operation_id:
+                sub_op_id, progress_callback = await create_sub_operation(
+                    command.progress_manager,
+                    description=f"Matching tracks to {command.connector}",
+                    total_items=len(tracks),
+                    parent_operation_id=command.parent_operation_id,
+                    phase="match",
+                    node_type="enricher",
+                )
+
+            raw_matches = await track_identity_service.get_raw_external_matches(
+                tracks,
+                command.connector,
+                command.connector_instance,
+                progress_callback=progress_callback,
+                **command.additional_options,
+            )
+
+            if command.progress_manager and sub_op_id:
+                await complete_sub_operation(command.progress_manager, sub_op_id)
+
+            return raw_matches
+        except Exception:
+            if command.progress_manager and sub_op_id:
+                await complete_sub_operation(
+                    command.progress_manager, sub_op_id, OperationStatus.FAILED
+                )
+            raise
 
     async def _persist_review_candidates(
         self,

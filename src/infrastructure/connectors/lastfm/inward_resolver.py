@@ -67,9 +67,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         return raw_id.strip().lower()
 
     @override
-    def _extract_reuse_metadata(
-        self, identifier: str
-    ) -> ReuseMetadata | None:
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
         """Extract artist+title from Last.fm identifier for canonical reuse."""
         artist_name, track_name = parse_lastfm_identifier(identifier)
         connector_id = make_lastfm_identifier(artist_name, track_name)

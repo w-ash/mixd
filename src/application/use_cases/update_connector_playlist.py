@@ -16,6 +16,7 @@ from src.application.connector_protocols import PlaylistConnector
 from src.application.use_cases._shared import (
     AppendOperationResult,
     build_api_execution_metadata,
+    build_playlist_changes,
     classify_connector_api_error,
     classify_database_error,
     count_operation_types,
@@ -97,6 +98,7 @@ class UpdateConnectorPlaylistResult:
     execution_time_ms: int = 0
     confidence_score: float = 1.0
     external_metadata: dict[str, Any] = field(factory=dict)  # e.g., Spotify snapshot_id
+    playlist_changes: dict[str, Any] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
@@ -368,6 +370,8 @@ class UpdateConnectorPlaylistUseCase:
                 )
 
                 # Step 2: Handle track updates based on mode
+                playlist_changes: dict[str, Any] = {}
+
                 if command.append_mode:
                     # Append mode: add new tracks to end of external playlist
                     append_result = await self._append_tracks_to_connector(
@@ -431,6 +435,9 @@ class UpdateConnectorPlaylistUseCase:
                             current_playlist, sequenced_operations, command, uow
                         )
                     confidence_score = diff.confidence_score
+                    playlist_changes = build_playlist_changes(
+                        diff, command.playlist_id, command.connector
+                    )
 
                 # Handle metadata updates if specified
                 if command.playlist_name or command.playlist_description:
@@ -449,6 +456,7 @@ class UpdateConnectorPlaylistUseCase:
                     execution_time_ms=timer.stop(),
                     confidence_score=confidence_score,
                     external_metadata=external_metadata,
+                    playlist_changes=playlist_changes,
                 )
 
                 logger.info(

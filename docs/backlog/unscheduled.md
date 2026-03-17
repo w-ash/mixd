@@ -35,7 +35,7 @@ For the planning overview, see [README.md](README.md).
 
 ## Enrichment Sources
 
-- **Discogs Enrichment Provider** (M) - Release metadata enrichment via free Discogs API (OAuth 1.0a). 15M+ releases with label, credits, catalog number, format, and release country data. Complements MusicBrainz with stronger vinyl/physical release coverage. [API docs](https://www.discogs.com/developers/).
+- ~~**Discogs Enrichment Provider**~~ → Scheduled as [v0.9.2: Physical Media & Discogs](v0.9.x.md#v092-physical-media--discogs)
 - **ListenBrainz Integration** (M) - Open-source listening statistics and recommendations via ListenBrainz API. Listen history import/export, user statistics, collaborative filtering recommendations. Could serve as an open alternative to Last.fm for scrobble data. [Docs](https://listenbrainz.readthedocs.io/).
 - **Audio Analysis Provider — BPM, Key, Energy** (M) - Track-level audio features (BPM, musical key, time signature, danceability, energy) now that Spotify's Audio Features API is deprecated (403 for new apps since late 2024). Candidate sources:
     - [GetSongBPM](https://getsongbpm.com/api) — free API, attribution required. BPM, key, time signature, danceability, acousticness.
@@ -62,17 +62,19 @@ For the planning overview, see [README.md](README.md).
 
 ## Playlist Link Enhancements
 
-- **Browse/Search User's Playlists from Connector** (M) - Instead of paste-ID-to-link, let users browse their own playlists from Spotify/Apple Music and select one. Requires new `list_user_playlists()` connector method + browse/search UI.
+- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.7.1: Editor Polish, Templates & Playlist Browse](v0.7.x.md#v071-editor-polish-templates--playlist-browse)
 - **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
 - **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
 - **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.
 - **External Change Detection** (S) - Compare Spotify `snapshot_id` (or equivalent) to detect external changes since last sync. Enables "out of sync" notifications.
 - **PAUSED Sync State** (S) - Allow users to pause sync on a link without unlinking. Requires scheduled sync infrastructure.
 
-## Lower Priority Ideas
+## Not Building
 
-- **Advanced Analytics Dashboard** - Workflow usage and performance metrics
-- **Multi-Language Support** - UI translations for international users
+Items explicitly descoped — they serve neither persona or are Platform Builder thinking.
+
+- **Multi-Language Support** — Serves neither persona. <10 English-speaking friends.
+- **Advanced Analytics Dashboard** — Vague scope, no persona need. If workflow perf metrics are needed, a single metric on the existing dashboard suffices.
 
 ## Deferred Clean Architecture Improvements
 

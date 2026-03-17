@@ -123,10 +123,16 @@ class TestBulkUpdatePlaySourceServices:
 
         # Bulk update with cross-source metadata
         await plays_repo.bulk_update_play_source_services([
-            (play_id, {
-                "source_services": ["spotify", "lastfm"],
-                "context": {"platform": "osx", "merged_from_lastfm": {"mbid": "abc"}},
-            }),
+            (
+                play_id,
+                {
+                    "source_services": ["spotify", "lastfm"],
+                    "context": {
+                        "platform": "osx",
+                        "merged_from_lastfm": {"mbid": "abc"},
+                    },
+                },
+            ),
         ])
 
         # Verify by re-fetching
@@ -171,10 +177,13 @@ class TestBulkUpdatePlaySourceServices:
 
         # Backfill ms_played from Spotify match via bulk update
         await plays_repo.bulk_update_play_source_services([
-            (play_id, {
-                "source_services": ["lastfm", "spotify"],
-                "ms_played": 240000,
-            }),
+            (
+                play_id,
+                {
+                    "source_services": ["lastfm", "spotify"],
+                    "ms_played": 240000,
+                },
+            ),
         ])
 
         updated_plays = await plays_repo.get_plays_by_batch(batch_id)

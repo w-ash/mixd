@@ -9,6 +9,10 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 - **Backend calls** -- which API endpoints and use cases are involved
 - **Edge cases** -- what can go wrong and how we handle it
 
+## Personas
+
+These flows are primarily designed for **The Weekly Curator** (primary persona). Flows specifically serving **The Tinkerer** (secondary) are noted inline. See [personas.md](../personas.md) for full definitions and anti-personas.
+
 ---
 
 ## 1. Connecting Services

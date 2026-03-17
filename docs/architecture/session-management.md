@@ -21,6 +21,7 @@ class UnitOfWork(Protocol):
     async def rollback(self) -> None: ...
     def get_track_repository(self) -> TrackRepository: ...
 
+
 # Infrastructure implementation
 class DatabaseUnitOfWork:
     def __init__(self, session: AsyncSession):

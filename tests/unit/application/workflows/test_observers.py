@@ -20,7 +20,6 @@ from src.domain.entities.progress import ProgressStatus
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.entities.workflow import (
     NodeExecutionEvent,
-    TrackDecision,
     WorkflowTaskDef,
 )
 
@@ -125,30 +124,24 @@ class TestRunHistoryObserver:
     async def test_on_node_completed_persists_node_details(
         self, task_def, sample_result
     ):
-        """Track decisions from the result are serialized as node_details."""
+        """Node details from the result are passed through to the updater."""
         mock_updater = AsyncMock()
         observer = RunHistoryObserver(run_id=10, update_node_status=mock_updater)
-        decisions = [
-            TrackDecision(
-                track_id=1,
-                title="Track A",
-                artists="Artist 1",
-                decision="kept",
-                reason="Passed filter",
-            ),
-            TrackDecision(
-                track_id=2,
-                title="Track B",
-                artists="Artist 2",
-                decision="removed",
-                reason="Below threshold",
-                metric_name="play_count",
-                threshold=5.0,
-            ),
-        ]
-        result_with_decisions = {
+        result_with_details = {
             "tracklist": sample_result["tracklist"],
-            "track_decisions": decisions,
+            "node_details": {
+                "playlist_changes": {
+                    "tracks_added": [
+                        {"track_id": 1, "title": "Track A", "artists": "Artist 1"}
+                    ],
+                    "tracks_removed": [
+                        {"track_id": 2, "title": "Track B", "artists": "Artist 2"}
+                    ],
+                    "tracks_moved": 0,
+                    "playlist_id": "test-playlist",
+                    "connector": "spotify",
+                },
+            },
         }
         event = NodeExecutionEvent(
             task_def=task_def,
@@ -158,13 +151,14 @@ class TestRunHistoryObserver:
             output_track_count=1,
         )
 
-        await observer.on_node_completed(event, result_with_decisions)
+        await observer.on_node_completed(event, result_with_details)
 
         call_kwargs = mock_updater.call_args[1]
         assert call_kwargs["node_details"] is not None
-        assert len(call_kwargs["node_details"]["track_decisions"]) == 2
-        assert call_kwargs["node_details"]["track_decisions"][0]["decision"] == "kept"
-        assert call_kwargs["node_details"]["track_decisions"][1]["threshold"] == 5.0
+        changes = call_kwargs["node_details"]["playlist_changes"]
+        assert len(changes["tracks_added"]) == 1
+        assert len(changes["tracks_removed"]) == 1
+        assert changes["playlist_id"] == "test-playlist"
 
     async def test_on_node_completed_pushes_sse_with_counts(
         self, task_def, sample_result

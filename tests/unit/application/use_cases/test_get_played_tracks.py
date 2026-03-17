@@ -12,6 +12,7 @@ from src.application.use_cases.get_played_tracks import (
     GetPlayedTracksCommand,
     GetPlayedTracksUseCase,
 )
+from src.config.constants import BusinessLimits
 from src.domain.entities import Track, TrackPlay
 from src.domain.entities.track import Artist
 from tests.fixtures.mocks import make_mock_uow
@@ -23,7 +24,7 @@ class TestGetPlayedTracksCommand:
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
         command = GetPlayedTracksCommand()
-        assert command.limit == 10000
+        assert command.limit == BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
         assert command.days_back is None
         assert command.sort_by is None
 
@@ -59,9 +60,9 @@ class TestGetPlayedTracksCommand:
             GetPlayedTracksCommand(limit=0)
 
     def test_invalid_limit_exceeds_max(self):
-        """Test validation fails for limit exceeding maximum at construction."""
+        """Test validation fails for limit exceeding 1M sanity guard."""
         with pytest.raises(ValueError, match="must be between"):
-            GetPlayedTracksCommand(limit=10001)
+            GetPlayedTracksCommand(limit=1_000_001)
 
     def test_invalid_days_back_zero(self):
         """Test validation fails for zero days_back at construction."""
@@ -163,8 +164,8 @@ class TestGetPlayedTracksUseCase:
         # Verify repository was called with sort_by parameter
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.assert_called_once_with(
-            limit=20000,
-            sort_by="total_plays_desc",  # limit * 2
+            limit=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT * 2,
+            sort_by="total_plays_desc",
         )
 
     async def test_execute_with_days_back_filter(self, mock_uow):

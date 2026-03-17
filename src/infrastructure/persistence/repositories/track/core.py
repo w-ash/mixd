@@ -12,10 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
-from src.domain.matching.text_normalization import (
-    normalize_for_comparison,
-    strip_parentheticals,
-)
+from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylistTrack,
     DBTrack,
@@ -559,11 +556,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
         ]
 
-        stmt = (
-            select(DBTrack)
-            .where(or_(*conditions))
-            .order_by(DBTrack.id.asc())
-        )
+        stmt = select(DBTrack).where(or_(*conditions)).order_by(DBTrack.id.asc())
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
 
@@ -582,7 +575,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         matched: dict[tuple[str, str], Track] = {}
         for db_track in rows:
             artist_norm = db_track.artist_normalized or ""
-            for title_val in {db_track.title_normalized or "", db_track.title_stripped or ""}:
+            for title_val in {
+                db_track.title_normalized or "",
+                db_track.title_stripped or "",
+            }:
                 lower_key = lookup_to_lower.get((title_val, artist_norm))
                 if lower_key and lower_key not in matched:
                     matched[lower_key] = await self.mapper.to_domain(db_track)

@@ -19,7 +19,11 @@ from src.application.services.metrics_application_service import (
 
 if TYPE_CHECKING:
     from src.application.workflows.protocols import MetricConfigProvider
-from src.application.use_cases._shared import OperationCounts, count_operation_types
+from src.application.use_cases._shared import (
+    OperationCounts,
+    build_playlist_changes,
+    count_operation_types,
+)
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.application.utilities.timing import ExecutionTimer
@@ -86,6 +90,7 @@ class UpdateCanonicalPlaylistResult:
     operation_counts: OperationCounts = field(factory=OperationCounts)
     execution_time_ms: int = 0
     confidence_score: float = 1.0
+    playlist_changes: dict[str, Any] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
@@ -206,6 +211,7 @@ class UpdateCanonicalPlaylistUseCase:
                     )
 
                 # Step 3: Handle track updates based on mode
+                playlist_changes: dict[str, Any] = {}
                 if command.append_mode:
                     # Append mode: add new tracks to end of existing playlist
                     (
@@ -248,6 +254,7 @@ class UpdateCanonicalPlaylistUseCase:
                             current_playlist, diff, processed_playlist, uow
                         )
                     confidence_score = diff.confidence_score
+                    playlist_changes = build_playlist_changes(diff, command.playlist_id)
 
                     # Extract metrics from new tracks (only for non-dry runs)
                     if not command.dry_run:
@@ -265,6 +272,7 @@ class UpdateCanonicalPlaylistUseCase:
                     operation_counts=operation_counts,
                     execution_time_ms=timer.stop(),
                     confidence_score=confidence_score,
+                    playlist_changes=playlist_changes,
                 )
 
                 logger.info(

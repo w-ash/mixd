@@ -101,7 +101,13 @@ class TestWarnStatus:
         uow = make_mock_uow()
         track_repo = uow.get_track_repository()
         track_repo.find_duplicate_tracks_by_fingerprint.return_value = [
-            {"title": "Song", "artist": "Artist", "album": "Album", "count": 2, "track_ids": [1, 2]}
+            {
+                "title": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "count": 2,
+                "track_ids": [1, 2],
+            }
         ]
 
         result = await CheckDataIntegrityUseCase().execute(
@@ -139,9 +145,7 @@ class TestPendingReviewsInformational:
         result = await CheckDataIntegrityUseCase().execute(
             CheckDataIntegrityCommand(), uow
         )
-        pending_check = next(
-            c for c in result.checks if c.name == "pending_reviews"
-        )
+        pending_check = next(c for c in result.checks if c.name == "pending_reviews")
         assert pending_check.status == "pass"
         assert pending_check.count == 100
         # Overall should still be pass since pending_reviews is informational

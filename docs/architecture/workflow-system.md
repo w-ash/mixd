@@ -87,7 +87,7 @@ async def external_playlist_source(context, config):
     save_command = SavePlaylistCommand(
         tracklist=TrackList(tracks=domain_tracks),
         enrichment_config=EnrichmentConfig(enabled=True),
-        persistence_options=PersistenceOptions(operation_type="create_internal")
+        persistence_options=PersistenceOptions(operation_type="create_internal"),
     )
     result = await SavePlaylistUseCase().execute(save_command)
 

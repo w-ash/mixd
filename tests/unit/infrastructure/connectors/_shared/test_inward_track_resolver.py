@@ -266,9 +266,7 @@ class TestCanonicalReuseHook:
         uow.get_connector_repository.return_value = connector_repo
 
         resolver = FakeInwardResolver(reuse_results={"id_a": reused_track})
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a"], uow
-        )
+        result, metrics = await resolver.resolve_to_canonical_tracks(["id_a"], uow)
 
         assert result == {"id_a": reused_track}
         assert metrics.reused == 1
@@ -343,9 +341,7 @@ class TestCanonicalReuseHook:
         uow.get_connector_repository.return_value = connector_repo
 
         resolver = FakeInwardResolver(batch_results={"id_a": track})
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a"], uow
-        )
+        result, metrics = await resolver.resolve_to_canonical_tracks(["id_a"], uow)
 
         assert metrics.reused == 0
         assert metrics.created == 1

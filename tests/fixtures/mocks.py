@@ -168,9 +168,7 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     repo.get_review_by_id.return_value = overrides.pop("get_review_by_id", None)
     repo.create_review.side_effect = overrides.pop("create_review", lambda r: r)
     repo.create_reviews_batch.return_value = overrides.pop("create_reviews_batch", 0)
-    repo.update_review_status.return_value = overrides.pop(
-        "update_review_status", None
-    )
+    repo.update_review_status.return_value = overrides.pop("update_review_status", None)
     repo.count_pending.return_value = overrides.pop("count_pending", 0)
     repo.count_stale_pending.return_value = overrides.pop("count_stale_pending", 0)
     for k, v in overrides.items():

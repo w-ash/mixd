@@ -150,7 +150,9 @@ class TestISRCCollision:
         track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
 
-        result = await provider.attempt_discovery(track, "Same Artist", "Same Song", uow)
+        result = await provider.attempt_discovery(
+            track, "Same Artist", "Same Song", uow
+        )
 
         assert result is True
         # Mapping should be on the existing track (99), not the current track (42)

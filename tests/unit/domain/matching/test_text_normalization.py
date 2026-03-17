@@ -8,7 +8,6 @@ import pytest
 
 from src.domain.matching.text_normalization import (
     are_phonetic_matches,
-    normalize_artist_name,
     normalize_for_comparison,
     phonetic_key,
     strip_diacritics,
@@ -95,18 +94,6 @@ class TestNormalizeForComparison:
         """Multiple normalizations applied together."""
         result = normalize_for_comparison("The Motörhead ft. Björk & Friends")
         assert result == "motorhead featuring bjork and friends"
-
-
-class TestNormalizeArtistName:
-    """Test artist-specific normalization."""
-
-    def test_delegates_to_normalize_for_comparison(self):
-        assert normalize_artist_name("The Beatles") == normalize_for_comparison(
-            "The Beatles"
-        )
-
-    def test_handles_common_artist_patterns(self):
-        assert normalize_artist_name("Beyoncé") == "beyonce"
 
 
 class TestPhoneticKey:

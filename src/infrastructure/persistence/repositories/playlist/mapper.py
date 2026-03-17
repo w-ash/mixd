@@ -259,5 +259,3 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
     def get_default_relationships() -> list[str]:
         """Get default relationships to load for connector playlists."""
         return []
-
-

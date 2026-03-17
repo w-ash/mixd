@@ -40,15 +40,13 @@ class TestAcceptReview:
 
     async def test_accept_creates_mapping_and_updates_status(self):
         review = _make_pending_review()
-        accepted_review = MatchReview(
+        accepted_review = MatchReview(**{
             **{
-                **{
-                    f.name: getattr(review, f.name)
-                    for f in review.__attrs_attrs__  # type: ignore[attr-defined]
-                },
-                "status": ReviewStatus.ACCEPTED,
-            }
-        )
+                f.name: getattr(review, f.name)
+                for f in review.__attrs_attrs__  # type: ignore[attr-defined]
+            },
+            "status": ReviewStatus.ACCEPTED,
+        })
 
         uow = make_mock_uow()
         review_repo = uow.get_match_review_repository()
@@ -79,15 +77,13 @@ class TestRejectReview:
 
     async def test_reject_updates_status_without_mapping(self):
         review = _make_pending_review()
-        rejected_review = MatchReview(
+        rejected_review = MatchReview(**{
             **{
-                **{
-                    f.name: getattr(review, f.name)
-                    for f in review.__attrs_attrs__  # type: ignore[attr-defined]
-                },
-                "status": ReviewStatus.REJECTED,
-            }
-        )
+                f.name: getattr(review, f.name)
+                for f in review.__attrs_attrs__  # type: ignore[attr-defined]
+            },
+            "status": ReviewStatus.REJECTED,
+        })
 
         uow = make_mock_uow()
         review_repo = uow.get_match_review_repository()

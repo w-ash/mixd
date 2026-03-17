@@ -6,12 +6,17 @@ These types represent the core concepts in our matching domain with zero externa
 # pyright: reportExplicitAny=false
 # Legitimate Any: service_metadata, raw_data dicts, factory patterns
 
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any, TypedDict
 
 from attrs import define, field
 
 from src.domain.entities.track import Track
+
+# Async progress callback signature used across matching layers.
+# Parameters: (completed_count, total, description)
+type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 
 
 class MatchFailureReason(Enum):

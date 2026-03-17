@@ -98,9 +98,7 @@ def _source_priority(service: str) -> int:
         return len(order)  # unknown services sort last
 
 
-def _merge_context(
-    winner: TrackPlay, loser: TrackPlay
-) -> dict[str, Any] | None:
+def _merge_context(winner: TrackPlay, loser: TrackPlay) -> dict[str, Any] | None:
     """Merge the loser's context into the winner's, namespaced by service."""
     merged = dict(winner.context) if winner.context else {}
 
@@ -112,7 +110,9 @@ def _merge_context(
 
 def _build_source_services(winner: TrackPlay, loser: TrackPlay) -> list[str]:
     """Build ordered source_services list from a matched pair."""
-    existing = list(winner.source_services) if winner.source_services else [winner.service]
+    existing = (
+        list(winner.source_services) if winner.source_services else [winner.service]
+    )
     if loser.service not in existing:
         existing.append(loser.service)
     return existing
@@ -210,9 +210,14 @@ def deduplicate_cross_source_plays(
                     suppressed_plays.append(new_play)
                     # Mark existing for update to add source_services
                     if existing.id is not None:
-                        plays_to_update.append((existing.id, {
-                            "source_services": _build_source_services(new_play, existing),
-                        }))
+                        plays_to_update.append((
+                            existing.id,
+                            {
+                                "source_services": _build_source_services(
+                                    new_play, existing
+                                ),
+                            },
+                        ))
                     stats["new_wins"] += 1
                 else:
                     # Existing play is higher priority — enrich it, suppress new
@@ -262,9 +267,7 @@ def compute_dedup_time_range(
     if not plays:
         return None
 
-    tolerance = timedelta(
-        seconds=CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS
-    )
+    tolerance = timedelta(seconds=CROSS_SERVICE_TOLERANCE_FALLBACK_SECONDS)
     # Use raw played_at (not normalized) since we need to cover both
     # end-time and start-time semantics in the query range
     timestamps = [p.played_at for p in plays]

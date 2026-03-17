@@ -56,7 +56,7 @@ from src.application.workflows.validation import (
     validate_workflow_def_detailed,
 )
 from src.config import get_logger
-from src.config.constants import WorkflowConstants
+from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import RunStatus, WorkflowDef, WorkflowRun
 from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.api.schemas.common import PaginatedResponse
@@ -466,9 +466,10 @@ async def _execute_workflow_background(
                     operation_id,
                     WorkflowConstants.RUN_STATUS_FAILED,
                     run_id=run_id,
-                    error_message=(run_result.error_message or "Unknown error")[
-                        : WorkflowConstants.SSE_ERROR_MAX_LENGTH
-                    ],
+                    error_message=truncate_error_message(
+                        run_result.error_message or "Unknown error",
+                        WorkflowConstants.SSE_ERROR_MAX_LENGTH,
+                    ),
                 )
             )
 
@@ -513,6 +514,7 @@ async def _execute_preview_background(
                 operation_id,
                 WorkflowConstants.RUN_STATUS_COMPLETED,
                 output_tracks=preview_result.output_tracks,
+                total_track_count=preview_result.total_track_count,
                 metric_columns=preview_result.metric_columns,
                 node_summaries=[
                     {
@@ -531,7 +533,9 @@ async def _execute_preview_background(
         error_msg = (
             WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
             if isinstance(exc, CancelledError)
-            else str(exc)[: WorkflowConstants.SSE_ERROR_MAX_LENGTH]
+            else truncate_error_message(
+                str(exc), WorkflowConstants.SSE_ERROR_MAX_LENGTH
+            )
         )
         with contextlib.suppress(CancelledError, Exception):
             await sse_queue.put(

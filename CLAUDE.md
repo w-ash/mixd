@@ -10,6 +10,17 @@
 - No cross-service operations (can't sort Spotify by Last.fm counts)
 - Users want control: "show me liked tracks unplayed 6mo" is impossible
 
+### Primary Persona
+**The Weekly Curator** — Power listener (~15k liked tracks, years of play history across Spotify + Last.fm) who refuses to let platforms lock away their listening identity. Reclaims data, unifies it across services, and curates playlists on their own terms. 15+ curated playlists, weekly refresh ritual. Web UI primary, CLI for automation. See [docs/personas.md](docs/personas.md).
+
+### Secondary Personas
+- **The Tinkerer** — Tech-savvy friend who self-hosts via Docker. Enjoys understanding the system, needs good docs, templates, and clear error messages.
+- **The Casual Enthusiast** — Music-loving friend who wants control but historically couldn't use the tools. LLM-assisted workflow creation (v0.8.0) is the key adoption enabler — describe what you want in plain English, get a working playlist.
+
+### Anti-Personas
+- **The Passive Listener** — Happy with algorithms. If they'd use a feature, it's too generic.
+- **The Platform Builder** — Wants social/collaborative/multi-tenant. Narada is a personal tool, not a platform.
+
 ### Solution: Workflows
 Declarative pipelines composing user-defined criteria:
 - "Current Obsessions" = liked → 8+ plays last 30d → top 20
@@ -79,6 +90,7 @@ Layer-specific coding patterns (attrs, SQLAlchemy, repository, use cases) live i
 
 ## Planning Self-Check (before implementing a feature)
 
+0. Does this feature serve The Weekly Curator, The Tinkerer, or The Casual Enthusiast? (see [docs/personas.md](docs/personas.md))
 1. Which user stories in `docs/user-flows.md` does this serve?
 2. What does the backlog spec in `docs/backlog/` say about implementation?
 3. After implementing, do the user story's Given/When/Then criteria pass?
@@ -124,4 +136,5 @@ Self-check after implementing:
 - **REST API Reference** → docs/web-ui/03-api-contracts.md
 - **Planning & Backlog** → docs/backlog/ (includes completed/ archive)
 - **Unscheduled Ideas** → docs/backlog/unscheduled.md
+- **Personas** → docs/personas.md (proto-personas, anti-personas, audit findings)
 - **Web UI Specs** → docs/web-ui/README.md

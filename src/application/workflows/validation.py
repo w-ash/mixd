@@ -84,7 +84,9 @@ def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) 
         )
 
     # Validate value types for required keys
-    required_type_map = {f.key: _FIELD_TYPE_MAP.get(f.field_type, str) for f in fields if f.required}
+    required_type_map = {
+        f.key: _FIELD_TYPE_MAP.get(f.field_type, str) for f in fields if f.required
+    }
     for key, expected_type in required_type_map.items():
         if key not in config:
             continue

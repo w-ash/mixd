@@ -34,6 +34,7 @@ class PreviewWorkflowResult:
     output_tracks: list[dict[str, object]]
     node_summaries: list[NodePreviewSummary]
     duration_ms: int
+    total_track_count: int = 0
     metric_columns: list[str] = field(factory=list)
 
 
@@ -80,6 +81,7 @@ class PreviewWorkflowUseCase:
                 )
 
                 duration_ms = timer.stop()
+                total_track_count = len(result.tracks) if result.tracks else 0
                 if result.tracks:
                     output_tracks, metric_columns = serialize_output_tracks(
                         result.tracks,
@@ -94,6 +96,7 @@ class PreviewWorkflowUseCase:
                     output_tracks=output_tracks,
                     node_summaries=node_summaries,
                     duration_ms=duration_ms,
+                    total_track_count=total_track_count,
                     metric_columns=metric_columns,
                 )
 

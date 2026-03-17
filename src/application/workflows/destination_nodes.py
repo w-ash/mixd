@@ -231,7 +231,7 @@ async def update_playlist(
             tracks_removed=result.tracks_removed,
             tracks_moved=result.tracks_moved,
         )
-        return {"tracklist": tracklist}
+        playlist_changes = result.playlist_changes
     else:
         # playlist_id is canonical ID - update canonical only
         command = UpdateCanonicalPlaylistCommand(
@@ -252,4 +252,11 @@ async def update_playlist(
             append_mode=append,
             track_count=len(tracklist.tracks),
         )
-        return {"tracklist": tracklist}
+        playlist_changes = result.playlist_changes
+
+    if playlist_changes:
+        return {
+            "tracklist": tracklist,
+            "node_details": {"playlist_changes": playlist_changes},
+        }
+    return {"tracklist": tracklist}

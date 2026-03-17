@@ -105,7 +105,9 @@ class UnlinkConnectorTrackUseCase:
 
         new_track = Track(
             title=ct.title,
-            artists=[Artist(name=a.name) for a in ct.artists] if ct.artists else [Artist(name="Unknown")],
+            artists=[Artist(name=a.name) for a in ct.artists]
+            if ct.artists
+            else [Artist(name="Unknown")],
             album=ct.album,
             duration_ms=ct.duration_ms,
             release_date=ct.release_date,

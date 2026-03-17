@@ -3,7 +3,6 @@
 Tests paginated retrieval of pending match reviews from the review queue.
 """
 
-
 from src.application.use_cases.list_match_reviews import (
     ListMatchReviewsCommand,
     ListMatchReviewsResult,

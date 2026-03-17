@@ -222,7 +222,8 @@ class TestMBIDEnrichment:
         save_calls = track_repo.save_track.call_args_list
         # The enrichment call should include the MBID in connector_track_identifiers
         enrichment_calls = [
-            c for c in save_calls
+            c
+            for c in save_calls
             if c.args[0].connector_track_identifiers.get("musicbrainz") == test_mbid
         ]
         assert len(enrichment_calls) >= 1

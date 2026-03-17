@@ -11,6 +11,54 @@ from typing import Any, TypedDict
 
 from attrs import define
 
+from src.domain.playlist.diff_engine import PlaylistDiff, PlaylistOperationType
+
+_MAX_EVIDENCE_TRACKS = 100
+"""Cap per-list to avoid unbounded JSON in workflow run history."""
+
+
+def build_playlist_changes(
+    diff: PlaylistDiff, playlist_id: str, connector: str | None = None
+) -> dict[str, Any]:
+    """Build lightweight playlist change evidence from a PlaylistDiff.
+
+    Extracts track summaries (id, title, artists) from diff operations
+    for persisting as node_details in workflow run history.  Lists are
+    capped at _MAX_EVIDENCE_TRACKS with a total count for the remainder.
+    """
+    added: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    moved = 0
+    for op in diff.operations:
+        if op.operation_type == PlaylistOperationType.MOVE:
+            moved += 1
+            continue
+        track = op.track
+        summary = {
+            "track_id": track.id,
+            "title": track.title or "Unknown",
+            "artists": ", ".join(a.name for a in track.artists)
+            if track.artists
+            else "Unknown",
+        }
+        if op.operation_type == PlaylistOperationType.ADD:
+            added.append(summary)
+        elif op.operation_type == PlaylistOperationType.REMOVE:
+            removed.append(summary)
+
+    total_added = len(added)
+    total_removed = len(removed)
+
+    return {
+        "tracks_added": added[:_MAX_EVIDENCE_TRACKS],
+        "tracks_removed": removed[:_MAX_EVIDENCE_TRACKS],
+        "tracks_added_total": total_added,
+        "tracks_removed_total": total_removed,
+        "tracks_moved": moved,
+        "playlist_id": playlist_id,
+        "connector": connector,
+    }
+
 
 class ApiMetadata(TypedDict, total=False):
     """Structured metadata from external API operations.

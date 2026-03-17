@@ -38,8 +38,12 @@ class TestMatchMethodHealthHappyPath:
 
     async def test_rows_mapped_with_categories(self, mock_uow):
         rows = [
-            _make_row(match_method="direct_import", connector_name="spotify", total_count=500),
-            _make_row(match_method="isrc_match", connector_name="spotify", total_count=60),
+            _make_row(
+                match_method="direct_import", connector_name="spotify", total_count=500
+            ),
+            _make_row(
+                match_method="isrc_match", connector_name="spotify", total_count=60
+            ),
         ]
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
@@ -56,7 +60,9 @@ class TestMatchMethodHealthHappyPath:
     async def test_total_mappings_is_sum_of_totals(self, mock_uow):
         rows = [
             _make_row(total_count=200),
-            _make_row(match_method="artist_title", connector_name="lastfm", total_count=150),
+            _make_row(
+                match_method="artist_title", connector_name="lastfm", total_count=150
+            ),
         ]
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
@@ -100,7 +106,9 @@ class TestMatchMethodHealthCategoryGrouping:
     async def test_groups_by_category(self, mock_uow):
         rows = [
             _make_row(match_method="direct_import", total_count=500),
-            _make_row(match_method="artist_title", connector_name="lastfm", total_count=300),
+            _make_row(
+                match_method="artist_title", connector_name="lastfm", total_count=300
+            ),
             _make_row(match_method="isrc_match", total_count=60),
             _make_row(match_method="search_fallback", total_count=20),
         ]

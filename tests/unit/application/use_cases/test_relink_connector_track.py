@@ -52,9 +52,14 @@ class TestRelinkHappyPath:
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         connector_repo.update_mapping_track = AsyncMock(
             return_value=TrackMapping(
-                id=1, track_id=20, connector_track_id=100,
-                connector_name="spotify", match_method="isrc",
-                confidence=95, origin="manual_override", is_primary=False,
+                id=1,
+                track_id=20,
+                connector_track_id=100,
+                connector_name="spotify",
+                match_method="isrc",
+                confidence=95,
+                origin="manual_override",
+                is_primary=False,
             )
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
@@ -78,7 +83,9 @@ class TestRelinkHappyPath:
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         connector_repo.update_mapping_track = AsyncMock(
-            return_value=_make_mapping(track_id=20, is_primary=False, origin="manual_override")
+            return_value=_make_mapping(
+                track_id=20, is_primary=False, origin="manual_override"
+            )
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
         track_repo = make_mock_track_repo()
@@ -101,7 +108,9 @@ class TestRelinkHappyPath:
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         connector_repo.update_mapping_track = AsyncMock(
-            return_value=_make_mapping(track_id=20, origin="manual_override", is_primary=False)
+            return_value=_make_mapping(
+                track_id=20, origin="manual_override", is_primary=False
+            )
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
         track_repo = make_mock_track_repo()
@@ -147,7 +156,9 @@ class TestRelinkValidation:
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         track_repo = make_mock_track_repo()
-        track_repo.get_by_id = AsyncMock(side_effect=NotFoundError("Track 20 not found"))
+        track_repo.get_by_id = AsyncMock(
+            side_effect=NotFoundError("Track 20 not found")
+        )
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
         command = RelinkConnectorTrackCommand(

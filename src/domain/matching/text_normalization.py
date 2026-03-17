@@ -63,15 +63,6 @@ def normalize_for_comparison(text: str) -> str:
     return " ".join(result.split())
 
 
-def normalize_artist_name(name: str) -> str:
-    """Normalize an artist name for comparison.
-
-    Same pipeline as normalize_for_comparison but preserves "the" prefix
-    stripping and applies music-specific artist equivalences.
-    """
-    return normalize_for_comparison(name)
-
-
 def phonetic_key(text: str) -> str:
     """Generate a Metaphone phonetic key for text.
 

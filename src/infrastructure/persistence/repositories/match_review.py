@@ -159,9 +159,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         )
 
     @db_operation("update_review_status")
-    async def update_review_status(
-        self, review_id: int, status: str
-    ) -> MatchReview:
+    async def update_review_status(self, review_id: int, status: str) -> MatchReview:
         """Update a review's status (accept/reject)."""
         updates: dict[str, object] = {"status": status}
         if status in (ReviewStatus.ACCEPTED, ReviewStatus.REJECTED):

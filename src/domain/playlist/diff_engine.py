@@ -405,11 +405,10 @@ def calculate_lis_reorder_operations(
     )
 
     if (
-        tracks_to_move
-        and len(tracks_to_move) <= _DEBUG_TRUNCATION
+        tracks_to_move and len(tracks_to_move) <= _DEBUG_TRUNCATION
     ):  # Only log if small number
         logger.debug(
-            f"Tracks identified as needing moves: {tracks_to_move[: _DEBUG_TRUNCATION]}"
+            f"Tracks identified as needing moves: {tracks_to_move[:_DEBUG_TRUNCATION]}"
         )
 
     # Generate move operations only for track instances not in LIS

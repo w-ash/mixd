@@ -463,3 +463,137 @@ class TestBaseMatchingProviderValidation:
         track = Track(title="", artists=[Artist(name="Artist")])
 
         assert provider._has_artist_and_title(track) is False
+
+
+class TestBaseMatchingProviderProgressCallback:
+    """Test progress_callback invocation during matching phases."""
+
+    async def test_callback_called_after_isrc_phase(self):
+        """Progress callback is invoked after ISRC matching completes."""
+        from unittest.mock import AsyncMock
+
+        provider = ConcreteProvider()
+        callback = AsyncMock()
+        tracks = [
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
+        ]
+
+        provider.isrc_results = {
+            1: RawProviderMatch(
+                connector_id="spotify:1",
+                match_method="isrc",
+                service_data={"title": "Song 1"},
+            )
+        }
+
+        await provider.fetch_raw_matches_for_tracks(tracks, progress_callback=callback)
+
+        callback.assert_called()
+        args = callback.call_args_list[0].args
+        assert args[0] == 1  # completed
+        assert args[1] == 1  # total
+        assert "ISRC matching complete" in args[2]
+        assert "1 matched" in args[2]
+
+    async def test_callback_called_after_artist_title_phase(self):
+        """Progress callback is invoked after artist/title matching completes."""
+        from unittest.mock import AsyncMock
+
+        provider = ConcreteProvider()
+        callback = AsyncMock()
+        tracks = [
+            Track(title="Song 1", artists=[Artist(name="Artist 1")]).with_id(1),
+        ]
+
+        provider.artist_title_results = {
+            1: RawProviderMatch(
+                connector_id="spotify:1",
+                match_method="artist_title",
+                service_data={"title": "Song 1"},
+            )
+        }
+
+        await provider.fetch_raw_matches_for_tracks(tracks, progress_callback=callback)
+
+        callback.assert_called_once()
+        args = callback.call_args.args
+        assert args[0] == 1  # completed
+        assert args[1] == 1  # total
+        assert "Artist/title matching complete" in args[2]
+        assert "1 matched" in args[2]
+
+    async def test_callback_called_for_both_phases(self):
+        """Progress callback is invoked after each matching phase."""
+        from unittest.mock import AsyncMock
+
+        provider = ConcreteProvider()
+        callback = AsyncMock()
+        tracks = [
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
+            Track(title="Song 2", artists=[Artist(name="Artist 2")]).with_id(2),
+        ]
+
+        provider.isrc_results = {
+            1: RawProviderMatch(
+                connector_id="spotify:1",
+                match_method="isrc",
+                service_data={"title": "Song 1"},
+            )
+        }
+        provider.artist_title_results = {
+            2: RawProviderMatch(
+                connector_id="spotify:2",
+                match_method="artist_title",
+                service_data={"title": "Song 2"},
+            )
+        }
+
+        await provider.fetch_raw_matches_for_tracks(tracks, progress_callback=callback)
+
+        assert callback.call_count == 2
+
+        # First call: after ISRC phase (1 ISRC track completed out of 2 total)
+        first_args = callback.call_args_list[0].args
+        assert first_args[0] == 1  # completed (1 ISRC track)
+        assert first_args[1] == 2  # total
+
+        # Second call: after artist/title phase (all tracks completed)
+        second_args = callback.call_args_list[1].args
+        assert second_args[0] == 2  # completed (all tracks)
+        assert second_args[1] == 2  # total
+
+    async def test_no_callback_when_none(self):
+        """No error when progress_callback is None."""
+        provider = ConcreteProvider()
+        tracks = [
+            Track(
+                title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+            ).with_id(1),
+        ]
+
+        provider.isrc_results = {
+            1: RawProviderMatch(
+                connector_id="spotify:1",
+                match_method="isrc",
+                service_data={"title": "Song 1"},
+            )
+        }
+
+        # Should not raise - progress_callback=None is the default
+        result = await provider.fetch_raw_matches_for_tracks(tracks)
+        assert len(result.matches) == 1
+
+    async def test_callback_not_called_for_empty_tracks(self):
+        """Progress callback is not invoked when no tracks are provided."""
+        from unittest.mock import AsyncMock
+
+        provider = ConcreteProvider()
+        callback = AsyncMock()
+
+        await provider.fetch_raw_matches_for_tracks([], progress_callback=callback)
+
+        callback.assert_not_called()

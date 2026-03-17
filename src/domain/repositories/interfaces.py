@@ -34,7 +34,11 @@ from src.domain.entities.workflow import (
     WorkflowRunNode,
     WorkflowVersion,
 )
-from src.domain.matching.types import MatchResultsById, RawProviderMatch
+from src.domain.matching.types import (
+    MatchResultsById,
+    ProgressCallback,
+    RawProviderMatch,
+)
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -174,7 +178,9 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def find_duplicate_tracks_by_fingerprint(self) -> Awaitable[list[dict[str, object]]]:
+    def find_duplicate_tracks_by_fingerprint(
+        self,
+    ) -> Awaitable[list[dict[str, object]]]:
         """Find tracks with identical (title, first_artist, album) tuples.
 
         Returns:
@@ -925,6 +931,7 @@ class TrackIdentityServiceProtocol(Protocol):
         tracks: list[Track],
         connector: str,
         connector_instance: object,
+        progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
     ) -> Awaitable[dict[int, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
@@ -933,6 +940,8 @@ class TrackIdentityServiceProtocol(Protocol):
             tracks: Tracks to get raw matches for (must have database IDs).
             connector: Target connector name.
             connector_instance: Connector implementation.
+            progress_callback: Optional async callback invoked with
+                (completed_count, total, description) after each matching phase.
             **additional_options: Options forwarded to providers.
 
         Returns:

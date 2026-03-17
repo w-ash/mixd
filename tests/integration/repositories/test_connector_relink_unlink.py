@@ -128,9 +128,7 @@ class TestUpdateMappingTrack:
         track_id, _, mapping_id = await _setup_track_with_mapping(db_session)
 
         # Create target track
-        target = DBTrack(
-            title="Target", artists={"names": ["Target Artist"]}
-        )
+        target = DBTrack(title="Target", artists={"names": ["Target Artist"]})
         db_session.add(target)
         await db_session.flush()
 
@@ -146,9 +144,7 @@ class TestUpdateMappingTrack:
         self, db_session: AsyncSession, connector_repo
     ) -> None:
         with pytest.raises(NotFoundError):
-            await connector_repo.update_mapping_track(
-                99999, 1, "manual_override"
-            )
+            await connector_repo.update_mapping_track(99999, 1, "manual_override")
 
 
 class TestCountMappingsForConnectorTrack:
@@ -181,9 +177,7 @@ class TestGetRemainingMappings:
         uid = str(uuid.uuid4())[:8]
 
         # Create track with two mappings at different confidences
-        db_track = DBTrack(
-            title=f"Multi {uid}", artists={"names": ["Multi Artist"]}
-        )
+        db_track = DBTrack(title=f"Multi {uid}", artists={"names": ["Multi Artist"]})
         db_session.add(db_track)
         await db_session.flush()
 
@@ -212,9 +206,7 @@ class TestGetRemainingMappings:
             db_session.add(m)
         await db_session.flush()
 
-        result = await connector_repo.get_remaining_mappings(
-            db_track.id, "spotify"
-        )
+        result = await connector_repo.get_remaining_mappings(db_track.id, "spotify")
 
         assert len(result) == 2
         assert result[0].confidence == 95
@@ -231,9 +223,7 @@ class TestEnsurePrimaryForConnector:
 
         uid = str(uuid.uuid4())[:8]
 
-        db_track = DBTrack(
-            title=f"NoPri {uid}", artists={"names": ["A"]}
-        )
+        db_track = DBTrack(title=f"NoPri {uid}", artists={"names": ["A"]})
         db_session.add(db_track)
         await db_session.flush()
 
@@ -263,13 +253,9 @@ class TestEnsurePrimaryForConnector:
             db_session.add(m)
         await db_session.flush()
 
-        await connector_repo.ensure_primary_for_connector(
-            db_track.id, "spotify"
-        )
+        await connector_repo.ensure_primary_for_connector(db_track.id, "spotify")
 
-        remaining = await connector_repo.get_remaining_mappings(
-            db_track.id, "spotify"
-        )
+        remaining = await connector_repo.get_remaining_mappings(db_track.id, "spotify")
         primaries = [m for m in remaining if m.is_primary]
         assert len(primaries) == 1
         assert primaries[0].confidence == 90
@@ -277,18 +263,12 @@ class TestEnsurePrimaryForConnector:
     async def test_noop_when_primary_exists(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        track_id, _, _ = await _setup_track_with_mapping(
-            db_session, is_primary=True
-        )
+        track_id, _, _ = await _setup_track_with_mapping(db_session, is_primary=True)
 
         # Should not raise or change anything
-        await connector_repo.ensure_primary_for_connector(
-            track_id, "spotify"
-        )
+        await connector_repo.ensure_primary_for_connector(track_id, "spotify")
 
-        remaining = await connector_repo.get_remaining_mappings(
-            track_id, "spotify"
-        )
+        remaining = await connector_repo.get_remaining_mappings(track_id, "spotify")
         primaries = [m for m in remaining if m.is_primary]
         assert len(primaries) == 1
 

@@ -539,7 +539,9 @@ class TestISRCDedup:
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
             spotify_id: make_spotify_track(
-                spotify_id, "Same Song", "Same Artist",
+                spotify_id,
+                "Same Song",
+                "Same Artist",
                 external_ids=SpotifyExternalIds(isrc="USRC17000001"),
             ),
         }
@@ -550,18 +552,14 @@ class TestISRCDedup:
         # Existing track already has this ISRC
         track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
 
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            [spotify_id], uow
-        )
+        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
 
         assert spotify_id in result
         assert result[spotify_id].id == 42
 
         # Should have created a mapping with ISRC_MATCH method, not saved a new track
         map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert any(
-            call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls
-        )
+        assert any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
         # save_track should NOT have been called (reused existing)
         track_repo.save_track.assert_not_called()
 
@@ -572,7 +570,9 @@ class TestISRCDedup:
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
             spotify_id: make_spotify_track(
-                spotify_id, "New Song", "New Artist",
+                spotify_id,
+                "New Song",
+                "New Artist",
                 external_ids=SpotifyExternalIds(isrc="USRC17000002"),
             ),
         }
@@ -584,9 +584,7 @@ class TestISRCDedup:
         track_repo.find_tracks_by_isrcs.return_value = {}
         track_repo.save_track.return_value = make_track(99)
 
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            [spotify_id], uow
-        )
+        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
 
         assert spotify_id in result
         assert metrics.created == 1
@@ -605,9 +603,7 @@ class TestISRCDedup:
         uow, track_repo, connector_repo = _make_uow_with_repos()
         track_repo.save_track.return_value = make_track(99)
 
-        result, metrics = await resolver.resolve_to_canonical_tracks(
-            [spotify_id], uow
-        )
+        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
 
         assert spotify_id in result
         assert metrics.created == 1

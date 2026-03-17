@@ -25,7 +25,7 @@ from src.application.workflows.prefect import (
     is_workflow_running,
 )
 from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
-from src.config.constants import WorkflowConstants
+from src.config.constants import WorkflowConstants, truncate_error_message
 from src.config.logging import get_logger
 from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
@@ -368,7 +368,9 @@ class ExecuteWorkflowRunUseCase:
                 logger.opt(exception=True).error("Workflow execution failed")
 
                 duration_ms = timer.stop()
-                error_msg = str(exc)[: WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH]
+                error_msg = truncate_error_message(
+                    str(exc), WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH
+                )
 
                 try:
                     await self.update_run_status(

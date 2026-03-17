@@ -12,7 +12,6 @@ This module is responsible for:
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-import os
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import (
@@ -32,13 +31,14 @@ logger = get_logger(__name__)
 
 def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
     """Create async SQLAlchemy engine with optimized connection pooling for SQLite."""
-    # Use connection string from args or environment
-    db_url = connection_string or os.environ.get(
-        "DATABASE_URL",
-        "sqlite+aiosqlite:///data/db/narada.db",
-    )
+    # Use connection string from args, or resolve from environment/settings
+    if connection_string is None:
+        from src.config import get_database_url
+
+        connection_string = get_database_url()
 
     # SQLite-specific connect args
+    db_url = connection_string
     connect_args = {}
     if db_url.startswith("sqlite"):
         connect_args = {

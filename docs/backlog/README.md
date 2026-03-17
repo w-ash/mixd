@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.10
-**Current Initiative**: CLI Unification & Polish
+**Current Version**: 0.4.11
+**Current Initiative**: CI/CD & Environment Hardening
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -29,13 +29,49 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
 | **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
 | **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
-| **v0.4.11** | CLI unification & polish | 🔨 In Progress | [details](v0.4.x.md#v0411-cli-unification--polish) |
-| **v0.5.0** | CI/CD + PostgreSQL + deployment + OAuth | 🔜 Not Started | [details](v0.5.x.md#v050-postgresql-deployment--oauth) |
-| **v0.6.0** | Apple Music + data quality | 🔜 Not Started | [details](v0.6.x.md#v060-apple-music--data-quality) |
-| **v0.7.0** | Advanced workflow features | 🔜 Not Started | [details](v0.7.x.md#v070-advanced-workflow-features) |
+| **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
+| **v0.5.0** | CI/CD + environment hardening | 🔜 Not Started | [details](v0.5.x.md#v050-cicd--environment-hardening) |
+| **v0.5.1** | PostgreSQL migration | 🔜 Not Started | [details](v0.5.x.md#v051-postgresql-migration) |
+| **v0.5.2** | Containerization & deployment | 🔜 Not Started | [details](v0.5.x.md#v052-containerization--deployment) |
+| **v0.5.3** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v053-oauth--credentials) |
+| **v0.5.4** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v054-parallel-execution--performance) |
+| **v0.6.0** | Data quality tools | 🔜 Not Started | [details](v0.6.x.md#v060-data-quality) |
+| **v0.6.1** | Apple Music connector | 🔜 Not Started | [details](v0.6.x.md#v061-apple-music-connector) |
+| **v0.6.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.6.x.md#v062-rekordbox-connector) |
+| **v0.7.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.7.x.md#v070-workflow--sync-scheduling) |
+| **v0.7.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.7.x.md#v071-editor-polish-templates--playlist-browse) |
 | **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.8.x.md#v080-llm-assisted-workflow-creation) |
 | **v0.9.0** | First-class artists | 🔜 Not Started | [details](v0.9.x.md#v090-first-class-artists) |
-| **v1.0.0** | Production-ready multi-user platform | 🔜 Not Started | [details](v1.0.x.md#v100-production-ready-multi-user-platform) |
+| **v0.9.1** | First-class albums | 🔜 Not Started | [details](v0.9.x.md#v091-first-class-albums) |
+| **v0.9.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.9.x.md#v092-physical-media--discogs) |
+| **v0.9.3** | Manual scrobbling | 🔜 Not Started | [details](v0.9.x.md#v093-manual-scrobbling) |
+| **v1.0.0** | Multi-user auth & production polish | 🔜 Not Started | [details](v1.0.x.md#v100-multi-user-auth--production-polish) |
+
+---
+
+## Persona Alignment
+
+Each milestone maps to a persona from [docs/personas.md](../personas.md):
+
+| Version | Primary Persona | Why |
+|---------|----------------|-----|
+| v0.4.x | Weekly Curator | Core workflow ritual — build, run, review playlists |
+| v0.5.0 | Tinkerer | CI/CD safety net before irreversible infra changes |
+| v0.5.1 | Tinkerer | PostgreSQL unlocks remote hosting + concurrency |
+| v0.5.2 | Tinkerer | Docker + Fly.io — narada leaves the dev machine |
+| v0.5.3 | Tinkerer | OAuth in the browser — deployed app is actually usable |
+| v0.5.4 | Weekly Curator | Parallel workflows + caching — faster, snappier experience |
+| v0.6.0 | Weekly Curator | Data quality tools — fix mappings, find gaps, detect staleness. Useful now with existing connectors |
+| v0.6.1 | Both | Apple Music broadens streaming coverage for Curator, broadens appeal for Tinkerer |
+| v0.6.2 | Weekly Curator | Rekordbox brings owned-music metadata (BPM, key, codec, lossless) into the unified library |
+| v0.7.0 | Weekly Curator | Scheduling automates the ritual — playlists and source data stay fresh without manual triggers |
+| v0.7.1 | Both | Templates for Tinkerer onboarding, import/export for sharing, playlist browse for everyone |
+| v0.8.0 | Casual Enthusiast | LLM creation is THE adoption feature — natural language → working playlist. Changes who can use narada. Templates from v0.7.1 inform prompt engineering. |
+| v0.9.0 | Weekly Curator | Artist-level curation and identity resolution |
+| v0.9.1 | Weekly Curator | Album-level browsing, identity resolution, cross-service album mapping |
+| v0.9.2 | Weekly Curator | Physical media ownership — vinyl/CD/digital tracked via Discogs collection import |
+| v0.9.3 | Weekly Curator | Manual scrobbling — log physical album listens to Last.fm + canonical play history |
+| v1.0.0 | Tinkerer | Auth + per-user data isolation + security hardening so friends can self-host |
 
 ---
 
@@ -43,7 +79,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 
 Visual guide to infrastructure capabilities across version milestones (hobbyist scale: <10 users):
 
-| Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.0 (Deployed) | v1.0.0 (Multi-User) |
+| Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.x (Deployed) | v1.0.0 (Multi-User) |
 |------------|--------------|-------------------|-------------------|---------------------|
 | **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ Same |
 | **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
@@ -65,7 +101,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 Key architecture & tech choices (see CLAUDE.md for migration details):
 
 - **Python 3.14+ & attrs**: Modern type syntax (`str | None`, `class Foo[T]`), immutable domain entities with slots
-- **PostgreSQL (v0.5.0)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes. Web UI developed on SQLite first (v0.3.x), migrated at deployment time.
+- **PostgreSQL (v0.5.1)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes. Web UI developed on SQLite first (v0.3.x), migrated at deployment time.
 - **Vite 8 / Vitest**: Rolldown-powered unified bundler, 10-30x faster builds, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`

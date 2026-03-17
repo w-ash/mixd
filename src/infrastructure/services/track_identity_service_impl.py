@@ -15,6 +15,7 @@ from src.domain.entities import Track
 from src.domain.matching.protocols import MatchProvider
 from src.domain.matching.types import (
     MatchResultsById,
+    ProgressCallback,
     ProviderMatchResult,
     RawProviderMatch,
 )
@@ -70,6 +71,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         tracks: list[Track],
         connector: str,
         connector_instance: object,
+        progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
     ) -> dict[int, RawProviderMatch]:
         """Get raw matches from external providers.
@@ -90,7 +92,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
         # Fetch raw matches with structured failure handling
         result: ProviderMatchResult = await provider.fetch_raw_matches_for_tracks(
-            tracks, **additional_options
+            tracks, progress_callback=progress_callback, **additional_options
         )
 
         # Log failure summary for observability

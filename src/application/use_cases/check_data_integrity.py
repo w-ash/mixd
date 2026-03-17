@@ -5,15 +5,12 @@ connector tracks, duplicate tracks, stale reviews) and produces a structured
 report. Read-only — never modifies data.
 """
 
-from typing import Literal
-
 from attrs import define
 
 from src.config.constants import IntegrityConstants
+from src.domain.entities import CheckStatus
 from src.domain.entities.integrity import IntegrityCheckResult, IntegrityReport
 from src.domain.repositories import UnitOfWorkProtocol
-
-type CheckStatus = Literal["pass", "warn", "fail"]
 
 
 @define(frozen=True, slots=True)

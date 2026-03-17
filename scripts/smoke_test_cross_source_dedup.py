@@ -394,10 +394,9 @@ def categorize_gap(gap: dict[str, Any]) -> str:
 async def get_strategy_hit_counts() -> dict[str, int]:
     """Count how many connector mappings were created by each match method."""
     async with get_session() as session:
-        stmt = (
-            select(DBTrackMapping.match_method, func.count(DBTrackMapping.id))
-            .group_by(DBTrackMapping.match_method)
-        )
+        stmt = select(
+            DBTrackMapping.match_method, func.count(DBTrackMapping.id)
+        ).group_by(DBTrackMapping.match_method)
         result = await session.execute(stmt)
         return dict(result.tuples().all())
 
@@ -604,7 +603,13 @@ async def run_window_test(
                 "exact_title": "Phase 1.5 reuse should fix",
                 "genuine": "irreducible",
             }
-            for cat in ("shared_isrc", "parenthetical", "shared_mbid", "exact_title", "genuine"):
+            for cat in (
+                "shared_isrc",
+                "parenthetical",
+                "shared_mbid",
+                "exact_title",
+                "genuine",
+            ):
                 count = gap_categories.get(cat, 0)
                 if count:
                     cat_label = category_labels.get(cat, cat)

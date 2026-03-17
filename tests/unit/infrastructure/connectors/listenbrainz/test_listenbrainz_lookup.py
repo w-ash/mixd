@@ -30,9 +30,7 @@ class TestSpotifyIdFromMetadata:
     async def test_strips_spotify_uri_prefix(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = [
-            {"spotify_track_id": "spotify:track:abc123"}
-        ]
+        mock_response.json.return_value = [{"spotify_track_id": "spotify:track:abc123"}]
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
 

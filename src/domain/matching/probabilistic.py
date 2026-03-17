@@ -80,9 +80,7 @@ TITLE_MISMATCH = ComparisonLevel(
 
 # ── Artist comparison levels ────────────────────────────────────────────
 
-ARTIST_EXACT = ComparisonLevel(
-    "artist_exact", m_probability=0.95, u_probability=0.002
-)
+ARTIST_EXACT = ComparisonLevel("artist_exact", m_probability=0.95, u_probability=0.002)
 ARTIST_PHONETIC = ComparisonLevel(
     "artist_phonetic", m_probability=0.88, u_probability=0.01
 )
@@ -101,9 +99,7 @@ ARTIST_MISMATCH = ComparisonLevel(
 DURATION_CLOSE = ComparisonLevel(
     "duration_close", m_probability=0.95, u_probability=0.10
 )
-DURATION_NEAR = ComparisonLevel(
-    "duration_near", m_probability=0.90, u_probability=0.15
-)
+DURATION_NEAR = ComparisonLevel("duration_near", m_probability=0.90, u_probability=0.15)
 DURATION_MODERATE = ComparisonLevel(
     "duration_moderate", m_probability=0.70, u_probability=0.25
 )
@@ -117,9 +113,7 @@ DURATION_MISSING = ComparisonLevel(
 # ── ISRC comparison levels ──────────────────────────────────────────────
 
 ISRC_EXACT = ComparisonLevel("isrc_exact", m_probability=0.99, u_probability=0.0001)
-ISRC_SUSPECT = ComparisonLevel(
-    "isrc_suspect", m_probability=0.80, u_probability=0.001
-)
+ISRC_SUSPECT = ComparisonLevel("isrc_suspect", m_probability=0.80, u_probability=0.001)
 ISRC_ABSENT = ComparisonLevel(
     "isrc_absent", m_probability=0.50, u_probability=0.50
 )  # Neutral

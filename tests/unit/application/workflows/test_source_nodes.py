@@ -124,6 +124,7 @@ class TestSourceLikedTracks:
         """source_liked_tracks creates command and delegates via execute_use_case."""
         mock_result = MagicMock()
         mock_result.tracklist = TrackList(tracks=sample_tracks)
+        mock_result.total_available = len(sample_tracks)
         mock_result.execution_time_ms = 42
 
         wf_ctx = AsyncMock()
@@ -138,24 +139,24 @@ class TestSourceLikedTracks:
         assert len(result["tracklist"].tracks) == 2
         wf_ctx.execute_use_case.assert_awaited_once()
 
-    async def test_enforces_limit_cap(self, sample_tracks):
-        """Limit is capped at MAX_USER_LIMIT."""
+    async def test_passes_through_high_limits(self, sample_tracks):
+        """User-specified limits pass through without clamping."""
         mock_result = MagicMock()
         mock_result.tracklist = TrackList(tracks=sample_tracks)
+        mock_result.total_available = len(sample_tracks)
         mock_result.execution_time_ms = 10
 
         wf_ctx = AsyncMock()
         wf_ctx.execute_use_case = AsyncMock(return_value=mock_result)
 
         context = {"workflow_context": wf_ctx}
-        config = {"limit": 99999}
+        config = {"limit": 50000}
 
         await source_liked_tracks(context, config)
-        # The command passed to execute_use_case should have capped limit
         _, call_kwargs = wf_ctx.execute_use_case.call_args
         command = call_kwargs.get("command") or wf_ctx.execute_use_case.call_args[0][1]
         assert isinstance(command, GetLikedTracksCommand)
-        assert command.limit == 10000
+        assert command.limit == 50000
 
 
 class TestSourcePlayedTracks:
@@ -165,6 +166,7 @@ class TestSourcePlayedTracks:
         """source_played_tracks creates command and delegates via execute_use_case."""
         mock_result = MagicMock()
         mock_result.tracklist = TrackList(tracks=sample_tracks)
+        mock_result.total_available = len(sample_tracks)
         mock_result.execution_time_ms = 55
 
         wf_ctx = AsyncMock()

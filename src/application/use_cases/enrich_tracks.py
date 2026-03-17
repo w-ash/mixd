@@ -277,6 +277,8 @@ class EnrichTracksUseCase:
             connector=config.connector,
             connector_instance=config.connector_instance,
             uow=uow,
+            progress_manager=progress_manager,
+            parent_operation_id=parent_operation_id,
         )
 
         # Step 2: Use MetricsApplicationService for cache-first metric resolution
@@ -370,6 +372,8 @@ class EnrichTracksUseCase:
         connector: str,
         connector_instance: TrackMetadataConnector,
         uow: UnitOfWorkProtocol,
+        progress_manager: AsyncProgressManager | None = None,
+        parent_operation_id: str | None = None,
     ) -> None:
         """Ensure tracks have connector mappings by coordinating with the identity resolution system.
 
@@ -381,6 +385,8 @@ class EnrichTracksUseCase:
             connector: External service name (e.g., "lastfm").
             connector_instance: Connector instance for API calls.
             uow: Unit of work for database access.
+            progress_manager: Optional progress manager for sub-operation tracking.
+            parent_operation_id: Parent operation ID for sub-operation nesting.
         """
         from src.application.use_cases.match_and_identify_tracks import (
             MatchAndIdentifyTracksCommand,
@@ -399,6 +405,8 @@ class EnrichTracksUseCase:
                 tracklist=tracklist,
                 connector=connector,
                 connector_instance=connector_instance,
+                progress_manager=progress_manager,
+                parent_operation_id=parent_operation_id,
             )
 
             match_use_case = MatchAndIdentifyTracksUseCase()

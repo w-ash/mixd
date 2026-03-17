@@ -39,7 +39,9 @@ async def _create_track_with_mapping(
         last_updated=datetime.now(UTC),
     )
     connector_repo = uow.get_connector_repository()
-    tracks = await connector_repo.ingest_external_tracks_bulk(connector, [connector_track])
+    tracks = await connector_repo.ingest_external_tracks_bulk(
+        connector, [connector_track]
+    )
     track_id = tracks[0].id
     assert track_id is not None
 
@@ -95,8 +97,9 @@ class TestIngestSkipsManualOverride:
 
         # Verify confidence was NOT updated (still 50, not 100)
         result = await db_session.execute(
-            select(DBTrackMapping.confidence, DBTrackMapping.origin)
-            .where(DBTrackMapping.id == mapping_id)
+            select(DBTrackMapping.confidence, DBTrackMapping.origin).where(
+                DBTrackMapping.id == mapping_id
+            )
         )
         row = result.one()
         assert row.confidence == 50
@@ -157,8 +160,9 @@ class TestMapTracksSkipsManualOverride:
 
         # Verify original mapping is preserved
         result = await db_session.execute(
-            select(DBTrackMapping.confidence, DBTrackMapping.origin)
-            .where(DBTrackMapping.id == mapping_id)
+            select(DBTrackMapping.confidence, DBTrackMapping.origin).where(
+                DBTrackMapping.id == mapping_id
+            )
         )
         row = result.one()
         assert row.confidence == 80
@@ -196,8 +200,9 @@ class TestMergeSetsManualOverride:
 
         # Verify the moved mapping has manual_override origin
         result = await db_session.execute(
-            select(DBTrackMapping.track_id, DBTrackMapping.origin)
-            .where(DBTrackMapping.id == loser_mapping_id)
+            select(DBTrackMapping.track_id, DBTrackMapping.origin).where(
+                DBTrackMapping.id == loser_mapping_id
+            )
         )
         row = result.one()
         assert row.track_id == winner_id
