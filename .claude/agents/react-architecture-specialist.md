@@ -286,29 +286,6 @@ export function usePlaylistOperations(playlistId: string) {
 - `resetKeys={[pathname]}` auto-clears errors on route change
 - `PageErrorFallback` matches `EmptyState` styling, uses `role="alert"`
 
-### Tailwind CSS v4 Patterns
-
-**Using @theme Tokens** (Not Inline Values):
-```typescript
-// ✅ CORRECT: Use design tokens
-<div className="bg-primary-500 text-white rounded-lg p-spacing-4">
-  // Use theme tokens for consistency
-</div>
-
-// ❌ WRONG: Hardcoded values
-<div className="bg-blue-600 text-white rounded-lg p-4">
-  // Don't hardcode colors/spacing
-</div>
-```
-
-**Responsive Design**:
-```typescript
-// ✅ CORRECT: Mobile-first responsive
-<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-  {/* Responsive grid: 1 col mobile, 2 tablet, 3 desktop */}
-</div>
-```
-
 ## Tool Usage
 
 ### Bash Commands (Restricted)

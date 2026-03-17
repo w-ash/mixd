@@ -77,6 +77,13 @@ narada likes import-spotify          # Backup liked tracks
 
 Layer-specific coding patterns (attrs, SQLAlchemy, repository, use cases) live in `.claude/rules/` and load automatically when editing the relevant layer. Python 3.14+ conventions are in `.claude/rules/python-conventions.md`.
 
+## Planning Self-Check (before implementing a feature)
+
+1. Which user stories in `docs/user-flows.md` does this serve?
+2. What does the backlog spec in `docs/backlog/` say about implementation?
+3. After implementing, do the user story's Given/When/Then criteria pass?
+4. Did development reveal missing stories or stale criteria? Propose updates to `docs/user-flows.md`.
+
 ## Testing
 
 **Tests are mandatory for every implementation.** A feature is not done until tests exist and pass.

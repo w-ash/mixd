@@ -5,11 +5,10 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": "/src",
-    },
+    tsconfigPaths: true,
   },
   server: {
+    forwardConsole: true,
     open: true,
     proxy: {
       "/api": {
@@ -20,5 +19,30 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    chunkSizeWarningLimit: 1500,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "elkjs",
+              test: /elkjs/,
+              priority: 20,
+            },
+            {
+              name: "xyflow",
+              test: /@xyflow/,
+              priority: 15,
+            },
+            {
+              name: "vendor",
+              test: /node_modules/,
+              priority: 10,
+              minSize: 50_000,
+            },
+          ],
+        },
+      },
+    },
   },
 });

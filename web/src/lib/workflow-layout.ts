@@ -1,10 +1,17 @@
 import type { Edge, Node } from "@xyflow/react";
-import ELK from "elkjs/lib/elk.bundled.js";
 
 import type { WorkflowTaskDefSchema } from "@/api/generated/model";
 import { getNodeCategoryName } from "@/lib/workflow-config";
 
-const elk = new ELK();
+let elk: import("elkjs/lib/elk.bundled.js").default | null = null;
+
+async function getELK() {
+  if (!elk) {
+    const ELK = (await import("elkjs/lib/elk.bundled.js")).default;
+    elk = new ELK();
+  }
+  return elk;
+}
 
 const DEFAULT_NODE_WIDTH = 240;
 const DEFAULT_NODE_HEIGHT = 80;
@@ -111,7 +118,8 @@ export async function layoutWorkflow(
 
   const { flowEdges, elkEdges } = buildEdges(tasks);
 
-  const graph = await elk.layout({
+  const elkInstance = await getELK();
+  const graph = await elkInstance.layout({
     id: "root",
     layoutOptions: {
       "elk.algorithm": "layered",

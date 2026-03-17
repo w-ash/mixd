@@ -13,7 +13,8 @@ vi.mock("@/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE, mockSSEWithEvents } from "@/test/sse-test-utils";
+import { connectToSSE } from "@/api/sse-client";
+import { mockSSEWithEvents } from "@/test/sse-test-utils";
 
 // ─── Test wrapper ───────────────────────────────────────────────
 
