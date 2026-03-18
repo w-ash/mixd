@@ -158,7 +158,7 @@ class WorkflowRunRepository:
         stmt = (
             select(DBWorkflowRun)
             .where(DBWorkflowRun.workflow_id == workflow_id)
-            .order_by(DBWorkflowRun.created_at.desc())
+            .order_by(DBWorkflowRun.created_at.desc(), DBWorkflowRun.id.desc())
             .limit(limit)
             .offset(offset)
         )

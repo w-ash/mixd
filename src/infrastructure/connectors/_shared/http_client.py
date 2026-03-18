@@ -172,5 +172,3 @@ def make_musicbrainz_client() -> httpx.AsyncClient:
         ),
         event_hooks=_EVENT_HOOKS,
     )
-
-

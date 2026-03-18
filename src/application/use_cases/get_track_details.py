@@ -140,8 +140,7 @@ class GetTrackDetailsUseCase:
         async with uow:
             track = await uow.get_track_repository().get_by_id(track_id)
 
-            # Sequential: these are independent queries but SQLite serializes
-            # all operations. Parallelize with TaskGroup after PostgreSQL migration.
+            # Sequential: overhead of TaskGroup not justified for 4 small queries
             connector_repo = uow.get_connector_repository()
             like_repo = uow.get_like_repository()
             plays_repo = uow.get_plays_repository()

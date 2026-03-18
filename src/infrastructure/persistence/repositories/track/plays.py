@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Literal, override
 
 from attrs import define
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -178,42 +178,27 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         return (result, duplicate_count)
 
     async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[PlayLookupKey]:
-        """Find existing plays matching deduplication keys.
+        """Find existing plays matching deduplication keys."""
+        from src.infrastructure.persistence.repositories._shared.batch_lookup import (
+            find_existing_by_tuples,
+        )
 
-        Uses PostgreSQL tuple IN for efficient multi-column lookup,
-        batched to avoid oversized query strings on large imports.
-        """
-        if not plays:
-            return set()
-
-        from src.config.constants import BusinessLimits
-
-        keys = [(p.track_id, p.service, p.played_at, p.ms_played) for p in plays]
-        batch_size = BusinessLimits.TUPLE_IN_BATCH_SIZE
-        existing: set[PlayLookupKey] = set()
-
-        for i in range(0, len(keys), batch_size):
-            batch = keys[i : i + batch_size]
-            stmt = select(
+        return await find_existing_by_tuples(
+            self.session,
+            [
                 DBTrackPlay.track_id,
                 DBTrackPlay.service,
                 DBTrackPlay.played_at,
                 DBTrackPlay.ms_played,
-            ).where(
-                tuple_(
-                    DBTrackPlay.track_id,
-                    DBTrackPlay.service,
-                    DBTrackPlay.played_at,
-                    DBTrackPlay.ms_played,
-                ).in_(batch)
-            )
-            result = await self.session.execute(stmt)
-            existing.update(
-                (row.track_id, row.service, ensure_utc(row.played_at), row.ms_played)
-                for row in result.all()
-            )
-
-        return existing
+            ],
+            [(p.track_id, p.service, p.played_at, p.ms_played) for p in plays],
+            row_to_key=lambda r: (
+                r.track_id,
+                r.service,
+                ensure_utc(r.played_at),
+                r.ms_played,
+            ),
+        )
 
     def _filter_duplicates(
         self, plays: list[TrackPlay], existing_keys: set[PlayLookupKey]

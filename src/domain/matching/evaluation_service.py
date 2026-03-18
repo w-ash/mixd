@@ -188,7 +188,7 @@ class TrackMatchEvaluationService:
                 )
             else:
                 logger.warning(
-                    f"Match rejected: '{track.title}' by '{', '.join(a.name for a in track.artists) if track.artists else 'Unknown'}' "
+                    f"Match rejected: '{track.title}' by '{track.artists_display or 'Unknown'}' "
                     + f"(confidence {match_result.confidence} < {self.config.review_threshold})",
                     track_id=track.id,
                     confidence=match_result.confidence,

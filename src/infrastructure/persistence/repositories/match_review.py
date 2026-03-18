@@ -71,15 +71,25 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         # Apply sorting
         match sort_by:
             case "confidence_desc":
-                stmt = stmt.order_by(DBMatchReview.confidence.desc())
+                stmt = stmt.order_by(
+                    DBMatchReview.confidence.desc(), DBMatchReview.id.desc()
+                )
             case "confidence_asc":
-                stmt = stmt.order_by(DBMatchReview.confidence.asc())
+                stmt = stmt.order_by(
+                    DBMatchReview.confidence.asc(), DBMatchReview.id.asc()
+                )
             case "created_at_desc":
-                stmt = stmt.order_by(DBMatchReview.created_at.desc())
+                stmt = stmt.order_by(
+                    DBMatchReview.created_at.desc(), DBMatchReview.id.desc()
+                )
             case "created_at_asc":
-                stmt = stmt.order_by(DBMatchReview.created_at.asc())
+                stmt = stmt.order_by(
+                    DBMatchReview.created_at.asc(), DBMatchReview.id.asc()
+                )
             case _:
-                stmt = stmt.order_by(DBMatchReview.confidence.desc())
+                stmt = stmt.order_by(
+                    DBMatchReview.confidence.desc(), DBMatchReview.id.desc()
+                )
 
         stmt = stmt.limit(limit).offset(offset)
         result = await self.session.execute(stmt)

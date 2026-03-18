@@ -19,10 +19,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.pagination import TRACK_SORT_COLUMNS
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.repositories.interfaces import TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
@@ -120,11 +122,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             strip_parentheticals(track.title)
         )
         # Denormalized artist text for search and sorting
-        values["artists_text"] = (
-            ", ".join(artist.name for artist in track.artists)
-            if track.artists
-            else None
-        )
+        values["artists_text"] = track.artists_display or None
 
         # Add denormalized connector IDs (fast-path lookup columns)
         for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
@@ -171,18 +169,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # LIBRARY LISTING
     # -------------------------------------------------------------------------
 
-    # Sort field → SQLAlchemy column expression mapping
-    _SORT_MAP: ClassVar[dict[str, tuple[str, str]]] = {
-        "title_asc": ("title", "asc"),
-        "title_desc": ("title", "desc"),
-        "artist_asc": ("artists_text", "asc"),
-        "artist_desc": ("artists_text", "desc"),
-        "added_desc": ("created_at", "desc"),
-        "added_asc": ("created_at", "asc"),
-        "duration_asc": ("duration_ms", "asc"),
-        "duration_desc": ("duration_ms", "desc"),
-    }
-
     @db_operation("list_tracks")
     async def list_tracks(
         self,
@@ -196,19 +182,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         # Keyset pagination: seek after this (sort_value, id) pair
         after_value: Any = None,
         after_id: int | None = None,
-    ) -> tuple[list[Track], int, set[int], tuple[Any, int] | None]:
+        include_total: bool = True,
+    ) -> TrackListingPage:
         """List tracks with search, filters, sorting, and pagination.
 
         Supports both offset-based and keyset (cursor) pagination. When
         ``after_value`` and ``after_id`` are provided, uses a keyset WHERE clause
         for O(1) seeking regardless of page depth. Falls back to OFFSET otherwise.
-
-        Returns:
-            (tracks, total_count, liked_track_ids, next_page_key) where:
-            - total_count: filtered result set size before pagination
-            - liked_track_ids: IDs of tracks liked on any service
-            - next_page_key: (sort_value, id) of the last row for building the next
-              cursor, or None if this is the last page
         """
         # Build base filter conditions
         conditions: list[Any] = []
@@ -243,18 +223,22 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             conditions.append(DBTrack.id.in_(connector_subq))
 
-        # Count total matching tracks (before pagination)
-        count_stmt = select(func.count()).select_from(DBTrack)
-        if conditions:
-            count_stmt = count_stmt.where(*conditions)
-        count_result = await self.session.execute(count_stmt)
-        total = count_result.scalar_one()
+        # Count total matching tracks (skipped on cursor-paginated pages)
+        total: int | None = None
+        if include_total:
+            count_stmt = select(func.count()).select_from(DBTrack)
+            if conditions:
+                count_stmt = count_stmt.where(*conditions)
+            count_result = await self.session.execute(count_stmt)
+            total = count_result.scalar_one()
 
-        if total == 0:
-            return [], 0, set(), None
+            if total == 0:
+                return TrackListingPage(
+                    tracks=[], total=0, liked_track_ids=set(), next_page_key=None
+                )
 
-        # Resolve sort column
-        sort_field, sort_dir = self._SORT_MAP.get(sort_by, ("title", "asc"))
+        # Resolve sort column from canonical mapping (sort_by validated upstream)
+        sort_field, sort_dir = TRACK_SORT_COLUMNS.get(sort_by, ("title", "asc"))  # type: ignore[arg-type]
         col = getattr(DBTrack, sort_field)
 
         # Build data query with sorting, pagination, and relationship loading
@@ -309,7 +293,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             liked_result = await self.session.execute(liked_stmt)
             liked_ids = set(liked_result.scalars().all())
 
-        return tracks, total, liked_ids, next_page_key
+        return TrackListingPage(
+            tracks=tracks,
+            total=total,
+            liked_track_ids=liked_ids,
+            next_page_key=next_page_key,
+        )
 
     # -------------------------------------------------------------------------
     # TRACK MERGE OPERATIONS
@@ -715,4 +704,3 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             if key:
                 matched[key] = await self.mapper.to_domain(db_track)
         return matched
-

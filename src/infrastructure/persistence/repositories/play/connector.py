@@ -6,7 +6,6 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -120,50 +119,35 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     async def _find_existing_connector_plays(
         self, plays: list[ConnectorTrackPlay]
     ) -> set[tuple[str, str, datetime | None, int | None]]:
-        """Find existing connector plays matching deduplication keys.
+        """Find existing connector plays matching deduplication keys."""
+        from src.infrastructure.persistence.repositories._shared.batch_lookup import (
+            find_existing_by_tuples,
+        )
 
-        Uses PostgreSQL tuple IN for efficient multi-column lookup,
-        batched to avoid oversized query strings on large imports.
-        """
-        if not plays:
-            return set()
-
-        from src.config.constants import BusinessLimits
-
-        keys = [
-            (p.connector_name, p.connector_track_identifier, p.played_at, p.ms_played)
-            for p in plays
-        ]
-        batch_size = BusinessLimits.TUPLE_IN_BATCH_SIZE
-        existing: set[tuple[str, str, datetime | None, int | None]] = set()
-
-        for i in range(0, len(keys), batch_size):
-            batch = keys[i : i + batch_size]
-            stmt = select(
+        return await find_existing_by_tuples(
+            self.session,
+            [
                 DBConnectorPlay.connector_name,
                 DBConnectorPlay.connector_track_identifier,
                 DBConnectorPlay.played_at,
                 DBConnectorPlay.ms_played,
-            ).where(
-                tuple_(
-                    DBConnectorPlay.connector_name,
-                    DBConnectorPlay.connector_track_identifier,
-                    DBConnectorPlay.played_at,
-                    DBConnectorPlay.ms_played,
-                ).in_(batch)
-            )
-            result = await self.session.execute(stmt)
-            existing.update(
+            ],
+            [
                 (
-                    row.connector_name,
-                    row.connector_track_identifier,
-                    ensure_utc(row.played_at),
-                    row.ms_played,
+                    p.connector_name,
+                    p.connector_track_identifier,
+                    p.played_at,
+                    p.ms_played,
                 )
-                for row in result.all()
-            )
-
-        return existing
+                for p in plays
+            ],
+            row_to_key=lambda r: (
+                r.connector_name,
+                r.connector_track_identifier,
+                ensure_utc(r.played_at),
+                r.ms_played,
+            ),
+        )
 
     def _filter_duplicates(
         self,

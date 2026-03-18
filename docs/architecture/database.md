@@ -293,6 +293,35 @@ Database migrations are handled through Alembic with the following approach:
 - Implement proper foreign key constraints
 - Regular data validation and cleanup procedures
 
+## PostgreSQL-Specific Patterns
+
+### Data-Modifying CTE Chains
+
+Track merge operations (`move_references_to_track`, `merge_mappings_to_track`, `merge_metrics_to_track` in `track/core.py`) use multi-step CTE chains for atomic operations. PostgreSQL CTE snapshot semantics apply: **each CTE sees the table state as of the statement start**, not modifications made by earlier CTEs in the same chain.
+
+This means a DELETE CTE and an UPDATE CTE can both "see" the same row. To prevent double-operations:
+```sql
+-- Guard pattern: exclude rows already handled by a prior CTE
+DELETE FROM track_likes WHERE track_id = :loser_id
+  AND id NOT IN (SELECT loser_id FROM conflict_likes)
+```
+
+The `AND id NOT IN (SELECT ... FROM read_only_cte)` pattern ensures each row is handled by exactly one CTE branch.
+
+### Keyset Pagination Indexes
+
+Composite indexes from migration `003_keyset_idx` support O(1) keyset page seeks:
+
+| Index | Columns | Used By |
+|-------|---------|---------|
+| `ix_tracks_title_id` | `(title, id)` | `sort_by=title_asc/desc` |
+| `ix_tracks_created_at_id` | `(created_at, id)` | `sort_by=added_asc/desc` |
+| `ix_tracks_artists_text_id` | `(artists_text, id)` | `sort_by=artist_asc/desc` |
+
+`duration_ms` sort intentionally lacks a composite index (rare sort option — falls back to sequential scan which is fast enough for 15k rows).
+
+Verify with: `EXPLAIN ANALYZE SELECT * FROM tracks WHERE (title, id) > ('value', 123) ORDER BY title ASC, id ASC LIMIT 50`
+
 ## Related Documentation
 
 - **[Architecture](README.md)** - System architecture and design decisions

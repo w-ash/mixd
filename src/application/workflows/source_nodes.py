@@ -46,7 +46,11 @@ def _extract_library_config(
     User-specified limits pass through without clamping — the command
     validator enforces the upper bound (1M sanity guard).
     """
-    limit = int(config["limit"]) if "limit" in config else BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
+    limit = (
+        int(config["limit"])
+        if "limit" in config
+        else BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
+    )
     connector_filter: str | None = config.get("connector_filter")
     sort_by = str(config.get("sort_by", default_sort))
     return limit, connector_filter, sort_by

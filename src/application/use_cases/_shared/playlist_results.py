@@ -37,9 +37,7 @@ def build_playlist_changes(
         summary = {
             "track_id": track.id,
             "title": track.title or "Unknown",
-            "artists": ", ".join(a.name for a in track.artists)
-            if track.artists
-            else "Unknown",
+            "artists": track.artists_display or "Unknown",
         }
         if op.operation_type == PlaylistOperationType.ADD:
             added.append(summary)

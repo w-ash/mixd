@@ -17,7 +17,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 | [Layers & Patterns](layers-and-patterns.md) | How the system is structured | Clean Architecture layers, UoW, Repository, Command, Strategy, Capability protocols, async patterns |
 | [Data Model](data-model.md) | How entities relate and evolve | Entity resolution, Spotify stale ID handling, temporal design, hard delete |
 | [Workflow System](workflow-system.md) | How workflows operate on data | Database-first design, persistence flow, source node pattern, anti-patterns |
-| [Session Management](session-management.md) | How database sessions are managed | Transaction philosophy, 3 session patterns, SQLite configuration |
+| [Session Management](session-management.md) | How database sessions are managed | Transaction philosophy, 3 session patterns, PostgreSQL configuration |
 | [Tech Stack](tech-stack.md) | Why we chose these technologies | Core decisions, supporting libraries, extensibility, scalability |
 | [Database Schema](database.md) | Physical schema reference | Tables, columns, relationships, indexes, migrations |
 

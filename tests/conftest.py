@@ -41,7 +41,9 @@ def pytest_configure(config: pytest.Config) -> None:
         os.environ["TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE"] = "/var/run/docker.sock"
 
     # Guard against accidental production DB usage
-    os.environ["DATABASE_URL"] = "postgresql+psycopg_async://guard:guard@localhost:1/DO_NOT_USE"
+    os.environ["DATABASE_URL"] = (
+        "postgresql+psycopg_async://guard:guard@localhost:1/DO_NOT_USE"
+    )
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

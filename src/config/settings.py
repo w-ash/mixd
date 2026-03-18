@@ -590,7 +590,9 @@ def log_startup_warnings() -> None:
     if not settings.credentials.spotify_client_id:
         logger.warning("Spotify not configured — Spotify features will be unavailable")
     if not settings.credentials.lastfm_key:
-        logger.warning("Last.fm not configured — scrobble and play count features will be unavailable")
+        logger.warning(
+            "Last.fm not configured — scrobble and play count features will be unavailable"
+        )
 
 
 # =============================================================================

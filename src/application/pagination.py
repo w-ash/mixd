@@ -9,9 +9,36 @@ of OFFSET — O(1) seeks regardless of page depth.
 import base64
 from datetime import datetime
 import json
-from typing import Final
+from typing import Final, Literal
 
 from attrs import define
+
+# ── Track sort definitions ──────────────────────────────────────────────
+
+type TrackSortBy = Literal[
+    "title_asc",
+    "title_desc",
+    "artist_asc",
+    "artist_desc",
+    "added_desc",
+    "added_asc",
+    "duration_asc",
+    "duration_desc",
+]
+
+# Canonical mapping: sort key → (db_column, direction)
+# Single source of truth consumed by both the use case (cursor encoding)
+# and the repository (ORDER BY construction).
+TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
+    "title_asc": ("title", "asc"),
+    "title_desc": ("title", "desc"),
+    "artist_asc": ("artists_text", "asc"),
+    "artist_desc": ("artists_text", "desc"),
+    "added_desc": ("created_at", "desc"),
+    "added_asc": ("created_at", "asc"),
+    "duration_asc": ("duration_ms", "asc"),
+    "duration_desc": ("duration_ms", "desc"),
+}
 
 # Sort columns that store datetime values (ISO string in cursor)
 _DATETIME_COLUMNS: Final = frozenset({"created_at"})
@@ -75,7 +102,9 @@ def decode_cursor(encoded: str) -> PageCursor:
     return PageCursor(sort_column=sort_column, sort_value=sort_value, last_id=last_id)
 
 
-def cursor_sort_value_from_row(_column_name: str, value: object) -> str | int | float | None:
+def cursor_sort_value_from_row(
+    _column_name: str, value: object
+) -> str | int | float | None:
     """Convert a database row value to a cursor-safe sort value.
 
     Datetimes are serialized as ISO strings; scalars pass through.

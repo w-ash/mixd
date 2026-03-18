@@ -25,8 +25,7 @@ def _get_track_uri(track: Track) -> str | None:
     if track.id:
         return f"canonical:{track.id}"
     elif track.title and track.artists:
-        artist_names = ", ".join(artist.name for artist in track.artists)
-        return f"content:{track.title}:{artist_names}"
+        return f"content:{track.title}:{track.artists_display}"
     return None
 
 

@@ -91,7 +91,7 @@ def merge_tracks(
             "Winner (keeps data)",
             str(winner_track.id),
             winner_track.title,
-            ", ".join(a.name for a in winner_track.artists),
+            winner_track.artists_display,
             winner_track.album or "—",
         )
 
@@ -99,7 +99,7 @@ def merge_tracks(
             "Loser (will be deleted)",
             str(loser_track.id),
             loser_track.title,
-            ", ".join(a.name for a in loser_track.artists),
+            loser_track.artists_display,
             loser_track.album or "—",
         )
 
@@ -180,7 +180,7 @@ def show_track(
 
         table.add_row("ID", str(track.id))
         table.add_row("Title", track.title)
-        table.add_row("Artists", ", ".join(a.name for a in track.artists))
+        table.add_row("Artists", track.artists_display)
         table.add_row("Album", track.album or "—")
         table.add_row(
             "Duration", f"{track.duration_ms}ms" if track.duration_ms else "—"
@@ -287,7 +287,7 @@ def list_tracks(
                     query=query,
                     liked=liked,
                     connector=connector,
-                    sort_by=sort,
+                    sort_by=sort,  # type: ignore[arg-type]  # validated by Typer choices
                     limit=limit,
                     offset=offset,
                 ),
@@ -327,7 +327,7 @@ def list_tracks(
             table.add_row(
                 str(t.id),
                 t.title,
-                ", ".join(a.name for a in t.artists),
+                t.artists_display,
                 t.album or "—",
                 "[green]Yes[/green]" if is_liked else "—",
             )

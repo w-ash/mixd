@@ -101,21 +101,9 @@ async with get_isolated_session() as session:
 
 **Benefits**: Prevents metrics operations from interfering with main workflows, optimized for specific use cases.
 
-## SQLite Configuration
-
-**Connection Pooling**: Uses `NullPool` for SQLite to create/close connections on demand, eliminating pooling-related locks.
-
-**Pragmas Applied**:
-- `journal_mode=WAL`: Write-ahead logging for concurrent read access
-- `busy_timeout=30000`: 30-second timeout for lock conflicts
-- `synchronous=NORMAL`: Balanced safety/performance
-- `foreign_keys=ON`: Enforce referential integrity
-
-**Event Listeners**: Automatically apply pragmas on each connection creation to ensure consistent database behavior.
-
 ## Anti-Patterns to Avoid
 
-❌ **Multiple Concurrent Sessions in Workflows**: Creates SQLite lock conflicts
+❌ **Multiple Concurrent Sessions in Workflows**: Creates concurrent session conflicts
 ❌ **Long-Held Sessions**: Blocks other operations unnecessarily
 ❌ **Direct Session Creation**: Bypasses configured pragmas and pooling strategy
 ❌ **Session Sharing Across Components**: Violates Clean Architecture boundaries

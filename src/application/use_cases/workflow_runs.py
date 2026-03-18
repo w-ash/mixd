@@ -67,9 +67,7 @@ def serialize_output_tracks(
         entry: dict[str, object] = {
             "track_id": track.id or 0,
             "title": track.title or "Unknown",
-            "artists": ", ".join(a.name for a in track.artists)
-            if track.artists
-            else "Unknown",
+            "artists": track.artists_display or "Unknown",
             "rank": rank,
         }
         if metrics and metric_columns:

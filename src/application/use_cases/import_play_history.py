@@ -108,7 +108,7 @@ class ImportTracksResult:
     mode: ImportMode
     execution_time_ms: int = 0
 
-    # Batch processing metadata (for SQLite optimization)
+    # Batch processing metadata
     total_batches: int = 0
 
     # Optional integration with existing batch processing utilities

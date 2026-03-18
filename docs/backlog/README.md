@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
 **Current Version**: 0.5.1
-**Current Initiative**: SQLAlchemy & PostgreSQL Best Practices Audit (final v0.5.1 item)
+**Current Initiative**: v0.5.1 complete — next: v0.5.2 Containerization & Deployment
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -31,7 +31,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
 | **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
 | **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](v0.5.x.md#v050-cicd--environment-hardening) |
-| **v0.5.1** | PostgreSQL migration + optimization | 🔧 In Progress | [details](v0.5.x.md#v051-postgresql-migration) |
+| **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](v0.5.x.md#v051-postgresql-migration) |
 | **v0.5.2** | Containerization & deployment | 🔜 Not Started | [details](v0.5.x.md#v052-containerization--deployment) |
 | **v0.5.3** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v053-oauth--credentials) |
 | **v0.5.4** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v054-parallel-execution--performance) |

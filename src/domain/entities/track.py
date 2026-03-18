@@ -62,6 +62,11 @@ class Track:
     connector_track_identifiers: dict[str, str] = field(factory=dict)
     connector_metadata: dict[str, dict[str, Any]] = field(factory=dict)
 
+    @property
+    def artists_display(self) -> str:
+        """Comma-separated artist names for display."""
+        return ", ".join(artist.name for artist in self.artists)
+
     def with_connector_track_id(self, connector: str, sid: str) -> Self:
         """Create a new track with additional connector identifier."""
         new_ids = self.connector_track_identifiers.copy()

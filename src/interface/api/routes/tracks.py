@@ -58,7 +58,11 @@ async def list_tracks(
     ),
     liked: bool | None = Query(default=None, description="Filter by liked status"),
     connector: str | None = Query(default=None, description="Filter by connector"),
-    sort: str = Query(default="title_asc", description="Sort field and direction"),
+    sort: str = Query(
+        default="title_asc",
+        description="Sort field and direction",
+        pattern="^(title|artist|added|duration)_(asc|desc)$",
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     cursor: str | None = Query(
@@ -75,7 +79,7 @@ async def list_tracks(
         query=q,
         liked=liked,
         connector=connector,
-        sort_by=sort,
+        sort_by=sort,  # type: ignore[arg-type]  # validated by FastAPI regex pattern
         limit=limit,
         offset=offset,
         cursor=cursor,

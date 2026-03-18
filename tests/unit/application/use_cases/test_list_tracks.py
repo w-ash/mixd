@@ -11,8 +11,24 @@ from src.application.use_cases.list_tracks import (
     ListTracksResult,
     ListTracksUseCase,
 )
+from src.domain.repositories.interfaces import TrackListingPage
 from tests.fixtures import make_tracks
 from tests.fixtures.mocks import make_mock_uow
+
+
+def _page(
+    tracks=(),
+    total=0,
+    liked_track_ids=frozenset(),
+    next_page_key=None,
+) -> TrackListingPage:
+    """Build a TrackListingPage dict for mock return values."""
+    return TrackListingPage(
+        tracks=list(tracks),
+        total=total,
+        liked_track_ids=set(liked_track_ids),
+        next_page_key=next_page_key,
+    )
 
 
 @pytest.fixture
@@ -25,11 +41,11 @@ class TestListTracksUseCase:
 
     async def test_returns_tracks_and_total(self, mock_uow) -> None:
         tracks = make_tracks(3)
-        mock_uow.get_track_repository().list_tracks.return_value = (
-            tracks,
-            3,
-            {1, 3},
-            ("Track 3", 3),
+        mock_uow.get_track_repository().list_tracks.return_value = _page(
+            tracks=tracks,
+            total=3,
+            liked_track_ids={1, 3},
+            next_page_key=("Track 3", 3),
         )
 
         command = ListTracksCommand()
@@ -44,7 +60,7 @@ class TestListTracksUseCase:
         assert result.next_cursor is not None
 
     async def test_forwards_search_query(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(query="radiohead")
         await ListTracksUseCase().execute(command, mock_uow)
@@ -58,10 +74,11 @@ class TestListTracksUseCase:
             offset=0,
             after_value=None,
             after_id=None,
+            include_total=True,
         )
 
     async def test_forwards_all_filters(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(
             query="test",
@@ -82,10 +99,11 @@ class TestListTracksUseCase:
             offset=50,
             after_value=None,
             after_id=None,
+            include_total=True,
         )
 
     async def test_empty_result(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         result = await ListTracksUseCase().execute(ListTracksCommand(), mock_uow)
 
@@ -96,11 +114,8 @@ class TestListTracksUseCase:
 
     async def test_last_page_has_no_next_cursor(self, mock_uow) -> None:
         tracks = make_tracks(2)
-        mock_uow.get_track_repository().list_tracks.return_value = (
-            tracks,
-            2,
-            set(),
-            None,  # No next page
+        mock_uow.get_track_repository().list_tracks.return_value = _page(
+            tracks=tracks, total=2
         )
 
         result = await ListTracksUseCase().execute(ListTracksCommand(), mock_uow)
@@ -118,7 +133,7 @@ class TestListTracksCursorPagination:
         cursor = encode_cursor(
             PageCursor(sort_column="title", sort_value="Radiohead", last_id=42)
         )
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(cursor=cursor)
         await ListTracksUseCase().execute(command, mock_uow)
@@ -126,9 +141,10 @@ class TestListTracksCursorPagination:
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
         assert call_kwargs["after_value"] == "Radiohead"
         assert call_kwargs["after_id"] == 42
+        assert call_kwargs["include_total"] is False
 
     async def test_invalid_cursor_falls_back_to_offset(self, mock_uow) -> None:
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(cursor="not-valid-base64!!!", offset=100)
         await ListTracksUseCase().execute(command, mock_uow)
@@ -137,6 +153,7 @@ class TestListTracksCursorPagination:
         assert call_kwargs["after_value"] is None
         assert call_kwargs["after_id"] is None
         assert call_kwargs["offset"] == 100
+        assert call_kwargs["include_total"] is True
 
     async def test_cursor_sort_mismatch_falls_back_to_offset(self, mock_uow) -> None:
         from src.application.pagination import PageCursor, encode_cursor
@@ -145,7 +162,7 @@ class TestListTracksCursorPagination:
         cursor = encode_cursor(
             PageCursor(sort_column="title", sort_value="Test", last_id=10)
         )
-        mock_uow.get_track_repository().list_tracks.return_value = ([], 0, set(), None)
+        mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(cursor=cursor, sort_by="duration_asc")
         await ListTracksUseCase().execute(command, mock_uow)
@@ -153,6 +170,22 @@ class TestListTracksCursorPagination:
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
         assert call_kwargs["after_value"] is None
         assert call_kwargs["after_id"] is None
+
+    async def test_total_none_when_cursor_present(self, mock_uow) -> None:
+        """When a cursor is used, include_total=False and total=None is propagated."""
+        from src.application.pagination import PageCursor, encode_cursor
+
+        cursor = encode_cursor(
+            PageCursor(sort_column="title", sort_value="Test", last_id=10)
+        )
+        mock_uow.get_track_repository().list_tracks.return_value = _page(
+            total=None,  # Repository returns None when include_total=False
+        )
+
+        command = ListTracksCommand(cursor=cursor)
+        result = await ListTracksUseCase().execute(command, mock_uow)
+
+        assert result.total is None
 
 
 class TestListTracksCommand:

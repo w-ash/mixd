@@ -1096,7 +1096,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 .values(is_primary=False)
             )
 
-        # Step 2: Set new primaries (per-row — SQLite lacks multi-column IN for UPDATE)
+        # Step 2: Set new primaries (per-row — each has a unique (track_id, ct_db_id) pair)
         promoted = 0
         for track_id, connector_name, connector_id in primaries:
             ct_db_id = ct_id_map.get((connector_name, connector_id))

@@ -52,8 +52,7 @@ class GetDashboardStatsUseCase:
             connector_repo = uow.get_connector_repository()
             link_repo = uow.get_playlist_link_repository()
 
-            # Sequential: these are independent queries but SQLite serializes
-            # all operations. Parallelize with TaskGroup after PostgreSQL migration.
+            # Sequential: overhead of TaskGroup not justified for a few small queries
             total_tracks = await track_repo.count_all_tracks()
             total_plays = await plays_repo.count_all_plays()
             total_playlists = await playlist_repo.count_all_playlists()

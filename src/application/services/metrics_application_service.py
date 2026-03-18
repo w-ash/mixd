@@ -396,7 +396,7 @@ class MetricsApplicationService:
             batch_processor = EnhancedDatabaseBatchProcessor[
                 _MetricsTuple, int
             ](
-                batch_size=10,  # Small batch size to prevent SQLite locks
+                batch_size=10,  # Small batch size for incremental progress tracking
                 retry_count=3,  # Simple retry for database deadlock scenarios
                 retry_base_delay=1.0,  # Basic retry delay, no complex exponential backoff needed
                 logger_instance=logger,

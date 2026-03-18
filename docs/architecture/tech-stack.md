@@ -9,10 +9,10 @@ Core technology decisions, supporting libraries, and architectural benefits that
 **Usage**: Modern language features throughout codebase, PEP 749 support
 **Benefits**: Better type safety, cleaner code, future-proofing, improved asyncio
 
-### SQLite + SQLAlchemy 2.0
-**Why**: Zero configuration, atomic transactions, rich relationships
-**Usage**: Local database with async ORM patterns and specialized session management
-**Benefits**: No server setup, data integrity, complex queries, concurrent operation support
+### PostgreSQL + SQLAlchemy 2.0 (psycopg3)
+**Why**: MVCC concurrency, JSONB, trigram search, connection pooling
+**Usage**: Async ORM with psycopg3 driver, managed via Docker Compose (local) or Neon (hosted)
+**Benefits**: Concurrent writes, GIN/BRIN indexes, native array types, keyset pagination
 
 ### Prefect 3.0 (Workflow Engine)
 **Why**: Modern async workflow orchestration with improved dependency management
@@ -98,7 +98,7 @@ src/infrastructure/connectors/_shared/
 - **Collaborative Features**: Multi-user support with existing architecture
 
 ### Technical Scalability
-- **Database**: SQLite handles millions of tracks efficiently
+- **Database**: PostgreSQL handles millions of tracks with JSONB, trigram indexes, and BRIN time-series indexes
 - **API Efficiency**: Batch operations and caching minimize external calls
 - **Memory Usage**: Streaming operations and lazy loading for large datasets
 - **Performance**: Async-first design enables concurrent operations

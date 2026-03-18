@@ -58,12 +58,12 @@ Two interfaces (CLI + Web) over a shared application core, built on Clean Archit
 ```
 CLI (Typer + Rich)  ─┐
                      ├→ Use Cases → Domain Logic ← Connectors (Spotify, Last.fm, MusicBrainz)
-Web (React + FastAPI)┘                           ← SQLite/SQLAlchemy (async)
+Web (React + FastAPI)┘                           ← PostgreSQL/SQLAlchemy (async)
 ```
 
 Workflows are declarative pipelines: **Source → Enrich → Filter → Sort → Select → Destination**. Tracks flow through nodes that compose freely. The pipeline engine (Prefect 3.0) handles orchestration, retry, and progress tracking.
 
-**Stack**: Python 3.14, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 7, Tailwind CSS v4, Tanstack Query
+**Stack**: Python 3.14, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 8, Tailwind CSS v4, Tanstack Query
 
 ## Quick Start
 

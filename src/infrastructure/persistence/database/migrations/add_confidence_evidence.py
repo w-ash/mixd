@@ -24,7 +24,7 @@ depends_on = None
 
 def upgrade() -> None:
     """Add confidence_evidence column to track_mappings table."""
-    # Use JSON type (will use sqlite JSON for sqlite and JSONB for postgres)
+    # JSON type maps to PostgreSQL JSONB
     op.add_column(target_table, sa.Column(new_column, sa.JSON))
 
 

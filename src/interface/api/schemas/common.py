@@ -35,7 +35,7 @@ class PaginatedResponse[T](BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     data: list[T]
-    total: int
+    total: int | None = None
     limit: int
     offset: int
     next_cursor: str | None = None

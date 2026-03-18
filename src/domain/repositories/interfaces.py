@@ -41,6 +41,15 @@ from src.domain.matching.types import (
 )
 
 
+class TrackListingPage(TypedDict):
+    """Result shape for paginated track listing queries."""
+
+    tracks: list[Track]
+    total: int | None  # None when count was skipped (cursor-paginated pages)
+    liked_track_ids: set[int]
+    next_page_key: tuple[Any, int] | None
+
+
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
 
@@ -128,7 +137,8 @@ class TrackRepositoryProtocol(Protocol):
         offset: int = 0,
         after_value: Any = None,
         after_id: int | None = None,
-    ) -> Awaitable[tuple[list[Track], int, set[int], tuple[Any, int] | None]]:
+        include_total: bool = True,
+    ) -> Awaitable[TrackListingPage]:
         """List tracks with optional search, filters, sorting, and pagination.
 
         Supports both offset-based and keyset (cursor) pagination. When
@@ -144,11 +154,12 @@ class TrackRepositoryProtocol(Protocol):
             offset: Number of tracks to skip (ignored when keyset params present).
             after_value: Sort column value of the last row from the previous page.
             after_id: Primary key of the last row from the previous page.
+            include_total: Whether to run the count query. False skips it and returns
+                total=None (useful for cursor-paginated pages where the frontend
+                already has the total from page 1).
 
         Returns:
-            Tuple of (tracks, total_count, liked_track_ids, next_page_key) where:
-            - liked_track_ids: IDs of tracks liked on any service
-            - next_page_key: (sort_value, id) for building next cursor, or None if last page
+            TrackListingPage with tracks, total, liked_track_ids, and next_page_key.
         """
         ...
 
