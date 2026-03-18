@@ -193,7 +193,7 @@ class TestTrackRepositoryIntegration:
             album=saved_track.album,
             connector_track_identifiers={
                 **saved_track.connector_track_identifiers,
-                "musicbrainz": f"mbid_{uuid4()}",
+                "musicbrainz": str(uuid4()),
             },
         )
 

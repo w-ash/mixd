@@ -48,7 +48,7 @@ Powered by: import history, backup likes/playlists, cross-service identity mappi
 - **Infrastructure** (`src/infrastructure/`) - API adapters (Spotify/Last.fm/MusicBrainz), SQLAlchemy repos, metadata providers.
 - **Interface** (`src/interface/`) - CLI via Typer + Rich, Web via FastAPI + React.
 
-**Stack**: Python 3.14+, SQLite + SQLAlchemy 2.0 async, Prefect 3.0, attrs, Typer + Rich, FastAPI, React 19, Vite 7, Tanstack Query, Tailwind v4
+**Stack**: Python 3.14+, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), Prefect 3.0, attrs, Typer + Rich, FastAPI, React 19, Vite 7, Tanstack Query, Tailwind v4
 
 Layer-specific enforcement rules live in `.claude/rules/` and load automatically per path.
 
@@ -69,7 +69,8 @@ uv run alembic upgrade head      # Migrate
 uv run alembic revision --autogenerate -m "description"  # Generate migration
 
 # Web UI (frontend)
-pnpm --prefix web dev                # Dev server (Vite, port 5173)
+pnpm dev                             # Start everything: PostgreSQL + API + Vite
+pnpm --prefix web dev                # Vite only (when API is already running)
 pnpm --prefix web test               # Vitest component tests
 pnpm --prefix web check              # Biome lint + format check
 pnpm --prefix web build              # Production build

@@ -1,0 +1,104 @@
+"""Cursor-based keyset pagination utilities.
+
+Provides opaque cursor encoding/decoding for keyset pagination on endpoints
+with large result sets (e.g., the 15k+ track library). Cursors encode the
+last row's sort value and ID so the next page can use a WHERE clause instead
+of OFFSET — O(1) seeks regardless of page depth.
+"""
+
+import base64
+from datetime import datetime
+import json
+from typing import Final
+
+from attrs import define
+
+# Sort columns that store datetime values (ISO string in cursor)
+_DATETIME_COLUMNS: Final = frozenset({"created_at"})
+
+
+@define(frozen=True, slots=True)
+class PageCursor:
+    """Decoded cursor for keyset pagination.
+
+    Attributes:
+        sort_column: The DB column name used for ordering (e.g., "title").
+        sort_value: The last row's value for that column. Datetimes stored as ISO strings.
+        last_id: The last row's primary key, used as tiebreaker for stable ordering.
+    """
+
+    sort_column: str
+    sort_value: str | int | float | None
+    last_id: int
+
+
+def encode_cursor(cursor: PageCursor) -> str:
+    """Encode a PageCursor as an opaque base64 string for use in API responses.
+
+    Format: base64(json({"c": column, "v": value, "id": id}))
+    Compact keys minimize URL length.
+    """
+    payload = {"c": cursor.sort_column, "v": cursor.sort_value, "id": cursor.last_id}
+    json_bytes = json.dumps(payload, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(json_bytes).decode()
+
+
+def decode_cursor(encoded: str) -> PageCursor:
+    """Decode an opaque cursor string back into a PageCursor.
+
+    Raises:
+        ValueError: If the cursor is malformed, tampered with, or has wrong types.
+    """
+    try:
+        json_bytes = base64.urlsafe_b64decode(encoded)
+        payload = json.loads(json_bytes)
+    except Exception as exc:
+        raise ValueError(f"Invalid cursor encoding: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise TypeError("Cursor payload must be a JSON object")
+
+    try:
+        sort_column = payload["c"]
+        sort_value = payload["v"]
+        last_id = payload["id"]
+    except KeyError as exc:
+        raise ValueError(f"Cursor missing required key: {exc}") from exc
+
+    if not isinstance(sort_column, str):
+        raise TypeError("Cursor sort_column must be a string")
+    if not isinstance(last_id, int):
+        raise TypeError("Cursor last_id must be an integer")
+    if sort_value is not None and not isinstance(sort_value, str | int | float):
+        raise TypeError("Cursor sort_value must be str, int, float, or None")
+
+    return PageCursor(sort_column=sort_column, sort_value=sort_value, last_id=last_id)
+
+
+def cursor_sort_value_from_row(_column_name: str, value: object) -> str | int | float | None:
+    """Convert a database row value to a cursor-safe sort value.
+
+    Datetimes are serialized as ISO strings; scalars pass through.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str | int | float):
+        return value
+    # Fallback: stringify unknown types
+    return str(value)
+
+
+def cursor_sort_value_to_query(
+    column_name: str, sort_value: str | int | float | None
+) -> str | int | float | datetime | None:
+    """Convert a cursor's sort_value back to a query-compatible type.
+
+    Datetime columns (created_at) are parsed from ISO strings.
+    """
+    if sort_value is None:
+        return None
+    if column_name in _DATETIME_COLUMNS and isinstance(sort_value, str):
+        return datetime.fromisoformat(sort_value)
+    return sort_value

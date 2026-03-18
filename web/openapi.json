@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.4.10"
+    "version": "0.5.1"
   },
   "paths": {
     "/api/v1/health": {
@@ -12,20 +12,14 @@
           "health"
         ],
         "summary": "Health Check",
-        "description": "Basic health check returning service status and version.",
+        "description": "Health check with database connectivity probe.",
         "operationId": "health_check_api_v1_health_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Health Check Api V1 Health Get"
-                }
+                "schema": {}
               }
             }
           }
@@ -799,7 +793,7 @@
           "tracks"
         ],
         "summary": "List Tracks",
-        "description": "List tracks with optional search, filters, sorting, and pagination.",
+        "description": "List tracks with optional search, filters, sorting, and pagination.\n\nSupports both offset-based and cursor-based (keyset) pagination.\nWhen ``cursor`` is provided, it takes precedence over ``offset`` for\nO(1) page seeking regardless of depth.",
         "operationId": "list_tracks_api_v1_tracks_get",
         "parameters": [
           {
@@ -891,6 +885,24 @@
               "default": 0,
               "title": "Offset"
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor for keyset pagination",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor for keyset pagination"
           }
         ],
         "responses": {
@@ -3463,6 +3475,17 @@
           "offset": {
             "type": "integer",
             "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "type": "object",
@@ -3494,6 +3517,17 @@
           "offset": {
             "type": "integer",
             "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "type": "object",
@@ -3525,6 +3559,17 @@
           "offset": {
             "type": "integer",
             "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "type": "object",
@@ -3556,6 +3601,17 @@
           "offset": {
             "type": "integer",
             "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "type": "object",
@@ -3587,6 +3643,17 @@
           "offset": {
             "type": "integer",
             "title": "Offset"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "type": "object",

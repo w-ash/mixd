@@ -21,12 +21,10 @@ import asyncio
 from collections import Counter
 from datetime import datetime, timedelta
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
 from typing import Any
-from uuid import uuid4
 
 from sqlalchemy import func, select, text
 
@@ -678,14 +676,13 @@ async def main() -> None:
     print("=" * 60)
 
     # ── Fresh database mode ──
-    fresh_db_file: str | None = None
     if FRESH:
-        fresh_db_file = f"{tempfile.gettempdir()}/smoke_test_fresh_{uuid4().hex}.db"
-        os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{fresh_db_file}"
+        from src.config import get_database_url
+
         reset_engine_cache()
         await init_db()
-        print("\n  Fresh database mode: using temporary DB")
-        print(f"  DB path: {fresh_db_file}")
+        print("\n  Fresh database mode: using current DATABASE_URL")
+        print(f"  DB URL: {get_database_url()}")
 
     # ── Pre-flight checks ──
     print_header("Pre-flight Checks")
@@ -850,13 +847,7 @@ async def main() -> None:
 
     print("═" * 60)
 
-    # Cleanup fresh database
-    if fresh_db_file:
-        try:
-            Path(fresh_db_file).unlink(missing_ok=True)
-            print(f"\n  Cleaned up temporary DB: {fresh_db_file}")
-        except OSError:
-            pass
+    # No cleanup needed — PostgreSQL database persists in container
 
 
 asyncio.run(main())

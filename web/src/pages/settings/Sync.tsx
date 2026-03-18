@@ -1,6 +1,6 @@
+import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -19,6 +19,10 @@ import {
   ConnectorIcon,
   type ConnectorName,
 } from "@/components/shared/ConnectorIcon";
+import {
+  DatabaseUnavailable,
+  isDatabaseUnavailable,
+} from "@/components/shared/DatabaseUnavailable";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { OperationProgress } from "@/components/shared/OperationProgress";
 import { SectionHeader } from "@/components/shared/SectionHeader";
@@ -324,7 +328,8 @@ function SpotifyHistoryImport({
 // ─── Page ───────────────────────────────────────────────────────
 
 export function Sync() {
-  const { data } = useGetCheckpointsApiV1ImportsCheckpointsGet();
+  const { data, isError, error } =
+    useGetCheckpointsApiV1ImportsCheckpointsGet();
   const checkpoints = data?.status === 200 ? data.data : [];
 
   return (
@@ -335,31 +340,49 @@ export function Sync() {
         description="Import and sync your music data across services."
       />
 
-      <div className="space-y-12">
-        {/* ── Listening History ──────────────────────── */}
-        <section className="space-y-3">
-          <SectionHeader
-            title="Listening History"
-            description="Your play counts across services — scrobbles, stream history, and data exports."
-          />
-          <div className="space-y-3">
-            <LastfmHistoryImport checkpoints={checkpoints} />
-            <SpotifyHistoryImport checkpoints={checkpoints} />
-          </div>
-        </section>
+      {isError && isDatabaseUnavailable(error) ? (
+        <DatabaseUnavailable />
+      ) : (
+        <>
+          {isError && (
+            <div
+              role="alert"
+              className="mb-6 flex items-center gap-2 rounded-lg border border-status-expired/30 bg-status-expired/5 px-4 py-2.5 text-sm text-status-expired"
+            >
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>
+                Couldn&apos;t load sync history. Timestamps may be unavailable.
+              </span>
+            </div>
+          )}
 
-        {/* ── Liked Tracks ──────────────────────────── */}
-        <section className="space-y-3">
-          <SectionHeader
-            title="Liked Tracks"
-            description="Tracks you've hearted or loved — sync between Spotify and Last.fm."
-          />
-          <div className="space-y-3">
-            <SpotifyLikesImport checkpoints={checkpoints} />
-            <LastfmLikesExport checkpoints={checkpoints} />
+          <div className="space-y-12">
+            {/* ── Listening History ──────────────────────── */}
+            <section className="space-y-3">
+              <SectionHeader
+                title="Listening History"
+                description="Your play counts across services — scrobbles, stream history, and data exports."
+              />
+              <div className="space-y-3">
+                <LastfmHistoryImport checkpoints={checkpoints} />
+                <SpotifyHistoryImport checkpoints={checkpoints} />
+              </div>
+            </section>
+
+            {/* ── Liked Tracks ──────────────────────────── */}
+            <section className="space-y-3">
+              <SectionHeader
+                title="Liked Tracks"
+                description="Tracks you've hearted or loved — sync between Spotify and Last.fm."
+              />
+              <div className="space-y-3">
+                <SpotifyLikesImport checkpoints={checkpoints} />
+                <LastfmLikesExport checkpoints={checkpoints} />
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 Narada's database design follows a focused schema pattern that prioritizes essential storage needs while maintaining flexibility for future expansion. Each entity maps to a core domain concept while avoiding unnecessary normalization that would increase query complexity.
 
-The database uses SQLite with SQLAlchemy 2.0 async patterns for optimal performance in our single-user, local application context.
+The database uses PostgreSQL with SQLAlchemy 2.0 async patterns via psycopg3 (psycopg[binary]). Local development uses Docker Compose (`docker compose up -d`); deployment targets Neon's managed PostgreSQL.
 
 ## Core Design Principles
 
@@ -29,16 +29,37 @@ Separation between internal records and connector-specific entities allows:
 - Advanced cross-service entity resolution
 - Independent service updates without affecting core data
 
-### 4. JSON for Complex Data
-Artists and raw metadata stored as JSON to:
+### 4. JSONB for Complex Data
+Artists and raw metadata stored as JSONB to:
 - Avoid complex joins while supporting nested data structures
 - Preserve complete information from external services
-- Enable flexible querying without rigid schema constraints
+- Enable GIN-indexed containment queries
+- 25% smaller on disk than JSON, with faster reads
 
 ### 5. Temporal Design
 - Time-series metrics with explicit collection timestamps
-- Event-based play records with chronological indexing
+- Event-based play records with chronological indexing (BRIN)
 - Sync checkpoints for incremental processing
+
+## PostgreSQL-Native Features
+
+### JSONB Everywhere
+All JSON columns use PostgreSQL JSONB (not JSON). JSONB is pre-parsed binary — it's smaller, faster for reads, and supports GIN indexing. The `artists` column on `tracks` has a `jsonb_path_ops` GIN index for containment queries.
+
+### ARRAY Columns
+`track_plays.source_services` uses native `ARRAY(VARCHAR)` instead of JSON for lists of service names. This enables `@>` containment operators and native array functions.
+
+### pg_trgm Trigram Search
+The `pg_trgm` extension provides GIN-accelerated `ILIKE` searches. Indexes on `tracks.title`, `tracks.album`, and `tracks.artists_text` enable substring matching without full table scans. Users can type "deadm" to find "deadmau5" — trigrams support partial matching that `tsvector` cannot.
+
+### BRIN Indexes
+`track_plays.played_at` uses a BRIN (Block Range Index) — 99% smaller than B-tree for naturally-ordered time-series data. Ideal for append-only play history.
+
+### Database-Side Aggregations
+Play statistics use PostgreSQL `GROUP BY` with `COUNT`, `MIN`, `MAX` — not in-memory Python aggregation. For 100k plays across 1k tracks, the database returns 1k rows instead of loading 100k ORM objects.
+
+### Tuple IN Queries
+Multi-column deduplication lookups use `tuple_(col1, col2, ...).in_(keys)` — a single query replaces the SQLite-era batched OR conditions that were limited by expression tree depth.
 
 ## Database Schema
 
@@ -63,269 +84,81 @@ Central storage for music metadata with essential identification information.
 
 ```sql
 CREATE TABLE tracks (
-    id INTEGER PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    artists JSON NOT NULL,          -- List of artist names/IDs
-    album VARCHAR(255),
+    id SERIAL PRIMARY KEY,
+    title VARCHAR NOT NULL,
+    artists JSONB NOT NULL,            -- {"names": ["Artist1", "Artist2"]}
+    album VARCHAR,
     duration_ms INTEGER,
-    release_date DATETIME,
-    spotify_id VARCHAR(64),         -- Indexed for fast lookup
-    isrc VARCHAR(32),               -- Indexed for entity resolution  
-    mbid VARCHAR(36),               -- Indexed for MusicBrainz lookup
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
+    release_date TIMESTAMPTZ,
+    spotify_id VARCHAR,                -- Indexed for fast lookup
+    isrc VARCHAR(32),                  -- Indexed for entity resolution
+    mbid VARCHAR(36),                  -- Indexed for MusicBrainz lookup
+    title_normalized VARCHAR,          -- Pre-computed for fuzzy matching
+    artist_normalized VARCHAR,         -- Pre-computed for fuzzy matching
+    title_stripped VARCHAR,            -- Parentheticals removed for matching
+    artists_text VARCHAR,              -- Denormalized "Artist1, Artist2" for search/sort
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
+-- B-tree indexes
 CREATE INDEX ix_tracks_spotify_id ON tracks(spotify_id);
-CREATE INDEX ix_tracks_isrc ON tracks(isrc);  
+CREATE INDEX ix_tracks_isrc ON tracks(isrc);
 CREATE INDEX ix_tracks_mbid ON tracks(mbid);
 CREATE INDEX ix_tracks_title ON tracks(title);
+CREATE INDEX ix_tracks_normalized_lookup ON tracks(title_normalized, artist_normalized);
+CREATE INDEX ix_tracks_stripped_lookup ON tracks(title_stripped, artist_normalized);
+
+-- GIN trigram indexes (pg_trgm)
+CREATE INDEX ix_tracks_title_trgm ON tracks USING gin (title gin_trgm_ops);
+CREATE INDEX ix_tracks_album_trgm ON tracks USING gin (album gin_trgm_ops);
+CREATE INDEX ix_tracks_artists_text_trgm ON tracks USING gin (artists_text gin_trgm_ops);
+
+-- GIN JSONB index
+CREATE INDEX ix_tracks_artists_gin ON tracks USING gin (artists jsonb_path_ops);
 ```
 
 **Key Points:**
 - Primary source of truth for track information
-- JSON artist storage for flexible multi-artist handling
+- JSONB artist storage with GIN index for containment queries
+- Trigram indexes on text columns for fast substring search
 - Direct storage for common identifiers (spotify_id, isrc, mbid)
-- Rich relationships to mappings, metrics, likes, plays, and playlists
-
-### connector_tracks
-External service-specific track representations with rich metadata.
-
-```sql
-CREATE TABLE connector_tracks (
-    id INTEGER PRIMARY KEY,
-    connector_name VARCHAR(32) NOT NULL,           -- Service name (spotify, lastfm, etc)
-    connector_track_identifier VARCHAR(64) NOT NULL, -- External service track ID
-    title VARCHAR(255) NOT NULL,
-    artists JSON NOT NULL,                         -- Artists as represented in service
-    album VARCHAR(255),
-    duration_ms INTEGER,
-    isrc VARCHAR(32),                              -- ISRC code if available
-    release_date DATETIME,
-    raw_metadata JSON NOT NULL,                    -- Complete service-specific metadata
-    last_updated DATETIME NOT NULL,                -- Timestamp of last metadata refresh
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
-);
-
-CREATE INDEX ix_connector_tracks_connector_name ON connector_tracks(connector_name);
-CREATE INDEX ix_connector_tracks_lookup ON connector_tracks(connector_name, isrc);
-CREATE UNIQUE INDEX ix_connector_tracks_unique ON connector_tracks(connector_name, connector_track_identifier);
-```
-
-**Key Points:**
-- Preserves exactly how tracks appear in each service
-- Captures all available metadata from each service
-- Can exist before being mapped to internal tracks
-- Minimizes API calls by storing complete external track data
-
-### track_mappings
-Connects internal tracks to external service tracks with match quality metadata.
-
-```sql
-CREATE TABLE track_mappings (
-    id INTEGER PRIMARY KEY,
-    track_id INTEGER NOT NULL,           -- FK to tracks table
-    connector_track_id INTEGER NOT NULL, -- FK to connector_tracks table  
-    connector_name VARCHAR(32) NOT NULL, -- Service name for indexing
-    match_method VARCHAR(32) NOT NULL,   -- Resolution method used
-    confidence INTEGER NOT NULL,         -- Match confidence (0-100)
-    confidence_evidence JSON,            -- Evidence supporting confidence score
-    is_primary BOOLEAN DEFAULT FALSE,    -- Primary mapping per track-connector pair
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    FOREIGN KEY (connector_track_id) REFERENCES connector_tracks(id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX uq_connector_track_canonical_mapping ON track_mappings(connector_track_id, connector_name);
-CREATE UNIQUE INDEX uq_primary_mapping ON track_mappings(track_id, connector_name) WHERE is_primary = TRUE;
-CREATE INDEX ix_track_mappings_track_lookup ON track_mappings(track_id);
-CREATE INDEX ix_track_mappings_connector_lookup ON track_mappings(connector_track_id);
-```
-
-**Key Points:**
-- True many-to-many relationship between internal and external tracks
-- Tracks match method and confidence for quality assessment
-- Points to complete connector track records
-- Supports future alternative match algorithms
-
-### track_metrics
-Time-series metrics for tracks from various services.
-
-```sql
-CREATE TABLE track_metrics (
-    id INTEGER PRIMARY KEY,
-    track_id INTEGER NOT NULL,           -- FK to tracks table
-    connector_name VARCHAR(32) NOT NULL, -- Source service name
-    metric_type VARCHAR(32) NOT NULL,    -- Metric type (play_count, explicit_flag, etc)
-    value FLOAT NOT NULL,               -- Numeric metric value
-    collected_at DATETIME NOT NULL,      -- When the metric was collected
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id, connector_name, metric_type)
-);
-
-CREATE INDEX ix_track_metrics_lookup ON track_metrics(track_id, connector_name, metric_type);
-```
-
-**Key Points:**
-- Time-series design for historical metrics with timestamps
-- Supports various metric types (plays, explicit flag, etc.)
-- Clearly identifies the source of each metric
-- Floating-point values for wide range of metrics
-
-### track_likes
-Track preference state across music services with synchronization support.
-
-```sql
-CREATE TABLE track_likes (
-    id INTEGER PRIMARY KEY,
-    track_id INTEGER NOT NULL,           -- FK to tracks table
-    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
-    is_liked BOOLEAN DEFAULT TRUE,       -- Current like status
-    liked_at DATETIME,                  -- When the track was liked
-    last_synced DATETIME,               -- When sync was last performed
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id, service)
-);
-
-CREATE INDEX ix_track_likes_lookup ON track_likes(service, is_liked);
-```
-
-**Key Points:**
-- Records like/favorite status per service
-- Timestamps for tracking synchronization
-- Captures when tracks were liked
-- One like entry per track/service combination
 
 ### track_plays
 Immutable record of track play events from service imports.
 
 ```sql
 CREATE TABLE track_plays (
-    id INTEGER PRIMARY KEY,
-    track_id INTEGER NOT NULL,           -- FK to tracks table
-    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
-    played_at DATETIME NOT NULL,         -- When the track was played
-    ms_played INTEGER,                  -- Milliseconds played (optional)
-    context JSON,                       -- Additional play context
-    import_timestamp DATETIME,          -- When this record was imported
-    import_source VARCHAR(32),          -- Source of import (e.g., "spotify_export", "lastfm_api")
-    import_batch_id VARCHAR(64),        -- Batch identifier for import group
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id, service, played_at, ms_played)  -- Prevent duplicate plays
+    id SERIAL PRIMARY KEY,
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    service VARCHAR(32) NOT NULL,
+    played_at TIMESTAMPTZ NOT NULL,
+    ms_played INTEGER,
+    context JSONB,
+    source_services VARCHAR[],          -- Native PostgreSQL ARRAY
+    import_timestamp TIMESTAMPTZ,
+    import_source VARCHAR(32),
+    import_batch_id VARCHAR,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    UNIQUE(track_id, service, played_at, ms_played)
 );
 
+-- B-tree indexes
 CREATE INDEX ix_track_plays_service ON track_plays(service);
 CREATE INDEX ix_track_plays_played_at ON track_plays(played_at);
 CREATE INDEX ix_track_plays_track_id ON track_plays(track_id);
 CREATE INDEX ix_track_plays_track_played ON track_plays(track_id, played_at);
-CREATE INDEX ix_track_plays_import_source ON track_plays(import_source);
-CREATE INDEX ix_track_plays_import_batch ON track_plays(import_batch_id);
+CREATE INDEX ix_track_plays_track_service ON track_plays(track_id, service);
+
+-- BRIN index for time-series data
+CREATE INDEX ix_track_plays_played_at_brin ON track_plays USING brin (played_at);
 ```
 
 **Key Points:**
-- Records individual play events from service exports
-- Optimized for chronological queries with played_at index
-- Full provenance tracking for data imports
-- Support for efficient bulk imports with batch IDs
-- JSON field for platform-specific metadata
-
-### playlists
-Source of truth for playlists with essential metadata.
-
-```sql
-CREATE TABLE playlists (
-    id INTEGER PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(1000),
-    track_count INTEGER DEFAULT 0,       -- Cached count for efficiency
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
-);
-```
-
-**Key Points:**
-- Connector-agnostic playlist representation
-- Minimal schema with only essential fields
-- Pre-calculated track count for efficient display
-
-### playlist_mappings
-Maps internal playlists to external connector playlists.
-
-```sql
-CREATE TABLE playlist_mappings (
-    id INTEGER PRIMARY KEY,
-    playlist_id INTEGER NOT NULL,        -- FK to playlists table
-    connector_name VARCHAR(32) NOT NULL, -- Connector name (spotify, apple, etc)
-    connector_playlist_id INTEGER NOT NULL, -- FK to connector_playlists table
-    last_synced DATETIME,               -- Last successful sync
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-    FOREIGN KEY (connector_playlist_id) REFERENCES connector_playlists(id) ON DELETE CASCADE,
-    UNIQUE(playlist_id, connector_name),
-    UNIQUE(connector_playlist_id)
-);
-```
-
-**Key Points:**
-- Timestamps for synchronization history
-- Each playlist maps to exactly one external playlist per connector
-- Follows same mapping pattern as track resolution
-
-### playlist_tracks
-Maps the many-to-many relationship between playlists and tracks with ordering.
-
-```sql
-CREATE TABLE playlist_tracks (
-    id INTEGER PRIMARY KEY,
-    playlist_id INTEGER NOT NULL,        -- FK to playlists table
-    track_id INTEGER NOT NULL,           -- FK to tracks table
-    sort_key VARCHAR(32) NOT NULL,       -- Lexicographical ordering key
-    added_at DATETIME,                  -- When track was added to playlist
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-);
-
-CREATE INDEX ix_playlist_tracks_order ON playlist_tracks(playlist_id, sort_key);
-```
-
-**Key Points:**
-- Efficient ordering using lexicographical sort keys (e.g., "a0000000")
-- Implicit history through track position changes preserved via timestamps
-- Composite index optimizes ordered track fetching
-
-### sync_checkpoints
-Tracks synchronization state for incremental operations.
-
-```sql
-CREATE TABLE sync_checkpoints (
-    id INTEGER PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL,        -- User identifier
-    service VARCHAR(32) NOT NULL,        -- Service name (spotify, lastfm, etc)
-    entity_type VARCHAR(32) NOT NULL,    -- Entity type (likes, plays, etc)
-    last_timestamp DATETIME,             -- Last successful sync timestamp
-    cursor VARCHAR(1024),                -- Continuation token if applicable
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    UNIQUE(user_id, service, entity_type)
-);
-```
-
-**Key Points:**
-- Enables efficient incremental operations
-- Cursor support for paginated operations
-- Supports different entity types per service
-- Tracks separate sync state per user
+- BRIN index for efficient time-range queries on append-only data
+- Native ARRAY for source_services (cross-source deduplication)
+- JSONB context for platform-specific metadata
 
 ## Repository Pattern Implementation
 
@@ -335,7 +168,6 @@ CREATE TABLE sync_checkpoints (
 Domain:        TrackRepositoryProtocol (interface - never changes)
                          ↑
 Infrastructure: SQLAlchemyTrackRepository (current implementation)
-Future:        PostgreSQLTrackRepository, MongoTrackRepository, RedisTrackRepository
 ```
 
 **How it works:**
@@ -344,10 +176,10 @@ Future:        PostgreSQLTrackRepository, MongoTrackRepository, RedisTrackReposi
 - **Application uses contracts** - `def __init__(self, track_repo: TrackRepositoryProtocol)`
 - **UnitOfWork coordinates** - `async with uow:` manages transactions, `await uow.commit()` saves changes
 
-**Key files for database swaps:**
+**Key files for database work:**
 - `src/domain/repositories/interfaces.py` - Abstract protocols (never change)
-- `src/infrastructure/persistence/repositories/base_repo.py` - Generic base (replace for new DB)
-- `src/infrastructure/persistence/repositories/track/core.py` - Track operations (reimplement for new DB)
+- `src/infrastructure/persistence/repositories/base_repo.py` - Generic base
+- `src/infrastructure/persistence/repositories/track/core.py` - Track operations
 - **Critical** - Always use `selectinload()` for relationships, UnitOfWork for transactions
 
 ## Relationship Architecture
@@ -373,49 +205,35 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 
 ## Indexing Strategy
 
-| Table | Index | Purpose |
-|-------|-------|---------|
-| `tracks` | `spotify_id` | Fast lookup by Spotify ID |
-| `tracks` | `isrc` | Fast lookup for entity resolution |
-| `tracks` | `mbid` | Fast lookup by MusicBrainz ID |
-| `connector_tracks` | `connector_name` | Fast filtering by service |
-| `connector_tracks` | `(connector_name, connector_track_id)` | Prevent duplicates |
-| `connector_tracks` | `(connector_name, isrc)` | Lookup by service and ISRC |
-| `track_mappings` | `(track_id, connector_track_id)` | Fast relationship lookup |
-| `track_metrics` | `(track_id, connector_name, metric_type)` | Fast metric lookup |
-| `track_likes` | `(track_id, service)` | Enforce single like entry |
-| `track_likes` | `(service, is_liked)` | Fast filtering by service |
-| `track_plays` | `service` | Filter by service |
-| `track_plays` | `played_at` | Chronological queries |
-| `playlist_tracks` | `(playlist_id, sort_key)` | Ordered track retrieval |
-| `playlist_mappings` | `(playlist_id, connector_name)` | Enforce single mapping |
-| `sync_checkpoints` | `(user_id, service, entity_type)` | Enforce single checkpoint |
+| Table | Index | Type | Purpose |
+|-------|-------|------|---------|
+| `tracks` | `spotify_id`, `isrc`, `mbid` | B-tree | Fast identifier lookup |
+| `tracks` | `title`, `album`, `artists_text` | GIN (trgm) | Substring search |
+| `tracks` | `artists` | GIN (jsonb) | JSONB containment queries |
+| `tracks` | `(title_normalized, artist_normalized)` | B-tree | Fuzzy matching |
+| `track_plays` | `played_at` | BRIN | Time-range queries |
+| `track_plays` | `(track_id, played_at)` | B-tree | Per-track time filtering |
+| `track_plays` | `track_id` | B-tree | Per-track aggregation |
+| `workflow_runs` | `status` | B-tree | Status filtering |
+| `playlist_mappings` | `sync_status` | B-tree | Sync operations |
 
 ## Database Session Management
 
-The database implementation uses SQLite-specific optimizations:
-
-### SQLite Connection Configuration
-- **NullPool**: Creates connections on-demand and closes immediately for SQLite
-- **WAL Mode**: Write-ahead logging for concurrent read access
-- **Busy Timeout**: 30-second timeout for handling database locks
-- **Pragmas Applied**: `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`
-
-### Session Management
-- **`get_session()`**: Standard session with automatic transaction handling
-- **`get_isolated_session()`**: Optimized session for operations needing better isolation
-- **`transaction()`**: Nested transaction context using savepoints
-- **Auto-configuration**: `expire_on_commit=False`, `autoflush=False` for SQLite compatibility
+### PostgreSQL Connection Configuration
+- **Driver**: `psycopg[binary]` (psycopg3) via `postgresql+psycopg_async://`
+- **Pool**: `AsyncAdaptedQueuePool` (default) for connection reuse
+- **Session**: `expire_on_commit=False`, `autoflush=False`
+- **Local dev**: `docker compose up -d` starts PostgreSQL on port 5432
 
 ### Connection URL Format
 ```
-sqlite+aiosqlite:///data/db/narada.db?journal_mode=WAL&synchronous=NORMAL&foreign_keys=ON&busy_timeout=30000
+postgresql+psycopg_async://narada:narada@localhost:5432/narada
 ```
 
 ### Session Factory Configuration
 - Async sessions with SQLAlchemy 2.0 patterns
 - Proper async context management with automatic cleanup
-- Engine event listeners ensure SQLite pragmas are applied consistently
+- `selectinload()` for all relationship loading (never lazy load)
 
 ## Migration Strategy
 
@@ -427,43 +245,45 @@ Database migrations are handled through Alembic with the following approach:
 4. **Version Control**: Migration files tracked in git
 5. **Rollback Support**: All migrations support rollback operations
 
+### Current Migrations
+- `001_initial` — Fresh PostgreSQL schema (replaces SQLite migration chain)
+- `002_pg_opt` — PostgreSQL optimization: JSONB, ARRAY, pg_trgm, BRIN, indexes
+
 ## Performance Considerations
 
 ### Query Optimization
+- Database-side `GROUP BY` for aggregations (not in-memory Python)
+- `tuple_.in_()` for multi-column lookups (no batching needed)
+- Window functions (`ROW_NUMBER`, `DISTINCT ON`) for per-group queries
 - Composite indexes for common query patterns
 - Selective loading with `selectinload()` for relationships
-- Proper join strategies for related data
 - No soft delete filtering overhead
 
-### SQLite-Specific Optimizations
-- WAL mode for concurrent read access
-- NullPool for proper connection lifecycle
-- Busy timeout handling for lock conflicts
-- Pragma optimization via engine event listeners
+### PostgreSQL-Specific Optimizations
+- JSONB with GIN indexes for structured data queries
+- pg_trgm trigram indexes for `ILIKE` substring search
+- BRIN indexes for time-series columns (99% smaller than B-tree)
+- Native ARRAY columns where appropriate
+- No VARCHAR(N) length limits on high-traffic text columns (TEXT = VARCHAR performance)
 
 ### Bulk Operations
 - Bulk insert patterns for large datasets
 - Batch processing for API imports with `import_batch_id` tracking
-- Efficient upsert strategies for sync operations
+- `ON CONFLICT` upsert via `sqlalchemy.dialects.postgresql.insert`
 - SQLAlchemy 2.0 async patterns throughout
-
-### Caching Strategy
-- Application-level caching for frequently accessed data
-- `expire_on_commit=False` for session efficiency
-- Query result caching where appropriate
 
 ## Development Workflow
 
 ### Adding New Tables
-1. Create SQLAlchemy model inheriting from `NaradaDBBase`
+1. Create SQLAlchemy model inheriting from `BaseEntity`
 2. Add relationships to existing models
-3. Generate migration with `alembic revision --autogenerate`
+3. Generate migration with `uv run alembic revision --autogenerate -m "description"`
 4. Review and test migration
 5. Update repository interfaces as needed
 
 ### Modifying Existing Tables
 1. Update SQLAlchemy model
-2. Generate migration with `alembic revision --autogenerate`
+2. Generate migration with `uv run alembic revision --autogenerate -m "description"`
 3. Test migration and rollback
 4. Update affected repository methods
 5. Update tests to reflect changes

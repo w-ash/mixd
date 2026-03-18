@@ -7,9 +7,12 @@
 git clone <repository-url> && cd narada
 uv sync
 cp .env.example .env  # Edit with your service credentials
+docker compose up -d   # Start local PostgreSQL (OrbStack or Docker Desktop)
 uv run alembic upgrade head
 uv run pytest && uv run narada --help  # Verify installation
 ```
+
+> **New to narada?** See the [Getting Started guide](guides/getting-started.md) for the full walkthrough — prerequisites, credentials, first workflow.
 
 ## Quick Reference
 
@@ -148,7 +151,7 @@ uv run basedpyright src/
 uv run pytest -v --tb=short --lf
 
 # Database reset
-rm data/narada.db && uv run alembic upgrade head
+docker compose down -v && docker compose up -d && uv run alembic upgrade head
 
 # Migration status
 uv run alembic current

@@ -559,20 +559,29 @@ class TrackConnectorRepository:  # noqa: PLR0904
         if not tracks:
             return []
 
-        # 1. Bulk upsert all connector tracks
+        # Group tracks by identifier upfront to handle duplicates in a single batch.
+        # Spotify API can return the same track multiple times across pagination boundaries.
+        tracks_by_identifier: dict[str, list[ConnectorTrack]] = {}
+        for track in tracks:
+            identifier = track.connector_track_identifier
+            if identifier not in tracks_by_identifier:
+                tracks_by_identifier[identifier] = []
+            tracks_by_identifier[identifier].append(track)
+
+        # 1. Bulk upsert connector tracks (one per unique identifier, last occurrence wins)
         connector_track_data: list[dict[str, Any]] = [
             self._build_connector_track_dict(
                 connector,
-                track.connector_track_identifier,
-                track.title,
-                track.artists,
-                track.album,
-                track.duration_ms,
-                track.release_date,
-                track.isrc,
-                track.raw_metadata,
+                identifier,
+                group[-1].title,
+                group[-1].artists,
+                group[-1].album,
+                group[-1].duration_ms,
+                group[-1].release_date,
+                group[-1].isrc,
+                group[-1].raw_metadata,
             )
-            for track in tracks
+            for identifier, group in tracks_by_identifier.items()
         ]
 
         connector_tracks = await self.connector_repo.bulk_upsert(
@@ -600,14 +609,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, Any]] = []
         metrics_data: list[tuple[int | None, dict[str, Any]]] = []
-
-        # Group tracks by connector_track_identifier to handle duplicates
-        tracks_by_identifier: dict[str, list[ConnectorTrack]] = {}
-        for track in tracks:
-            identifier = track.connector_track_identifier
-            if identifier not in tracks_by_identifier:
-                tracks_by_identifier[identifier] = []
-            tracks_by_identifier[identifier].append(track)
 
         # Process each unique connector track identifier
         for connector_track_identifier, track_group in tracks_by_identifier.items():

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, override
 
 from attrs import define
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -120,19 +121,16 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         self,
         metrics: list[tuple[int, str, str, float]],
     ) -> int:
-        """Save metrics for multiple tracks efficiently with SQLite upsert.
+        """Save metrics for multiple tracks efficiently with PostgreSQL upsert.
 
         Prevents duplicate metrics by using the unique constraint defined in
-        the DBTrackMetric model and SQLite's ON CONFLICT clause to perform
+        the DBTrackMetric model and PostgreSQL's ON CONFLICT clause to perform
         an update when a constraint violation occurs.
         """
         if not metrics:
             return 0
 
         now = datetime.now(UTC)
-
-        # Use SQLAlchemy's dialect-specific upsert functionality
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
         # Prepare values for insertion
         values: list[dict[str, Any]] = []
@@ -154,9 +152,8 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
                 )
                 continue
 
-        # Build the insert statement with ON CONFLICT clause
-        # This uses the unique constraint defined in the DBTrackMetric model
-        stmt = sqlite_insert(DBTrackMetric).values(values)
+        # PostgreSQL upsert via ON CONFLICT
+        stmt = pg_insert(DBTrackMetric).values(values)
 
         # Add the ON CONFLICT clause to update existing metrics
         stmt = stmt.on_conflict_do_update(

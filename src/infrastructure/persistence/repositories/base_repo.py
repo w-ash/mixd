@@ -13,7 +13,7 @@ from typing import Any, Literal, Never, Protocol, TypeIs, cast, overload, overri
 
 from attrs import define
 from sqlalchemy import Select, delete, func, insert, inspect, select, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from sqlalchemy.sql import ColumnElement
@@ -938,7 +938,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         lookup_keys: list[str],
         return_models: bool = True,
     ) -> list[TDomainModel] | int:
-        """Perform bulk upsert optimized for SQLite.
+        """Perform bulk upsert via PostgreSQL ON CONFLICT.
 
         Uses SQLAlchemy 2.0 INSERT ... ON CONFLICT with RETURNING clause,
         followed by efficient relationship loading via identity map pattern.
@@ -959,6 +959,22 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not entities:
             return [] if return_models else 0
 
+        # Deduplicate by lookup_keys, keeping the LAST occurrence (latest data wins).
+        # PostgreSQL INSERT ... ON CONFLICT cannot affect the same row twice in one
+        # statement — duplicates cause CardinalityViolation.
+        seen: dict[tuple[Any, ...], int] = {}
+        for idx, entity in enumerate(entities):
+            key = tuple(entity.get(k) for k in lookup_keys)
+            seen[key] = idx
+
+        if len(seen) < len(entities):
+            original_count = len(entities)
+            entities = [entities[i] for i in sorted(seen.values())]
+            logger.warning(
+                f"Deduplicated bulk_upsert batch: {original_count} → {len(entities)}",
+                lookup_keys=lookup_keys,
+            )
+
         # Add timestamps to all entities
         now = datetime.now(UTC)
         for entity in entities:
@@ -968,51 +984,59 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 entity["updated_at"] = now
 
         try:
-            # SQLite-specific bulk upsert
-            stmt = sqlite_insert(self.model_class).values(entities)
+            # Wrap in savepoint so a failure only rolls back this INSERT,
+            # not the entire transaction (bulk_upsert may be called multiple
+            # times within a larger UoW operation).
+            async with self.session.begin_nested():
+                # PostgreSQL bulk upsert via ON CONFLICT
+                stmt = pg_insert(self.model_class).values(entities)
 
-            # Determine which columns to update (exclude lookup keys and id)
-            all_keys = set(
-                functools.reduce(
-                    operator.iadd, [list(entity.keys()) for entity in entities], []
+                # Determine which columns to update (exclude lookup keys and id)
+                all_keys = set(
+                    functools.reduce(
+                        operator.iadd, [list(entity.keys()) for entity in entities], []
+                    )
                 )
-            )
-            update_keys = all_keys - set(lookup_keys) - {"id"}
+                update_keys = all_keys - set(lookup_keys) - {"id"}
 
-            # Create update_dict using the excluded values
-            update_dict = {
-                key: getattr(stmt.excluded, key)
-                for key in update_keys
-                if hasattr(stmt.excluded, key)
-            }
+                # Create update_dict using the excluded values
+                update_dict = {
+                    key: getattr(stmt.excluded, key)
+                    for key in update_keys
+                    if hasattr(stmt.excluded, key)
+                }
 
-            # Add the ON CONFLICT clause
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[getattr(self.model_class, k) for k in lookup_keys],
-                set_=update_dict,
-            )
+                # Add the ON CONFLICT clause
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[getattr(self.model_class, k) for k in lookup_keys],
+                    set_=update_dict,
+                )
 
-            # Add RETURNING clause if needed
-            if return_models:
-                stmt = stmt.returning(self.model_class)
+                # Add RETURNING clause if needed
+                if return_models:
+                    stmt = stmt.returning(self.model_class)
 
-            # Execute the statement
-            result = await self.session.execute(stmt)
+                # Execute the statement
+                result = await self.session.execute(stmt)
 
-            if return_models:
-                db_entities = list(result.scalars().all())
+                if return_models:
+                    db_entities = list(result.scalars().all())
 
-                # Load relationships efficiently via identity map
-                await self._load_relationships_via_identity_map(db_entities)
+                    # Load relationships efficiently via identity map
+                    await self._load_relationships_via_identity_map(db_entities)
 
-                return await self.mapper.map_collection(db_entities)
-            else:
-                return len(entities)
+                    return await self.mapper.map_collection(db_entities)
+                else:
+                    return len(entities)
 
         except Exception as e:
-            logger.debug(f"SQLite bulk upsert failed, using individual upserts: {e}")
+            logger.warning(
+                f"Bulk upsert failed, falling back to individual upserts: {e}",
+                entity_count=len(entities),
+            )
 
-            # Fall back to individual upserts
+            # Savepoint was auto-rolled-back by begin_nested() context manager.
+            # Session is still usable — proceed with individual upserts.
             results: list[TDomainModel] = []
             count = 0
 
@@ -1024,10 +1048,15 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                     k: v for k, v in entity_dict.items() if k not in lookup_keys
                 }
 
-                entity = await self.upsert(lookup_dict, create_dict)
-                count += 1
-
-                if return_models:
-                    results.append(entity)
+                try:
+                    entity = await self.upsert(lookup_dict, create_dict)
+                    count += 1
+                    if return_models:
+                        results.append(entity)
+                except Exception as individual_err:
+                    logger.error(
+                        f"Individual upsert also failed: {individual_err}",
+                        lookup_keys=lookup_dict,
+                    )
 
             return results if return_models else count

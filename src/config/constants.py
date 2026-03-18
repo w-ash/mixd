@@ -66,7 +66,8 @@ class BusinessLimits:
     FULL_CONFIDENCE_SCORE: Final = 100
 
     # Database
-    SQLITE_BATCH_WARNING_THRESHOLD: Final = 100
+    BATCH_WARNING_THRESHOLD: Final = 100
+    TUPLE_IN_BATCH_SIZE: Final = 5_000  # max tuples per PostgreSQL IN clause
 
     # Debug
     DEBUG_LOG_TRUNCATION_LIMIT: Final = 10

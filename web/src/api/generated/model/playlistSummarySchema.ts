@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.10
+ * OpenAPI spec version: 0.5.1
  */
 import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema';
 

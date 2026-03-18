@@ -18,7 +18,6 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -28,6 +27,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -105,21 +105,23 @@ class DBTrack(BaseEntity):
 
     __tablename__: str = "tracks"
 
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    artists: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    album: Mapped[str | None] = mapped_column(String(255))
+    title: Mapped[str] = mapped_column(String(), nullable=False)
+    artists: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     release_date: Mapped[datetime | None]
     isrc: Mapped[str | None] = mapped_column(String(32), index=True)
-    spotify_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    spotify_id: Mapped[str | None] = mapped_column(String(), index=True)
     mbid: Mapped[str | None] = mapped_column(String(36), index=True)
 
     # Pre-computed normalized text for fuzzy matching (diacritics stripped, lowercased, etc.)
-    title_normalized: Mapped[str | None] = mapped_column(String(255))
-    artist_normalized: Mapped[str | None] = mapped_column(String(255))
+    title_normalized: Mapped[str | None] = mapped_column(String())
+    artist_normalized: Mapped[str | None] = mapped_column(String())
     # Normalized title with parentheticals stripped — enables matching
     # "Song (feat. X)" ↔ "Song" by comparing stripped forms
-    title_stripped: Mapped[str | None] = mapped_column(String(255))
+    title_stripped: Mapped[str | None] = mapped_column(String())
+    # Denormalized artist text for search and sorting (e.g., "Artist1, Artist2")
+    artists_text: Mapped[str | None] = mapped_column(String())
 
     # Relationships
     mappings: Mapped[list[DBTrackMapping]] = relationship(
@@ -147,7 +149,10 @@ class DBTrack(BaseEntity):
         passive_deletes=True,
     )
 
-    # Standard unique constraints that work with SQLite bulk upsert
+    # NOTE: pg_trgm GIN indexes (title, album, artists_text) and the JSONB GIN
+    # index on artists are created only via Alembic migration 002_pg_opt — they
+    # require the pg_trgm extension and would fail with metadata.create_all()
+    # in test fixtures.
     __table_args__: tuple[Any, ...] = (
         # Standard unique constraints for external identifiers
         UniqueConstraint("spotify_id", name="uq_tracks_spotify_id"),
@@ -172,14 +177,14 @@ class DBConnectorTrack(BaseEntity):
     __tablename__: str = "connector_tracks"
 
     connector_name: Mapped[str] = mapped_column(String(32))
-    connector_track_identifier: Mapped[str] = mapped_column(String(64))
-    title: Mapped[str] = mapped_column(String(255))
-    artists: Mapped[dict[str, Any]] = mapped_column(JSON)
-    album: Mapped[str | None] = mapped_column(String(255))
+    connector_track_identifier: Mapped[str] = mapped_column(String())
+    title: Mapped[str] = mapped_column(String())
+    artists: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     isrc: Mapped[str | None] = mapped_column(String(32), index=True)
     release_date: Mapped[datetime | None]
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSON)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -213,7 +218,7 @@ class DBTrackMapping(BaseEntity):
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     match_method: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[int]
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     origin: Mapped[str] = mapped_column(
         String(20), nullable=False, default="automatic", server_default="automatic"
     )
@@ -242,7 +247,7 @@ class DBTrackMapping(BaseEntity):
             "track_id",
             "connector_name",
             unique=True,
-            sqlite_where=text("is_primary = TRUE"),
+            postgresql_where=text("is_primary = TRUE"),
         ),
         # Performance indexes for common lookup patterns
         Index("ix_track_mappings_track_lookup", "track_id"),
@@ -270,7 +275,7 @@ class DBMatchReview(BaseEntity):
     match_method: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[int] = mapped_column(nullable=False)
     match_weight: Mapped[float] = mapped_column(nullable=False)
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )
@@ -377,6 +382,7 @@ class DBTrackPlay(BaseEntity):
         Index(
             "ix_track_plays_track_service", "track_id", "service"
         ),  # Service-specific queries
+        # NOTE: BRIN index on played_at created via Alembic migration 002_pg_opt
     )
 
     # Core fields
@@ -387,17 +393,19 @@ class DBTrackPlay(BaseEntity):
         nullable=False,
     )
     ms_played: Mapped[int | None]
-    context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     # Cross-source deduplication: which services contributed to this play record
-    source_services: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    source_services: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String()), nullable=True
+    )
 
     # Import tracking (service-agnostic)
     import_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     import_source: Mapped[str | None] = mapped_column(
         String(32)
     )  # 'spotify_export', 'lastfm_api', 'manual'
-    import_batch_id: Mapped[str | None] = mapped_column(String(64))
+    import_batch_id: Mapped[str | None] = mapped_column(String())
 
     # Relationships
     track: Mapped[DBTrack] = relationship(
@@ -419,7 +427,7 @@ class DBConnectorPlay(BaseEntity):
     # Connector identification
     connector_name: Mapped[str] = mapped_column(String(32))  # "lastfm", "spotify"
     connector_track_identifier: Mapped[str] = mapped_column(
-        String(255)
+        String()
     )  # "artist::title" for lastfm
 
     # Play event data
@@ -430,7 +438,7 @@ class DBConnectorPlay(BaseEntity):
     ms_played: Mapped[int | None]
 
     # Raw API data preservation
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSON)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
 
     # Resolution tracking (nullable until resolved)
     resolved_track_id: Mapped[int | None] = mapped_column(
@@ -445,7 +453,7 @@ class DBConnectorPlay(BaseEntity):
     import_source: Mapped[str | None] = mapped_column(
         String(32)
     )  # "lastfm_api", "spotify_export"
-    import_batch_id: Mapped[str | None] = mapped_column(String(64))
+    import_batch_id: Mapped[str | None] = mapped_column(String())
 
     # Relationships (only to resolved track, if any)
     resolved_track: Mapped[DBTrack | None] = relationship(
@@ -481,7 +489,7 @@ class DBPlaylist(BaseEntity):
 
     __tablename__: str = "playlists"
 
-    name: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String())
     description: Mapped[str | None] = mapped_column(String(1000))
     track_count: Mapped[int] = mapped_column(default=0)
 
@@ -514,8 +522,8 @@ class DBConnectorPlaylist(BaseEntity):
     is_public: Mapped[bool]
     collaborative: Mapped[bool] = mapped_column(default=False)
     follower_count: Mapped[int | None]
-    items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSON)
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
     # Add JSON field to store track positional information
     last_updated: Mapped[datetime]
 
@@ -542,6 +550,8 @@ class DBPlaylistMapping(BaseEntity):
         UniqueConstraint("playlist_id", "connector_name", name="uq_playlist_connector"),
         # Prevent multiple canonical playlists from claiming same external playlist
         UniqueConstraint("connector_playlist_id", name="uq_connector_playlist"),
+        # Status queries for sync operations
+        Index("ix_playlist_mappings_sync_status", "sync_status"),
     )
 
     playlist_id: Mapped[int] = mapped_column(
@@ -654,9 +664,9 @@ class DBWorkflow(BaseEntity):
 
     __tablename__: str = "workflows"
 
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
-    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
     source_template: Mapped[str | None] = mapped_column(String(100))
     definition_version: Mapped[int] = mapped_column(default=1)
@@ -680,7 +690,7 @@ class DBWorkflowVersion(DatabaseModel, TimestampMixin):
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     version: Mapped[int] = mapped_column(nullable=False)
-    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     change_summary: Mapped[str | None] = mapped_column(String(1000))
 
     # Relationships
@@ -707,7 +717,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
-    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     definition_version: Mapped[int] = mapped_column(default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -715,7 +725,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     output_track_count: Mapped[int | None]
     output_playlist_id: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
-    output_tracks: Mapped[Any] = mapped_column(JSON, nullable=True)
+    output_tracks: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
@@ -727,6 +737,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
 
     __table_args__: tuple[Any, ...] = (
         Index("ix_workflow_runs_workflow_id_started_at", "workflow_id", "started_at"),
+        Index("ix_workflow_runs_status", "status"),
     )
 
 
@@ -748,7 +759,7 @@ class DBWorkflowRunNode(DatabaseModel):
     output_track_count: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
-    node_details: Mapped[Any] = mapped_column(JSON, nullable=True)
+    node_details: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     run: Mapped[DBWorkflowRun] = relationship(
@@ -770,7 +781,7 @@ class DBSyncCheckpoint(BaseEntity):
         UniqueConstraint("user_id", "service", "entity_type"),
     )
 
-    user_id: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[str] = mapped_column(String())
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm'
     entity_type: Mapped[str] = mapped_column(String(32))  # 'likes', 'plays'
     last_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -52,7 +52,12 @@ from .logging import (
     setup_loguru_logger,
     setup_script_logger,
 )
-from .settings import get_database_url, log_startup_warnings, settings
+from .settings import (
+    get_database_url,
+    get_sync_database_url,
+    log_startup_warnings,
+    settings,
+)
 
 # Public API
 __all__ = [
@@ -73,6 +78,7 @@ __all__ = [
     "enable_unified_console_output",
     "get_database_url",
     "get_logger",
+    "get_sync_database_url",
     "intercept_prefect_loggers",
     "log_startup_warnings",
     "restore_standard_console_output",

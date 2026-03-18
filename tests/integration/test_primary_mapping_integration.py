@@ -2,7 +2,7 @@
 
 Tests verify that the is_primary flag on track mappings correctly controls
 which connector track is returned for queries, metadata lookups, and bulk
-operations against a real SQLite database.
+operations against a real PostgreSQL database.
 """
 
 from sqlalchemy import select
@@ -24,16 +24,17 @@ class TestPrimaryMappingDatabaseIntegration:
     """Minimal integration tests for primary mapping with real database."""
 
     async def test_constraint_exists(self, db_session):
-        """Test that the unique constraint exists in database."""
+        """Test that the partial unique index exists in database."""
         from sqlalchemy import text
 
         result = await db_session.execute(
             text(
-                "SELECT name FROM sqlite_master WHERE name LIKE '%uq_primary%' OR sql LIKE '%is_primary%'"
+                "SELECT indexname FROM pg_indexes "
+                "WHERE tablename = 'track_mappings' AND indexname LIKE '%primary%'"
             )
         )
-        constraints = result.fetchall()
-        assert len(constraints) > 0
+        indexes = result.fetchall()
+        assert len(indexes) > 0
 
     async def test_repository_method_available(self, db_session):
         """Test that repository has set_primary_mapping method."""

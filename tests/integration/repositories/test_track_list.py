@@ -1,6 +1,6 @@
 """Integration tests for TrackRepository.list_tracks() — library listing.
 
-Verifies search, filtering, sorting, and pagination with a real SQLite database.
+Verifies search, filtering, sorting, and pagination with a real PostgreSQL database.
 Each test gets a fresh DB via the db_session fixture.
 """
 
@@ -28,6 +28,7 @@ async def _insert_track(
     db_track = DBTrack(
         title=title,
         artists={"names": [artist]},
+        artists_text=artist,
         album=album,
         duration_ms=duration_ms,
         created_at=datetime.now(UTC),
@@ -61,7 +62,7 @@ class TestListTracksBasic:
     async def test_empty_database_returns_empty(self, db_session: AsyncSession) -> None:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks()
+        tracks, total, _, _ = await track_repo.list_tracks()
 
         assert tracks == []
         assert total == 0
@@ -75,7 +76,7 @@ class TestListTracksBasic:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(limit=2, offset=0)
+        tracks, total, _, _ = await track_repo.list_tracks(limit=2, offset=0)
 
         assert total == 3
         assert len(tracks) == 2
@@ -87,7 +88,7 @@ class TestListTracksBasic:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(
+        tracks, total, _, _ = await track_repo.list_tracks(
             sort_by="title_asc", limit=2, offset=1
         )
 
@@ -107,7 +108,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(query="Creep")
+        tracks, total, _, _ = await track_repo.list_tracks(query="Creep")
 
         assert total == 1
         assert tracks[0].title == "Creep"
@@ -118,7 +119,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(query="Radiohead")
+        tracks, total, _, _ = await track_repo.list_tracks(query="Radiohead")
 
         assert total == 1
         assert tracks[0].title == "Creep"
@@ -129,7 +130,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(query="Pablo")
+        tracks, total, _, _ = await track_repo.list_tracks(query="Pablo")
 
         assert total == 1
         assert tracks[0].title == "Creep"
@@ -139,7 +140,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(query="radiohead")
+        tracks, total, _, _ = await track_repo.list_tracks(query="radiohead")
 
         assert total == 1
 
@@ -154,7 +155,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(liked=True)
+        tracks, total, _, _ = await track_repo.list_tracks(liked=True)
 
         assert total == 1
         assert tracks[0].title == "Liked Song"
@@ -166,7 +167,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(liked=False)
+        tracks, total, _, _ = await track_repo.list_tracks(liked=False)
 
         assert total == 1
         assert tracks[0].title == "Not Liked"
@@ -210,7 +211,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(connector="spotify")
+        tracks, total, _, _ = await track_repo.list_tracks(connector="spotify")
 
         assert total == 1
         assert tracks[0].title == "Spotify Track"
@@ -264,7 +265,7 @@ class TestListTracksPaginationBoundary:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(offset=100, limit=50)
+        tracks, total, _, _ = await track_repo.list_tracks(offset=100, limit=50)
 
         assert total == 1
         assert tracks == []
@@ -285,7 +286,7 @@ class TestListTracksLikedIds:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        _, _, liked_ids = await track_repo.list_tracks()
+        _, _, liked_ids, _ = await track_repo.list_tracks()
 
         assert id1 in liked_ids
         assert id2 in liked_ids
@@ -298,7 +299,7 @@ class TestListTracksLikedIds:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        _, _, liked_ids = await track_repo.list_tracks()
+        _, _, liked_ids, _ = await track_repo.list_tracks()
 
         assert liked_ids == set()
 
@@ -316,7 +317,153 @@ class TestListTracksCombinedFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        tracks, total, _ = await track_repo.list_tracks(query="Radiohead", liked=True)
+        tracks, total, _, _ = await track_repo.list_tracks(query="Radiohead", liked=True)
 
         assert total == 1
         assert tracks[0].title == "Creep"
+
+
+class TestListTracksKeysetPagination:
+    """Keyset (cursor) pagination — O(1) seeks via WHERE (sort_col, id) > (v, id)."""
+
+    async def test_keyset_title_asc_matches_offset(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Keyset forward navigation produces the same results as offset."""
+        await _insert_track(db_session, "Alpha")
+        await _insert_track(db_session, "Beta")
+        await _insert_track(db_session, "Gamma")
+        await _insert_track(db_session, "Delta")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        # Page 1 via offset
+        page1_offset, _, _, _ = await track_repo.list_tracks(
+            sort_by="title_asc", limit=2, offset=0
+        )
+        # Page 1 also via keyset (no cursor = first page)
+        page1_keyset, _, _, next_key = await track_repo.list_tracks(
+            sort_by="title_asc", limit=2
+        )
+        assert [t.title for t in page1_offset] == [t.title for t in page1_keyset]
+        assert next_key is not None
+
+        # Page 2 via offset
+        page2_offset, _, _, _ = await track_repo.list_tracks(
+            sort_by="title_asc", limit=2, offset=2
+        )
+        # Page 2 via keyset
+        sort_val, last_id = next_key
+        page2_keyset, _, _, _ = await track_repo.list_tracks(
+            sort_by="title_asc", limit=2, after_value=sort_val, after_id=last_id
+        )
+        assert [t.title for t in page2_offset] == [t.title for t in page2_keyset]
+
+    async def test_keyset_title_desc(self, db_session: AsyncSession) -> None:
+        """Descending sort uses < operator for keyset."""
+        await _insert_track(db_session, "Alpha")
+        await _insert_track(db_session, "Beta")
+        await _insert_track(db_session, "Gamma")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        page1, _, _, next_key = await track_repo.list_tracks(
+            sort_by="title_desc", limit=2
+        )
+        assert [t.title for t in page1] == ["Gamma", "Beta"]
+        assert next_key is not None
+
+        sort_val, last_id = next_key
+        page2, _, _, next_key2 = await track_repo.list_tracks(
+            sort_by="title_desc", limit=2, after_value=sort_val, after_id=last_id
+        )
+        assert [t.title for t in page2] == ["Alpha"]
+        assert next_key2 is None  # Last page
+
+    async def test_keyset_duration_asc(self, db_session: AsyncSession) -> None:
+        """Keyset works with integer sort column."""
+        await _insert_track(db_session, "Short", duration_ms=120000)
+        await _insert_track(db_session, "Medium", duration_ms=200000)
+        await _insert_track(db_session, "Long", duration_ms=300000)
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        page1, _, _, next_key = await track_repo.list_tracks(
+            sort_by="duration_asc", limit=2
+        )
+        assert [t.title for t in page1] == ["Short", "Medium"]
+        assert next_key is not None
+
+        sort_val, last_id = next_key
+        page2, _, _, _ = await track_repo.list_tracks(
+            sort_by="duration_asc", limit=2, after_value=sort_val, after_id=last_id
+        )
+        assert [t.title for t in page2] == ["Long"]
+
+    async def test_keyset_last_page_returns_none(
+        self, db_session: AsyncSession
+    ) -> None:
+        """When the page is not full, next_page_key is None (no more pages)."""
+        await _insert_track(db_session, "Only Track")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        tracks, _, _, next_key = await track_repo.list_tracks(
+            sort_by="title_asc", limit=50
+        )
+        assert len(tracks) == 1
+        assert next_key is None
+
+    async def test_keyset_with_search_filter(self, db_session: AsyncSession) -> None:
+        """Keyset pagination respects active search filters."""
+        await _insert_track(db_session, "Alpha Rock", artist="Band A")
+        await _insert_track(db_session, "Beta Rock", artist="Band B")
+        await _insert_track(db_session, "Gamma Jazz", artist="Band C")
+        await _insert_track(db_session, "Delta Rock", artist="Band D")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        # Search "Rock" — should match 3 tracks
+        page1, total, _, next_key = await track_repo.list_tracks(
+            query="Rock", sort_by="title_asc", limit=2
+        )
+        assert total == 3
+        assert [t.title for t in page1] == ["Alpha Rock", "Beta Rock"]
+        assert next_key is not None
+
+        sort_val, last_id = next_key
+        page2, _, _, _ = await track_repo.list_tracks(
+            query="Rock", sort_by="title_asc", limit=2,
+            after_value=sort_val, after_id=last_id
+        )
+        assert [t.title for t in page2] == ["Delta Rock"]
+
+    async def test_keyset_skips_offset_when_cursor_provided(
+        self, db_session: AsyncSession
+    ) -> None:
+        """When keyset params are set, offset is ignored."""
+        await _insert_track(db_session, "Alpha")
+        await _insert_track(db_session, "Beta")
+        await _insert_track(db_session, "Gamma")
+
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        # Get first page to extract cursor
+        _, _, _, next_key = await track_repo.list_tracks(
+            sort_by="title_asc", limit=1
+        )
+        assert next_key is not None
+        sort_val, last_id = next_key
+
+        # Pass both offset=999 and keyset — keyset should win
+        tracks, _, _, _ = await track_repo.list_tracks(
+            sort_by="title_asc", limit=2,
+            offset=999, after_value=sort_val, after_id=last_id
+        )
+        assert [t.title for t in tracks] == ["Beta", "Gamma"]

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.10
+ * OpenAPI spec version: 0.5.1
  */
 import {
   useMutation,
@@ -44,6 +44,10 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
  * List tracks with optional search, filters, sorting, and pagination.
+
+Supports both offset-based and cursor-based (keyset) pagination.
+When ``cursor`` is provided, it takes precedence over ``offset`` for
+O(1) page seeking regardless of depth.
  * @summary List Tracks
  */
 export type listTracksApiV1TracksGetResponse200 = {

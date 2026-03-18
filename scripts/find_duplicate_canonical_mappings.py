@@ -11,39 +11,38 @@ Purpose: Investigate root cause of playlist backup idempotency issues
 """
 
 from datetime import UTC, datetime
-from pathlib import Path
-import sqlite3
+
+import psycopg
+
+from src.config import get_sync_database_url
 
 
-def find_duplicate_canonical_mappings(db_path: str = "data/db/narada.db"):
+def find_duplicate_canonical_mappings():
     """Find connector tracks that map to multiple canonical tracks.
-
-    Args:
-        db_path: Path to SQLite database file
 
     Returns:
         List of violation records with details
     """
+    db_url = get_sync_database_url()
 
-    conn = sqlite3.connect(db_path)
+    conn = psycopg.connect(db_url)
     cursor = conn.cursor()
 
     # Find connector tracks with multiple canonical mappings
     query = """
-    SELECT 
+    SELECT
         ct.connector_name,
-        ct.connector_track_id,
+        ct.connector_track_identifier,
         COUNT(DISTINCT tm.track_id) as canonical_count,
-        GROUP_CONCAT(tm.track_id) as canonical_ids,
-        GROUP_CONCAT(tm.created_at) as mapping_created_times,
+        STRING_AGG(tm.track_id::text, ',') as canonical_ids,
+        STRING_AGG(tm.created_at::text, ',') as mapping_created_times,
         ct.title as track_title,
         MAX(tm.created_at) as latest_mapping
     FROM connector_tracks ct
     JOIN track_mappings tm ON ct.id = tm.connector_track_id
-    WHERE tm.is_deleted = 0
-    GROUP BY ct.connector_name, ct.connector_track_id
-    HAVING canonical_count > 1
-    ORDER BY canonical_count DESC, latest_mapping DESC;
+    GROUP BY ct.connector_name, ct.connector_track_identifier, ct.title
+    HAVING COUNT(DISTINCT tm.track_id) > 1
+    ORDER BY COUNT(DISTINCT tm.track_id) DESC, MAX(tm.created_at) DESC;
     """
 
     cursor.execute(query)
@@ -131,16 +130,9 @@ def main():
     print(f"Audit started: {datetime.now(UTC).isoformat()}")
     print()
 
-    # Check if database exists
-    db_path = Path("data/db/narada.db")
-    if not db_path.exists():
-        print(f"❌ Database not found: {db_path}")
-        print("Make sure you're running this from the project root directory.")
-        return
-
     # Find violations
     print("Scanning database for connector tracks with multiple canonical mappings...")
-    violations = find_duplicate_canonical_mappings(str(db_path))
+    violations = find_duplicate_canonical_mappings()
 
     if not violations:
         print(

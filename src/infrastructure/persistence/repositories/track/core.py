@@ -6,7 +6,17 @@
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import String, cast, delete, func, or_, select, text, update
+from sqlalchemy import (
+    String,
+    cast,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+    tuple_,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -14,12 +24,9 @@ from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
-    DBPlaylistTrack,
     DBTrack,
     DBTrackLike,
     DBTrackMapping,
-    DBTrackMetric,
-    DBTrackPlay,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -112,6 +119,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         values["title_stripped"] = normalize_for_comparison(
             strip_parentheticals(track.title)
         )
+        # Denormalized artist text for search and sorting
+        values["artists_text"] = (
+            ", ".join(artist.name for artist in track.artists)
+            if track.artists
+            else None
+        )
 
         # Add denormalized connector IDs (fast-path lookup columns)
         for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
@@ -180,24 +193,34 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[Track], int, set[int]]:
+        # Keyset pagination: seek after this (sort_value, id) pair
+        after_value: Any = None,
+        after_id: int | None = None,
+    ) -> tuple[list[Track], int, set[int], tuple[Any, int] | None]:
         """List tracks with search, filters, sorting, and pagination.
 
-        Returns (tracks, total_count, liked_track_ids) where total_count reflects
-        the filtered result set before LIMIT/OFFSET are applied, and liked_track_ids
-        contains IDs of tracks liked on any service (authoritative from track_likes table).
+        Supports both offset-based and keyset (cursor) pagination. When
+        ``after_value`` and ``after_id`` are provided, uses a keyset WHERE clause
+        for O(1) seeking regardless of page depth. Falls back to OFFSET otherwise.
+
+        Returns:
+            (tracks, total_count, liked_track_ids, next_page_key) where:
+            - total_count: filtered result set size before pagination
+            - liked_track_ids: IDs of tracks liked on any service
+            - next_page_key: (sort_value, id) of the last row for building the next
+              cursor, or None if this is the last page
         """
         # Build base filter conditions
-        conditions = []
+        conditions: list[Any] = []
 
         if query:
             pattern = f"%{query}%"
-            # TODO: search against denormalized artists_text column for index-friendly search
+            # pg_trgm GIN indexes accelerate ILIKE with substring matching
             conditions.append(
                 or_(
                     DBTrack.title.ilike(pattern),
                     DBTrack.album.ilike(pattern),
-                    cast(DBTrack.artists, String).ilike(pattern),
+                    DBTrack.artists_text.ilike(pattern),
                 )
             )
 
@@ -228,30 +251,49 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         total = count_result.scalar_one()
 
         if total == 0:
-            return [], 0, set()
+            return [], 0, set(), None
+
+        # Resolve sort column
+        sort_field, sort_dir = self._SORT_MAP.get(sort_by, ("title", "asc"))
+        col = getattr(DBTrack, sort_field)
 
         # Build data query with sorting, pagination, and relationship loading
         data_stmt = self.select()
         if conditions:
             data_stmt = data_stmt.where(*conditions)
 
-        # Apply sort
-        sort_field, sort_dir = self._SORT_MAP.get(sort_by, ("title", "asc"))
-        if sort_field == "artists_text":
-            col = cast(DBTrack.artists, String)
+        # Keyset pagination: WHERE (sort_col, id) > (:value, :id) for ASC
+        use_keyset = after_value is not None and after_id is not None
+        if use_keyset:
+            keyset_pair = tuple_(col, DBTrack.id)
+            cursor_pair = tuple_(literal(after_value), literal(after_id))
+            if sort_dir == "desc":
+                data_stmt = data_stmt.where(keyset_pair < cursor_pair)
+            else:
+                data_stmt = data_stmt.where(keyset_pair > cursor_pair)
         else:
-            col = getattr(DBTrack, sort_field)
-        data_stmt = data_stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
+            data_stmt = data_stmt.offset(offset)
 
-        data_stmt = data_stmt.offset(offset).limit(limit)
+        # Apply sort and limit
+        data_stmt = data_stmt.order_by(
+            col.desc() if sort_dir == "desc" else col.asc(),
+            DBTrack.id.desc() if sort_dir == "desc" else DBTrack.id.asc(),
+        )
+        data_stmt = data_stmt.limit(limit)
 
         # Eager-load relationships for mapper
         data_stmt = self.with_default_relationships(data_stmt)
 
         result = await self.session.execute(data_stmt)
-        db_tracks = result.scalars().all()
+        db_tracks = list(result.scalars().all())
 
         tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
+
+        # Build next-page keyset from the last row
+        next_page_key: tuple[Any, int] | None = None
+        if db_tracks and len(db_tracks) == limit:
+            last_db = db_tracks[-1]
+            next_page_key = (getattr(last_db, sort_field), last_db.id)
 
         # Get authoritative liked status from track_likes table for returned tracks
         track_ids = [t.id for t in tracks if t.id is not None]
@@ -267,7 +309,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             liked_result = await self.session.execute(liked_stmt)
             liked_ids = set(liked_result.scalars().all())
 
-        return tracks, total, liked_ids
+        return tracks, total, liked_ids, next_page_key
 
     # -------------------------------------------------------------------------
     # TRACK MERGE OPERATIONS
@@ -277,228 +319,253 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     async def move_references_to_track(self, from_id: int, to_id: int) -> None:
         """Move all foreign key references from one track to another.
 
-        Moves playlist tracks, plays, and likes (with conflict resolution for likes).
+        Single CTE chain: moves playlist tracks, plays, and likes (with
+        conflict resolution — keeps the most recently synced like per service).
         """
-        now = datetime.now(UTC)
-
-        # Update playlist tracks
-        await self.session.execute(
-            update(DBPlaylistTrack)
-            .where(DBPlaylistTrack.track_id == from_id)
-            .values(track_id=to_id, updated_at=now)
+        result = await self.session.execute(
+            text("""
+            WITH moved_playlist_tracks AS (
+                UPDATE playlist_tracks SET track_id = :to_id, updated_at = :now
+                WHERE track_id = :from_id
+                RETURNING id
+            ),
+            moved_plays AS (
+                UPDATE track_plays SET track_id = :to_id, updated_at = :now
+                WHERE track_id = :from_id
+                RETURNING id
+            ),
+            -- Find likes where both tracks have the same service
+            like_conflicts AS (
+                SELECT
+                    loser.id AS loser_id,
+                    winner.id AS winner_id,
+                    loser.is_liked AS loser_is_liked,
+                    loser.liked_at AS loser_liked_at,
+                    loser.last_synced AS loser_last_synced,
+                    winner.last_synced AS winner_last_synced
+                FROM track_likes loser
+                JOIN track_likes winner ON loser.service = winner.service
+                WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+            ),
+            -- Update winner with loser's data when loser was synced more recently
+            updated_winner_likes AS (
+                UPDATE track_likes tl
+                SET
+                    is_liked = lc.loser_is_liked,
+                    liked_at = lc.loser_liked_at,
+                    last_synced = lc.loser_last_synced,
+                    updated_at = :now
+                FROM like_conflicts lc
+                WHERE tl.id = lc.winner_id
+                  AND (
+                      (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NOT NULL
+                       AND lc.loser_last_synced > lc.winner_last_synced)
+                      OR
+                      (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NULL)
+                  )
+                RETURNING tl.id
+            ),
+            -- Delete all conflicting loser likes
+            deleted_conflict_likes AS (
+                DELETE FROM track_likes
+                WHERE id IN (SELECT loser_id FROM like_conflicts)
+                RETURNING id
+            ),
+            -- Move non-conflicting likes (explicitly exclude conflict IDs
+            -- because CTE snapshot semantics mean the DELETE above hasn't
+            -- removed them from this CTE's view of the table)
+            moved_likes AS (
+                UPDATE track_likes
+                SET track_id = :to_id, updated_at = :now
+                WHERE track_id = :from_id
+                  AND id NOT IN (SELECT loser_id FROM like_conflicts)
+                RETURNING id
+            )
+            SELECT
+                (SELECT count(*) FROM moved_playlist_tracks) AS playlist_tracks_moved,
+                (SELECT count(*) FROM moved_plays) AS plays_moved,
+                (SELECT count(*) FROM deleted_conflict_likes) AS like_conflicts_resolved,
+                (SELECT count(*) FROM moved_likes) AS likes_moved
+            """),
+            {"from_id": from_id, "to_id": to_id, "now": datetime.now(UTC)},
         )
-
-        # Update track plays
-        await self.session.execute(
-            update(DBTrackPlay)
-            .where(DBTrackPlay.track_id == from_id)
-            .values(track_id=to_id, updated_at=now)
+        counts = result.fetchone()
+        logger.debug(
+            f"Moved references: {from_id} → {to_id} "
+            f"(playlist_tracks={counts[0]}, plays={counts[1]}, "  # type: ignore[index]
+            f"like_conflicts={counts[2]}, likes_moved={counts[3]})"  # type: ignore[index]
         )
-
-        # Merge track likes with conflict resolution
-        await self._merge_track_likes(from_id, to_id, now)
-
-        logger.debug(f"Moved all references: {from_id} → {to_id}")
 
     @db_operation("merge_mappings_to_track")
     async def merge_mappings_to_track(self, from_id: int, to_id: int) -> None:
-        """Merge connector mappings from one track to another with conflict resolution."""
-        now = datetime.now(UTC)
+        """Merge connector mappings from one track to another with conflict resolution.
 
-        # Find mappings that would conflict by connector name
-        conflict_query = text("""
-            SELECT
-                loser.id as loser_mapping_id,
-                winner.id as winner_mapping_id,
-                loser.connector_name,
-                loser.connector_track_id as loser_connector_track_id,
-                winner.connector_track_id as winner_connector_track_id,
-                loser.confidence as loser_confidence,
-                loser.match_method as loser_match_method,
-                loser.created_at as loser_created_at,
-                loser.is_primary as loser_is_primary,
-                winner.confidence as winner_confidence,
-                winner.match_method as winner_match_method,
-                winner.created_at as winner_created_at,
-                winner.is_primary as winner_is_primary
-            FROM track_mappings loser
-            JOIN track_mappings winner ON loser.connector_name = winner.connector_name
-            WHERE
-                loser.track_id = :from_id AND
-                winner.track_id = :to_id
-        """)
-
+        Single CTE chain handling two conflict branches:
+        - Same connector_track_id: true duplicates — keep higher confidence, delete loser
+        - Different connector_track_ids: keep both on winner track (winner=primary, loser=secondary)
+        Non-conflicting mappings are moved directly to the winner.
+        """
         result = await self.session.execute(
-            conflict_query, {"from_id": from_id, "to_id": to_id}
+            text("""
+            WITH all_conflicts AS (
+                SELECT
+                    loser.id AS loser_id,
+                    winner.id AS winner_id,
+                    loser.connector_track_id AS loser_ct_id,
+                    winner.connector_track_id AS winner_ct_id,
+                    loser.confidence AS loser_confidence,
+                    loser.match_method AS loser_match_method,
+                    loser.created_at AS loser_created_at,
+                    winner.confidence AS winner_confidence,
+                    winner.created_at AS winner_created_at
+                FROM track_mappings loser
+                JOIN track_mappings winner ON loser.connector_name = winner.connector_name
+                WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+            ),
+
+            -- Branch 1: Same connector_track_id (true duplicates)
+            -- Update winner with loser's confidence/method when loser is better
+            updated_same_ext_winners AS (
+                UPDATE track_mappings tm
+                SET
+                    confidence = ac.loser_confidence,
+                    match_method = ac.loser_match_method,
+                    origin = :manual_override,
+                    updated_at = :now
+                FROM all_conflicts ac
+                WHERE tm.id = ac.winner_id
+                  AND ac.loser_ct_id = ac.winner_ct_id
+                  AND (
+                      ac.loser_confidence > ac.winner_confidence
+                      OR (ac.loser_confidence = ac.winner_confidence
+                          AND ac.loser_created_at > ac.winner_created_at)
+                  )
+                RETURNING tm.id
+            ),
+            -- Delete loser mapping for same-external-ID conflicts
+            deleted_same_ext_losers AS (
+                DELETE FROM track_mappings
+                WHERE id IN (
+                    SELECT loser_id FROM all_conflicts
+                    WHERE loser_ct_id = winner_ct_id
+                )
+                RETURNING id
+            ),
+
+            -- Branch 2: Different connector_track_ids (keep both on winner track)
+            -- Ensure winner's mapping is primary
+            updated_diff_ext_winners AS (
+                UPDATE track_mappings tm
+                SET is_primary = TRUE, updated_at = :now
+                FROM all_conflicts ac
+                WHERE tm.id = ac.winner_id
+                  AND ac.loser_ct_id != ac.winner_ct_id
+                RETURNING tm.id
+            ),
+            -- Move loser's mapping to winner track as secondary
+            moved_diff_ext_losers AS (
+                UPDATE track_mappings tm
+                SET
+                    track_id = :to_id,
+                    is_primary = FALSE,
+                    origin = :manual_override,
+                    updated_at = :now
+                FROM all_conflicts ac
+                WHERE tm.id = ac.loser_id
+                  AND ac.loser_ct_id != ac.winner_ct_id
+                RETURNING tm.id
+            ),
+
+            -- Move all non-conflicting mappings from loser to winner
+            moved_non_conflict AS (
+                UPDATE track_mappings
+                SET
+                    track_id = :to_id,
+                    origin = :manual_override,
+                    updated_at = :now
+                WHERE track_id = :from_id
+                  AND id NOT IN (SELECT loser_id FROM all_conflicts)
+                RETURNING id
+            )
+            SELECT
+                (SELECT count(*) FROM deleted_same_ext_losers) AS same_ext_conflicts,
+                (SELECT count(*) FROM moved_diff_ext_losers) AS diff_ext_conflicts,
+                (SELECT count(*) FROM moved_non_conflict) AS non_conflicts_moved
+            """),
+            {
+                "from_id": from_id,
+                "to_id": to_id,
+                "now": datetime.now(UTC),
+                "manual_override": MappingOrigin.MANUAL_OVERRIDE,
+            },
         )
-        conflicts = result.fetchall()
-
-        same_external_id_conflicts = 0
-        different_external_id_conflicts = 0
-
-        for conflict in conflicts:
-            loser_mapping_id = conflict.loser_mapping_id
-            winner_mapping_id = conflict.winner_mapping_id
-            loser_connector_track_id = conflict.loser_connector_track_id
-            winner_connector_track_id = conflict.winner_connector_track_id
-
-            if loser_connector_track_id == winner_connector_track_id:
-                # Same external ID — keep only the better mapping
-                same_external_id_conflicts += 1
-                should_update_winner = False
-
-                if conflict.loser_confidence > conflict.winner_confidence or (
-                    conflict.loser_confidence == conflict.winner_confidence
-                    and conflict.loser_created_at > conflict.winner_created_at
-                ):
-                    should_update_winner = True
-
-                if should_update_winner:
-                    await self.session.execute(
-                        update(DBTrackMapping)
-                        .where(DBTrackMapping.id == winner_mapping_id)
-                        .values(
-                            confidence=conflict.loser_confidence,
-                            match_method=conflict.loser_match_method,
-                            origin=MappingOrigin.MANUAL_OVERRIDE,
-                            updated_at=now,
-                        )
-                    )
-
-                # Always delete the loser's mapping (same external ID = true duplicate)
-                await self.session.execute(
-                    delete(DBTrackMapping).where(DBTrackMapping.id == loser_mapping_id)
-                )
-            else:
-                # Different external IDs — keep both, ensure winner's is primary
-                different_external_id_conflicts += 1
-
-                await self.session.execute(
-                    update(DBTrackMapping)
-                    .where(DBTrackMapping.id == winner_mapping_id)
-                    .values(is_primary=True, updated_at=now)
-                )
-                await self.session.execute(
-                    update(DBTrackMapping)
-                    .where(DBTrackMapping.id == loser_mapping_id)
-                    .values(
-                        track_id=to_id,
-                        is_primary=False,
-                        origin=MappingOrigin.MANUAL_OVERRIDE,
-                        updated_at=now,
-                    )
-                )
-
-        # Move non-conflicting mappings from loser to winner
-        if conflicts:
-            conflict_mapping_ids = [c.loser_mapping_id for c in conflicts]
-            await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == from_id,
-                    ~DBTrackMapping.id.in_(conflict_mapping_ids),
-                )
-                .values(
-                    track_id=to_id,
-                    origin=MappingOrigin.MANUAL_OVERRIDE,
-                    updated_at=now,
-                )
-            )
-        else:
-            await self.session.execute(
-                update(DBTrackMapping)
-                .where(DBTrackMapping.track_id == from_id)
-                .values(
-                    track_id=to_id,
-                    origin=MappingOrigin.MANUAL_OVERRIDE,
-                    updated_at=now,
-                )
-            )
-
+        counts = result.fetchone()
         logger.debug(
             f"Merged track mappings: {from_id} → {to_id} "
-            + f"({same_external_id_conflicts} same external ID, "
-            + f"{different_external_id_conflicts} different external ID conflicts)"
+            f"({counts[0]} same external ID, "  # type: ignore[index]
+            f"{counts[1]} different external ID conflicts, "  # type: ignore[index]
+            f"{counts[2]} non-conflicts moved)"  # type: ignore[index]
         )
 
     @db_operation("merge_metrics_to_track")
     async def merge_metrics_to_track(self, from_id: int, to_id: int) -> None:
-        """Merge track metrics from one track to another with conflict resolution."""
-        now = datetime.now(UTC)
+        """Merge track metrics from one track to another with conflict resolution.
 
-        # Find metrics that would conflict (same connector_name + metric_type)
-        conflict_query = text("""
-            SELECT
-                loser.id as loser_metric_id,
-                winner.id as winner_metric_id,
-                loser.connector_name,
-                loser.metric_type,
-                loser.value as loser_value,
-                loser.collected_at as loser_collected_at,
-                winner.value as winner_value,
-                winner.collected_at as winner_collected_at
-            FROM track_metrics loser
-            JOIN track_metrics winner ON (
-                loser.connector_name = winner.connector_name AND
-                loser.metric_type = winner.metric_type
-            )
-            WHERE
-                loser.track_id = :from_id AND
-                winner.track_id = :to_id
-        """)
-
+        Single CTE chain: for conflicts (same connector_name + metric_type),
+        keeps the most recently collected value. Non-conflicting metrics move directly.
+        """
         result = await self.session.execute(
-            conflict_query, {"from_id": from_id, "to_id": to_id}
+            text("""
+            WITH metric_conflicts AS (
+                SELECT
+                    loser.id AS loser_id,
+                    winner.id AS winner_id,
+                    loser.value AS loser_value,
+                    loser.collected_at AS loser_collected_at,
+                    winner.collected_at AS winner_collected_at
+                FROM track_metrics loser
+                JOIN track_metrics winner ON (
+                    loser.connector_name = winner.connector_name
+                    AND loser.metric_type = winner.metric_type
+                )
+                WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+            ),
+            -- When loser has more recent data, update the winner
+            updated_winner_metrics AS (
+                UPDATE track_metrics tm
+                SET
+                    value = mc.loser_value,
+                    collected_at = mc.loser_collected_at,
+                    updated_at = :now
+                FROM metric_conflicts mc
+                WHERE tm.id = mc.winner_id
+                  AND mc.loser_collected_at > mc.winner_collected_at
+                RETURNING tm.id
+            ),
+            -- Delete all conflicting loser metrics
+            deleted_conflict_metrics AS (
+                DELETE FROM track_metrics
+                WHERE id IN (SELECT loser_id FROM metric_conflicts)
+                RETURNING id
+            ),
+            -- Move non-conflicting metrics (exclude conflict IDs due to CTE snapshot)
+            moved_metrics AS (
+                UPDATE track_metrics
+                SET track_id = :to_id, updated_at = :now
+                WHERE track_id = :from_id
+                  AND id NOT IN (SELECT loser_id FROM metric_conflicts)
+                RETURNING id
+            )
+            SELECT
+                (SELECT count(*) FROM deleted_conflict_metrics) AS conflicts_resolved,
+                (SELECT count(*) FROM moved_metrics) AS metrics_moved
+            """),
+            {"from_id": from_id, "to_id": to_id, "now": datetime.now(UTC)},
         )
-        conflicts = result.fetchall()
-
-        # Handle conflicts: keep the most recent metric value
-        for conflict in conflicts:
-            loser_metric_id = conflict.loser_metric_id
-            winner_metric_id = conflict.winner_metric_id
-            loser_collected_at = conflict.loser_collected_at
-            winner_collected_at = conflict.winner_collected_at
-
-            if loser_collected_at > winner_collected_at:
-                collected_at_value = loser_collected_at
-                if isinstance(loser_collected_at, str):
-                    collected_at_value = datetime.fromisoformat(loser_collected_at)
-
-                await self.session.execute(
-                    update(DBTrackMetric)
-                    .where(DBTrackMetric.id == winner_metric_id)
-                    .values(
-                        value=conflict.loser_value,
-                        collected_at=collected_at_value,
-                        updated_at=now,
-                    )
-                )
-
-            # Hard delete the loser's conflicting metric
-            await self.session.execute(
-                delete(DBTrackMetric).where(DBTrackMetric.id == loser_metric_id)
-            )
-
-        # Move non-conflicting metrics from loser to winner
-        if conflicts:
-            conflict_metric_ids = [c.loser_metric_id for c in conflicts]
-            await self.session.execute(
-                update(DBTrackMetric)
-                .where(
-                    DBTrackMetric.track_id == from_id,
-                    ~DBTrackMetric.id.in_(conflict_metric_ids),
-                )
-                .values(track_id=to_id, updated_at=now)
-            )
-        else:
-            await self.session.execute(
-                update(DBTrackMetric)
-                .where(DBTrackMetric.track_id == from_id)
-                .values(track_id=to_id, updated_at=now)
-            )
-
+        counts = result.fetchone()
         logger.debug(
-            f"Merged track metrics: {from_id} → {to_id} ({len(conflicts)} conflicts resolved)"
+            f"Merged track metrics: {from_id} → {to_id} "
+            f"({counts[0]} conflicts resolved, {counts[1]} moved)"  # type: ignore[index]
         )
 
     @db_operation("hard_delete_track")
@@ -601,14 +668,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     @db_operation("find_duplicate_tracks_by_fingerprint")
     async def find_duplicate_tracks_by_fingerprint(self) -> list[dict[str, object]]:
         """Find tracks with identical (title, first_artist, album) tuples."""
-        first_artist = func.json_extract(DBTrack.artists, "$.names[0]")
+        first_artist = DBTrack.artists["names"][0].as_string()
         stmt = (
             select(
                 DBTrack.title,
                 first_artist.label("first_artist"),
                 DBTrack.album,
                 func.count().label("count"),
-                func.group_concat(DBTrack.id).label("track_ids"),
+                func.string_agg(cast(DBTrack.id, String), ",").label("track_ids"),
             )
             .where(DBTrack.title.isnot(None), DBTrack.title != "")  # noqa: PLC1901
             .group_by(DBTrack.title, first_artist, DBTrack.album)
@@ -649,96 +716,3 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 matched[key] = await self.mapper.to_domain(db_track)
         return matched
 
-    async def _merge_track_likes(self, from_id: int, to_id: int, now: datetime) -> None:
-        """Merge track likes with conflict resolution for duplicate (track_id, service)."""
-        # Find likes that would conflict (same service for both tracks)
-        conflict_query = text("""
-            SELECT
-                loser.id as loser_like_id,
-                winner.id as winner_like_id,
-                loser.service,
-                loser.is_liked as loser_is_liked,
-                loser.liked_at as loser_liked_at,
-                winner.is_liked as winner_is_liked,
-                winner.liked_at as winner_liked_at,
-                loser.last_synced as loser_last_synced,
-                winner.last_synced as winner_last_synced
-            FROM track_likes loser
-            JOIN track_likes winner ON loser.service = winner.service
-            WHERE
-                loser.track_id = :from_id AND
-                winner.track_id = :to_id
-        """)
-
-        result = await self.session.execute(
-            conflict_query, {"from_id": from_id, "to_id": to_id}
-        )
-        conflicts = result.fetchall()
-
-        for conflict in conflicts:
-            loser_like_id = conflict.loser_like_id
-            winner_like_id = conflict.winner_like_id
-            loser_last_synced = conflict.loser_last_synced
-            winner_last_synced = conflict.winner_last_synced
-
-            should_update_winner = False
-            if loser_last_synced and winner_last_synced:
-                if loser_last_synced > winner_last_synced:
-                    should_update_winner = True
-            elif loser_last_synced and not winner_last_synced:
-                should_update_winner = True
-
-            if should_update_winner:
-                update_values: dict[str, object] = {
-                    "is_liked": conflict.loser_is_liked,
-                    "updated_at": now,
-                }
-
-                if conflict.loser_liked_at is not None:
-                    if isinstance(conflict.loser_liked_at, str):
-                        update_values["liked_at"] = datetime.fromisoformat(
-                            conflict.loser_liked_at
-                        )
-                    else:
-                        update_values["liked_at"] = conflict.loser_liked_at
-
-                if loser_last_synced is not None:
-                    if isinstance(loser_last_synced, str):
-                        update_values["last_synced"] = datetime.fromisoformat(
-                            loser_last_synced
-                        )
-                    else:
-                        update_values["last_synced"] = loser_last_synced
-
-                await self.session.execute(
-                    update(DBTrackLike)
-                    .where(DBTrackLike.id == winner_like_id)
-                    .values(**update_values)
-                )
-
-            # Hard delete the loser's conflicting like
-            await self.session.execute(
-                delete(DBTrackLike).where(DBTrackLike.id == loser_like_id)
-            )
-
-        # Move non-conflicting likes from loser to winner
-        if conflicts:
-            conflict_like_ids = [c.loser_like_id for c in conflicts]
-            await self.session.execute(
-                update(DBTrackLike)
-                .where(
-                    DBTrackLike.track_id == from_id,
-                    ~DBTrackLike.id.in_(conflict_like_ids),
-                )
-                .values(track_id=to_id, updated_at=now)
-            )
-        else:
-            await self.session.execute(
-                update(DBTrackLike)
-                .where(DBTrackLike.track_id == from_id)
-                .values(track_id=to_id, updated_at=now)
-            )
-
-        logger.debug(
-            f"Merged track likes: {from_id} → {to_id} ({len(conflicts)} conflicts resolved)"
-        )

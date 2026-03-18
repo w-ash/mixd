@@ -16,6 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: narada_test
+          POSTGRES_USER: narada
+          POSTGRES_PASSWORD: narada
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +47,8 @@ jobs:
 
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
+        env:
+          DATABASE_URL: postgresql+psycopg_async://narada:narada@localhost:5432/narada_test
 
   web:
     name: Web

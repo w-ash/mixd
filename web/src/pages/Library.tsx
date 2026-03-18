@@ -1,11 +1,12 @@
-import { AlertTriangle, ArrowUp, Heart, Music } from "lucide-react";
-import { useCallback } from "react";
+import { ArrowUp, Heart, Music } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "@/api/generated/connectors/connectors";
 import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,6 +145,13 @@ export function Library() {
   const pageParam = Number(searchParams.get("page") ?? "1");
   const queryOffset = (pageParam - 1) * PAGE_SIZE;
 
+  // Keyset pagination: cache cursors from API responses for sequential nav.
+  // Map: page number → cursor for the *next* page after that page.
+  const cursorMapRef = useRef<Map<number, string>>(new Map());
+
+  // Use cursor if available from the previous page (sequential next-page)
+  const cursorForPage = cursorMapRef.current.get(pageParam - 1);
+
   const { data, isLoading, isError, error, isPlaceholderData } =
     useListTracksApiV1TracksGet(
       {
@@ -153,6 +161,7 @@ export function Library() {
         sort: sortParam,
         limit: PAGE_SIZE,
         offset: queryOffset,
+        ...(cursorForPage ? { cursor: cursorForPage } : {}),
       },
       { query: { staleTime: 30_000, placeholderData: (prev) => prev } },
     );
@@ -161,15 +170,24 @@ export function Library() {
   const tracks = response?.data ?? [];
   const total = response?.total ?? 0;
 
+  // Cache the next_cursor from the latest response
+  const nextCursor = response?.next_cursor;
+  useEffect(() => {
+    if (nextCursor) {
+      cursorMapRef.current.set(pageParam, nextCursor);
+    }
+  }, [nextCursor, pageParam]);
+
   const { page, totalPages, setPage } = usePagination(total);
 
   // Connectors list for filter dropdown
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
   const connectors = connectorsData?.status === 200 ? connectorsData.data : [];
 
-  /** Update a URL search param, resetting page to 1 */
+  /** Update a URL search param, resetting page and cursor cache to 1 */
   const setFilter = useCallback(
     (key: string, value: string | null) => {
+      cursorMapRef.current.clear();
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -197,6 +215,7 @@ export function Library() {
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearch(value);
+    cursorMapRef.current.clear();
     // Sync to URL for deep-linking (debounced via deferred value for API)
     setSearchParams(
       (prev) => {
@@ -289,15 +308,7 @@ export function Library() {
 
       {/* Error */}
       {isError && (
-        <EmptyState
-          icon={<AlertTriangle className="size-10" />}
-          heading="Failed to load tracks"
-          description={
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred."
-          }
-        />
+        <QueryErrorState error={error} heading="Failed to load tracks" />
       )}
 
       {/* Empty state */}

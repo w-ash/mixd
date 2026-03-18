@@ -5,6 +5,7 @@ interface EmptyStateProps {
   heading: string;
   description?: string;
   action?: ReactNode;
+  role?: string;
 }
 
 export function EmptyState({
@@ -12,9 +13,13 @@ export function EmptyState({
   heading,
   description,
   action,
+  role,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-border-muted bg-surface-sunken px-8 py-16 text-center">
+    <div
+      role={role}
+      className="flex flex-col items-center justify-center gap-3 rounded-lg border border-border-muted bg-surface-sunken px-8 py-16 text-center"
+    >
       {icon && (
         <span
           className="flex size-20 items-center justify-center rounded-full bg-surface-elevated text-text-faint"

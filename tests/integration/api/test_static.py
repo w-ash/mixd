@@ -8,19 +8,14 @@ Verifies that the FastAPI app:
 """
 
 from collections.abc import AsyncGenerator
-import os
 import pathlib
 import tempfile
 from unittest.mock import patch
-from uuid import uuid4
 
 import httpx
 import pytest
 
-from src.infrastructure.persistence.database.db_connection import (
-    init_db,
-    reset_engine_cache,
-)
+from tests.integration.api.conftest import _test_db_env
 
 
 @pytest.fixture
@@ -50,66 +45,37 @@ def dist_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 @pytest.fixture
 async def client_with_static(
     dist_dir: pathlib.Path,
+    postgres_url: str,
+    _init_test_schema: None,
 ) -> AsyncGenerator[httpx.AsyncClient]:
     """Client with static serving enabled (patched _WEB_DIST)."""
-    db_file = f"{tempfile.gettempdir()}/test_api_{uuid4().hex}.db"
-    original_db_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_file}"
-    reset_engine_cache()
-    await init_db()
+    with _test_db_env(postgres_url):
+        with patch("src.interface.api.app._WEB_DIST", dist_dir):
+            from src.interface.api.app import create_app
 
-    with patch("src.interface.api.app._WEB_DIST", dist_dir):
-        from src.interface.api.app import create_app
+            app = create_app()
 
-        app = create_app()
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    reset_engine_cache()
-    if original_db_url:
-        os.environ["DATABASE_URL"] = original_db_url
-    elif "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
-
-    try:
-        if pathlib.Path(db_file).exists():
-            pathlib.Path(db_file).unlink()
-    except OSError:
-        pass
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
 
 
 @pytest.fixture
-async def client_without_static() -> AsyncGenerator[httpx.AsyncClient]:
+async def client_without_static(
+    postgres_url: str,
+    _init_test_schema: None,
+) -> AsyncGenerator[httpx.AsyncClient]:
     """Client without static serving (no web/dist/ directory)."""
-    db_file = f"{tempfile.gettempdir()}/test_api_{uuid4().hex}.db"
-    original_db_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_file}"
-    reset_engine_cache()
-    await init_db()
+    with _test_db_env(postgres_url):
+        nonexistent = pathlib.Path(tempfile.gettempdir()) / "nonexistent_dist"
+        with patch("src.interface.api.app._WEB_DIST", nonexistent):
+            from src.interface.api.app import create_app
 
-    nonexistent = pathlib.Path(tempfile.gettempdir()) / "nonexistent_dist"
-    with patch("src.interface.api.app._WEB_DIST", nonexistent):
-        from src.interface.api.app import create_app
+            app = create_app()
 
-        app = create_app()
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    reset_engine_cache()
-    if original_db_url:
-        os.environ["DATABASE_URL"] = original_db_url
-    elif "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
-
-    try:
-        if pathlib.Path(db_file).exists():
-            pathlib.Path(db_file).unlink()
-    except OSError:
-        pass
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
 
 
 class TestStaticServing:

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { ApiError } from "@/api/client";
 import type { ConnectorMappingSchema } from "@/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
@@ -15,6 +16,7 @@ import { BackLink } from "@/components/shared/BackLink";
 import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { RelinkMappingDialog } from "@/components/shared/RelinkMappingDialog";
 import {
   confidenceVariant,
@@ -328,21 +330,24 @@ export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const trackId = Number(id);
 
-  const { data, isLoading, isError } = useGetTrackDetailApiV1TracksTrackIdGet(
-    trackId,
-    {
+  const { data, isLoading, isError, error } =
+    useGetTrackDetailApiV1TracksTrackIdGet(trackId, {
       query: { staleTime: 2 * 60_000 },
-    },
-  );
+    });
 
   if (isLoading) return <DetailSkeleton />;
 
   if (isError) {
+    const is404 = error instanceof ApiError && error.status === 404;
+    if (!is404)
+      return <QueryErrorState error={error} heading="Failed to load track" />;
+
     return (
       <EmptyState
         icon={<HelpCircle className="size-10" />}
         heading="Track not found"
         description="This track doesn't exist or has been removed."
+        role="alert"
       />
     );
   }

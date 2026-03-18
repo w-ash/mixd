@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.10
+ * OpenAPI spec version: 0.5.1
  */
 import {
   useQuery
@@ -20,10 +20,6 @@ import type {
   UseQueryResult
 } from '@tanstack/react-query';
 
-import type {
-  HealthCheckApiV1HealthGet200
-} from '../model';
-
 import { customFetch } from '../../client';
 
 
@@ -32,11 +28,11 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * Basic health check returning service status and version.
+ * Health check with database connectivity probe.
  * @summary Health Check
  */
 export type healthCheckApiV1HealthGetResponse200 = {
-  data: HealthCheckApiV1HealthGet200
+  data: unknown
   status: 200
 }
 

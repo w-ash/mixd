@@ -9,6 +9,12 @@
  * Vite's proxy handles routing to the backend.
  */
 
+/** Known backend error codes used for retry/display decisions. */
+export const API_ERROR_CODES = {
+  DATABASE_UNAVAILABLE: "DATABASE_UNAVAILABLE",
+  CONNECTOR_NOT_AVAILABLE: "CONNECTOR_NOT_AVAILABLE",
+} as const;
+
 export class ApiError extends Error {
   status: number;
   code: string;

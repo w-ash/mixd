@@ -1,6 +1,6 @@
 {
 	"scripts": {
-		"dev": "concurrently --raw \"uv run narada-api\" \"pnpm --prefix web dev\""
+		"dev": "docker compose up -d && uv run alembic upgrade head && concurrently --raw \"uv run narada-api\" \"pnpm --prefix web dev\""
 	},
 	"devDependencies": {
 		"concurrently": "^9.2.1",

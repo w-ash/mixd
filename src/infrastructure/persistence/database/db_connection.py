@@ -1,7 +1,7 @@
 """SQLAlchemy database configuration and connection management.
 
 This module is responsible for:
-- Engine creation and configuration
+- Engine creation and configuration (PostgreSQL via psycopg3)
 - Connection pooling
 - Session management
 - Transaction handling
@@ -12,7 +12,6 @@ This module is responsible for:
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -23,91 +22,28 @@ from sqlalchemy.ext.asyncio import (
 
 from src.config import get_logger
 
-if TYPE_CHECKING:
-    from loguru import Logger
-
 logger = get_logger(__name__)
 
 
 def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
-    """Create async SQLAlchemy engine with optimized connection pooling for SQLite."""
+    """Create async SQLAlchemy engine with PostgreSQL connection pooling."""
     # Use connection string from args, or resolve from environment/settings
     if connection_string is None:
         from src.config import get_database_url
 
         connection_string = get_database_url()
 
-    # SQLite-specific connect args
-    db_url = connection_string
-    connect_args = {}
-    if db_url.startswith("sqlite"):
-        connect_args = {
-            "check_same_thread": False,
-            # Increase SQLite timeout to help with concurrency
-            "timeout": 120.0,  # 120 seconds timeout for busy connections (increased from 30)
-        }
+    engine = create_async_engine(
+        connection_string,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=60,
+        pool_recycle=3600,
+        pool_pre_ping=True,
+        echo=False,
+    )
 
-        # Add query parameters for SQLite pragmas
-        if "?" not in db_url:
-            db_url += "?"
-        else:
-            db_url += "&"
-        # Enhanced SQLite pragmas:
-        # - WAL journal mode provides concurrent access
-        # - NORMAL synchronous for better performance without losing safety
-        # - Explicitly enable foreign keys
-        # - Increase busy_timeout to 30000ms (30s) for handling locks
-        # - Don't set isolation_level here, we'll use event listeners for transaction control
-        db_url += (
-            "journal_mode=WAL&synchronous=NORMAL&foreign_keys=ON&busy_timeout=30000"
-        )
-
-    # Import needed classes
-    from sqlalchemy import event
-    from sqlalchemy.pool import NullPool
-
-    # Configure engine with SQLite-appropriate connection pooling
-    # NullPool creates connections on-demand and closes them immediately for SQLite
-    if db_url.startswith("sqlite"):
-        # SQLite-specific configuration with NullPool for proper connection lifecycle
-        engine = create_async_engine(
-            db_url,
-            poolclass=NullPool,  # No connection pooling - create/close on demand
-            connect_args=connect_args,
-            # Echo SQL for debugging (disable in production)
-            echo=False,
-        )
-    else:
-        # Non-SQLite databases can use normal connection pooling
-        engine = create_async_engine(
-            db_url,
-            pool_size=5,  # More connections for concurrent databases
-            max_overflow=10,  # Allow overflow for other DB types
-            pool_timeout=60,  # Wait longer for connections
-            pool_recycle=3600,  # Recycle connections hourly
-            connect_args=connect_args,
-            # Validate connections before using them
-            pool_pre_ping=True,
-            # Echo SQL for debugging (disable in production)
-            echo=False,
-        )
-
-    # Configure event listeners on the sync engine to manage SQLite connection behavior
-    if db_url.startswith("sqlite"):
-        # Used via SQLAlchemy event system — not called directly
-        @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection: Any, _: Any) -> None:  # pyright: ignore[reportUnusedFunction] — registered via SQLAlchemy event  # pragma: no cover
-            """Set SQLite PRAGMAs on connection creation."""
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
-            cursor.execute("PRAGMA journal_mode = WAL")  # Write-ahead logging
-            cursor.execute("PRAGMA synchronous = NORMAL")  # Balanced safety/performance
-            cursor.execute("PRAGMA foreign_keys = ON")  # Enforce foreign keys
-            cursor.execute("PRAGMA temp_store = MEMORY")  # Store temp tables in memory
-            cursor.close()
-
-    # Only log once engine is fully configured
-    logger.info("Created database engine with SQLite optimizations")
+    logger.info("Created database engine")
     return engine
 
 
@@ -151,9 +87,9 @@ def create_session_factory(
     """
     return async_sessionmaker(
         bind=engine or get_engine(),
-        expire_on_commit=False,  # Important: Don't expire objects after commit
-        autoflush=False,  # Disable autoflush to prevent SQLite lock conflicts
-        autocommit=False,  # Always work in transactions
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
     )
 
 
@@ -188,46 +124,11 @@ async def get_session(rollback: bool = True) -> AsyncGenerator[AsyncSession]:
     """
     session = get_session_factory()()
     try:
-        # Just touch the connection to ensure engine event listeners run
-        _ = await session.connection()
-
         yield session
         await session.commit()
     except Exception:
         if rollback:
             await session.rollback()
-        raise
-    finally:
-        await session.close()
-
-
-@asynccontextmanager
-async def get_isolated_session() -> AsyncGenerator[AsyncSession]:
-    """Get a session with optimized isolation for operations that need it.
-
-    This creates a session specifically optimized for operations like metrics
-    that need better isolation to avoid database locks and conflicts.
-
-    Yields:
-        AsyncSession: Isolated database session
-    """
-    # Create a new session factory with specific settings for isolation
-    isolated_factory = async_sessionmaker(
-        bind=get_engine(),
-        expire_on_commit=False,
-        autoflush=False,  # Disable autoflush to avoid implicit I/O
-        autocommit=False,
-    )
-
-    session = isolated_factory()
-    try:
-        # Just touch the connection to ensure engine event listeners run
-        _ = await session.connection()
-
-        yield session
-        await session.commit()
-    except Exception:
-        await session.rollback()
         raise
     finally:
         await session.close()
@@ -258,57 +159,8 @@ async def transaction(session: AsyncSession) -> AsyncGenerator[AsyncSession]:
                 # Auto-commits savepoint if no exceptions
         ```
     """
-    # Use begin_nested() for savepoint transaction management
     async with session.begin_nested():
         yield session
-
-
-class SafeQuery[T: Any]:
-    """Utility for safe query execution with error handling.
-
-    This class provides a safer way to execute queries with proper
-    error handling and consistent result processing.
-
-    Example:
-        ```python
-        result = (
-            await SafeQuery(session)
-            .execute(select(User).where(User.id == user_id))
-            .scalar_one_or_none()
-        )
-        ```
-    """
-
-    session: AsyncSession
-    _logger: Logger
-
-    def __init__(self, session: AsyncSession):
-        """Initialize with a session.
-
-        Args:
-            session: Active SQLAlchemy session
-        """
-        self.session = session
-        self._logger = logger.bind(service="database")
-
-    async def execute(self, stmt: Any) -> Any:
-        """Execute a statement with proper error handling.
-
-        Args:
-            stmt: SQLAlchemy statement to execute
-
-        Returns:
-            SQLAlchemy result proxy
-
-        Raises:
-            Exception: If query execution fails
-        """
-        try:
-            return await self.session.execute(stmt)
-        except Exception as e:
-            self._logger.error(f"Query execution error: {e}")
-            await self.session.rollback()
-            raise
 
 
 async def init_db() -> None:
@@ -331,11 +183,9 @@ async def init_db() -> None:
 
 
 __all__ = [
-    "SafeQuery",
     "create_db_engine",
     "create_session_factory",
     "get_engine",
-    "get_isolated_session",
     "get_session",
     "get_session_factory",
     "init_db",

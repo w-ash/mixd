@@ -126,8 +126,14 @@ class TrackRepositoryProtocol(Protocol):
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
-    ) -> Awaitable[tuple[list[Track], int, set[int]]]:
+        after_value: Any = None,
+        after_id: int | None = None,
+    ) -> Awaitable[tuple[list[Track], int, set[int], tuple[Any, int] | None]]:
         """List tracks with optional search, filters, sorting, and pagination.
+
+        Supports both offset-based and keyset (cursor) pagination. When
+        ``after_value`` and ``after_id`` are provided, keyset pagination
+        seeks directly to the next page in O(1). Falls back to OFFSET otherwise.
 
         Args:
             query: Text search across title, artist, album.
@@ -135,11 +141,14 @@ class TrackRepositoryProtocol(Protocol):
             connector: Filter by connector mapping presence.
             sort_by: Sort field and direction.
             limit: Maximum tracks to return.
-            offset: Number of tracks to skip.
+            offset: Number of tracks to skip (ignored when keyset params present).
+            after_value: Sort column value of the last row from the previous page.
+            after_id: Primary key of the last row from the previous page.
 
         Returns:
-            Tuple of (tracks, total_count, liked_track_ids) where liked_track_ids
-            contains IDs of tracks liked on any service (authoritative from track_likes).
+            Tuple of (tracks, total_count, liked_track_ids, next_page_key) where:
+            - liked_track_ids: IDs of tracks liked on any service
+            - next_page_key: (sort_value, id) for building next cursor, or None if last page
         """
         ...
 

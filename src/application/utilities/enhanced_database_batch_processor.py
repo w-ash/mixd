@@ -46,7 +46,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
     - Better error reporting and status tracking
 
     Args:
-        batch_size: Items per batch (prevents SQLite lock issues)
+        batch_size: Items per batch (manages memory and enables progress tracking)
         retry_count: Max retry attempts for database deadlocks
         retry_base_delay: Starting delay between retries (seconds)
         progress_emitter: Progress emitter for event-driven tracking (optional)
@@ -61,9 +61,9 @@ class EnhancedDatabaseBatchProcessor[T, R]:
 
     def __attrs_post_init__(self):
         """Validate configuration."""
-        if self.batch_size > BusinessLimits.SQLITE_BATCH_WARNING_THRESHOLD:
+        if self.batch_size > BusinessLimits.BATCH_WARNING_THRESHOLD:
             self.logger_instance.warning(
-                f"Large batch size {self.batch_size} may cause SQLite locks. Consider using smaller batch sizes (10-50) for database operations."
+                f"Large batch size {self.batch_size} may increase memory usage. Consider smaller batch sizes (10-50) for database operations."
             )
 
     async def process(

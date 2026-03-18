@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.4.11
-**Current Initiative**: CI/CD & Environment Hardening
+**Current Version**: 0.5.1
+**Current Initiative**: SQLAlchemy & PostgreSQL Best Practices Audit (final v0.5.1 item)
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -30,8 +30,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
 | **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
 | **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
-| **v0.5.0** | CI/CD + environment hardening | 🔜 Not Started | [details](v0.5.x.md#v050-cicd--environment-hardening) |
-| **v0.5.1** | PostgreSQL migration | 🔜 Not Started | [details](v0.5.x.md#v051-postgresql-migration) |
+| **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](v0.5.x.md#v050-cicd--environment-hardening) |
+| **v0.5.1** | PostgreSQL migration + optimization | 🔧 In Progress | [details](v0.5.x.md#v051-postgresql-migration) |
 | **v0.5.2** | Containerization & deployment | 🔜 Not Started | [details](v0.5.x.md#v052-containerization--deployment) |
 | **v0.5.3** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v053-oauth--credentials) |
 | **v0.5.4** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v054-parallel-execution--performance) |
@@ -86,7 +86,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 | **Deployment** | ✅ uv install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
 | **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ + Email alerts |
 | **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify OAuth | ✅ + Email/password |
-| **Database** | ✅ SQLite | ✅ SQLite | ✅ PostgreSQL | ✅ PostgreSQL |
+| **Database** | ✅ SQLite | ✅ PostgreSQL (Docker) | ✅ PostgreSQL | ✅ PostgreSQL |
 | **Caching** | ❌ Not needed | ✅ Tanstack Query | ✅ + lru_cache | ✅ Same |
 | **Security** | ✅ Env vars, secrets | ✅ + CORS (localhost) | ✅ + HTTPS | ✅ + bcrypt |
 
@@ -101,7 +101,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 Key architecture & tech choices (see CLAUDE.md for migration details):
 
 - **Python 3.14+ & attrs**: Modern type syntax (`str | None`, `class Foo[T]`), immutable domain entities with slots
-- **PostgreSQL (v0.5.1)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `asyncpg` driver, managed hosting via Neon/Supabase (dev) or Fly.io Postgres (prod). Repository pattern means zero application-layer code changes. Web UI developed on SQLite first (v0.3.x), migrated at deployment time.
+- **PostgreSQL (v0.5.1)**: Migrated from SQLite for remote hosting and parallel Prefect execution. `psycopg3` driver (SQLAlchemy 2.1 default), managed hosting via Neon (free tier). SQLite removed entirely — PostgreSQL-only. Repository pattern meant zero application-layer code changes. Post-migration optimization: all JSON→JSONB, pg_trgm trigram search, BRIN indexes, DB-side aggregations, tuple IN queries.
 - **Vite 8 / Vitest**: Rolldown-powered unified bundler, 10-30x faster builds, native ESM + TypeScript
 - **Tailwind CSS v4**: Rust engine (10x performance), @theme design tokens
 - **Pydantic v2**: 5-50x faster validation, `from_attributes=True`

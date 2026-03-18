@@ -6,14 +6,12 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import ColumnElement
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, ensure_utc
 from src.infrastructure.persistence.database.db_models import DBConnectorPlay
-from src.infrastructure.persistence.repositories._shared import chunked
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
@@ -122,56 +120,50 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     async def _find_existing_connector_plays(
         self, plays: list[ConnectorTrackPlay]
     ) -> set[tuple[str, str, datetime | None, int | None]]:
-        """Find existing connector plays that match the lookup keys.
+        """Find existing connector plays matching deduplication keys.
 
-        Uses batched queries to avoid SQLite expression tree limit.
+        Uses PostgreSQL tuple IN for efficient multi-column lookup,
+        batched to avoid oversized query strings on large imports.
         """
         if not plays:
             return set()
 
-        existing_keys: set[tuple[str, str, datetime | None, int | None]] = set()
+        from src.config.constants import BusinessLimits
 
-        # Batch plays to avoid SQLite expression tree limit
-        batch_size = 200
+        keys = [
+            (p.connector_name, p.connector_track_identifier, p.played_at, p.ms_played)
+            for p in plays
+        ]
+        batch_size = BusinessLimits.TUPLE_IN_BATCH_SIZE
+        existing: set[tuple[str, str, datetime | None, int | None]] = set()
 
-        for batch in chunked(plays, batch_size):
-            # Build conditions for this batch
-            conditions: list[ColumnElement[bool]] = []
-            for play in batch:
-                condition = (
-                    (self.model_class.connector_name == play.connector_name)
-                    & (
-                        self.model_class.connector_track_identifier
-                        == play.connector_track_identifier
-                    )
-                    & (self.model_class.played_at == play.played_at)
-                    & (self.model_class.ms_played == play.ms_played)
+        for i in range(0, len(keys), batch_size):
+            batch = keys[i : i + batch_size]
+            stmt = select(
+                DBConnectorPlay.connector_name,
+                DBConnectorPlay.connector_track_identifier,
+                DBConnectorPlay.played_at,
+                DBConnectorPlay.ms_played,
+            ).where(
+                tuple_(
+                    DBConnectorPlay.connector_name,
+                    DBConnectorPlay.connector_track_identifier,
+                    DBConnectorPlay.played_at,
+                    DBConnectorPlay.ms_played,
+                ).in_(batch)
+            )
+            result = await self.session.execute(stmt)
+            existing.update(
+                (
+                    row.connector_name,
+                    row.connector_track_identifier,
+                    ensure_utc(row.played_at),
+                    row.ms_played,
                 )
-                conditions.append(condition)
+                for row in result.all()
+            )
 
-            # Combine batch conditions with OR
-            combined_condition: ColumnElement[bool] = conditions[0]
-            for condition in conditions[1:]:
-                combined_condition |= condition
-
-            # Query for existing plays in this batch
-            query = select(self.model_class).where(combined_condition)
-            result = await self.session.execute(query)
-            existing_db_plays = result.scalars().all()
-
-            # Convert to set of tuples for fast lookup
-            for play in existing_db_plays:
-                # Normalize timezone for consistent comparison using utility function
-                played_at = ensure_utc(play.played_at)
-
-                existing_keys.add((
-                    play.connector_name,
-                    play.connector_track_identifier,
-                    played_at,
-                    play.ms_played,
-                ))
-
-        return existing_keys
+        return existing
 
     def _filter_duplicates(
         self,

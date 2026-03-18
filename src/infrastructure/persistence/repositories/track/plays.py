@@ -3,26 +3,32 @@
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
-from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, override
+from typing import Any, Literal, override
 
 from attrs import define
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import ColumnElement
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
 from src.domain.repositories.interfaces import PlayAggregationResult
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
-from src.infrastructure.persistence.repositories._shared import chunked
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
     BaseRepository,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
+
+type PlaySortBy = Literal[
+    "total_plays_desc",
+    "last_played_desc",
+    "title_asc",
+    "random",
+    "played_at_desc",
+    "first_played_asc",
+]
 
 logger = get_logger(__name__)
 
@@ -172,54 +178,42 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         return (result, duplicate_count)
 
     async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[PlayLookupKey]:
-        """Find existing plays that match the lookup keys.
+        """Find existing plays matching deduplication keys.
 
-        Uses batched queries to avoid SQLite expression tree limit (max depth 1000).
-        Processes plays in chunks of 200 to stay well under the limit.
+        Uses PostgreSQL tuple IN for efficient multi-column lookup,
+        batched to avoid oversized query strings on large imports.
         """
         if not plays:
             return set()
 
-        existing_keys: set[PlayLookupKey] = set()
+        from src.config.constants import BusinessLimits
 
-        # Batch plays to avoid SQLite expression tree limit (max depth 1000)
-        batch_size = (
-            200  # Well under SQLite's 1000 limit, allows for other query complexity
-        )
+        keys = [(p.track_id, p.service, p.played_at, p.ms_played) for p in plays]
+        batch_size = BusinessLimits.TUPLE_IN_BATCH_SIZE
+        existing: set[PlayLookupKey] = set()
 
-        for batch in chunked(plays, batch_size):
-            # Build conditions for this batch
-            conditions: list[ColumnElement[bool]] = []
-            for play in batch:
-                condition = (
-                    (self.model_class.track_id == play.track_id)
-                    & (self.model_class.service == play.service)
-                    & (self.model_class.played_at == play.played_at)
-                    & (self.model_class.ms_played == play.ms_played)
-                )
-                conditions.append(condition)
+        for i in range(0, len(keys), batch_size):
+            batch = keys[i : i + batch_size]
+            stmt = select(
+                DBTrackPlay.track_id,
+                DBTrackPlay.service,
+                DBTrackPlay.played_at,
+                DBTrackPlay.ms_played,
+            ).where(
+                tuple_(
+                    DBTrackPlay.track_id,
+                    DBTrackPlay.service,
+                    DBTrackPlay.played_at,
+                    DBTrackPlay.ms_played,
+                ).in_(batch)
+            )
+            result = await self.session.execute(stmt)
+            existing.update(
+                (row.track_id, row.service, ensure_utc(row.played_at), row.ms_played)
+                for row in result.all()
+            )
 
-            # Combine batch conditions with OR
-            combined_condition: ColumnElement[bool] = conditions[0]
-            for condition in conditions[1:]:
-                combined_condition |= condition
-
-            # Query for existing plays in this batch
-            existing_db_plays = await self.find_by([combined_condition])
-
-            # Convert to set of tuples for fast lookup
-            # Normalize timezone to handle timezone-aware vs timezone-naive comparison
-            for play in existing_db_plays:
-                # Ensure played_at has UTC timezone for consistent comparison using utility function
-                played_at = ensure_utc(play.played_at)
-                existing_keys.add((
-                    play.track_id,
-                    play.service,
-                    played_at,
-                    play.ms_played,
-                ))
-
-        return existing_keys
+        return existing
 
     def _filter_duplicates(
         self, plays: list[TrackPlay], existing_keys: set[PlayLookupKey]
@@ -252,7 +246,11 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         period_start: datetime | None = None,
         period_end: datetime | None = None,
     ) -> PlayAggregationResult:
-        """Get aggregated play data for specified tracks and metrics.
+        """Get aggregated play data via database-side GROUP BY.
+
+        Uses PostgreSQL aggregation functions instead of loading all plays into
+        Python. For 100k plays across 1k tracks, this returns ~1k rows instead
+        of 100k ORM objects.
 
         Args:
             track_ids: List of track IDs to get play data for
@@ -281,122 +279,56 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         result: PlayAggregationResult = {}
 
-        # Build base query
-        base_query = select(DBTrackPlay).where(
-            DBTrackPlay.track_id.in_(track_ids),
-        )
+        # Build a single aggregation query for base metrics (total, first, last)
+        base_metrics = {"total_plays", "last_played_dates", "first_played_dates"}
+        requested_base = base_metrics & set(metrics)
 
-        # Execute query to get all relevant plays
-        query_result = await self.session.execute(base_query)
-        plays: Sequence[DBTrackPlay] = query_result.scalars().all()
+        if requested_base:
+            columns: list[Any] = [DBTrackPlay.track_id]
+            if "total_plays" in requested_base:
+                columns.append(func.count().label("total"))
+            if "last_played_dates" in requested_base:
+                columns.append(func.max(DBTrackPlay.played_at).label("last_played"))
+            if "first_played_dates" in requested_base:
+                columns.append(func.min(DBTrackPlay.played_at).label("first_played"))
 
-        plays_by_track: defaultdict[int | None, list[DBTrackPlay]] = defaultdict(list)
-        for play in plays:
-            plays_by_track[play.track_id].append(play)
+            stmt = (
+                select(*columns)
+                .where(DBTrackPlay.track_id.in_(track_ids))
+                .group_by(DBTrackPlay.track_id)
+            )
+            rows = (await self.session.execute(stmt)).all()
 
-        # Calculate total plays if requested
-        if "total_plays" in metrics:
-            result["total_plays"] = {
-                track_id: len(track_plays)
-                for track_id, track_plays in plays_by_track.items()
-                if track_id is not None
-            }
+            if "total_plays" in requested_base:
+                result["total_plays"] = {row.track_id: row.total for row in rows}
+            if "last_played_dates" in requested_base:
+                result["last_played_dates"] = {
+                    row.track_id: row.last_played for row in rows
+                }
+            if "first_played_dates" in requested_base:
+                result["first_played_dates"] = {
+                    row.track_id: row.first_played for row in rows
+                }
 
-        # Calculate last played dates if requested
-        if "last_played_dates" in metrics:
-
-            def get_last_played(track_plays: list[DBTrackPlay]):
-                if not track_plays:
-                    return None
-                return max(play.played_at for play in track_plays)
-
-            result["last_played_dates"] = {
-                track_id: get_last_played(track_plays)
-                for track_id, track_plays in plays_by_track.items()
-                if track_id is not None
-            }
-
-        # Calculate first played dates if requested
-        if "first_played_dates" in metrics:
-
-            def get_first_played(track_plays: list[DBTrackPlay]):
-                if not track_plays:
-                    return None
-                return min(play.played_at for play in track_plays)
-
-            result["first_played_dates"] = {
-                track_id: get_first_played(track_plays)
-                for track_id, track_plays in plays_by_track.items()
-                if track_id is not None
-            }
-
-        # Calculate period plays if requested
+        # Period plays: separate query with date range WHERE clause
         if "period_plays" in metrics and period_start and period_end:
-            # Ensure timezone consistency using utility function
             start_aware = ensure_utc(period_start)
             end_aware = ensure_utc(period_end)
 
-            # Both timestamps are required for period comparison
             if start_aware is None or end_aware is None:
                 raise ValueError("Period start and end must be non-None timestamps")
 
-            logger.debug(
-                "Period play comparison setup",
-                start_aware=start_aware,
-                start_aware_tz=start_aware.tzinfo,
-                end_aware=end_aware,
-                end_aware_tz=end_aware.tzinfo,
-                original_start_tz=period_start.tzinfo,
-                original_end_tz=period_end.tzinfo,
+            period_stmt = (
+                select(DBTrackPlay.track_id, func.count().label("total"))
+                .where(
+                    DBTrackPlay.track_id.in_(track_ids),
+                    DBTrackPlay.played_at >= start_aware,
+                    DBTrackPlay.played_at <= end_aware,
+                )
+                .group_by(DBTrackPlay.track_id)
             )
-
-            def count_period_plays(track_plays: list[DBTrackPlay]) -> int:
-                matching_plays: list[DBTrackPlay] = []
-                for play in track_plays:
-                    try:
-                        # Defensive validation - ensure play.played_at is timezone-aware using utility function
-                        play_played_at_aware = ensure_utc(play.played_at)
-                        if play_played_at_aware is None:
-                            logger.warning(
-                                "Skipping play with None played_at",
-                                play_id=play.id,
-                                track_id=play.track_id,
-                            )
-                            continue
-
-                        if play.played_at.tzinfo is None:
-                            logger.warning(
-                                "Found timezone-naive play.played_at, converted to UTC",
-                                play_id=play.id,
-                                track_id=play.track_id,
-                                played_at=play.played_at,
-                            )
-
-                        if start_aware <= play_played_at_aware <= end_aware:
-                            matching_plays.append(play)
-
-                    except TypeError as e:
-                        logger.error(
-                            "Datetime comparison failed despite defensive measures",
-                            start_aware=start_aware,
-                            start_tz=getattr(start_aware, "tzinfo", None),
-                            play_played_at=play.played_at,
-                            play_tz=getattr(play.played_at, "tzinfo", None),
-                            end_aware=end_aware,
-                            end_tz=getattr(end_aware, "tzinfo", None),
-                            error=str(e),
-                            play_id=play.id,
-                        )
-                        # Skip this play rather than failing the entire operation
-                        continue
-
-                return len(matching_plays)
-
-            result["period_plays"] = {
-                track_id: count_period_plays(track_plays)
-                for track_id, track_plays in plays_by_track.items()
-                if track_id is not None
-            }
+            period_rows = (await self.session.execute(period_stmt)).all()
+            result["period_plays"] = {row.track_id: row.total for row in period_rows}
 
         # Backfill missing track_ids with defaults for each requested metric
         if "total_plays" in result:
@@ -418,58 +350,65 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         return result
 
+    async def _rows_to_domain(self, rows: Sequence[Any]) -> list[TrackPlay]:
+        """Convert raw subquery rows to domain models via column reflection."""
+        plays: list[TrackPlay] = []
+        for row in rows:
+            play_data = {
+                col.name: getattr(row, col.name)
+                for col in self.model_class.__table__.columns
+            }
+            db_play = self.model_class(**play_data)
+            plays.append(await self.mapper.to_domain(db_play))
+        return plays
+
     @db_operation("get_recent_plays")
     async def get_recent_plays(
-        self, limit: int = 100, sort_by: str | None = None
+        self, limit: int = 100, sort_by: PlaySortBy | None = None
     ) -> list[TrackPlay]:
         """Get recent plays with optional sorting."""
+        from src.infrastructure.persistence.database.db_models import DBTrack
+
         # Handle special sorting cases that require custom queries or aggregations
         if sort_by in ["total_plays_desc", "last_played_desc", "title_asc", "random"]:
-            from sqlalchemy import func, select
-
-            from src.infrastructure.persistence.database.db_models import DBTrack
-
             if sort_by == "total_plays_desc":
-                # Get plays grouped by track_id, ordered by count
-                stmt = (
-                    select(self.model_class.track_id, func.count().label("play_count"))
+                # CTE: top tracks by play count
+                top_tracks = (
+                    select(
+                        self.model_class.track_id,
+                        func.count().label("cnt"),
+                    )
                     .group_by(self.model_class.track_id)
                     .order_by(func.count().desc())
                     .limit(limit)
+                ).cte("top_tracks")
+
+                # Get latest play per top track using row_number window function
+                ranked = (
+                    select(
+                        self.model_class,
+                        top_tracks.c.cnt,
+                        func
+                        .row_number()
+                        .over(
+                            partition_by=self.model_class.track_id,
+                            order_by=self.model_class.played_at.desc(),
+                        )
+                        .label("rn"),
+                    ).join(
+                        top_tracks, self.model_class.track_id == top_tracks.c.track_id
+                    )
+                ).subquery()
+
+                stmt = (
+                    select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.cnt.desc())
                 )
 
-                result = await self.session.execute(stmt)
-                track_counts = result.fetchall()
-
-                # Get the most recent play for each of these tracks
-                if not track_counts:
-                    return []
-
-                track_ids = [row[0] for row in track_counts]
-
-                # Get one recent play per track, maintaining the order
-                plays: list[TrackPlay] = []
-                for track_id in track_ids:
-                    recent_play_stmt = (
-                        select(self.model_class)
-                        .where(
-                            self.model_class.track_id == track_id,
-                        )
-                        .order_by(self.model_class.played_at.desc())
-                        .limit(1)
-                    )
-                    recent_play_result = await self.session.execute(recent_play_stmt)
-                    recent_play = recent_play_result.scalar_one_or_none()
-                    if recent_play:
-                        plays.append(await self.mapper.to_domain(recent_play))
-
-                return plays
+                query_result = await self.session.execute(stmt)
+                return await self._rows_to_domain(query_result.fetchall())
 
             elif sort_by == "last_played_desc":
                 # Get most recent play per track, ordered by played_at desc
-                # Using window function to get the latest play per track
-                from sqlalchemy.sql import func
-
                 subquery = (
                     select(
                         self.model_class,
@@ -490,21 +429,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                     .limit(limit)
                 )
 
-                result = await self.session.execute(stmt)
-                rows = result.fetchall()
-
-                # Convert to domain models
-                row_plays: list[TrackPlay] = []
-                for row in rows:
-                    # Extract the track play data from the row
-                    play_data = {
-                        col.name: getattr(row, col.name)
-                        for col in self.model_class.__table__.columns
-                    }
-                    db_play = self.model_class(**play_data)
-                    row_plays.append(await self.mapper.to_domain(db_play))
-
-                return row_plays
+                query_result = await self.session.execute(stmt)
+                return await self._rows_to_domain(query_result.fetchall())
 
             elif sort_by == "title_asc":
                 # Join with tracks table for title sorting
@@ -515,15 +441,15 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                     .limit(limit)
                 )
 
-                result = await self.session.execute(stmt)
-                db_models = result.scalars().all()
+                query_result = await self.session.execute(stmt)
+                db_models = query_result.scalars().all()
                 return [await self.mapper.to_domain(model) for model in db_models]
 
             elif sort_by == "random":
                 stmt = select(self.model_class).order_by(func.random()).limit(limit)
 
-                result = await self.session.execute(stmt)
-                db_models = result.scalars().all()
+                query_result = await self.session.execute(stmt)
+                db_models = query_result.scalars().all()
                 return [await self.mapper.to_domain(model) for model in db_models]
 
         # Use base repository for simple field sorting
@@ -559,16 +485,11 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         if not track_ids:
             return []
 
-        results: list[TrackPlay] = []
-        for batch in chunked(track_ids, 200):
-            plays = await self.find_by([
-                self.model_class.track_id.in_(batch),
-                self.model_class.played_at >= start,
-                self.model_class.played_at <= end,
-            ])
-            results.extend(plays)
-
-        return results
+        return await self.find_by([
+            self.model_class.track_id.in_(track_ids),
+            self.model_class.played_at >= start,
+            self.model_class.played_at <= end,
+        ])
 
     @db_operation("bulk_update_play_source_services")
     async def bulk_update_play_source_services(

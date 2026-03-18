@@ -61,8 +61,16 @@ async def list_tracks(
     sort: str = Query(default="title_asc", description="Sort field and direction"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(
+        default=None, description="Opaque cursor for keyset pagination"
+    ),
 ) -> PaginatedResponse[LibraryTrackSchema]:
-    """List tracks with optional search, filters, sorting, and pagination."""
+    """List tracks with optional search, filters, sorting, and pagination.
+
+    Supports both offset-based and cursor-based (keyset) pagination.
+    When ``cursor`` is provided, it takes precedence over ``offset`` for
+    O(1) page seeking regardless of depth.
+    """
     command = ListTracksCommand(
         query=q,
         liked=liked,
@@ -70,6 +78,7 @@ async def list_tracks(
         sort_by=sort,
         limit=limit,
         offset=offset,
+        cursor=cursor,
     )
     result = await execute_use_case(
         lambda uow: ListTracksUseCase().execute(command, uow)
@@ -82,6 +91,7 @@ async def list_tracks(
         total=result.total,
         limit=result.limit,
         offset=result.offset,
+        next_cursor=result.next_cursor,
     )
 
 

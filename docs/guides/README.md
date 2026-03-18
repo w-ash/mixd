@@ -6,6 +6,7 @@ Documentation for using narada — writing workflows, syncing likes, and running
 
 | Document | Type | Description |
 |----------|------|-------------|
+| [getting-started.md](getting-started.md) | Guide | Prerequisites, setup, first run |
 | [workflows.md](workflows.md) | Guide | Workflow authoring, node catalog, and example pipelines |
 | [likes-sync.md](likes-sync.md) | Guide | Cross-service likes synchronization (Spotify, Last.fm) |
 | [cli.md](cli.md) | Reference | CLI commands and options |

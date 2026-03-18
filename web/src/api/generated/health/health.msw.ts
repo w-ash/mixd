@@ -3,12 +3,8 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.4.10
+ * OpenAPI spec version: 0.5.1
  */
-import {
-  faker
-} from '@faker-js/faker';
-
 import {
   HttpResponse,
   http
@@ -17,23 +13,13 @@ import type {
   RequestHandlerOptions
 } from 'msw';
 
-import type {
-  HealthCheckApiV1HealthGet200
-} from '../model';
 
 
-export const getHealthCheckApiV1HealthGetResponseMock = (): HealthCheckApiV1HealthGet200 => ({
-        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
-      })
-
-
-export const getHealthCheckApiV1HealthGetMockHandler = (overrideResponse?: HealthCheckApiV1HealthGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<HealthCheckApiV1HealthGet200> | HealthCheckApiV1HealthGet200), options?: RequestHandlerOptions) => {
+export const getHealthCheckApiV1HealthGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/health', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
   
-  
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getHealthCheckApiV1HealthGetResponseMock(),
+    return new HttpResponse(null,
       { status: 200
       })
   }, options)

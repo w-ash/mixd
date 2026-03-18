@@ -122,7 +122,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("150")).toBeInTheDocument();
   });
 
-  it("renders empty state when no tracks", async () => {
+  it("renders getting-started checklist when no tracks", async () => {
     server.use(
       http.get("*/api/v1/stats/dashboard", () => {
         return HttpResponse.json(
@@ -144,13 +144,12 @@ describe("Dashboard", () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("No data yet")).toBeInTheDocument();
+      expect(screen.getByText("Welcome to Narada")).toBeInTheDocument();
     });
 
-    expect(
-      screen.getByText("Connect services in Settings to get started."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Go to Settings")).toBeInTheDocument();
+    expect(screen.getByText("Connect services")).toBeInTheDocument();
+    expect(screen.getByText("Import your music")).toBeInTheDocument();
+    expect(screen.getByText("Explore your library")).toBeInTheDocument();
   });
 
   it("renders error state on API failure", async () => {
@@ -168,6 +167,36 @@ describe("Dashboard", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to load statistics")).toBeInTheDocument();
     });
+  });
+
+  it("renders database unavailable state when DB is down", async () => {
+    server.use(
+      http.get("*/api/v1/stats/dashboard", () => {
+        return HttpResponse.json(
+          {
+            error: {
+              code: "DATABASE_UNAVAILABLE",
+              message:
+                "Database connection unavailable. Ensure PostgreSQL is running.",
+            },
+          },
+          { status: 503 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Dashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Database unavailable")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(
+        "Cannot connect to PostgreSQL. Make sure the database is running, then reload.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Reload")).toBeInTheDocument();
   });
 });
 

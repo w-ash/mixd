@@ -1,4 +1,4 @@
-import { AlertTriangle, Music } from "lucide-react";
+import { Music } from "lucide-react";
 import { Link } from "react-router";
 
 import { useListPlaylistsApiV1PlaylistsGet } from "@/api/generated/playlists/playlists";
@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { CreatePlaylistModal } from "@/components/shared/CreatePlaylistModal";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -60,15 +61,7 @@ export function Playlists() {
       {isLoading && <PlaylistTableSkeleton />}
 
       {isError && (
-        <EmptyState
-          icon={<AlertTriangle className="size-10" />}
-          heading="Failed to load playlists"
-          description={
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred."
-          }
-        />
+        <QueryErrorState error={error} heading="Failed to load playlists" />
       )}
 
       {!isLoading && !isError && playlists.length === 0 && (

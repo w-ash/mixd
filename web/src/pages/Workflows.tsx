@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  Copy,
-  GitBranch,
-  Lock,
-  Pencil,
-  Play,
-  Plus,
-} from "lucide-react";
+import { Copy, GitBranch, Lock, Pencil, Play, Plus } from "lucide-react";
 import { memo } from "react";
 import { Link } from "react-router";
 
@@ -14,6 +6,7 @@ import type { WorkflowSummarySchema } from "@/api/generated/model";
 import { useListWorkflowsApiV1WorkflowsGet } from "@/api/generated/workflows/workflows";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { getStatusConfig } from "@/components/shared/RunStatusBadge";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { Badge } from "@/components/ui/badge";
@@ -198,15 +191,7 @@ export function Workflows() {
       {isLoading && <WorkflowTableSkeleton />}
 
       {isError && (
-        <EmptyState
-          icon={<AlertTriangle className="size-10" />}
-          heading="Failed to load workflows"
-          description={
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred."
-          }
-        />
+        <QueryErrorState error={error} heading="Failed to load workflows" />
       )}
 
       {!isLoading && !isError && workflows.length === 0 && (

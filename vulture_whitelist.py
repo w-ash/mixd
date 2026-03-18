@@ -92,9 +92,6 @@ async_auth_flow  # @override of httpx.Auth.async_auth_flow
 do_GET  # HTTP handler protocol method
 log_message  # HTTP handler protocol method
 
-# --- SQLAlchemy event listeners ---
-_set_sqlite_pragma  # @event.listens_for — called by SQLAlchemy engine
-
 # --- Alembic migration variables/functions (framework-required) ---
 revision  # Alembic migration
 down_revision  # Alembic migration

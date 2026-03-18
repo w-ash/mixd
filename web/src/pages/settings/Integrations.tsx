@@ -1,9 +1,10 @@
-import { AlertTriangle, HelpCircle } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 import { useGetConnectorsApiV1ConnectorsGet } from "@/api/generated/connectors/connectors";
 import type { ConnectorStatusSchema } from "@/api/generated/model";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorCard } from "@/components/shared/ConnectorCard";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -92,15 +93,7 @@ export function Integrations() {
       {isLoading && <IntegrationsSkeleton />}
 
       {isError && (
-        <EmptyState
-          icon={<AlertTriangle className="size-10" />}
-          heading="Failed to load connectors"
-          description={
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred."
-          }
-        />
+        <QueryErrorState error={error} heading="Failed to load connectors" />
       )}
 
       {!isLoading && !isError && connectors.length === 0 && (

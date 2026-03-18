@@ -49,14 +49,13 @@ StdlibLogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 class DatabaseConfig(BaseModel):
     """Database connection configuration.
 
-    Pool and engine settings (NullPool for SQLite, connection pooling for
-    PostgreSQL) are hardcoded in db_connection.py because they differ by
-    database backend and should not be user-tunable.
+    Pool and engine settings are hardcoded in db_connection.py and should
+    not be user-tunable.
     """
 
     url: str = Field(
-        default="sqlite+aiosqlite:///data/db/narada.db",
-        description="SQLAlchemy async connection URL. Supports sqlite+aiosqlite:// and postgresql+asyncpg://.",
+        default="postgresql+psycopg_async://narada:narada@localhost:5432/narada",
+        description="SQLAlchemy async connection URL (postgresql+psycopg_async://).",
     )
 
 
@@ -565,6 +564,21 @@ def get_database_url() -> str:
     import os
 
     return os.environ.get("DATABASE_URL", "") or settings.database.url
+
+
+def get_sync_database_url() -> str:
+    """Get a synchronous psycopg-compatible URL from the async database URL.
+
+    Converts ``postgresql+psycopg_async://`` to plain ``postgresql://``
+    suitable for raw ``psycopg.connect()`` calls (CLI completions, scripts).
+    Returns empty string if no URL is configured.
+    """
+    url = get_database_url()
+    if not url:
+        return ""
+    return url.replace("+psycopg_async", "+psycopg").replace(
+        "postgresql+psycopg://", "postgresql://"
+    )
 
 
 def log_startup_warnings() -> None:
