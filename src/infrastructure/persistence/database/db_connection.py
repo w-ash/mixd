@@ -41,6 +41,9 @@ def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
         pool_recycle=3600,
         pool_pre_ping=True,
         echo=False,
+        connect_args={
+            "options": "-c statement_timeout=30000 -c lock_timeout=10000",
+        },
     )
 
     logger.info("Created database engine")
