@@ -10,7 +10,9 @@ describe("NodeTypeBadge", () => {
   });
 
   it("renders known categories with specific styles", () => {
-    const { container } = render(<NodeTypeBadge nodeType="filter.play_count" />);
+    const { container } = render(
+      <NodeTypeBadge nodeType="filter.play_count" />,
+    );
     const badge = container.querySelector("span");
     expect(badge).toHaveTextContent("filter");
     // Filter category has oklch(0.35_0.08_55) background

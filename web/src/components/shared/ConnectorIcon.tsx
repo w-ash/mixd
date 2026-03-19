@@ -115,7 +115,7 @@ export function ConnectorIcon({
   return (
     <span
       className={`inline-flex items-center gap-2 font-display text-sm font-medium ${config.colorClass} ${className}`}
-      title={config.label}
+      {...(labelHidden ? { "aria-hidden": true } : { title: config.label })}
     >
       <Logo className={`${iconSizes[iconSize]} shrink-0`} />
       {!labelHidden && config.label}

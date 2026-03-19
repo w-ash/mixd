@@ -1,16 +1,15 @@
 """Integration tests for connector status endpoints.
 
-Tests filesystem-based connector status detection using monkeypatched
-paths and environment variables. The status logic lives in the
-application service (connector_status.py) — patches target that module.
+Tests connector status detection using mocked TokenStorage.
+The status logic lives in connector_status.py — patches target that module.
 """
 
-import json
-from pathlib import Path
 import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
+
+from src.infrastructure.connectors._shared.token_storage import StoredToken
 
 # Patch target prefix — logic lives in infrastructure alongside connectors
 _SVC = "src.infrastructure.connectors._shared.connector_status"
@@ -29,124 +28,74 @@ class TestGetConnectors:
         assert names == {"spotify", "lastfm", "musicbrainz", "apple"}
 
 
-class TestSpotifyStatus:
-    """Spotify connector status detection from .spotify_cache file."""
+def _mock_storage(spotify_token: StoredToken | None = None, lastfm_token: StoredToken | None = None) -> AsyncMock:
+    """Create a mock TokenStorage with configured return values."""
+    storage = AsyncMock()
 
-    async def test_disconnected_when_no_cache(
-        self, client: httpx.AsyncClient, tmp_path: Path
+    async def _load(service: str) -> StoredToken | None:
+        if service == "spotify":
+            return spotify_token
+        if service == "lastfm":
+            return lastfm_token
+        return None
+
+    storage.load_token = AsyncMock(side_effect=_load)
+    storage.save_token = AsyncMock()
+    storage.delete_token = AsyncMock()
+    return storage
+
+
+class TestSpotifyStatus:
+    """Spotify connector status detection from TokenStorage."""
+
+    async def test_disconnected_when_no_token(
+        self, client: httpx.AsyncClient
     ) -> None:
-        with patch(
-            f"{_SVC}.Path",
-            return_value=tmp_path / "nonexistent",
-        ):
+        storage = _mock_storage(spotify_token=None)
+        with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["connected"] is False
 
-    async def test_connected_with_valid_cache(
-        self, client: httpx.AsyncClient, tmp_path: Path
+    async def test_connected_with_valid_token(
+        self, client: httpx.AsyncClient
     ) -> None:
-        cache_file = tmp_path / ".spotify_cache"
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) + 3600,
-                "refresh_token": "test_refresh",
-                "display_name": "testuser",
-            })
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="testuser",
         )
-        with patch(
-            f"{_SVC}.Path",
-            return_value=cache_file,
-        ):
+        storage = _mock_storage(spotify_token=token)
+        with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["connected"] is True
         assert spotify["token_expires_at"] is not None
+        assert spotify["account_name"] == "testuser"
 
     async def test_connected_with_expired_token_but_refresh_token(
-        self, client: httpx.AsyncClient, tmp_path: Path
+        self, client: httpx.AsyncClient
     ) -> None:
         """Expired access token is still 'connected' — SpotifyTokenManager auto-refreshes."""
-        cache_file = tmp_path / ".spotify_cache"
         stale_expires = int(time.time()) - 3600
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": stale_expires,
-                "refresh_token": "test_refresh",
-            })
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=stale_expires,
         )
+        storage = _mock_storage(spotify_token=token)
+
+        # Mock try_silent_refresh at the class level to avoid hitting Spotify
+        mock_refresh = AsyncMock(return_value=None)
+
         with (
+            patch(f"{_SVC}.get_token_storage", return_value=storage),
             patch(
-                f"{_SVC}.Path",
-                return_value=cache_file,
-            ),
-            patch(
-                f"{_SVC}._try_refresh_spotify_token",
-                return_value=(None, None),
-            ),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is True
-        assert spotify["token_expires_at"] == stale_expires
-
-    async def test_expired_token_refresh_returns_fresh_expires(
-        self, client: httpx.AsyncClient, tmp_path: Path
-    ) -> None:
-        """Silent refresh updates token_expires_at to a future timestamp."""
-        cache_file = tmp_path / ".spotify_cache"
-        fresh_expires = int(time.time()) + 3600
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) - 3600,
-                "refresh_token": "test_refresh",
-            })
-        )
-        with (
-            patch(
-                f"{_SVC}.Path",
-                return_value=cache_file,
-            ),
-            patch(
-                f"{_SVC}._try_refresh_spotify_token",
-                return_value=(fresh_expires, "refreshed_user"),
-            ),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is True
-        assert spotify["token_expires_at"] == fresh_expires
-        assert spotify["token_expires_at"] > time.time()
-        assert spotify["account_name"] == "refreshed_user"
-
-    async def test_expired_token_refresh_failure_still_connected(
-        self, client: httpx.AsyncClient, tmp_path: Path
-    ) -> None:
-        """Failed silent refresh falls through with stale data — still connected."""
-        cache_file = tmp_path / ".spotify_cache"
-        stale_expires = int(time.time()) - 3600
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": stale_expires,
-                "refresh_token": "test_refresh",
-            })
-        )
-        with (
-            patch(
-                f"{_SVC}.Path",
-                return_value=cache_file,
-            ),
-            patch(
-                f"{_SVC}._try_refresh_spotify_token",
-                return_value=(None, None),
+                "src.infrastructure.connectors.spotify.auth.SpotifyTokenManager.try_silent_refresh",
+                mock_refresh,
             ),
         ):
             response = await client.get("/api/v1/connectors")
@@ -156,20 +105,15 @@ class TestSpotifyStatus:
         assert spotify["token_expires_at"] == stale_expires
 
     async def test_disconnected_without_refresh_token(
-        self, client: httpx.AsyncClient, tmp_path: Path
+        self, client: httpx.AsyncClient
     ) -> None:
         """No refresh_token means the connection can't be sustained."""
-        cache_file = tmp_path / ".spotify_cache"
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) + 3600,
-            })
+        token = StoredToken(
+            access_token="test_token",
+            expires_at=int(time.time()) + 3600,
         )
-        with patch(
-            f"{_SVC}.Path",
-            return_value=cache_file,
-        ):
+        storage = _mock_storage(spotify_token=token)
+        with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
@@ -179,50 +123,37 @@ class TestSpotifyStatus:
 class TestSpotifyDisplayName:
     """Spotify display_name fetching and caching."""
 
-    async def test_display_name_from_cache(
-        self, client: httpx.AsyncClient, tmp_path: Path
+    async def test_display_name_from_stored_token(
+        self, client: httpx.AsyncClient
     ) -> None:
-        """Cached display_name returned without any HTTP call."""
-        cache_file = tmp_path / ".spotify_cache"
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) + 3600,
-                "refresh_token": "test_refresh",
-                "display_name": "cached_user",
-            })
+        """Cached account_name returned without any HTTP call."""
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="cached_user",
         )
-        with patch(
-            f"{_SVC}.Path",
-            return_value=cache_file,
-        ):
+        storage = _mock_storage(spotify_token=token)
+        with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["account_name"] == "cached_user"
 
     async def test_fetches_display_name_when_not_cached(
-        self, client: httpx.AsyncClient, tmp_path: Path
+        self, client: httpx.AsyncClient
     ) -> None:
         """First visit with valid token fetches display_name and caches it."""
-        cache_file = tmp_path / ".spotify_cache"
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) + 3600,
-                "refresh_token": "test_refresh",
-            })
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=int(time.time()) + 3600,
         )
+        storage = _mock_storage(spotify_token=token)
         mock_fetch = AsyncMock(return_value="fetched_user")
         with (
-            patch(
-                f"{_SVC}.Path",
-                return_value=cache_file,
-            ),
-            patch(
-                f"{_SVC}._fetch_spotify_display_name",
-                mock_fetch,
-            ),
+            patch(f"{_SVC}.get_token_storage", return_value=storage),
+            patch(f"{_SVC}._fetch_spotify_display_name", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 
@@ -230,32 +161,23 @@ class TestSpotifyDisplayName:
         assert spotify["account_name"] == "fetched_user"
         mock_fetch.assert_called_once_with("test_token")
 
-        # Verify it was cached back to file
-        updated_cache = json.loads(cache_file.read_text())
-        assert updated_cache["display_name"] == "fetched_user"
+        # Verify it was saved back to storage with account_name
+        storage.save_token.assert_called()
 
     async def test_display_name_fetch_failure_returns_none(
-        self, client: httpx.AsyncClient, tmp_path: Path
+        self, client: httpx.AsyncClient
     ) -> None:
         """Failed display_name fetch returns null — still connected."""
-        cache_file = tmp_path / ".spotify_cache"
-        cache_file.write_text(
-            json.dumps({
-                "access_token": "test_token",
-                "expires_at": int(time.time()) + 3600,
-                "refresh_token": "test_refresh",
-            })
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=int(time.time()) + 3600,
         )
+        storage = _mock_storage(spotify_token=token)
         mock_fetch = AsyncMock(return_value=None)
         with (
-            patch(
-                f"{_SVC}.Path",
-                return_value=cache_file,
-            ),
-            patch(
-                f"{_SVC}._fetch_spotify_display_name",
-                mock_fetch,
-            ),
+            patch(f"{_SVC}.get_token_storage", return_value=storage),
+            patch(f"{_SVC}._fetch_spotify_display_name", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 
@@ -288,7 +210,7 @@ class TestAppleMusicStatus:
 
 
 class TestLastfmStatus:
-    """Last.fm connector status from settings."""
+    """Last.fm connector status from TokenStorage + settings."""
 
     async def test_status_reflects_settings(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")

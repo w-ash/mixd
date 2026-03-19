@@ -11,23 +11,40 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 };
 Element.prototype.scrollIntoView = () => {};
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});
 
+import { getAuthMock } from "@/api/generated/auth/auth.msw";
 import { getConnectorsMock } from "@/api/generated/connectors/connectors.msw";
 import { getHealthMock } from "@/api/generated/health/health.msw";
 import { getImportsMock } from "@/api/generated/imports/imports.msw";
 import { getOperationsMock } from "@/api/generated/operations/operations.msw";
 import { getPlaylistsMock } from "@/api/generated/playlists/playlists.msw";
+import { getSettingsMock } from "@/api/generated/settings/settings.msw";
 import { getStatsMock } from "@/api/generated/stats/stats.msw";
 import { getTracksMock } from "@/api/generated/tracks/tracks.msw";
 import { getWorkflowsMock } from "@/api/generated/workflows/workflows.msw";
 
 export const server = setupServer(
+  ...getAuthMock(),
   ...getPlaylistsMock(),
   ...getTracksMock(),
   ...getConnectorsMock(),
   ...getHealthMock(),
   ...getImportsMock(),
   ...getOperationsMock(),
+  ...getSettingsMock(),
   ...getStatsMock(),
   ...getWorkflowsMock(),
 );

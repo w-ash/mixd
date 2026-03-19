@@ -770,6 +770,54 @@ class DBWorkflowRunNode(DatabaseModel):
     __table_args__: tuple[Any, ...] = (Index("ix_workflow_run_nodes_run_id", "run_id"),)
 
 
+class DBOAuthToken(BaseEntity):
+    """Persisted OAuth tokens and session keys for external service authentication.
+
+    Single row per service (UNIQUE constraint on service). Supports both
+    OAuth 2.0 tokens (Spotify: access_token + refresh_token + expires_at) and
+    session-based auth (Last.fm: session_key, infinite lifetime).
+
+    Enables cloud deployment where filesystem is ephemeral — tokens survive
+    container restarts without re-authentication.
+    """
+
+    __tablename__: str = "oauth_tokens"
+
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    access_token: Mapped[str | None] = mapped_column(String())
+    refresh_token: Mapped[str | None] = mapped_column(String())
+    session_key: Mapped[str | None] = mapped_column(String())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scope: Mapped[str | None] = mapped_column(String())
+    account_name: Mapped[str | None] = mapped_column(String(255))
+    extra_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint("service", name="uq_oauth_tokens_service"),
+    )
+
+
+class DBUserSettings(BaseEntity):
+    """User preferences and application settings.
+
+    Single-row JSONB store for all user settings. Extensible without
+    migrations — new settings are just new keys in the JSONB column.
+
+    Currently single-user (key='default'). Multi-user support (v1.0.0)
+    would change `key` to a user ID.
+    """
+
+    __tablename__: str = "user_settings"
+
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+    __table_args__: tuple[Any, ...] = (
+        UniqueConstraint("key", name="uq_user_settings_key"),
+    )
+
+
 class DBSyncCheckpoint(BaseEntity):
     """Sync state tracking for incremental operations.
 

@@ -6,6 +6,33 @@ import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
 import { Integrations } from "./Integrations";
 
+const allConnectors = [
+  {
+    name: "spotify",
+    connected: true,
+    account_name: "testuser",
+    token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+  },
+  {
+    name: "lastfm",
+    connected: true,
+    account_name: "lfmuser",
+    token_expires_at: null,
+  },
+  {
+    name: "musicbrainz",
+    connected: true,
+    account_name: null,
+    token_expires_at: null,
+  },
+  {
+    name: "apple",
+    connected: false,
+    account_name: null,
+    token_expires_at: null,
+  },
+];
+
 describe("Integrations", () => {
   it("renders loading skeleton initially", () => {
     renderWithProviders(<Integrations />);
@@ -17,35 +44,7 @@ describe("Integrations", () => {
   it("renders connector cards grouped into sections", async () => {
     server.use(
       http.get("*/api/v1/connectors", () => {
-        return HttpResponse.json(
-          [
-            {
-              name: "spotify",
-              connected: true,
-              account_name: "testuser",
-              token_expires_at: Math.floor(Date.now() / 1000) + 3600,
-            },
-            {
-              name: "lastfm",
-              connected: true,
-              account_name: "lfmuser",
-              token_expires_at: null,
-            },
-            {
-              name: "musicbrainz",
-              connected: true,
-              account_name: null,
-              token_expires_at: null,
-            },
-            {
-              name: "apple",
-              connected: false,
-              account_name: null,
-              token_expires_at: null,
-            },
-          ],
-          { status: 200 },
-        );
+        return HttpResponse.json(allConnectors, { status: 200 });
       }),
     );
 
@@ -94,5 +93,134 @@ describe("Integrations", () => {
     await waitFor(() => {
       expect(screen.getByText("No connectors configured")).toBeInTheDocument();
     });
+  });
+
+  it("shows onboarding hero when no connectable services are connected", async () => {
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        return HttpResponse.json(
+          [
+            {
+              name: "spotify",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "lastfm",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "musicbrainz",
+              connected: true,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "apple",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+          ],
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Bring your music home")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(
+        /Connect your streaming services to start building your unified library/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show onboarding hero when at least one service is connected", async () => {
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        return HttpResponse.json(allConnectors, { status: 200 });
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Bring your music home")).not.toBeInTheDocument();
+  });
+
+  it("shows connect buttons for disconnected services", async () => {
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        return HttpResponse.json(
+          [
+            {
+              name: "spotify",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "lastfm",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "musicbrainz",
+              connected: true,
+              account_name: null,
+              token_expires_at: null,
+            },
+            {
+              name: "apple",
+              connected: false,
+              account_name: null,
+              token_expires_at: null,
+            },
+          ],
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
+    });
+
+    // Connect buttons in the section cards
+    const connectButtons = screen.getAllByText(/Connect Spotify/);
+    expect(connectButtons.length).toBeGreaterThan(0);
+
+    const lastfmButtons = screen.getAllByText(/Connect Last\.fm/);
+    expect(lastfmButtons.length).toBeGreaterThan(0);
+  });
+
+  it("updates page description", async () => {
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        return HttpResponse.json(allConnectors, { status: 200 });
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Integrations")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Your music services/)).toBeInTheDocument();
   });
 });

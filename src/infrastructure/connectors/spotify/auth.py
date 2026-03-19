@@ -1,11 +1,11 @@
 """Spotify OAuth 2.0 token manager.
 
 Implements the Authorization Code flow to obtain and refresh access tokens.
-Reads and writes the same .spotify_cache JSON format as spotipy's CacheFileHandler,
-so existing tokens are transparently reused after migration.
+Token persistence is delegated to a TokenStorage implementation — either
+file-based (CLI) or database-backed (hosted deployment).
 
 Auth flow:
-1. Check .spotify_cache for a valid token — use it if not expired.
+1. Check storage for a valid token — use it if not expired.
 2. If token expired, POST to /api/token with refresh_token to get a new one.
 3. If no token exists (first run), open browser to /authorize, run a minimal
    local HTTP server to capture the redirect code, then exchange code for tokens.
@@ -20,8 +20,6 @@ import asyncio
 import base64
 import collections.abc
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import json
-from pathlib import Path
 import secrets
 import time
 from typing import Any, TypedDict, cast, override
@@ -33,6 +31,10 @@ import httpx
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.http_client import make_spotify_auth_client
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    TokenStorage,
+)
 
 logger = get_logger(__name__).bind(service="spotify_auth")
 
@@ -73,26 +75,16 @@ class SpotifyTokenCache(TypedDict):
 class SpotifyTokenManager:
     """Async OAuth 2.0 token manager for the Spotify Web API.
 
-    Reads/writes the same .spotify_cache JSON format as spotipy.CacheFileHandler,
-    so the migration from spotipy is transparent to existing users.
-
-    Token cache format (spotipy-compatible):
-        {
-            "access_token": "...",
-            "token_type": "Bearer",
-            "expires_in": 3600,
-            "scope": "...",
-            "expires_at": 1771272642,   # Unix timestamp when token expires
-            "refresh_token": "..."
-        }
+    Token persistence is delegated to the injected TokenStorage — file-based
+    for CLI usage, database-backed for hosted deployment.
 
     Example:
-        >>> mgr = SpotifyTokenManager()
+        >>> from src.infrastructure.connectors._shared.token_storage import get_token_storage
+        >>> mgr = SpotifyTokenManager(storage=get_token_storage())
         >>> token = await mgr.get_valid_token()
-        >>> # Use token in Authorization header
     """
 
-    cache_path: Path = field(factory=lambda: Path(".spotify_cache"))
+    storage: TokenStorage
     _refresh_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _token_info: SpotifyTokenCache | None = field(default=None, init=False, repr=False)
 
@@ -100,22 +92,16 @@ class SpotifyTokenManager:
     # CACHE HELPERS
     # -------------------------------------------------------------------------
 
-    def _load_cache(self) -> SpotifyTokenCache | None:
-        """Read token from cache file. Returns None if missing or malformed."""
-        if not self.cache_path.exists():
+    async def _load_from_storage(self) -> SpotifyTokenCache | None:
+        """Load token from storage. Returns None if missing."""
+        stored = await self.storage.load_token("spotify")
+        if stored is None:
             return None
-        try:
-            return cast(SpotifyTokenCache, json.loads(self.cache_path.read_text()))
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Failed to read Spotify token cache: {e}")
-            return None
+        return cast(SpotifyTokenCache, stored)
 
-    def _save_cache(self, token_info: SpotifyTokenCache) -> None:
-        """Write token to cache file in spotipy-compatible format."""
-        try:
-            self.cache_path.write_text(json.dumps(token_info))
-        except OSError as e:
-            logger.warning(f"Failed to write Spotify token cache: {e}")
+    async def _save_to_storage(self, token_info: SpotifyTokenCache) -> None:
+        """Persist token to storage."""
+        await self.storage.save_token("spotify", cast(StoredToken, token_info))
 
     @staticmethod
     def _is_expired(token_info: SpotifyTokenCache) -> bool:
@@ -220,7 +206,7 @@ class SpotifyTokenManager:
         logger.debug("Spotify authorization code captured")
         return captured["code"]
 
-    async def _exchange_code(self, code: str) -> SpotifyTokenCache:
+    async def exchange_code(self, code: str) -> SpotifyTokenCache:
         """Exchange authorization code for access + refresh tokens."""
         redirect_uri = settings.credentials.spotify_redirect_uri
         async with make_spotify_auth_client() as client:
@@ -262,9 +248,9 @@ class SpotifyTokenManager:
             RuntimeError: If browser authorization fails.
         """
         async with self._refresh_lock:
-            # Load from cache file on first call
+            # Load from storage on first call
             if self._token_info is None:
-                self._token_info = self._load_cache()
+                self._token_info = await self._load_from_storage()
 
             # Refresh expired token
             if self._token_info and self._is_expired(self._token_info):
@@ -272,14 +258,14 @@ class SpotifyTokenManager:
                 self._token_info = await self._refresh_token(
                     self._token_info["refresh_token"]
                 )
-                self._save_cache(self._token_info)
+                await self._save_to_storage(self._token_info)
 
             # First-time: browser authorization flow
             if self._token_info is None:
                 logger.info("No Spotify token found — starting browser authorization")
                 code = await asyncio.to_thread(self._run_browser_auth)
-                self._token_info = await self._exchange_code(code)
-                self._save_cache(self._token_info)
+                self._token_info = await self.exchange_code(code)
+                await self._save_to_storage(self._token_info)
 
             return self._token_info["access_token"]
 
@@ -294,7 +280,7 @@ class SpotifyTokenManager:
         """
         async with self._refresh_lock:
             if self._token_info is None:
-                self._token_info = self._load_cache()
+                self._token_info = await self._load_from_storage()
             if self._token_info is None:
                 return None
             if not self._is_expired(self._token_info):
@@ -307,7 +293,7 @@ class SpotifyTokenManager:
                 logger.opt(exception=True).warning("Silent token refresh failed")
                 return None
             else:
-                self._save_cache(self._token_info)
+                await self._save_to_storage(self._token_info)
                 return self._token_info
 
     async def force_refresh(self) -> str:
@@ -325,7 +311,7 @@ class SpotifyTokenManager:
         """
         async with self._refresh_lock:
             if self._token_info is None:
-                self._token_info = self._load_cache()
+                self._token_info = await self._load_from_storage()
             if self._token_info is None or "refresh_token" not in self._token_info:
                 raise RuntimeError(
                     "No refresh token available — re-authorization required"
@@ -334,7 +320,7 @@ class SpotifyTokenManager:
             self._token_info = await self._refresh_token(
                 self._token_info["refresh_token"]
             )
-            self._save_cache(self._token_info)
+            await self._save_to_storage(self._token_info)
             return self._token_info["access_token"]
 
 

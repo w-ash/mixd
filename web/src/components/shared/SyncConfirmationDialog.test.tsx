@@ -1,12 +1,8 @@
-import { http, HttpResponse } from "msw";
+import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/setup";
-import {
-  renderWithProviders,
-  screen,
-  waitFor,
-} from "@/test/test-utils";
+import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 
 import { SyncConfirmationDialog } from "./SyncConfirmationDialog";
 
@@ -37,17 +33,20 @@ describe("SyncConfirmationDialog", () => {
 
   it("shows preview with add/remove counts", async () => {
     server.use(
-      http.get("*/api/v1/playlists/:playlistId/links/:linkId/sync/preview", () => {
-        return HttpResponse.json({
-          tracks_to_add: 5,
-          tracks_to_remove: 2,
-          tracks_unchanged: 10,
-          direction: "push",
-          connector_name: "spotify",
-          playlist_name: "Test Playlist",
-          has_comparison_data: true,
-        });
-      }),
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json({
+            tracks_to_add: 5,
+            tracks_to_remove: 2,
+            tracks_unchanged: 10,
+            direction: "push",
+            connector_name: "spotify",
+            playlist_name: "Test Playlist",
+            has_comparison_data: true,
+          });
+        },
+      ),
     );
 
     renderDialog();
@@ -61,39 +60,47 @@ describe("SyncConfirmationDialog", () => {
 
   it("shows already-in-sync when no changes", async () => {
     server.use(
-      http.get("*/api/v1/playlists/:playlistId/links/:linkId/sync/preview", () => {
-        return HttpResponse.json({
-          tracks_to_add: 0,
-          tracks_to_remove: 0,
-          tracks_unchanged: 15,
-          direction: "push",
-          connector_name: "spotify",
-          playlist_name: "Test Playlist",
-          has_comparison_data: true,
-        });
-      }),
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json({
+            tracks_to_add: 0,
+            tracks_to_remove: 0,
+            tracks_unchanged: 15,
+            direction: "push",
+            connector_name: "spotify",
+            playlist_name: "Test Playlist",
+            has_comparison_data: true,
+          });
+        },
+      ),
     );
 
     renderDialog();
 
     await waitFor(() => {
-      expect(screen.getByText(/playlists are already in sync/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/playlists are already in sync/i),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows first-sync message when no comparison data", async () => {
     server.use(
-      http.get("*/api/v1/playlists/:playlistId/links/:linkId/sync/preview", () => {
-        return HttpResponse.json({
-          tracks_to_add: 0,
-          tracks_to_remove: 0,
-          tracks_unchanged: 0,
-          direction: "push",
-          connector_name: "spotify",
-          playlist_name: "Test Playlist",
-          has_comparison_data: false,
-        });
-      }),
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json({
+            tracks_to_add: 0,
+            tracks_to_remove: 0,
+            tracks_unchanged: 0,
+            direction: "push",
+            connector_name: "spotify",
+            playlist_name: "Test Playlist",
+            has_comparison_data: false,
+          });
+        },
+      ),
     );
 
     renderDialog();
@@ -105,18 +112,23 @@ describe("SyncConfirmationDialog", () => {
 
   it("shows error state when preview fetch fails", async () => {
     server.use(
-      http.get("*/api/v1/playlists/:playlistId/links/:linkId/sync/preview", () => {
-        return HttpResponse.json(
-          { error: { code: "INTERNAL_ERROR", message: "fail" } },
-          { status: 500 },
-        );
-      }),
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json(
+            { error: { code: "INTERNAL_ERROR", message: "fail" } },
+            { status: 500 },
+          );
+        },
+      ),
     );
 
     renderDialog();
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to load sync preview/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/failed to load sync preview/i),
+      ).toBeInTheDocument();
     });
   });
 

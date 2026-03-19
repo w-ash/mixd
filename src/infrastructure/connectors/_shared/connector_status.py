@@ -1,22 +1,25 @@
 """Connector status checking service.
 
 Encapsulates the infrastructure-coupled logic for determining whether
-music service connectors are authenticated and healthy — token management,
-cache file I/O, and Spotify API calls. Lives in infrastructure because
-it contains zero business logic.
+music service connectors are authenticated and healthy. Uses TokenStorage
+for credential persistence (database-backed in production, file-backed
+in CLI development).
 """
 
 # pyright: reportAny=false, reportExplicitAny=false
 # Legitimate Any: JSON cache data, httpx response
 
-import json
-from pathlib import Path
 import time
 
 from attrs import define
 import httpx
 
 from src.config import get_logger, settings
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    TokenStorage,
+    get_token_storage,
+)
 
 logger = get_logger(__name__).bind(service="connector_status")
 
@@ -56,99 +59,97 @@ async def _fetch_spotify_display_name(access_token: str) -> str | None:
         return None
 
 
-async def _try_refresh_spotify_token(
-    cache_path: Path,
-) -> tuple[int | None, str | None]:
-    """Silently refresh an expired Spotify access token.
-
-    Uses SpotifyTokenManager.try_silent_refresh() which handles expired tokens
-    without the browser OAuth fallback that would block the server.
-
-    Returns (new_expires_at, display_name) on success, (None, None) on failure.
-    """
-    from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
-
-    mgr = SpotifyTokenManager(cache_path=cache_path)
-    refreshed = await mgr.try_silent_refresh()
-    if refreshed is None:
-        return None, None
-
-    display_name = await _fetch_spotify_display_name(refreshed["access_token"])
-    return refreshed["expires_at"], display_name
-
-
-async def get_spotify_status() -> ConnectorStatus:
-    """Check Spotify auth by reading .spotify_cache file.
+async def get_spotify_status(
+    storage: TokenStorage | None = None,
+) -> ConnectorStatus:
+    """Check Spotify auth by reading token from storage.
 
     If the cached token is expired but a refresh_token exists, attempts
     a silent refresh so the frontend sees a fresh expires_at.
     """
-    cache_path = Path(".spotify_cache")
-    if not cache_path.exists():  # noqa: ASYNC240  # trivial ~200-byte cache file
+    storage = storage or get_token_storage()
+    token_data = await storage.load_token("spotify")
+
+    if token_data is None:
         return ConnectorStatus(name="spotify", connected=False)
 
-    try:
-        token_info: dict[str, object] = json.loads(
-            cache_path.read_text(encoding="utf-8")  # noqa: ASYNC240
-        )
-        # A refresh_token means the connection is persistent — SpotifyTokenManager
-        # auto-refreshes expired access tokens, so expires_at alone doesn't
-        # determine connectivity.
-        has_refresh = bool(token_info.get("refresh_token"))
-        raw_expires = token_info.get("expires_at", 0)
-        expires_at = (
-            float(raw_expires) if isinstance(raw_expires, (int, float, str)) else 0.0
-        )
+    has_refresh = bool(token_data.get("refresh_token"))
+    expires_at = token_data.get("expires_at", 0) or 0
+    display_name = token_data.get("account_name")
 
-        # Read cached display_name (may have been stored on a previous refresh)
-        cached_display_name = token_info.get("display_name")
-        display_name = str(cached_display_name) if cached_display_name else None
+    # Silent refresh: if token is expired and we have a refresh_token,
+    # try to get a fresh access token so the frontend sees "Connected."
+    if has_refresh and expires_at < time.time():
+        from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
-        # Silent refresh: if token is expired and we have a refresh_token,
-        # try to get a fresh access token so the frontend sees "Connected."
-        if has_refresh and expires_at < time.time():
-            fresh_expires, fresh_display_name = await _try_refresh_spotify_token(
-                cache_path
-            )
-            if fresh_expires is not None:
-                expires_at = float(fresh_expires)
-            if fresh_display_name:
-                display_name = fresh_display_name
-
-        # First visit with valid token but no cached display_name: one-time fetch
-        access_token = token_info.get("access_token")
-        if (
-            has_refresh
-            and not display_name
-            and isinstance(access_token, str)
-            and expires_at > time.time()
-        ):
-            display_name = await _fetch_spotify_display_name(access_token)
-            if display_name:
-                # Cache it back so subsequent loads skip the HTTP call
-                token_info["display_name"] = display_name
-                cache_path.write_text(  # noqa: ASYNC240
-                    json.dumps(token_info), encoding="utf-8"
+        mgr = SpotifyTokenManager(storage=storage)
+        refreshed = await mgr.try_silent_refresh()
+        if refreshed is not None:
+            expires_at = refreshed.get("expires_at", 0)
+            if not display_name:
+                display_name = await _fetch_spotify_display_name(
+                    refreshed["access_token"]
                 )
+                if display_name:
+                    # Cache display name back to storage
+                    merged: StoredToken = {**refreshed, "account_name": display_name}  # type: ignore[typeddict-item]
+                    await storage.save_token("spotify", merged)
 
-        return ConnectorStatus(
-            name="spotify",
-            connected=has_refresh,
-            account_name=display_name,
-            token_expires_at=int(expires_at) if expires_at else None,
-        )
-    except json.JSONDecodeError, KeyError:
-        return ConnectorStatus(name="spotify", connected=False)
+    # First visit with valid token but no cached display_name: one-time fetch
+    access_token = token_data.get("access_token")
+    if (
+        has_refresh
+        and not display_name
+        and isinstance(access_token, str)
+        and expires_at > time.time()
+    ):
+        display_name = await _fetch_spotify_display_name(access_token)
+        if display_name:
+            updated: StoredToken = {**token_data, "account_name": display_name}
+            await storage.save_token("spotify", updated)
+
+    return ConnectorStatus(
+        name="spotify",
+        connected=has_refresh,
+        account_name=display_name,
+        token_expires_at=int(expires_at) if expires_at else None,
+    )
 
 
-def get_lastfm_status() -> ConnectorStatus:
-    """Check Last.fm auth by reading credentials from settings."""
-    has_key = bool(settings.credentials.lastfm_key)
+async def get_lastfm_status(
+    storage: TokenStorage | None = None,
+) -> ConnectorStatus:
+    """Check Last.fm auth by looking up stored session key.
+
+    Connected = has stored session key AND has API key configured.
+    Falls back to env var check if no session key is stored (password-based
+    auth obtains the session key on first authenticated request).
+    """
+    storage = storage or get_token_storage()
+    token_data = await storage.load_token("lastfm")
+
+    has_api_key = bool(settings.credentials.lastfm_key)
+    has_session = token_data is not None and bool(token_data.get("session_key"))
+    has_password = bool(
+        settings.credentials.lastfm_password
+        and settings.credentials.lastfm_password.get_secret_value()
+    )
     has_username = bool(settings.credentials.lastfm_username)
+
+    # Connected if we have a stored session key, OR if we have credentials
+    # to obtain one (api_key + username + password)
+    connected = has_api_key and (has_session or (has_username and has_password))
+
+    account_name = (
+        (token_data.get("account_name") if token_data else None)
+        or settings.credentials.lastfm_username
+        or None
+    )
+
     return ConnectorStatus(
         name="lastfm",
-        connected=has_key and has_username,
-        account_name=settings.credentials.lastfm_username or None,
+        connected=connected,
+        account_name=account_name,
     )
 
 
@@ -164,9 +165,11 @@ def get_apple_music_status() -> ConnectorStatus:
 
 async def get_all_connector_statuses() -> list[ConnectorStatus]:
     """Get authentication status of all configured connectors."""
-    return [
-        await get_spotify_status(),
-        get_lastfm_status(),
-        get_musicbrainz_status(),
-        get_apple_music_status(),
-    ]
+    import asyncio
+
+    storage = get_token_storage()
+    spotify, lastfm = await asyncio.gather(
+        get_spotify_status(storage),
+        get_lastfm_status(storage),
+    )
+    return [spotify, lastfm, get_musicbrainz_status(), get_apple_music_status()]

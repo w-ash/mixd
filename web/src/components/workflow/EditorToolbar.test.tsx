@@ -22,8 +22,8 @@ vi.mock("@/lib/workflow-layout", () => ({
   createInitialNodes: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
 }));
 
-import { renderWithProviders, screen } from "@/test/test-utils";
 import { useEditorStore } from "@/stores/editor-store";
+import { renderWithProviders, screen } from "@/test/test-utils";
 
 import { EditorToolbar } from "./EditorToolbar";
 

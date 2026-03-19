@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noImportantStyles: !important is required in the prefers-reduced-motion block — overrides must beat all specificity (WCAG best practice) */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -5,41 +6,19 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Narada — Dark Editorial Music Aesthetic
+ * Narada — Warm Editorial Music Aesthetic
  *
  * Dim-lit record shop meets design magazine.
  * Album art glows against warm dark surfaces.
  * Warm gold accent cuts through the darkness.
  *
- * Dark-mode ONLY — no light theme. The `:root` block
- * maps shadcn/ui variables to our warm editorial palette.
+ * Light mode: sunlit parchment in a record shop.
+ * Dark mode: dim-lit vinyl lounge.
+ * Both share the same warm hue family (oklch hue 60).
  */
 
-/* ── Narada custom tokens ────────────────────────────── */
+/* ── Mode-independent tokens ──────────────────────── */
 @theme {
-  /* Surface hierarchy — warm-tinted near-blacks */
-  --color-surface: oklch(0.13 0.01 60);
-  --color-surface-elevated: oklch(0.17 0.01 60);
-  --color-surface-sunken: oklch(0.1 0.01 60);
-
-  /* Border extensions */
-  --color-border-muted: oklch(0.2 0.01 60);
-
-  /* Text hierarchy */
-  --color-text: oklch(0.93 0.01 90);
-  --color-text-muted: oklch(0.6 0.02 60);
-  --color-text-faint: oklch(0.55 0.01 60);
-
-  /* Primary extensions */
-  --color-primary-hover: oklch(0.8 0.15 85);
-  --color-primary-muted: oklch(0.55 0.1 85);
-
-  /* Secondary extensions */
-  --color-secondary-hover: oklch(0.75 0.12 25);
-
-  /* Destructive extensions */
-  --color-destructive-hover: oklch(0.65 0.2 25);
-
   /* Connector identity colors */
   --color-spotify: oklch(0.72 0.2 145);
   --color-lastfm: oklch(0.55 0.22 25);
@@ -64,10 +43,6 @@
   --font-body: "Newsreader", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Elevation — warm ambient glow, not cold gray box-shadow */
-  --shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
-  --shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
-
   /* Spacing */
   --spacing-page: 2rem;
   --spacing-section: 1.5rem;
@@ -82,8 +57,36 @@
     both;
 }
 
-/* ── shadcn/ui token bridge ──────────────────────────── */
+/* ── Mode-dependent tokens (swap via CSS custom properties) ── */
 @theme inline {
+  /* Surface hierarchy */
+  --color-surface: var(--narada-surface);
+  --color-surface-elevated: var(--narada-surface-elevated);
+  --color-surface-sunken: var(--narada-surface-sunken);
+
+  /* Text hierarchy */
+  --color-text: var(--narada-text);
+  --color-text-muted: var(--narada-text-muted);
+  --color-text-faint: var(--narada-text-faint);
+
+  /* Border extensions */
+  --color-border-muted: var(--narada-border-muted);
+
+  /* Primary extensions */
+  --color-primary-hover: var(--narada-primary-hover);
+  --color-primary-muted: var(--narada-primary-muted);
+
+  /* Secondary extensions */
+  --color-secondary-hover: var(--narada-secondary-hover);
+
+  /* Destructive extensions */
+  --color-destructive-hover: var(--narada-destructive-hover);
+
+  /* Elevation */
+  --shadow-elevated: var(--narada-shadow-elevated);
+  --shadow-glow: var(--narada-shadow-glow);
+
+  /* shadcn/ui token bridge */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -124,11 +127,105 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* ── Dark editorial palette (dark-mode only) ─────────── */
+/* ── Light palette (default) — sunlit parchment ──── */
 :root {
   --radius: 0.5rem;
 
-  /* Surfaces → warm near-blacks */
+  /* Narada surface tokens — warm off-whites */
+  --narada-surface: oklch(0.97 0.005 60);
+  --narada-surface-elevated: oklch(0.99 0.003 60);
+  --narada-surface-sunken: oklch(0.93 0.008 60);
+
+  /* Narada text tokens — warm near-blacks */
+  --narada-text: oklch(0.15 0.01 60);
+  --narada-text-muted: oklch(0.4 0.02 60);
+  --narada-text-faint: oklch(0.45 0.01 60);
+
+  /* Narada border */
+  --narada-border-muted: oklch(0.88 0.01 60);
+
+  /* Narada primary extensions — deeper amber for light backgrounds */
+  --narada-primary-hover: oklch(0.45 0.16 85);
+  --narada-primary-muted: oklch(0.55 0.1 85);
+
+  /* Narada secondary/destructive extensions */
+  --narada-secondary-hover: oklch(0.6 0.12 25);
+  --narada-destructive-hover: oklch(0.5 0.2 25);
+
+  /* Narada elevation — warm, soft */
+  --narada-shadow-elevated: 0 2px 12px oklch(0.5 0.01 60 / 0.08);
+  --narada-shadow-glow: 0 0 20px oklch(0.55 0.15 85 / 0.08);
+
+  /* shadcn/ui — light palette */
+  --background: oklch(0.97 0.005 60);
+  --foreground: oklch(0.15 0.01 60);
+  --card: oklch(0.99 0.003 60);
+  --card-foreground: oklch(0.15 0.01 60);
+  --popover: oklch(0.99 0.003 60);
+  --popover-foreground: oklch(0.15 0.01 60);
+
+  --primary: oklch(0.5 0.16 85);
+  --primary-foreground: oklch(0.99 0.003 60);
+
+  --secondary: oklch(0.93 0.005 60);
+  --secondary-foreground: oklch(0.15 0.01 60);
+
+  --muted: oklch(0.93 0.005 60);
+  --muted-foreground: oklch(0.4 0.02 60);
+
+  --accent: oklch(0.93 0.005 60);
+  --accent-foreground: oklch(0.15 0.01 60);
+
+  --destructive: oklch(0.5 0.2 25);
+
+  --border: oklch(0.88 0.01 60);
+  --input: oklch(0.88 0.01 60);
+  --ring: oklch(0.5 0.16 85);
+
+  --chart-1: oklch(0.5 0.16 85);
+  --chart-2: oklch(0.5 0.12 25);
+  --chart-3: oklch(0.5 0.2 145);
+  --chart-4: oklch(0.45 0.22 25);
+  --chart-5: oklch(0.5 0.2 350);
+
+  --sidebar: oklch(0.95 0.005 60);
+  --sidebar-foreground: oklch(0.15 0.01 60);
+  --sidebar-primary: oklch(0.5 0.16 85);
+  --sidebar-primary-foreground: oklch(0.99 0.003 60);
+  --sidebar-accent: oklch(0.93 0.005 60);
+  --sidebar-accent-foreground: oklch(0.15 0.01 60);
+  --sidebar-border: oklch(0.88 0.01 60);
+  --sidebar-ring: oklch(0.5 0.16 85);
+}
+
+/* ── Dark palette — dim-lit vinyl lounge ─────────── */
+.dark {
+  /* Narada surface tokens — warm near-blacks */
+  --narada-surface: oklch(0.13 0.01 60);
+  --narada-surface-elevated: oklch(0.17 0.01 60);
+  --narada-surface-sunken: oklch(0.1 0.01 60);
+
+  /* Narada text tokens */
+  --narada-text: oklch(0.93 0.01 90);
+  --narada-text-muted: oklch(0.6 0.02 60);
+  --narada-text-faint: oklch(0.6 0.01 60);
+
+  /* Narada border */
+  --narada-border-muted: oklch(0.2 0.01 60);
+
+  /* Narada primary extensions */
+  --narada-primary-hover: oklch(0.8 0.15 85);
+  --narada-primary-muted: oklch(0.55 0.1 85);
+
+  /* Narada secondary/destructive extensions */
+  --narada-secondary-hover: oklch(0.75 0.12 25);
+  --narada-destructive-hover: oklch(0.65 0.2 25);
+
+  /* Narada elevation — ambient glow */
+  --narada-shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
+  --narada-shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
+
+  /* shadcn/ui — dark palette */
   --background: oklch(0.13 0.01 60);
   --foreground: oklch(0.93 0.01 90);
   --card: oklch(0.17 0.01 60);
@@ -136,38 +233,30 @@
   --popover: oklch(0.17 0.01 60);
   --popover-foreground: oklch(0.93 0.01 90);
 
-  /* Primary → warm gold */
   --primary: oklch(0.75 0.15 85);
   --primary-foreground: oklch(0.13 0.01 60);
 
-  /* Secondary → soft coral */
   --secondary: oklch(0.22 0.01 60);
   --secondary-foreground: oklch(0.93 0.01 90);
 
-  /* Muted → subdued warm */
   --muted: oklch(0.22 0.01 60);
   --muted-foreground: oklch(0.6 0.02 60);
 
-  /* Accent → warm highlight */
   --accent: oklch(0.22 0.01 60);
   --accent-foreground: oklch(0.93 0.01 90);
 
-  /* Destructive → red-orange */
   --destructive: oklch(0.6 0.2 25);
 
-  /* Chrome */
   --border: oklch(0.25 0.01 60);
   --input: oklch(0.25 0.01 60);
   --ring: oklch(0.75 0.15 85);
 
-  /* Charts → editorial palette */
   --chart-1: oklch(0.75 0.15 85);
   --chart-2: oklch(0.7 0.12 25);
   --chart-3: oklch(0.72 0.2 145);
   --chart-4: oklch(0.55 0.22 25);
   --chart-5: oklch(0.7 0.2 350);
 
-  /* Sidebar */
   --sidebar: oklch(0.1 0.01 60);
   --sidebar-foreground: oklch(0.93 0.01 90);
   --sidebar-primary: oklch(0.75 0.15 85);
@@ -178,11 +267,7 @@
   --sidebar-ring: oklch(0.75 0.15 85);
 }
 
-/* ── Base layer ──────────────────────────────────────── */
-html {
-  color-scheme: dark;
-}
-
+/* ── Base layer ──────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -208,21 +293,50 @@ html {
   }
 }
 
-/* ── Background grain texture (analog/vinyl feel) ──── */
+/* ── Background grain texture (analog/vinyl feel) ── */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 9999;
-  opacity: 0.035;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.02;
+  mix-blend-mode: multiply;
+}
+
+.dark body::after {
+  opacity: 0.035;
   mix-blend-mode: overlay;
 }
 
-/* ── React Flow dark editorial theme ─────────────── */
+/* ── React Flow editorial theme ─────────────────── */
 .react-flow {
-  /* Controls (zoom +/-, fit, lock) */
+  /* Controls (zoom +/-, fit, lock) — light */
+  --xy-controls-button-background-color: oklch(0.97 0.005 60);
+  --xy-controls-button-background-color-hover: oklch(0.93 0.005 60);
+  --xy-controls-button-color: oklch(0.4 0.02 60);
+  --xy-controls-button-color-hover: oklch(0.15 0.01 60);
+  --xy-controls-button-border-color: oklch(0.88 0.01 60);
+  --xy-controls-box-shadow: 0 2px 12px oklch(0.5 0.01 60 / 0.08);
+
+  /* Edges */
+  --xy-edge-stroke: oklch(0.8 0.01 60);
+  --xy-edge-stroke-selected: oklch(0.5 0.16 85);
+
+  /* Node chrome */
+  --xy-node-boxshadow-hover: 0 0 8px oklch(0.5 0.16 85 / 0.15);
+  --xy-node-boxshadow-selected: 0 0 0 1px oklch(0.5 0.16 85 / 0.5);
+
+  /* Selection rectangle */
+  --xy-selection-background-color: oklch(0.5 0.16 85 / 0.06);
+  --xy-selection-border: 1px dotted oklch(0.5 0.16 85 / 0.5);
+
+  /* Background dots */
+  --xy-background-pattern-color: oklch(0.88 0.01 60);
+}
+
+.dark .react-flow {
   --xy-controls-button-background-color: oklch(0.17 0.01 60);
   --xy-controls-button-background-color-hover: oklch(0.22 0.01 60);
   --xy-controls-button-color: oklch(0.6 0.02 60);
@@ -230,23 +344,19 @@ body::after {
   --xy-controls-button-border-color: oklch(0.25 0.01 60);
   --xy-controls-box-shadow: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
 
-  /* Edges */
   --xy-edge-stroke: oklch(0.35 0.01 60);
   --xy-edge-stroke-selected: oklch(0.75 0.15 85);
 
-  /* Node chrome */
   --xy-node-boxshadow-hover: 0 0 8px oklch(0.75 0.15 85 / 0.15);
   --xy-node-boxshadow-selected: 0 0 0 1px oklch(0.75 0.15 85 / 0.5);
 
-  /* Selection rectangle */
   --xy-selection-background-color: oklch(0.75 0.15 85 / 0.06);
   --xy-selection-border: 1px dotted oklch(0.75 0.15 85 / 0.5);
 
-  /* Background dots */
   --xy-background-pattern-color: oklch(0.25 0.01 60);
 }
 
-/* ── Keyframes ─────────────────────────────────────── */
+/* ── Keyframes ─────────────────────────────────── */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -310,7 +420,19 @@ body::after {
   }
 }
 
-/* ── Utility: hidden scrollbar ────────────────────── */
+/* ── Reduced motion ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Utility: hidden scrollbar ───────────────────── */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;

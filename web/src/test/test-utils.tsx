@@ -3,6 +3,7 @@ import { type RenderOptions, render } from "@testing-library/react";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router";
 
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { WorkflowExecutionProvider } from "@/contexts/WorkflowExecutionContext";
 
 interface ProvidersProps {
@@ -27,11 +28,13 @@ export function createTestQueryClient() {
 function Providers({ children, routerProps }: ProvidersProps) {
   const [queryClient] = useState(createTestQueryClient);
   return (
-    <QueryClientProvider client={queryClient}>
-      <WorkflowExecutionProvider>
-        <MemoryRouter {...routerProps}>{children}</MemoryRouter>
-      </WorkflowExecutionProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <WorkflowExecutionProvider>
+          <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+        </WorkflowExecutionProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 

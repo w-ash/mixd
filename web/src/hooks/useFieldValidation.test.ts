@@ -66,14 +66,14 @@ describe("useFieldValidation", () => {
       useFieldValidation(schema, { name: "", connector: "" }, "n1"),
     );
 
-    let errors: Map<string, string>;
+    let errors = new Map<string, string>();
     act(() => {
       errors = result.current.attemptSave();
     });
 
-    expect(errors!.size).toBe(2);
-    expect(errors!.get("name")).toBe("Name is required");
-    expect(errors!.get("connector")).toBe("Connector is required");
+    expect(errors.size).toBe(2);
+    expect(errors.get("name")).toBe("Name is required");
+    expect(errors.get("connector")).toBe("Connector is required");
     expect(result.current.hasErrors).toBe(true);
     expect(result.current.getError("name")).toBe("Name is required");
     expect(result.current.getError("connector")).toBe("Connector is required");
@@ -88,12 +88,12 @@ describe("useFieldValidation", () => {
       ),
     );
 
-    let errors: Map<string, string>;
+    let errors = new Map<string, string>();
     act(() => {
       errors = result.current.attemptSave();
     });
 
-    expect(errors!.size).toBe(0);
+    expect(errors.size).toBe(0);
     expect(result.current.hasErrors).toBe(false);
   });
 
@@ -186,12 +186,12 @@ describe("useFieldValidation", () => {
       ),
     );
 
-    let errors: Map<string, string>;
+    let errors = new Map<string, string>();
     act(() => {
       errors = result2.current.attemptSave();
     });
 
-    expect(errors!.get("limit")).toBe("Must be at least 1");
+    expect(errors.get("limit")).toBe("Must be at least 1");
     expect(result2.current.getError("limit")).toBe("Must be at least 1");
   });
 
@@ -204,12 +204,12 @@ describe("useFieldValidation", () => {
       ),
     );
 
-    let errors: Map<string, string>;
+    let errors = new Map<string, string>();
     act(() => {
       errors = result.current.attemptSave();
     });
 
-    expect(errors!.get("limit")).toBe("Must be at most 100");
+    expect(errors.get("limit")).toBe("Must be at most 100");
     expect(result.current.getError("limit")).toBe("Must be at most 100");
   });
 

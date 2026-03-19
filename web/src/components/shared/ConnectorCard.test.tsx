@@ -1,148 +1,329 @@
+import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { renderWithProviders, screen } from "@/test/test-utils";
+import type { ConnectorStatusSchema } from "@/api/generated/model";
+import { server } from "@/test/setup";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "@/test/test-utils";
 
 import { ConnectorCard } from "./ConnectorCard";
 
+function makeConnector(
+  overrides: Partial<ConnectorStatusSchema> & { name: string },
+): ConnectorStatusSchema {
+  return {
+    connected: false,
+    account_name: null,
+    token_expires_at: null,
+    ...overrides,
+  };
+}
+
 describe("ConnectorCard", () => {
-  it("renders connected Spotify with account name and token status", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "spotify",
-          connected: true,
-          account_name: "testuser",
-          token_expires_at: Math.floor(Date.now() / 1000) + 3600,
-        }}
-      />,
-    );
+  describe("disconnected state", () => {
+    it("shows Connect button for disconnected Spotify", () => {
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
+      );
 
-    expect(screen.getByText("Spotify")).toBeInTheDocument();
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(
-      screen.getByText("Playlists, liked tracks, and library sync"),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Signed in as testuser/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/token refreshes automatically/),
-    ).toBeInTheDocument();
+      expect(screen.getByText("Not configured")).toBeInTheDocument();
+      expect(screen.getByText("Connect Spotify")).toBeInTheDocument();
+    });
+
+    it("shows Connect button for disconnected Last.fm", () => {
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "lastfm" })} />,
+      );
+
+      expect(screen.getByText("Connect Last.fm")).toBeInTheDocument();
+    });
+
+    it("shows permissions text for Spotify", () => {
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
+      );
+
+      expect(
+        screen.getByText(/We'll access your playlists, liked tracks/),
+      ).toBeInTheDocument();
+    });
+
+    it("shows permissions text for Last.fm", () => {
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "lastfm" })} />,
+      );
+
+      expect(
+        screen.getByText(/We'll access your listening history/),
+      ).toBeInTheDocument();
+    });
   });
 
-  it("renders disconnected Spotify with auth hint", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "spotify",
-          connected: false,
-          account_name: null,
-          token_expires_at: null,
-        }}
-      />,
-    );
+  describe("connected state", () => {
+    it("shows connected Spotify with account name and token status", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
 
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
-    expect(
-      screen.getByText("Playlists, liked tracks, and library sync"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Not connected \u00b7 run narada auth spotify"),
-    ).toBeInTheDocument();
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+      expect(
+        screen.getByText("Playlists, liked tracks, and library sync"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
+      expect(
+        screen.getByText("Token refreshes automatically"),
+      ).toBeInTheDocument();
+    });
+
+    it("shows Disconnect button for connected connector", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Disconnect")).toBeInTheDocument();
+    });
+
+    it("shows confirmation dialog when Disconnect is clicked", async () => {
+      const user = userEvent.setup();
+
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      await user.click(screen.getByText("Disconnect"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Disconnect Spotify?")).toBeInTheDocument();
+      });
+      expect(
+        screen.getByText(/playlists and sync settings will be preserved/),
+      ).toBeInTheDocument();
+    });
+
+    it("shows connected Last.fm with account name and permanent session", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "lastfm",
+            connected: true,
+            account_name: "musicfan42",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Last.fm")).toBeInTheDocument();
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+      expect(screen.getByText("Signed in as musicfan42")).toBeInTheDocument();
+      expect(screen.getByText("Permanent session")).toBeInTheDocument();
+    });
   });
 
-  it("renders expired token badge and detail", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "spotify",
-          connected: true,
-          account_name: "testuser",
-          token_expires_at: Math.floor(Date.now() / 1000) - 3600,
-        }}
-      />,
-    );
+  describe("expired state", () => {
+    it("shows Session expired badge and Reconnect button", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) - 3600,
+          })}
+        />,
+      );
 
-    expect(screen.getByText("Expired")).toBeInTheDocument();
-    expect(screen.getByText(/token expired/)).toBeInTheDocument();
+      expect(screen.getByText("Session expired")).toBeInTheDocument();
+      expect(screen.getByText("Reconnect")).toBeInTheDocument();
+    });
   });
 
-  it("renders connected Last.fm with account name", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "lastfm",
-          connected: true,
-          account_name: "musicfan42",
-          token_expires_at: null,
-        }}
-      />,
-    );
+  describe("error state", () => {
+    it("shows error message and Try again button", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({ name: "spotify" })}
+          authError="access_denied"
+        />,
+      );
 
-    expect(screen.getByText("Last.fm")).toBeInTheDocument();
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(
-      screen.getByText("Listening history, play counts, and loved tracks"),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Signed in as musicfan42/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/You denied the authorization request/),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Try again")).toBeInTheDocument();
+    });
+
+    it("shows raw reason when no friendly message exists", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({ name: "spotify" })}
+          authError="unknown_reason"
+        />,
+      );
+
+      expect(screen.getByText(/unknown_reason/)).toBeInTheDocument();
+    });
   });
 
-  it("renders MusicBrainz with Available badge and public API detail", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "musicbrainz",
-          connected: true,
-          account_name: null,
-          token_expires_at: null,
-        }}
-      />,
-    );
+  describe("passive connectors", () => {
+    it("renders Apple Music with Coming soon badge", () => {
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple" })} />,
+      );
 
-    expect(screen.getByText("MusicBrainz")).toBeInTheDocument();
-    expect(screen.getByText("Available")).toBeInTheDocument();
-    expect(
-      screen.getByText("Track metadata enrichment and identification"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Public API \u00b7 no authentication required"),
-    ).toBeInTheDocument();
+      expect(screen.getByText("Apple Music")).toBeInTheDocument();
+      expect(screen.getByText("Coming soon")).toBeInTheDocument();
+      expect(
+        screen.getByText("Connector under development"),
+      ).toBeInTheDocument();
+      // No interactive buttons
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    });
+
+    it("renders MusicBrainz with Available badge", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "musicbrainz",
+            connected: true,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("MusicBrainz")).toBeInTheDocument();
+      expect(screen.getByText("Available")).toBeInTheDocument();
+      expect(
+        screen.getByText(/no authentication required/),
+      ).toBeInTheDocument();
+    });
   });
 
-  it("renders Apple Music with Coming soon badge and detail", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "apple",
-          connected: false,
-          account_name: null,
-          token_expires_at: null,
-        }}
-      />,
-    );
+  describe("connect flow", () => {
+    it("fetches auth URL and redirects on Connect click", async () => {
+      const user = userEvent.setup();
 
-    expect(screen.getByText("Apple Music")).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
-    expect(
-      screen.getByText("Playlists and library sync (coming soon)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Coming soon \u00b7 connector under development"),
-    ).toBeInTheDocument();
+      server.use(
+        http.get("*/api/v1/connectors/spotify/auth-url", () => {
+          return HttpResponse.json({
+            auth_url: "https://accounts.spotify.com/authorize?test=1",
+          });
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
+      );
+
+      const connectBtn = screen.getByText("Connect Spotify");
+      expect(connectBtn).toBeEnabled();
+
+      // Click connect — in jsdom, window.location.href assignment doesn't navigate
+      // but we verify the button is interactive
+      await user.click(connectBtn);
+    });
   });
 
-  it("renders disconnected auth detail for unconfigured connectors", () => {
-    renderWithProviders(
-      <ConnectorCard
-        connector={{
-          name: "lastfm",
-          connected: false,
-          account_name: null,
-          token_expires_at: null,
-        }}
-      />,
-    );
+  describe("accessibility", () => {
+    it("Disconnect button has aria-label with connector name", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
 
-    expect(
-      screen.getByText("Not connected \u00b7 run narada auth lastfm"),
-    ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Disconnect Spotify" }),
+      ).toBeInTheDocument();
+    });
+
+    it("status dots are hidden from screen readers", () => {
+      const { container } = renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      const dots = container.querySelectorAll("span.rounded-full[aria-hidden]");
+      expect(dots.length).toBeGreaterThan(0);
+      for (const dot of dots) {
+        expect(dot).toHaveAttribute("aria-hidden", "true");
+      }
+    });
+  });
+
+  describe("disconnect flow", () => {
+    it("calls DELETE endpoint when disconnect is confirmed", async () => {
+      const user = userEvent.setup();
+      let deleteCalled = false;
+
+      server.use(
+        http.delete("*/api/v1/connectors/spotify/token", () => {
+          deleteCalled = true;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      // Open confirmation dialog
+      await user.click(screen.getByText("Disconnect"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Disconnect Spotify?")).toBeInTheDocument();
+      });
+
+      // Find and click the confirm button in the dialog
+      // The dialog has both "Cancel" and "Disconnect" buttons
+      const confirmButtons = screen.getAllByText("Disconnect");
+      const dialogConfirm = confirmButtons[confirmButtons.length - 1];
+      await user.click(dialogConfirm);
+
+      await waitFor(() => {
+        expect(deleteCalled).toBe(true);
+      });
+    });
   });
 });

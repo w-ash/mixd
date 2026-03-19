@@ -71,7 +71,11 @@ class SpotifyAPIClient(BaseAPIClient):
     def __attrs_post_init__(self) -> None:
         """Initialize token manager, retry policy, and long-lived pooled client."""
         logger.debug("Initializing Spotify API client")
-        self._token_manager = SpotifyTokenManager()
+        from src.infrastructure.connectors._shared.token_storage import (
+            get_token_storage,
+        )
+
+        self._token_manager = SpotifyTokenManager(storage=get_token_storage())
         from src.infrastructure.connectors._shared.http_client import (
             make_spotify_client,
         )

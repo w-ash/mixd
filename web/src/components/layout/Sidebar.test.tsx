@@ -31,7 +31,9 @@ describe("Sidebar", () => {
 
   it("has accessible navigation landmark", () => {
     renderWithProviders(<Sidebar />);
-    expect(screen.getByRole("navigation", { name: /main navigation/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("navigation", { name: /main navigation/i }),
+    ).toBeInTheDocument();
   });
 
   it("highlights active route", () => {
@@ -47,5 +49,12 @@ describe("Sidebar", () => {
   it("renders version in footer", () => {
     renderWithProviders(<Sidebar />);
     expect(screen.getByText(/v0\.4/)).toBeInTheDocument();
+  });
+
+  it("renders theme toggle in footer", () => {
+    renderWithProviders(<Sidebar />);
+    expect(
+      screen.getByRole("button", { name: /switch to/i }),
+    ).toBeInTheDocument();
   });
 });

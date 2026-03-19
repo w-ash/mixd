@@ -110,14 +110,20 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # Mount routers
+    from src.interface.api.routes.auth import router as auth_router
     from src.interface.api.routes.connectors import router as connectors_router
     from src.interface.api.routes.imports import router as imports_router
     from src.interface.api.routes.operations import router as operations_router
     from src.interface.api.routes.playlists import router as playlists_router
     from src.interface.api.routes.reviews import router as reviews_router
+    from src.interface.api.routes.settings import router as settings_router
     from src.interface.api.routes.stats import router as stats_router
     from src.interface.api.routes.tracks import router as tracks_router
     from src.interface.api.routes.workflows import router as workflows_router
+
+    # Auth routes: callbacks at /auth/*, auth-url endpoints at /api/v1/connectors/*
+    # Mounted without prefix — routes define their own paths
+    app.include_router(auth_router)
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
@@ -128,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(imports_router, prefix="/api/v1")
     app.include_router(operations_router, prefix="/api/v1")
     app.include_router(reviews_router, prefix="/api/v1")
+    app.include_router(settings_router, prefix="/api/v1")
 
     # Serve built frontend if web/dist/ exists
     _mount_static(app)

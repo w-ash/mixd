@@ -1,10 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RunStatusBadge, getStatusConfig } from "./RunStatusBadge";
+import { getStatusConfig, RunStatusBadge } from "./RunStatusBadge";
 
 describe("RunStatusBadge", () => {
-  it.each(["pending", "running", "completed", "failed"])("renders %s status", (status) => {
+  it.each([
+    "pending",
+    "running",
+    "completed",
+    "failed",
+  ])("renders %s status", (status) => {
     render(<RunStatusBadge status={status} />);
     const config = getStatusConfig(status);
     expect(screen.getByText(config.label)).toBeInTheDocument();

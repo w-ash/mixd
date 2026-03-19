@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { cn } from "@/lib/utils";
 
 interface NavChild {
@@ -232,8 +233,9 @@ export function Sidebar() {
       </ul>
 
       {/* Footer */}
-      <div className="px-5 py-4">
+      <div className="flex items-center justify-between px-5 py-4">
         <span className="font-mono text-xs text-text-faint">v0.4</span>
+        <ThemeToggle />
       </div>
     </nav>
   );

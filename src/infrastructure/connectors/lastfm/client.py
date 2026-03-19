@@ -13,6 +13,8 @@ Key components:
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: API response data, framework types
 
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime
 import hashlib
@@ -30,6 +32,7 @@ from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
     RetryPolicyFactory,
 )
+from src.infrastructure.connectors._shared.token_storage import TokenStorage
 from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import (
@@ -96,6 +99,7 @@ class LastFMAPIClient(BaseAPIClient):
     _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
     _client: httpx.AsyncClient = field(init=False, repr=False)
+    _storage: TokenStorage = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Resolve credentials from settings, initialize retry policy, and create pooled client."""
@@ -112,10 +116,14 @@ class LastFMAPIClient(BaseAPIClient):
         if not self.api_key:
             logger.warning("Last.fm API key not provided")
 
+        from src.infrastructure.connectors._shared.token_storage import (
+            get_token_storage,
+        )
         from src.infrastructure.connectors.lastfm.error_classifier import (
             LastFMErrorClassifier,
         )
 
+        self._storage = get_token_storage()
         self._retry_policy = RetryPolicyFactory.create_policy(
             RetryConfig(
                 service_name="lastfm",
@@ -216,8 +224,12 @@ class LastFMAPIClient(BaseAPIClient):
     async def _get_session_key(self) -> str:
         """Return a valid Last.fm session key, obtaining one if not yet cached.
 
-        Session keys are valid indefinitely. Once obtained, they are cached
-        in memory for the lifetime of the client instance.
+        Resolution order:
+        1. In-memory cache (fastest, within same process)
+        2. Database/file storage (survives restarts)
+        3. auth.getMobileSession (password-based, persists result to storage)
+
+        Session keys are valid indefinitely per Last.fm API.
 
         Raises:
             RuntimeError: If credentials for auth are not configured.
@@ -225,6 +237,14 @@ class LastFMAPIClient(BaseAPIClient):
         """
         async with self._session_lock:
             if self._session_key is not None:
+                return self._session_key
+
+            # Check persistent storage (database or file)
+            stored = await self._storage.load_token("lastfm")
+            stored_key = stored.get("session_key") if stored else None
+            if stored_key:
+                self._session_key = stored_key
+                logger.debug("Last.fm session key loaded from storage")
                 return self._session_key
 
             if not (self.api_key and self.api_secret and self.lastfm_username):
@@ -239,7 +259,8 @@ class LastFMAPIClient(BaseAPIClient):
             )
             if not lastfm_password:
                 raise RuntimeError(
-                    "Last.fm write operations require a password in credentials"
+                    "Last.fm write operations require a password in credentials "
+                    "or a session key stored via web auth"
                 )
 
             # auth.getMobileSession signature: Last.fm mobile auth uses md5(username + md5(password))
@@ -268,9 +289,20 @@ class LastFMAPIClient(BaseAPIClient):
                 raise LastFMAPIError(data["error"], data.get("message", ""))
 
             self._session_key = data["session"]["key"]
-            logger.debug("Last.fm session key obtained successfully")
+            logger.debug("Last.fm session key obtained via mobile auth")
             if self._session_key is None:
                 raise RuntimeError("Session key not available after authentication")
+
+            # Persist to storage so it survives restarts
+            await self._storage.save_token(
+                "lastfm",
+                {
+                    "session_key": self._session_key,
+                    "token_type": "session",
+                    "account_name": self.lastfm_username,
+                },
+            )
+
             return self._session_key
 
     # -------------------------------------------------------------------------

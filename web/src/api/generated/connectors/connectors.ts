@@ -6,22 +6,27 @@
  * OpenAPI spec version: 0.5.3
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
-  ConnectorStatusSchema
+  ConnectorStatusSchema,
+  HTTPValidationError
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -142,3 +147,93 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
 
 
 
+/**
+ * Remove stored OAuth token for a connector, disconnecting it.
+ * @summary Delete Connector Token
+ */
+export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponseSuccess = (deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponseError = (deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse = (deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponseSuccess | deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponseError)
+
+export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl = (service: string,) => {
+
+
+  
+
+  return `/api/v1/connectors/${service}/token`
+}
+
+export const deleteConnectorTokenApiV1ConnectorsServiceTokenDelete = async (service: string, options?: RequestInit): Promise<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse> => {
+  
+  return customFetch<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse>(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl(service),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+  
+
+
+
+export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext> => {
+
+const mutationKey = ['deleteConnectorTokenApiV1ConnectorsServiceTokenDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, {service: string}> = (props) => {
+          const {service} = props ?? {};
+
+          return  deleteConnectorTokenApiV1ConnectorsServiceTokenDelete(service,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>>
+    
+    export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Connector Token
+ */
+export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, TError,{service: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>,
+        TError,
+        {service: string},
+        TContext
+      > => {
+      return useMutation(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions(options), queryClient);
+    }
+    

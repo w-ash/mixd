@@ -6,6 +6,162 @@
     "version": "0.5.3"
   },
   "paths": {
+    "/api/v1/connectors/spotify/auth-url": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Spotify Auth Url",
+        "description": "Generate Spotify OAuth authorization URL with CSRF state.",
+        "operationId": "get_spotify_auth_url_api_v1_connectors_spotify_auth_url_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Spotify Auth Url Api V1 Connectors Spotify Auth Url Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/lastfm/auth-url": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Lastfm Auth Url",
+        "description": "Generate Last.fm web auth URL.\n\nDerives the callback URL from the request's Host header so it works\nfor both localhost development and production deployment.",
+        "operationId": "get_lastfm_auth_url_api_v1_connectors_lastfm_auth_url_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Lastfm Auth Url Api V1 Connectors Lastfm Auth Url Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/spotify/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Spotify Callback",
+        "description": "Spotify OAuth callback \u2014 exchanges code for tokens, stores them.\n\nOn success, redirects to /settings/integrations?auth=spotify&status=success.\nOn failure, redirects to /settings/integrations?auth=spotify&status=error.",
+        "operationId": "spotify_callback_auth_spotify_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "State"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/lastfm/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Lastfm Callback",
+        "description": "Last.fm auth callback \u2014 exchanges token for permanent session key.\n\nLast.fm's web auth flow:\n1. User authorized on last.fm, redirected here with ?token=TOKEN\n2. We call auth.getSession to exchange the token for a permanent session key\n3. Session key stored in database, user redirected to /settings",
+        "operationId": "lastfm_callback_auth_lastfm_callback_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -1963,6 +2119,42 @@
         }
       }
     },
+    "/api/v1/connectors/{service}/token": {
+      "delete": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "Delete Connector Token",
+        "description": "Remove stored OAuth token for a connector, disconnecting it.",
+        "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/imports/lastfm/history": {
       "post": {
         "tags": [
@@ -2330,6 +2522,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ResolveReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Settings",
+        "description": "Get all user settings.",
+        "operationId": "get_settings_api_v1_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Patch Settings",
+        "description": "Update user settings (partial merge).",
+        "operationId": "patch_settings_api_v1_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettingsResponse"
                 }
               }
             }
@@ -4375,6 +4629,38 @@
           "definition"
         ],
         "title": "UpdateWorkflowRequest"
+      },
+      "UserSettingsPatch": {
+        "properties": {
+          "theme_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme Mode"
+          }
+        },
+        "type": "object",
+        "title": "UserSettingsPatch",
+        "description": "Partial settings update \u2014 only include fields to change."
+      },
+      "UserSettingsResponse": {
+        "properties": {
+          "theme_mode": {
+            "type": "string",
+            "title": "Theme Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "theme_mode"
+        ],
+        "title": "UserSettingsResponse",
+        "description": "Full user settings object."
       },
       "ValidationError": {
         "properties": {

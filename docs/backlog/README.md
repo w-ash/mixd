@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.5.3
-**Current Initiative**: v0.5.4 OAuth & Credentials — not started (Spotify web OAuth flow for headless container auth)
+**Current Version**: 0.5.4
+**Current Initiative**: v0.5.5 Parallel Execution & Performance — not started
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -34,7 +34,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](v0.5.x.md#v051-postgresql-migration) |
 | **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](v0.5.x.md#v052-postgresql-native-feature-adoption) |
 | **v0.5.3** | Containerization & deployment | ✅ Completed | [details](v0.5.x.md#v053-containerization--deployment) |
-| **v0.5.4** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v054-oauth--credentials) |
+| **v0.5.4** | OAuth + integrations UX + WCAG AA + light/dark mode + settings persistence | ✅ Completed | [details](v0.5.x.md#v054-oauth--credentials) |
 | **v0.5.5** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v055-parallel-execution--performance) |
 | **v0.6.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.6.x.md#v060-preference-system--likes-migration) |
 | **v0.6.1** | Tagging system | 🔜 Not Started | [details](v0.6.x.md#v061-tagging-system) |
@@ -60,36 +60,23 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 
 ## Persona Alignment
 
-Each milestone maps to a persona from [docs/personas.md](../personas.md):
+All three personas use most of what we build. The question isn't "who is this for?" — it's "how does each persona experience this, and are we meeting their needs?" Design every feature assuming all three will interact with it.
 
-| Version | Primary Persona | Why |
-|---------|----------------|-----|
-| v0.4.x | Weekly Curator | Core workflow ritual — build, run, review playlists |
-| v0.5.0 | Tinkerer | CI/CD safety net before irreversible infra changes |
-| v0.5.1 | Tinkerer | PostgreSQL unlocks remote hosting + concurrency |
-| v0.5.2 | Tinkerer | PostgreSQL-native polish — timeouts, constraints, query consolidation |
-| v0.5.3 | Tinkerer | Docker + Fly.io — narada leaves the dev machine |
-| v0.5.4 | Tinkerer | OAuth in the browser — deployed app is actually usable |
-| v0.5.5 | Weekly Curator | Parallel workflows + caching — faster, snappier experience |
-| v0.6.0 | Weekly Curator | Preference system — graduate binary likes into dislike/like/love; migrate 15k+ existing likes |
-| v0.6.1 | Weekly Curator | Tagging system — freeform namespaced tags (mood:chill, energy:high) for categorization |
-| v0.6.2 | Weekly Curator | Spotify playlist mapping — existing playlists as preference/tag import sources |
-| v0.6.3 | Weekly Curator | Workflow integration + quick filters — preference/tag nodes, ad-hoc filtering, "save as workflow" |
-| v0.7.0 | Weekly Curator | Data quality tools — fix mappings, find gaps, detect staleness. Useful now with existing connectors |
-| v0.7.1 | Both | Apple Music broadens streaming coverage for Curator, broadens appeal for Tinkerer |
-| v0.7.2 | Weekly Curator | Rekordbox brings owned-music metadata (BPM, key, codec, lossless) into the unified library |
-| v0.8.0 | Weekly Curator | Scheduling automates the ritual — playlists and source data stay fresh without manual triggers |
-| v0.8.1 | Both | Templates for Tinkerer onboarding, import/export for sharing, playlist browse for everyone |
-| v0.9.0 | Casual Enthusiast | LLM creation is THE adoption feature — natural language → working playlist. Changes who can use narada. Templates from v0.8.1 inform prompt engineering. |
-| v0.10.0 | Weekly Curator | Artist-level curation and identity resolution |
-| v0.10.1 | Weekly Curator | Album-level browsing, identity resolution, cross-service album mapping |
-| v0.10.2 | Weekly Curator | Physical media ownership — vinyl/CD/digital tracked via Discogs collection import |
-| v0.10.3 | Weekly Curator | Manual scrobbling — log physical album listens to Last.fm + canonical play history |
-| v1.0.0 | Tinkerer | Auth + per-user data isolation + security hardening for the hosted instance |
-| v1.1.0 | Both | Privacy controls + public profiles — foundation for all social features, public playlists as discovery mechanism |
-| v1.1.1 | Weekly Curator | One-way follows — subscribe to other curators' shared content, taste-based user discovery |
-| v1.1.2 | Weekly Curator | Activity feed + social context — "Alex loved this track" on pages you're viewing |
-| v1.1.3 | Casual Enthusiast | Shareable playlist links, embeds, invites — the viral growth mechanism |
+See [docs/personas.md](../personas.md) for full persona definitions.
+
+| Version | What | Curator perspective | Tinkerer perspective | Casual perspective |
+|---------|------|--------------------|--------------------|-------------------|
+| v0.4.x | Workflows | Weekly ritual — build, run, review | Learns system by exploring editor | Not yet reachable (needs LLM, v0.9) |
+| v0.5.0–v0.5.3 | Infrastructure | Wants it deployed so they can access from any device | Self-hosts, expects clean setup | Needs hosted instance to exist |
+| v0.5.4 | OAuth + auth UX + WCAG + theming + settings | Connects services, picks light/dark mode, settings persist across devices | May prefer CLI auth, but web flow should be clean; appreciates system theme respect | "Connect Spotify" button IS the first impression; light mode widens appeal |
+| v0.5.5 | Performance | Faster workflow execution, snappier pages | Appreciates efficient infrastructure | Expects modern web app responsiveness |
+| v0.6.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
+| v0.7.0–v0.7.2 | Data quality + connectors | Fixes mappings, finds gaps, adds Rekordbox | Apple Music broadens self-host appeal | More services = less lock-in friction |
+| v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
+| v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use narada |
+| v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
+| v1.0.0 | Multi-user auth | Per-user data isolation on shared instance | Security hardening for self-hosted | Account creation on hosted instance |
+| v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |
 
 ---
 
@@ -103,7 +90,7 @@ Visual guide to infrastructure capabilities across version milestones:
 | **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
 | **Deployment** | ✅ uv install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
 | **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ + Email alerts |
-| **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify OAuth | ✅ + Email/password |
+| **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify + Last.fm OAuth | ✅ + Email/password |
 | **Database** | ✅ SQLite | ✅ PostgreSQL (Docker) | ✅ PostgreSQL | ✅ PostgreSQL |
 | **Caching** | ❌ Not needed | ✅ Tanstack Query | ✅ + lru_cache | ✅ Same |
 | **Security** | ✅ Env vars, secrets | ✅ + CORS (localhost) | ✅ + HTTPS | ✅ + bcrypt |
