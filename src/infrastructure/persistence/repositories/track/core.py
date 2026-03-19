@@ -59,13 +59,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
 
-    @db_operation("count_all_tracks")
-    async def count_all_tracks(self) -> int:
-        """Count all tracks in the database."""
-        stmt = self.count()
-        result = await self.session.execute(stmt)
-        return result.scalar_one()
-
     @db_operation("find_tracks_by_ids")
     async def find_tracks_by_ids(self, track_ids: list[int]) -> dict[int, Track]:
         """Find multiple tracks by their internal IDs in a single batch operation.

@@ -32,9 +32,6 @@ type PlaySortBy = Literal[
 
 logger = get_logger(__name__)
 
-# (track_id, service, played_at, ms_played) — deduplication key for play records
-type PlayLookupKey = tuple[int | None, str, datetime | None, int | None]
-
 
 @define(frozen=True, slots=True)
 class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
@@ -98,26 +95,13 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             mapper=TrackPlayMapper(),
         )
 
-    @db_operation("count_all_plays")
-    async def count_all_plays(self) -> int:
-        """Count all play records in the database."""
-        stmt = self.count()
-        result = await self.session.execute(stmt)
-        return result.scalar_one()
-
-    @db_operation("count_plays_by_service")
-    async def count_plays_by_service(self) -> dict[str, int]:
-        """Count play records grouped by service."""
-        stmt = select(
-            DBTrackPlay.service,
-            func.count(DBTrackPlay.id),
-        ).group_by(DBTrackPlay.service)
-        result = await self.session.execute(stmt)
-        return {service: count for service, count in result.tuples().all()}
-
     @db_operation("bulk_insert_plays")
     async def bulk_insert_plays(self, plays: list[TrackPlay]) -> tuple[int, int]:
-        """Bulk insert track plays efficiently with deduplication.
+        """Bulk insert track plays with ON CONFLICT DO NOTHING deduplication.
+
+        PostgreSQL's unique constraint ``uq_track_plays_deduplication``
+        (track_id, service, played_at, ms_played) atomically skips duplicates.
+        No pre-query needed.
 
         Returns:
             tuple[int, int]: (inserted_count, duplicate_count)
@@ -139,20 +123,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)"
             )
 
-        # Deduplicate against existing plays in database
-        existing_plays = await self._find_existing_plays(valid_plays)
-        new_plays = self._filter_duplicates(valid_plays, existing_plays)
-
-        duplicate_count = len(valid_plays) - len(new_plays)
-        if duplicate_count > 0:
-            logger.info(
-                f"Filtered out {duplicate_count} duplicate plays (inserting {len(new_plays)} new plays)"
-            )
-
-        if not new_plays:
-            logger.info("All plays were duplicates - no new plays to insert")
-            return (0, duplicate_count)
-
         play_data = [
             {
                 "track_id": play.track_id,
@@ -165,56 +135,19 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 "import_source": play.import_source,
                 "import_batch_id": play.import_batch_id,
             }
-            for play in new_plays
+            for play in valid_plays
         ]
 
-        result = await self.bulk_upsert(
-            play_data,
-            lookup_keys=["track_id", "service", "played_at", "ms_played"],
-            return_models=False,
-        )
+        conflict_keys = ["track_id", "service", "played_at", "ms_played"]
+        inserted = await self.bulk_insert_ignore_conflicts(play_data, conflict_keys)
 
-        # Return count of actually inserted records and duplicate count
-        return (result, duplicate_count)
+        duplicate_count = len(valid_plays) - inserted
+        if duplicate_count > 0:
+            logger.info(
+                f"Skipped {duplicate_count} duplicate plays (inserted {inserted} new plays)"
+            )
 
-    async def _find_existing_plays(self, plays: list[TrackPlay]) -> set[PlayLookupKey]:
-        """Find existing plays matching deduplication keys."""
-        from src.infrastructure.persistence.repositories._shared.batch_lookup import (
-            find_existing_by_tuples,
-        )
-
-        return await find_existing_by_tuples(
-            self.session,
-            [
-                DBTrackPlay.track_id,
-                DBTrackPlay.service,
-                DBTrackPlay.played_at,
-                DBTrackPlay.ms_played,
-            ],
-            [(p.track_id, p.service, p.played_at, p.ms_played) for p in plays],
-            row_to_key=lambda r: (
-                r.track_id,
-                r.service,
-                ensure_utc(r.played_at),
-                r.ms_played,
-            ),
-        )
-
-    def _filter_duplicates(
-        self, plays: list[TrackPlay], existing_keys: set[PlayLookupKey]
-    ) -> list[TrackPlay]:
-        """Filter out plays that already exist in the database."""
-        new_plays: list[TrackPlay] = []
-
-        for play in plays:
-            # Normalize timezone for consistent comparison using utility function
-            played_at = ensure_utc(play.played_at)
-
-            play_key = (play.track_id, play.service, played_at, play.ms_played)
-            if play_key not in existing_keys:
-                new_plays.append(play)
-
-        return new_plays
+        return (inserted, duplicate_count)
 
     @db_operation("get_plays_by_batch")
     async def get_plays_by_batch(self, import_batch_id: str) -> list[TrackPlay]:

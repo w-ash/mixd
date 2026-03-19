@@ -54,7 +54,7 @@ def classify_connector_api_error(exception: Exception) -> dict[str, str | bool]:
     }
 
 
-def classify_database_error(exception: Exception) -> dict[str, str | bool]:
+def classify_db_error_for_logging(exception: Exception) -> dict[str, str | bool]:
     """Classify database errors for retry and recovery decisions.
 
     Args:

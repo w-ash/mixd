@@ -1,104 +1,43 @@
 # Vulture whitelist — false positives from framework patterns.
-# Run: uv run vulture src/ vulture_whitelist.py
+# Run: uv run vulture  (paths configured in pyproject.toml)
+#
+# ignore_decorators in pyproject.toml covers: @router.*, @app.command,
+# @app.callback, @app.exception_handler, @task, @flow, @field_validator,
+# @model_validator, @computed_field.
+#
+# ignore_names in pyproject.toml covers: model_config, revision,
+# down_revision, branch_labels, depends_on, upgrade, downgrade,
+# do_GET, log_message.
 
-# --- Pydantic model_config (class-level config, not instance vars) ---
-model_config  # noqa
+# --- SQLAlchemy event listener callback signature ---
+connection_record  # required param in event.listen("connect", callback) — only dbapi_connection is used
 
-# --- Pydantic computed fields / validators / model_validators ---
-transform_flat_env_vars  # @model_validator(mode="before") — called by Pydantic
-connector_links  # @computed_field
-connector_names  # @computed_field
-task_count  # @computed_field
-node_types  # @computed_field
-severity  # Pydantic field
-required_config  # Pydantic field
-optional_config  # Pydantic field
-empty_mbid_to_none  # @field_validator — called by Pydantic
-coerce_str_to_int  # @field_validator — called by Pydantic
-coerce_single_to_list  # @field_validator — called by Pydantic
-
-# --- FastAPI route handlers (registered via @router.get/post decorators) ---
-list_playlists  # FastAPI route
-backup  # Typer command
-backup_playlist  # FastAPI route
-show_track  # FastAPI route
-track_playlists  # FastAPI route
-connectors_status  # FastAPI route
-get_connectors  # FastAPI route
-health_check  # FastAPI route
-import_lastfm_history  # FastAPI route
-import_spotify_likes  # FastAPI route
-export_lastfm_likes  # FastAPI route
-import_spotify_history  # FastAPI route
-get_checkpoints  # FastAPI route
-stream_operation_progress  # FastAPI route
-list_active_operations  # FastAPI route
-get_playlist_tracks  # FastAPI route
-get_dashboard_stats  # FastAPI route
-get_track_detail  # FastAPI route
-get_track_playlists  # FastAPI route
-create_workflow  # FastAPI route
-list_node_types  # FastAPI route
-validate_workflow  # FastAPI route
-preview_unsaved_workflow  # FastAPI route
-preview_saved_workflow  # FastAPI route
-get_workflow  # FastAPI route
-update_workflow  # FastAPI route
-run_workflow_endpoint  # FastAPI route
-list_workflow_runs  # FastAPI route
-get_workflow_run  # FastAPI route
-list_workflow_versions  # FastAPI route
-get_workflow_version  # FastAPI route
-revert_workflow_version  # FastAPI route
-list_playlist_links  # FastAPI route
-create_playlist_link  # FastAPI route
-delete_playlist_link  # FastAPI route
-update_playlist_link  # FastAPI route
-preview_playlist_sync  # FastAPI route
-sync_playlist_link  # FastAPI route
-list_reviews  # FastAPI route
-resolve_review  # FastAPI route
-get_integrity_report  # FastAPI route
-get_matching_health  # FastAPI route
-merge_track  # FastAPI route
-relink_mapping  # FastAPI route
-unlink_mapping  # FastAPI route
-spa_catchall  # FastAPI catch-all for SPA routing
-run_server  # CLI entry point for uvicorn
-
-# --- FastAPI exception handlers (registered via @app.exception_handler) ---
-not_found_handler  # exception handler
-template_readonly_handler  # exception handler
-workflow_running_handler  # exception handler
-connector_not_available_handler  # exception handler
-value_error_handler  # exception handler
-generic_error_handler  # exception handler
-
-# --- Typer CLI commands (registered via @app.command decorators) ---
-version_command  # Typer command
-init_cli  # Typer command
-main  # Typer entrypoint
-history_main  # Typer command
-checkpoints_cmd  # Typer command
-likes_main  # Typer command
-workflow_main  # Typer command
-export  # Typer command (workflow export)
+# --- Pydantic model fields (serialization, not direct attribute access) ---
+severity  # Pydantic field on WorkflowValidationErrorSchema
+required_config  # Pydantic field on NodeTypeInfoSchema
+optional_config  # Pydantic field on NodeTypeInfoSchema
+connector_links  # @computed_field on PlaylistDetailSchema
+connector_names  # @computed_field on TrackDetailSchema
+task_count  # @computed_field on WorkflowSummarySchema
+node_types  # @computed_field on WorkflowSummarySchema
+token_type  # Pydantic field on SpotifyTokenResponse
+scope  # Pydantic field on SpotifyTokenResponse
+ean  # Pydantic field on SpotifyExternalIds
+upc  # Pydantic field on SpotifyExternalIds
+previous  # Pydantic field on SpotifyPaginatedResponse
+SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
 
 # --- Rich renderable protocol ---
 render  # Rich __rich_console__ / render protocol
 
 # --- httpx Auth protocol (called by httpx during request flow) ---
 async_auth_flow  # @override of httpx.Auth.async_auth_flow
-do_GET  # HTTP handler protocol method
-log_message  # HTTP handler protocol method
 
-# --- Alembic migration variables/functions (framework-required) ---
-revision  # Alembic migration
-down_revision  # Alembic migration
-branch_labels  # Alembic migration
-depends_on  # Alembic migration
-upgrade  # Alembic migration
-downgrade  # Alembic migration
+# --- FastAPI app-level registrations (not covered by @router.*) ---
+spa_catchall  # catch-all for SPA routing, registered via app.route
+run_server  # CLI entry point for uvicorn
+main  # Typer entrypoint (registered via project.scripts, not @app.command)
+ErrorResponse  # Referenced in FastAPI response_model declarations
 
 # --- attrs field declarations (used by framework, not direct reference) ---
 total_files  # attrs field on BatchImportResult
@@ -134,14 +73,6 @@ registrant_code  # attrs field on ISRCValidationResult
 year  # attrs field on ISRCValidationResult
 designation_code  # attrs field on ISRCValidationResult
 attribute_name  # attrs field on probabilistic matcher
-
-# --- Pydantic model fields (serialization, not direct access) ---
-token_type  # Pydantic field on SpotifyTokenResponse
-scope  # Pydantic field on SpotifyTokenResponse
-ean  # Pydantic field on SpotifyExternalIds
-upc  # Pydantic field on SpotifyExternalIds
-previous  # Pydantic field on SpotifyPaginatedResponse
-SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
 
 # --- MatchingConfig / MatchingSettings fields (attrs + Pydantic, accessed via config object) ---
 base_confidence_isrc  # MatchingConfig field
@@ -206,9 +137,6 @@ track_mapper  # ConnectorTrackRepository internal dependency
 
 # --- Rich progress column config ---
 _show_rate  # Rich progress column config
-
-# --- Pydantic error response schema (used in OpenAPI spec) ---
-ErrorResponse  # Referenced in FastAPI response_model declarations
 
 # --- Constants forming complete sets ---
 MAX_PAGE_SIZE  # BusinessLimits — counterpart to DEFAULT_PAGE_SIZE

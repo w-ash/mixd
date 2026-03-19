@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.5.1
-**Current Initiative**: v0.5.1 complete — next: v0.5.2 Containerization & Deployment
+**Current Version**: 0.5.3
+**Current Initiative**: v0.5.4 OAuth & Credentials — not started (Spotify web OAuth flow for headless container auth)
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -32,20 +32,29 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
 | **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](v0.5.x.md#v050-cicd--environment-hardening) |
 | **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](v0.5.x.md#v051-postgresql-migration) |
-| **v0.5.2** | Containerization & deployment | 🔜 Not Started | [details](v0.5.x.md#v052-containerization--deployment) |
-| **v0.5.3** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v053-oauth--credentials) |
-| **v0.5.4** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v054-parallel-execution--performance) |
-| **v0.6.0** | Data quality tools | 🔜 Not Started | [details](v0.6.x.md#v060-data-quality) |
-| **v0.6.1** | Apple Music connector | 🔜 Not Started | [details](v0.6.x.md#v061-apple-music-connector) |
-| **v0.6.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.6.x.md#v062-rekordbox-connector) |
-| **v0.7.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.7.x.md#v070-workflow--sync-scheduling) |
-| **v0.7.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.7.x.md#v071-editor-polish-templates--playlist-browse) |
-| **v0.8.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.8.x.md#v080-llm-assisted-workflow-creation) |
-| **v0.9.0** | First-class artists | 🔜 Not Started | [details](v0.9.x.md#v090-first-class-artists) |
-| **v0.9.1** | First-class albums | 🔜 Not Started | [details](v0.9.x.md#v091-first-class-albums) |
-| **v0.9.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.9.x.md#v092-physical-media--discogs) |
-| **v0.9.3** | Manual scrobbling | 🔜 Not Started | [details](v0.9.x.md#v093-manual-scrobbling) |
+| **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](v0.5.x.md#v052-postgresql-native-feature-adoption) |
+| **v0.5.3** | Containerization & deployment | ✅ Completed | [details](v0.5.x.md#v053-containerization--deployment) |
+| **v0.5.4** | OAuth & credentials | 🔜 Not Started | [details](v0.5.x.md#v054-oauth--credentials) |
+| **v0.5.5** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v055-parallel-execution--performance) |
+| **v0.6.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.6.x.md#v060-preference-system--likes-migration) |
+| **v0.6.1** | Tagging system | 🔜 Not Started | [details](v0.6.x.md#v061-tagging-system) |
+| **v0.6.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.6.x.md#v062-spotify-playlist-mapping-preference--tag-import) |
+| **v0.6.3** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.6.x.md#v063-workflow-integration--quick-filters) |
+| **v0.7.0** | Data quality tools | 🔜 Not Started | [details](v0.7.x.md#v070-data-quality) |
+| **v0.7.1** | Apple Music connector | 🔜 Not Started | [details](v0.7.x.md#v071-apple-music-connector) |
+| **v0.7.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.7.x.md#v072-rekordbox-connector) |
+| **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
+| **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
+| **v0.9.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.9.x.md#v090-llm-assisted-workflow-creation) |
+| **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |
+| **v0.10.1** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0101-first-class-albums) |
+| **v0.10.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0102-physical-media--discogs) |
+| **v0.10.3** | Manual scrobbling | 🔜 Not Started | [details](v0.10.x.md#v0103-manual-scrobbling) |
 | **v1.0.0** | Multi-user auth & production polish | 🔜 Not Started | [details](v1.0.x.md#v100-multi-user-auth--production-polish) |
+| **v1.1.0** | Privacy controls & public profiles | 🔜 Not Started | [details](v1.1.x.md#v110-privacy-controls--public-profiles) |
+| **v1.1.1** | Social graph & follows | 🔜 Not Started | [details](v1.1.x.md#v111-social-graph--follows) |
+| **v1.1.2** | Activity feed & social context | 🔜 Not Started | [details](v1.1.x.md#v112-activity-feed--social-context) |
+| **v1.1.3** | Sharing & growth | 🔜 Not Started | [details](v1.1.x.md#v113-sharing--growth) |
 
 ---
 
@@ -58,26 +67,35 @@ Each milestone maps to a persona from [docs/personas.md](../personas.md):
 | v0.4.x | Weekly Curator | Core workflow ritual — build, run, review playlists |
 | v0.5.0 | Tinkerer | CI/CD safety net before irreversible infra changes |
 | v0.5.1 | Tinkerer | PostgreSQL unlocks remote hosting + concurrency |
-| v0.5.2 | Tinkerer | Docker + Fly.io — narada leaves the dev machine |
-| v0.5.3 | Tinkerer | OAuth in the browser — deployed app is actually usable |
-| v0.5.4 | Weekly Curator | Parallel workflows + caching — faster, snappier experience |
-| v0.6.0 | Weekly Curator | Data quality tools — fix mappings, find gaps, detect staleness. Useful now with existing connectors |
-| v0.6.1 | Both | Apple Music broadens streaming coverage for Curator, broadens appeal for Tinkerer |
-| v0.6.2 | Weekly Curator | Rekordbox brings owned-music metadata (BPM, key, codec, lossless) into the unified library |
-| v0.7.0 | Weekly Curator | Scheduling automates the ritual — playlists and source data stay fresh without manual triggers |
-| v0.7.1 | Both | Templates for Tinkerer onboarding, import/export for sharing, playlist browse for everyone |
-| v0.8.0 | Casual Enthusiast | LLM creation is THE adoption feature — natural language → working playlist. Changes who can use narada. Templates from v0.7.1 inform prompt engineering. |
-| v0.9.0 | Weekly Curator | Artist-level curation and identity resolution |
-| v0.9.1 | Weekly Curator | Album-level browsing, identity resolution, cross-service album mapping |
-| v0.9.2 | Weekly Curator | Physical media ownership — vinyl/CD/digital tracked via Discogs collection import |
-| v0.9.3 | Weekly Curator | Manual scrobbling — log physical album listens to Last.fm + canonical play history |
-| v1.0.0 | Tinkerer | Auth + per-user data isolation + security hardening so friends can self-host |
+| v0.5.2 | Tinkerer | PostgreSQL-native polish — timeouts, constraints, query consolidation |
+| v0.5.3 | Tinkerer | Docker + Fly.io — narada leaves the dev machine |
+| v0.5.4 | Tinkerer | OAuth in the browser — deployed app is actually usable |
+| v0.5.5 | Weekly Curator | Parallel workflows + caching — faster, snappier experience |
+| v0.6.0 | Weekly Curator | Preference system — graduate binary likes into dislike/like/love; migrate 15k+ existing likes |
+| v0.6.1 | Weekly Curator | Tagging system — freeform namespaced tags (mood:chill, energy:high) for categorization |
+| v0.6.2 | Weekly Curator | Spotify playlist mapping — existing playlists as preference/tag import sources |
+| v0.6.3 | Weekly Curator | Workflow integration + quick filters — preference/tag nodes, ad-hoc filtering, "save as workflow" |
+| v0.7.0 | Weekly Curator | Data quality tools — fix mappings, find gaps, detect staleness. Useful now with existing connectors |
+| v0.7.1 | Both | Apple Music broadens streaming coverage for Curator, broadens appeal for Tinkerer |
+| v0.7.2 | Weekly Curator | Rekordbox brings owned-music metadata (BPM, key, codec, lossless) into the unified library |
+| v0.8.0 | Weekly Curator | Scheduling automates the ritual — playlists and source data stay fresh without manual triggers |
+| v0.8.1 | Both | Templates for Tinkerer onboarding, import/export for sharing, playlist browse for everyone |
+| v0.9.0 | Casual Enthusiast | LLM creation is THE adoption feature — natural language → working playlist. Changes who can use narada. Templates from v0.8.1 inform prompt engineering. |
+| v0.10.0 | Weekly Curator | Artist-level curation and identity resolution |
+| v0.10.1 | Weekly Curator | Album-level browsing, identity resolution, cross-service album mapping |
+| v0.10.2 | Weekly Curator | Physical media ownership — vinyl/CD/digital tracked via Discogs collection import |
+| v0.10.3 | Weekly Curator | Manual scrobbling — log physical album listens to Last.fm + canonical play history |
+| v1.0.0 | Tinkerer | Auth + per-user data isolation + security hardening for the hosted instance |
+| v1.1.0 | Both | Privacy controls + public profiles — foundation for all social features, public playlists as discovery mechanism |
+| v1.1.1 | Weekly Curator | One-way follows — subscribe to other curators' shared content, taste-based user discovery |
+| v1.1.2 | Weekly Curator | Activity feed + social context — "Alex loved this track" on pages you're viewing |
+| v1.1.3 | Casual Enthusiast | Shareable playlist links, embeds, invites — the viral growth mechanism |
 
 ---
 
 ## Infrastructure Readiness Matrix
 
-Visual guide to infrastructure capabilities across version milestones (hobbyist scale: <10 users):
+Visual guide to infrastructure capabilities across version milestones:
 
 | Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.x (Deployed) | v1.0.0 (Multi-User) |
 |------------|--------------|-------------------|-------------------|---------------------|
@@ -92,7 +110,7 @@ Visual guide to infrastructure capabilities across version milestones (hobbyist 
 
 **Legend**: ✅ Ready | ⚠️ Needs work | ❌ Not needed
 
-**Note**: Right-sized for hobbyist project (<10 users). No Redis, CDN, MFA, load testing, or enterprise observability. Focus on quality code over production infrastructure.
+**Note**: Right-sized for a local music community (dozens to low hundreds of users). No Redis, CDN, MFA, load testing, or enterprise observability. Focus on quality code over production infrastructure. Revisit scaling if usage exceeds 100+ active users.
 
 ---
 

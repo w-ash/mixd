@@ -3,7 +3,6 @@
 # pyright: reportExplicitAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +39,11 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     async def bulk_insert_connector_plays(
         self, connector_plays: list[ConnectorTrackPlay]
     ) -> tuple[int, int]:
-        """Bulk insert connector plays efficiently with deduplication.
+        """Bulk insert connector plays with ON CONFLICT DO NOTHING deduplication.
+
+        PostgreSQL's unique constraint ``uq_connector_plays_deduplication``
+        (connector_name, connector_track_identifier, played_at, ms_played)
+        atomically skips duplicates. No pre-query needed.
 
         Args:
             connector_plays: List of ConnectorTrackPlay domain objects from API ingestion
@@ -53,40 +56,23 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
 
         logger.info(f"Bulk inserting {len(connector_plays)} connector plays")
 
-        # Find existing plays for deduplication
-        existing_plays = await self._find_existing_connector_plays(connector_plays)
-        new_plays = self._filter_duplicates(connector_plays, existing_plays)
-
-        duplicate_count = len(connector_plays) - len(new_plays)
-        if duplicate_count > 0:
-            logger.info(
-                f"Filtered out {duplicate_count} duplicate connector plays "
-                + f"(inserting {len(new_plays)} new plays)"
-            )
-
-        if not new_plays:
-            logger.info("All connector plays were duplicates - no new plays to insert")
-            return (0, duplicate_count)
-
         # Prepare data for bulk insert by converting domain objects to db format
         play_data: list[dict[str, Any]] = []
-        for play in new_plays:
-            # Ensure datetime fields are timezone-aware using utility function
+        for play in connector_plays:
             played_at = ensure_utc(play.played_at)
             import_timestamp = ensure_utc(play.import_timestamp)
             resolved_at = ensure_utc(play.resolved_at)
 
-            # Build raw metadata from ConnectorTrackPlay fields
             raw_metadata = {
                 "artist_name": play.artist_name,
                 "track_name": play.track_name,
                 "album_name": play.album_name,
                 "service_metadata": play.service_metadata,
                 "api_page": play.api_page,
-                **play.raw_data,  # Include any additional raw data
+                **play.raw_data,
             }
 
-            db_data = {
+            play_data.append({
                 "connector_name": play.connector_name,
                 "connector_track_identifier": play.connector_track_identifier,
                 "played_at": played_at,
@@ -97,78 +83,21 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
                 "import_batch_id": play.import_batch_id,
                 "resolved_track_id": play.resolved_track_id,
                 "resolved_at": resolved_at,
-            }
-            play_data.append(db_data)
+            })
 
-        # Use bulk upsert from BaseRepository
-        result = await self.bulk_upsert(
-            play_data,
-            lookup_keys=[
-                "connector_name",
-                "connector_track_identifier",
-                "played_at",
-                "ms_played",
-            ],
-            return_models=False,
-        )
+        conflict_keys = [
+            "connector_name",
+            "connector_track_identifier",
+            "played_at",
+            "ms_played",
+        ]
+        inserted = await self.bulk_insert_ignore_conflicts(play_data, conflict_keys)
 
-        # Return count of actually inserted records and duplicate count
-        logger.info(f"Successfully inserted {result} new connector plays")
-        return (result, duplicate_count)
-
-    async def _find_existing_connector_plays(
-        self, plays: list[ConnectorTrackPlay]
-    ) -> set[tuple[str, str, datetime | None, int | None]]:
-        """Find existing connector plays matching deduplication keys."""
-        from src.infrastructure.persistence.repositories._shared.batch_lookup import (
-            find_existing_by_tuples,
-        )
-
-        return await find_existing_by_tuples(
-            self.session,
-            [
-                DBConnectorPlay.connector_name,
-                DBConnectorPlay.connector_track_identifier,
-                DBConnectorPlay.played_at,
-                DBConnectorPlay.ms_played,
-            ],
-            [
-                (
-                    p.connector_name,
-                    p.connector_track_identifier,
-                    p.played_at,
-                    p.ms_played,
-                )
-                for p in plays
-            ],
-            row_to_key=lambda r: (
-                r.connector_name,
-                r.connector_track_identifier,
-                ensure_utc(r.played_at),
-                r.ms_played,
-            ),
-        )
-
-    def _filter_duplicates(
-        self,
-        plays: list[ConnectorTrackPlay],
-        existing_keys: set[tuple[str, str, datetime | None, int | None]],
-    ) -> list[ConnectorTrackPlay]:
-        """Filter out plays that already exist in the database."""
-        new_plays: list[ConnectorTrackPlay] = []
-
-        for play in plays:
-            # Normalize timezone for consistent comparison using utility function
-            played_at = ensure_utc(play.played_at)
-
-            play_key = (
-                play.connector_name,
-                play.connector_track_identifier,
-                played_at,
-                play.ms_played,
+        duplicate_count = len(connector_plays) - inserted
+        if duplicate_count > 0:
+            logger.info(
+                f"Skipped {duplicate_count} duplicate connector plays "
+                f"(inserted {inserted} new plays)"
             )
 
-            if play_key not in existing_keys:
-                new_plays.append(play)
-
-        return new_plays
+        return (inserted, duplicate_count)

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.1
+ * OpenAPI spec version: 0.5.3
  */
 
 export type ListTracksApiV1TracksGetParams = {
@@ -21,6 +21,7 @@ liked?: boolean | null;
 connector?: string | null;
 /**
  * Sort field and direction
+ * @pattern ^(title|artist|added|duration)_(asc|desc)$
  */
 sort?: string;
 /**

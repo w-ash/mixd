@@ -15,5 +15,28 @@ services:
       retries: 5
       start_period: 10s
 
+  # Containerized full stack — use `docker compose --profile full up --build`
+  # Default `docker compose up` starts only postgres (for pnpm dev workflow)
+  app:
+    profiles: ["full"]
+    build: .
+    ports: ["8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://narada:narada@postgres:5432/narada
+      CORS_ORIGINS: '["http://localhost:8000"]'
+    env_file:
+      - path: .env
+        required: false
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn src.interface.api.app:app
+        --host 0.0.0.0 --port 8000 --workers 1 --access-log
+
 volumes:
   pgdata:

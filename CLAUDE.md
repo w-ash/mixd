@@ -2,7 +2,7 @@
 
 ## What Narada Does
 
-**Personal music metadata hub** - Own your data, create playlists using YOUR criteria, not proprietary algorithms.
+**Personal music metadata hub** - Own your data, put it to work on your terms, and share it without exploitation. Playlists, preferences, and tags belong to you — not platforms, not algorithms, not scrapers.
 
 ### User Problem
 - Streaming algorithms are opaque and non-customizable
@@ -14,12 +14,12 @@
 **The Weekly Curator** — Power listener (~15k liked tracks, years of play history across Spotify + Last.fm) who refuses to let platforms lock away their listening identity. Reclaims data, unifies it across services, and curates playlists on their own terms. 15+ curated playlists, weekly refresh ritual. Web UI primary, CLI for automation. See [docs/personas.md](docs/personas.md).
 
 ### Secondary Personas
-- **The Tinkerer** — Tech-savvy friend who self-hosts via Docker. Enjoys understanding the system, needs good docs, templates, and clear error messages.
-- **The Casual Enthusiast** — Music-loving friend who wants control but historically couldn't use the tools. LLM-assisted workflow creation (v0.8.0) is the key adoption enabler — describe what you want in plain English, get a working playlist.
+- **The Tinkerer** — Tech-savvy music enthusiast who explores the system deeply. Enjoys understanding how things work, reads the docs, might run a local copy. Needs good docs, templates, and clear error messages.
+- **The Casual Enthusiast** — Music lover who wants control but historically couldn't use the tools. LLM-assisted workflow creation (v0.9.0) is the key adoption enabler — describe what you want in plain English, get a working playlist.
 
 ### Anti-Personas
 - **The Passive Listener** — Happy with algorithms. If they'd use a feature, it's too generic.
-- **The Platform Builder** — Wants social/collaborative/multi-tenant. Narada is a personal tool, not a platform.
+- **The Data Exploiter** — Wants to extract value from user data: engagement metrics, ad targeting, data brokering, AI training on taste profiles. If a feature serves the platform more than the person, it's this anti-persona.
 
 ### Solution: Workflows
 Declarative pipelines composing user-defined criteria:
@@ -37,6 +37,7 @@ Powered by: import history, backup likes/playlists, cross-service identity mappi
 - **Batch-First** - Design for collections, single items are degenerate cases
 - **Immutable Domain** - Pure transformations, no side effects
 - **User Goal-Focused** - Design features around "what is the user trying to accomplish?" not "what can our APIs do?"
+- **Data Sovereignty** - Users own their listening identity. Reclaim it, put it to work, share it safely. Public content serves the user's intent to share, never a platform's intent to extract.
 
 ## Architecture
 

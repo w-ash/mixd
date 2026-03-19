@@ -226,16 +226,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
             "last_updated": datetime.now(UTC),
         }
 
-    @db_operation("count_tracks_by_connector")
-    async def count_tracks_by_connector(self) -> dict[str, int]:
-        """Count distinct tracks per connector name."""
-        stmt = select(
-            DBTrackMapping.connector_name,
-            func.count(func.distinct(DBTrackMapping.track_id)),
-        ).group_by(DBTrackMapping.connector_name)
-        result = await self.session.execute(stmt)
-        return {str(row[0]): int(row[1]) for row in result.fetchall()}
-
     @db_operation("get_full_mappings_for_track")
     async def get_full_mappings_for_track(self, track_id: int) -> list[FullMappingInfo]:
         """Get all mappings for a track with joined connector track metadata."""

@@ -18,7 +18,7 @@ from src.application.use_cases._shared import (
     build_api_execution_metadata,
     build_playlist_changes,
     classify_connector_api_error,
-    classify_database_error,
+    classify_db_error_for_logging,
     count_operation_types,
     create_connector_playlist_items_from_tracks,
     resolve_playlist_connector,
@@ -765,7 +765,7 @@ class UpdateConnectorPlaylistUseCase:
 
         except Exception as e:
             # Classify database error using utility
-            db_error_classification = classify_database_error(e)
+            db_error_classification = classify_db_error_for_logging(e)
 
             logger.error(
                 "Failed to update connector_playlist table after external API success",

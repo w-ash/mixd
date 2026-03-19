@@ -13,7 +13,6 @@ so token injection and 401-retry are handled transparently.
 # Legitimate Any: API response data, framework types
 
 import functools
-from importlib.metadata import metadata
 from typing import Any
 
 import httpx
@@ -32,12 +31,10 @@ _HTTP_ERROR_THRESHOLD = 400
 
 @functools.cache
 def _build_user_agent() -> str:
-    """Build User-Agent string from package metadata. Cached — metadata never changes at runtime."""
-    pkg_meta = metadata("narada")
-    app_name = pkg_meta.get("Name", "Narada")
-    app_version = pkg_meta.get("Version", "0.1.0")
-    app_url = pkg_meta.get("Home-page", "https://github.com/user/narada")
-    return f"{app_name}/{app_version} ({app_url})"
+    """Build User-Agent string. Cached — version never changes at runtime."""
+    from src import __version__
+
+    return f"Narada/{__version__}"
 
 
 # -------------------------------------------------------------------------

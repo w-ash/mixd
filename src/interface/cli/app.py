@@ -1,15 +1,15 @@
 """Main CLI application entry point and command routing."""
 
-from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from src import __version__
 from src.config import setup_loguru_logger
 from src.interface.cli.console import get_console, print_banner
 
-VERSION = version("narada")
+VERSION = __version__
 
 # Use shared console for consistent CLI formatting
 console = get_console()
@@ -118,10 +118,21 @@ def main() -> int:
         # Let Typer handle command execution
         return app() or 0
     except Exception as e:
-        console.print(f"[red]Unhandled exception occurred: {e}[/red]")
-        import traceback
+        from sqlalchemy.exc import DatabaseError
 
-        console.print("[dim]" + traceback.format_exc() + "[/dim]")
+        if isinstance(e, DatabaseError):
+            from src.infrastructure.persistence.database.error_classification import (
+                classify_database_error,
+            )
+
+            info = classify_database_error(e)
+            console.print(f"[red]{info.user_message}[/red]")
+            console.print(f"[dim]{info.detail}[/dim]")
+        else:
+            import traceback
+
+            console.print(f"[red]Unhandled exception occurred: {e}[/red]")
+            console.print("[dim]" + traceback.format_exc() + "[/dim]")
         return 1
 
 

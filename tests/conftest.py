@@ -42,7 +42,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
     # Guard against accidental production DB usage
     os.environ["DATABASE_URL"] = (
-        "postgresql+psycopg_async://guard:guard@localhost:1/DO_NOT_USE"
+        "postgresql+psycopg://guard:guard@localhost:1/DO_NOT_USE"
     )
 
 
@@ -85,9 +85,9 @@ def postgres_url():
     from testcontainers.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
-        # testcontainers returns psycopg2:// URL; convert to psycopg_async://
+        # testcontainers returns psycopg2:// URL; convert to psycopg3 driver
         sync_url = pg.get_connection_url()
-        async_url = sync_url.replace("psycopg2://", "psycopg_async://")
+        async_url = sync_url.replace("psycopg2://", "psycopg://")
         yield async_url
 
 

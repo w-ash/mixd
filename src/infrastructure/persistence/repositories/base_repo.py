@@ -915,6 +915,80 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             logger.error(f"Upsert error: {e}")
             raise
 
+    @staticmethod
+    def _deduplicate_batch(
+        entities: list[dict[str, Any]],
+        keys: list[str],
+        *,
+        label: str = "batch",
+    ) -> list[dict[str, Any]]:
+        """Remove intra-batch duplicates, keeping the last occurrence per key.
+
+        PostgreSQL INSERT ... ON CONFLICT cannot affect the same row twice in
+        one statement — duplicates cause CardinalityViolation. This deduplicates
+        on the Python side before sending to the database.
+        """
+        seen: dict[tuple[Any, ...], int] = {}
+        for idx, entity in enumerate(entities):
+            key = tuple(entity.get(k) for k in keys)
+            seen[key] = idx
+
+        if len(seen) < len(entities):
+            original_count = len(entities)
+            entities = [entities[i] for i in sorted(seen.values())]
+            logger.info(
+                f"Deduplicated {label}: {original_count} → {len(entities)}",
+                keys=keys,
+            )
+        return entities
+
+    @staticmethod
+    def _add_timestamps(entities: list[dict[str, Any]]) -> None:
+        """Add created_at / updated_at timestamps to entities missing them."""
+        now = datetime.now(UTC)
+        for entity in entities:
+            if "created_at" not in entity:
+                entity["created_at"] = now
+            if "updated_at" not in entity:
+                entity["updated_at"] = now
+
+    @db_operation("bulk_insert_ignore_conflicts")
+    async def bulk_insert_ignore_conflicts(
+        self,
+        entities: list[dict[str, Any]],
+        conflict_keys: list[str],
+    ) -> int:
+        """Bulk INSERT ... ON CONFLICT DO NOTHING.
+
+        Inserts rows and silently skips any that violate the unique constraint
+        identified by ``conflict_keys``. Returns the number of rows actually
+        inserted (via ``rowcount``).
+
+        Unlike ``bulk_upsert``, this never updates existing rows — it's
+        appropriate for append-only data like play history where duplicates
+        should simply be ignored.
+        """
+        if not entities:
+            return 0
+
+        entities = self._deduplicate_batch(
+            entities, conflict_keys, label="bulk_insert_ignore_conflicts"
+        )
+        self._add_timestamps(entities)
+
+        async with self.session.begin_nested():
+            stmt = (
+                pg_insert(self.model_class)
+                .values(entities)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        getattr(self.model_class, k) for k in conflict_keys
+                    ],
+                )
+            )
+            result = await self.session.execute(stmt)
+            return result.rowcount  # type: ignore[return-value]
+
     @overload
     async def bulk_upsert(
         self,
@@ -959,29 +1033,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not entities:
             return [] if return_models else 0
 
-        # Deduplicate by lookup_keys, keeping the LAST occurrence (latest data wins).
-        # PostgreSQL INSERT ... ON CONFLICT cannot affect the same row twice in one
-        # statement — duplicates cause CardinalityViolation.
-        seen: dict[tuple[Any, ...], int] = {}
-        for idx, entity in enumerate(entities):
-            key = tuple(entity.get(k) for k in lookup_keys)
-            seen[key] = idx
-
-        if len(seen) < len(entities):
-            original_count = len(entities)
-            entities = [entities[i] for i in sorted(seen.values())]
-            logger.warning(
-                f"Deduplicated bulk_upsert batch: {original_count} → {len(entities)}",
-                lookup_keys=lookup_keys,
-            )
-
-        # Add timestamps to all entities
-        now = datetime.now(UTC)
-        for entity in entities:
-            if "created_at" not in entity:
-                entity["created_at"] = now
-            if "updated_at" not in entity:
-                entity["updated_at"] = now
+        entities = self._deduplicate_batch(
+            entities, lookup_keys, label="bulk_upsert"
+        )
+        self._add_timestamps(entities)
 
         try:
             # Wrap in savepoint so a failure only rolls back this INSERT,

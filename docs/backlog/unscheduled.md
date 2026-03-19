@@ -10,7 +10,7 @@ For the planning overview, see [README.md](README.md).
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution
 - **Workflow Debugging Tools** (L) - Interactive debugging for workflow testing
 - **Playlist Diffing and Merging** (L) - Visualize differences between local and remote playlists
-- **Canonical Genre Support** (L) - Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
+- **Canonical Genre Support** (L) - Complements v0.6.1 freeform tagging with curated MusicBrainz genre data. Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
     - **MusicBrainz API** (primary source, verified Feb 2026):
         - Endpoint: `GET /ws/2/recording/{MBID}?inc=genres&fmt=json`
         - Response: `[{name: str, id: str, count: int, disambiguation: str}]` — flat list per recording, sorted by community vote count
@@ -35,7 +35,7 @@ For the planning overview, see [README.md](README.md).
 
 ## Enrichment Sources
 
-- ~~**Discogs Enrichment Provider**~~ → Scheduled as [v0.9.2: Physical Media & Discogs](v0.9.x.md#v092-physical-media--discogs)
+- ~~**Discogs Enrichment Provider**~~ → Scheduled as [v0.10.2: Physical Media & Discogs](v0.10.x.md#v0102-physical-media--discogs)
 - **ListenBrainz Integration** (M) - Open-source listening statistics and recommendations via ListenBrainz API. Listen history import/export, user statistics, collaborative filtering recommendations. Could serve as an open alternative to Last.fm for scrobble data. [Docs](https://listenbrainz.readthedocs.io/).
 - **Audio Analysis Provider — BPM, Key, Energy** (M) - Track-level audio features (BPM, musical key, time signature, danceability, energy) now that Spotify's Audio Features API is deprecated (403 for new apps since late 2024). Candidate sources:
     - [GetSongBPM](https://getsongbpm.com/api) — free API, attribution required. BPM, key, time signature, danceability, acousticness.
@@ -49,7 +49,7 @@ For the planning overview, see [README.md](README.md).
     - [Traxsource](https://www.traxsource.com/) — house/underground
     - [Juno Download](https://www.junodownload.com/) — dance music, WAV/FLAC/AIFF formats
     - [Bandcamp](https://bandcamp.com/) — indie/artist-direct
-    - Apple Music / iTunes — via existing Apple Music connector (v0.6.x)
+    - Apple Music / iTunes — via existing Apple Music connector (v0.7.x)
     - Amazon Music — general catalog
     - URL template pattern: `https://www.beatport.com/search?q={artist}+{title}`
     - User-configurable: toggle which stores appear, reorder preferences
@@ -62,18 +62,22 @@ For the planning overview, see [README.md](README.md).
 
 ## Playlist Link Enhancements
 
-- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.7.1: Editor Polish, Templates & Playlist Browse](v0.7.x.md#v071-editor-polish-templates--playlist-browse)
+- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.1: Editor Polish, Templates & Playlist Browse](v0.8.x.md#v081-editor-polish-templates--playlist-browse)
 - **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
 - **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
 - **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.
 - **External Change Detection** (S) - Compare Spotify `snapshot_id` (or equivalent) to detect external changes since last sync. Enables "out of sync" notifications.
 - **PAUSED Sync State** (S) - Allow users to pause sync on a link without unlinking. Requires scheduled sync infrastructure.
 
+## Social & Infrastructure
+
+- **ActivityPub Federation** (XL) - Mastodon-style federation allowing independent Narada instances to follow users across instances. Users on instance A could follow curators on instance B, see their public playlists and activity in their feed. Would use the ActivityPub protocol (W3C standard) for inter-instance communication. Significant complexity: federated identity, cross-instance content resolution, inbox/outbox delivery, signature verification, moderation across instances. Interesting long-term direction but adds an order of magnitude of infrastructure complexity to the social layer. Evaluate after v1.1.x social features prove out the single-instance model.
+
 ## Not Building
 
-Items explicitly descoped — they serve neither persona or are Platform Builder thinking.
+Items explicitly descoped — they serve neither persona or are Data Exploiter thinking.
 
-- **Multi-Language Support** — Serves neither persona. <10 English-speaking friends.
+- **Multi-Language Support** — Serves neither persona at current scale.
 - **Advanced Analytics Dashboard** — Vague scope, no persona need. If workflow perf metrics are needed, a single metric on the existing dashboard suffices.
 
 ## Deferred Clean Architecture Improvements

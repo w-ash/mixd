@@ -54,8 +54,8 @@ class DatabaseConfig(BaseModel):
     """
 
     url: str = Field(
-        default="postgresql+psycopg_async://narada:narada@localhost:5432/narada",
-        description="SQLAlchemy async connection URL (postgresql+psycopg_async://).",
+        default="postgresql+psycopg://narada:narada@localhost:5432/narada",
+        description="SQLAlchemy connection URL (postgresql+psycopg://).",
     )
 
 
@@ -525,19 +525,44 @@ class Settings(BaseSettings):
     def transform_flat_env_vars(cls, data: Any) -> Any:
         """Transform flat environment variables to nested structure.
 
-        Handles legacy flat env vars (DATABASE_URL) and maps them to the
-        nested structure expected by the models (database.url).
+        Handles flat env vars (DATABASE_URL, SPOTIFY_CLIENT_ID, etc.) and
+        maps them to the nested structure expected by the models (database.url,
+        credentials.spotify_client_id, etc.).
+
+        Pydantic Settings v2 only passes .env file content through the model
+        validator — OS environment variables bypass it and are matched directly
+        by field name with env_nested_delimiter. This means flat env vars from
+        the OS (e.g., on Fly.io where there are no .env files) would be missed.
+
+        To handle both sources, we also read from os.environ for any flat keys
+        not already present in the data dict. JSON strings (e.g., '["url"]')
+        are parsed so that complex types (list, dict) validate correctly.
         """
+        import json
+        import os
+
         if not isinstance(data, dict):
             return data
         data = cast(dict[str, Any], data)
         transformed: dict[str, Any] = {}
 
         for env_key, (group, field_key) in cls._FLAT_ENV_ROUTES.items():
+            # Check data dict first (.env file content), then OS environment
             if env_key in data:
-                transformed.setdefault(group, {})[field_key or env_key] = data.pop(
-                    env_key
-                )
+                value = data.pop(env_key)
+            elif (os_value := os.environ.get(env_key.upper())) is not None:
+                value = os_value
+            else:
+                continue
+
+            # Parse JSON strings for complex types (lists, dicts)
+            if isinstance(value, str) and value.startswith(("[", "{")):
+                try:
+                    value = json.loads(value)
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Keep as string — Pydantic will validate
+
+            transformed.setdefault(group, {})[field_key or env_key] = value
 
         data.update(transformed)
         return data
@@ -554,31 +579,53 @@ settings.data_dir.mkdir(exist_ok=True)
 # =============================================================================
 
 
+def _normalize_database_url(url: str) -> str:
+    """Normalize DATABASE_URL variants to the ``postgresql+psycopg://`` scheme.
+
+    Handles common variants:
+    - ``postgres://`` (Fly.io, Heroku) → ``postgresql+psycopg://``
+    - ``postgresql://`` (plain) → ``postgresql+psycopg://``
+    - ``postgresql+psycopg_async://`` (legacy narada) → ``postgresql+psycopg://``
+
+    psycopg3's ``+psycopg`` dialect works for both ``create_engine()`` and
+    ``create_async_engine()`` — SQLAlchemy auto-selects sync/async mode.
+    """
+    if not url:
+        return url
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql+psycopg_async://"):
+        return url.replace("+psycopg_async://", "+psycopg://", 1)
+    return url
+
+
 def get_database_url() -> str:
     """Get the database URL, respecting runtime environment overrides.
 
     Reads from os.environ first to support test fixtures that modify
     DATABASE_URL after the settings singleton is created at import time.
-    Falls back to the settings default.
+    Falls back to the settings default. Normalizes all URL variants to
+    ``postgresql+psycopg://``.
     """
     import os
 
-    return os.environ.get("DATABASE_URL", "") or settings.database.url
+    raw = os.environ.get("DATABASE_URL", "") or settings.database.url
+    return _normalize_database_url(raw)
 
 
 def get_sync_database_url() -> str:
-    """Get a synchronous psycopg-compatible URL from the async database URL.
+    """Get a plain ``postgresql://`` URL for raw psycopg.connect() calls.
 
-    Converts ``postgresql+psycopg_async://`` to plain ``postgresql://``
-    suitable for raw ``psycopg.connect()`` calls (CLI completions, scripts).
-    Returns empty string if no URL is configured.
+    Strips the SQLAlchemy driver suffix so the URL works with psycopg3
+    directly (CLI completions, one-off scripts). Returns empty string
+    if no URL is configured.
     """
     url = get_database_url()
     if not url:
         return ""
-    return url.replace("+psycopg_async", "+psycopg").replace(
-        "postgresql+psycopg://", "postgresql://"
-    )
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def log_startup_warnings() -> None:

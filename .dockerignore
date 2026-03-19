@@ -1,0 +1,48 @@
+# Version control & IDE
+.git
+.github
+.claude
+.obsidian
+.vscode
+
+# Python caches & build artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+dist/
+build/
+htmlcov/
+.ruff_cache
+.pytest_cache
+.coverage
+
+# Node (rebuilt in container)
+node_modules/
+web/node_modules/
+web/dist/
+
+# Data & logs (ephemeral in container)
+data/
+*.log
+*.db
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+.spotify_cache
+
+# Not needed at runtime
+infra/
+docs/
+tests/
+scripts/
+.DS_Store
+vulture_whitelist.py
+CHANGELOG.md
+DEPLOYMENT.md
+cliff.toml
+
+# Root dev orchestration (not used in container)
+package.json
+pnpm-lock.yaml

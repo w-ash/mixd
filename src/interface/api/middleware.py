@@ -4,8 +4,6 @@ Maps Python exceptions to structured JSON error envelopes so the frontend
 always receives a consistent error shape regardless of what goes wrong.
 """
 
-from typing import Final
-
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DatabaseError
@@ -16,13 +14,6 @@ from src.config import get_logger
 from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
 
 logger = get_logger(__name__)
-
-_DB_ERROR_ENVELOPE: Final[dict[str, dict[str, str]]] = {
-    "error": {
-        "code": "DATABASE_UNAVAILABLE",
-        "message": "Database connection unavailable. Ensure PostgreSQL is running.",
-    }
-}
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -100,8 +91,27 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def database_error_handler(  # pyright: ignore[reportUnusedFunction]
         _request: Request, exc: DatabaseError
     ) -> JSONResponse:
-        logger.error("Database error", error=str(exc), exc_type=type(exc).__name__)
-        return JSONResponse(status_code=503, content=_DB_ERROR_ENVELOPE)
+        from src.infrastructure.persistence.database.error_classification import (
+            classify_database_error,
+        )
+
+        info = classify_database_error(exc)
+        logger.error(
+            "Database error",
+            category=info.category,
+            detail=info.detail,
+            exc_type=type(exc).__name__,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": info.user_message,
+                    "details": {"category": info.category},
+                }
+            },
+        )
 
     @app.exception_handler(Exception)
     async def generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

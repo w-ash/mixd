@@ -6,7 +6,7 @@ connector playlist operations for retry and recovery decisions.
 
 from src.application.use_cases._shared.playlist_validator import (
     classify_connector_api_error,
-    classify_database_error,
+    classify_db_error_for_logging,
     is_auth_error_message,
     is_rate_limit_error,
 )
@@ -124,7 +124,7 @@ class TestClassifyDatabaseError:
 
     def test_constraint_violation_detected(self):
         """Should detect constraint violation from error message."""
-        result = classify_database_error(
+        result = classify_db_error_for_logging(
             Exception("UNIQUE constraint failed: tracks.isrc")
         )
 
@@ -134,27 +134,27 @@ class TestClassifyDatabaseError:
 
     def test_unique_violation_detected(self):
         """Should detect 'unique' keyword as constraint violation."""
-        result = classify_database_error(ValueError("unique key violated"))
+        result = classify_db_error_for_logging(ValueError("unique key violated"))
 
         assert result["error_type"] == "ValueError"
         assert result["is_constraint_violation"] is True
 
     def test_connection_error_detected(self):
         """Should detect connection errors from error message."""
-        result = classify_database_error(Exception("database connection lost"))
+        result = classify_db_error_for_logging(Exception("database connection lost"))
 
         assert result["is_connection_error"] is True
         assert result["is_constraint_violation"] is False
 
     def test_timeout_in_message_detected_as_connection_error(self):
         """Should detect 'timeout' as a connection error."""
-        result = classify_database_error(Exception("database timeout after 30s"))
+        result = classify_db_error_for_logging(Exception("database timeout after 30s"))
 
         assert result["is_connection_error"] is True
 
     def test_generic_error_no_flags(self):
         """Generic error without keywords should have all flags False."""
-        result = classify_database_error(RuntimeError("something went wrong"))
+        result = classify_db_error_for_logging(RuntimeError("something went wrong"))
 
         assert result["error_type"] == "RuntimeError"
         assert result["is_constraint_violation"] is False
@@ -162,5 +162,5 @@ class TestClassifyDatabaseError:
 
     def test_preserves_exception_type_name(self):
         """Should preserve the original exception class name."""
-        result = classify_database_error(TypeError("bad type"))
+        result = classify_db_error_for_logging(TypeError("bad type"))
         assert result["error_type"] == "TypeError"

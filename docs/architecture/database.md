@@ -220,20 +220,32 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 ## Database Session Management
 
 ### PostgreSQL Connection Configuration
-- **Driver**: `psycopg[binary]` (psycopg3) via `postgresql+psycopg_async://`
+- **Driver**: `psycopg[binary]` (psycopg3) via `postgresql+psycopg://`
 - **Pool**: `AsyncAdaptedQueuePool` (default) for connection reuse
 - **Session**: `expire_on_commit=False`, `autoflush=False`
 - **Local dev**: `docker compose up -d` starts PostgreSQL on port 5432
 
 ### Connection URL Format
 ```
-postgresql+psycopg_async://narada:narada@localhost:5432/narada
+postgresql+psycopg://narada:narada@localhost:5432/narada
 ```
 
 ### Session Factory Configuration
 - Async sessions with SQLAlchemy 2.0 patterns
 - Proper async context management with automatic cleanup
 - `selectinload()` for all relationship loading (never lazy load)
+
+### Hosted Database (Neon)
+
+Production deployment uses [Neon](https://neon.tech) managed PostgreSQL:
+
+- **Project**: `us-west-2`, PostgreSQL 17, free tier (0.5GB storage, 100 compute hours/month)
+- **Connection**: Pooler endpoint (built-in PgBouncer) with `sslmode=require`
+- **Scale-to-zero**: Compute suspends after idle timeout; `pool_pre_ping=True` handles reconnection transparently
+- **Timeouts**: `statement_timeout` and `lock_timeout` set via `pool_events` (post-connect `SET` commands), not `connect_args` startup parameters — Neon's PgBouncer rejects startup parameters
+- **URL normalization**: `_normalize_database_url()` in `settings.py` converts `postgresql://` (Neon/Fly.io format) to `postgresql+psycopg://` (SQLAlchemy format)
+- **Backups**: Automatic point-in-time recovery on all Neon plans
+- **Cold start**: ~500ms for Neon compute wake + standard connection time. Combined with Fly.io machine wake (~1s) and Python startup (~5s), total cold start is ~7.5s
 
 ## Migration Strategy
 

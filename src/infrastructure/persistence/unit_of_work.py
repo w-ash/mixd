@@ -23,6 +23,7 @@ from src.domain.repositories.interfaces import (
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     ServiceConnectorProvider,
+    StatsRepositoryProtocol,
     TrackIdentityServiceProtocol,
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
@@ -216,6 +217,12 @@ class DatabaseUnitOfWork:  # noqa: PLR0904
         )
 
         return MatchReviewRepository(self._session)
+
+    def get_stats_repository(self) -> StatsRepositoryProtocol:
+        """Get cross-table stats repository for dashboard aggregation."""
+        from src.infrastructure.persistence.repositories.stats import StatsRepository
+
+        return StatsRepository(self._session)
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

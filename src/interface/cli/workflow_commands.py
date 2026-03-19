@@ -564,9 +564,9 @@ def _show_interactive_workflow_browser() -> None:
         console.print("[red]No workflows found.[/red]")
         return
 
-    from importlib.metadata import version
+    from src import __version__
 
-    print_banner(version("narada"))
+    print_banner(__version__)
     console.print()
     console.print(
         brand_panel(

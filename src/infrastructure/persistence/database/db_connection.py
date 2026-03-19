@@ -13,16 +13,34 @@ This module is responsible for:
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from src.config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _set_connection_timeouts(
+    dbapi_connection: object,
+    connection_record: ConnectionPoolEntry,
+) -> None:
+    """Set statement and lock timeouts on each new connection.
+
+    Uses SET commands instead of startup parameters (connect_args -c options)
+    because Neon's connection pooler (PgBouncer) rejects startup parameters.
+    SET works with both direct and pooled connections.
+    """
+    cursor = dbapi_connection.cursor()  # type: ignore[union-attr]
+    cursor.execute("SET statement_timeout = '30s'")
+    cursor.execute("SET lock_timeout = '10s'")
+    cursor.close()
 
 
 def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
@@ -41,10 +59,11 @@ def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
         pool_recycle=3600,
         pool_pre_ping=True,
         echo=False,
-        connect_args={
-            "options": "-c statement_timeout=30000 -c lock_timeout=10000",
-        },
     )
+
+    # Set timeouts via pool event instead of connect_args — compatible with
+    # Neon's PgBouncer-based connection pooler which rejects startup parameters
+    event.listen(engine.sync_engine, "connect", _set_connection_timeouts)
 
     logger.info("Created database engine")
     return engine

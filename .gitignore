@@ -78,13 +78,8 @@ Thumbs.db
 *.pem
 *.p12
 
-# Alembic migrations
-alembic/versions/
-alembic/*.ini
-alembic/README
-alembic/script.py.mako
-alembic.ini
-alembic/
+# Alembic (keep migrations + config; ignore only caches)
+alembic/versions/__pycache__/
 
 ###################
 # Logs            #

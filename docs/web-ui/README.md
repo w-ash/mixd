@@ -26,9 +26,10 @@ Documentation for the Narada web interface, organized by concern.
 | v0.4.4 -- Connector Playlist Linking | Link canonical playlists to Spotify/Apple Music, push/pull sync |
 | v0.4.5 -- Code & Test Suite Hardening | DDD/DRY audit, dependency updates, test performance, fixture consistency |
 | v0.5.0 -- PostgreSQL, Deployment & OAuth | Production infrastructure, Docker, Fly.io, Spotify OAuth |
-| v0.6.0 -- Apple Music & Data Quality | Unmapped track filters in Library, manual mapping UI on Track Detail, DQ alerts on Dashboard |
-| v0.7.0 -- Advanced Workflow Features | Sub-flows, import/export |
-| v0.8.0 -- LLM-Assisted Workflows | Natural language workflow creation via chat interface |
+| v0.6.0 -- Personal Metadata | Preference toggle on Track Detail, tag chips/autocomplete, preference/tag filters in Library, quick filter panel |
+| v0.7.0 -- Data Quality & New Connectors | Unmapped track filters in Library, manual mapping UI on Track Detail, DQ alerts on Dashboard |
+| v0.8.0 -- Scheduling & Workflow Features | Sub-flows, import/export, schedule picker on workflow detail |
+| v0.9.0 -- LLM-Assisted Workflows | Natural language workflow creation via chat interface |
 
 ## How to Use These Docs
 

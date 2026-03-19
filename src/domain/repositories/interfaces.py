@@ -53,10 +53,6 @@ class TrackListingPage(TypedDict):
 class TrackRepositoryProtocol(Protocol):
     """Repository interface for track persistence operations."""
 
-    def count_all_tracks(self) -> Awaitable[int]:
-        """Count all tracks in the database."""
-        ...
-
     def save_track(self, track: Track) -> Awaitable[Track]:
         """Save track."""
         ...
@@ -212,10 +208,6 @@ class TrackRepositoryProtocol(Protocol):
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
 
-    def count_all_playlists(self) -> Awaitable[int]:
-        """Count all playlists in the database."""
-        ...
-
     def get_playlist_by_id(self, playlist_id: int) -> Awaitable[Playlist]:
         """Get playlist by ID."""
         ...
@@ -272,14 +264,6 @@ class PlaylistRepositoryProtocol(Protocol):
 
 class LikeRepositoryProtocol(Protocol):
     """Repository interface for like persistence operations."""
-
-    def count_total_liked(self) -> Awaitable[int]:
-        """Count tracks liked on any service (DISTINCT track_id where is_liked=true)."""
-        ...
-
-    def count_liked_by_service(self) -> Awaitable[dict[str, int]]:
-        """Count liked tracks grouped by service (single query)."""
-        ...
 
     def get_track_likes(
         self, track_id: int, services: list[str] | None = None
@@ -427,10 +411,6 @@ class ConnectorRepositoryProtocol(Protocol):
         Returns:
             List of FullMappingInfo dicts with complete provenance data.
         """
-        ...
-
-    def count_tracks_by_connector(self) -> Awaitable[dict[str, int]]:
-        """Count distinct tracks per connector (excluding internal pseudo-connectors)."""
         ...
 
     def map_track_to_connector(
@@ -787,10 +767,6 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         """Update the sync direction for a link. Returns the updated link, or None if not found."""
         ...
 
-    def count_links_by_connector(self) -> Awaitable[dict[str, int]]:
-        """Count linked playlists grouped by connector name."""
-        ...
-
     def delete_link(self, link_id: int) -> Awaitable[bool]:
         """Delete a playlist link. Returns True if deleted."""
         ...
@@ -849,14 +825,6 @@ class PlayAggregationResult(TypedDict, total=False):
 
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
-
-    def count_all_plays(self) -> Awaitable[int]:
-        """Count all play records in the database."""
-        ...
-
-    def count_plays_by_service(self) -> Awaitable[dict[str, int]]:
-        """Count play records grouped by service (single query)."""
-        ...
 
     def bulk_insert_plays(self, plays: list[TrackPlay]) -> Awaitable[tuple[int, int]]:
         """Bulk insert plays.
@@ -1173,6 +1141,27 @@ class MatchReviewRepositoryProtocol(Protocol):
         ...
 
 
+class DashboardAggregates(TypedDict):
+    """Result shape for the single-query dashboard stats aggregation."""
+
+    total_tracks: int
+    total_plays: int
+    total_playlists: int
+    total_liked: int
+    tracks_by_connector: dict[str, int]
+    liked_by_connector: dict[str, int]
+    plays_by_connector: dict[str, int]
+    playlists_by_connector: dict[str, int]
+
+
+class StatsRepositoryProtocol(Protocol):
+    """Cross-table read-only aggregation queries."""
+
+    def get_dashboard_aggregates(self) -> Awaitable[DashboardAggregates]:
+        """Compute all dashboard counts in minimal round trips."""
+        ...
+
+
 class UnitOfWorkProtocol(Protocol):  # noqa: PLR0904
     """Unit of Work interface for transaction boundary management.
 
@@ -1267,6 +1256,10 @@ class UnitOfWorkProtocol(Protocol):  # noqa: PLR0904
 
     def get_match_review_repository(self) -> MatchReviewRepositoryProtocol:
         """Get match review repository for review queue operations."""
+        ...
+
+    def get_stats_repository(self) -> StatsRepositoryProtocol:
+        """Get cross-table stats repository for dashboard aggregation."""
         ...
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:

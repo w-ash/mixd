@@ -1,6 +1,6 @@
 [project]
 name = "narada"
-version = "0.5.1"
+version = "0.5.3"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -69,7 +69,7 @@ target-version = "py314"
 preview = true  # Enable latest lint rules and formatter improvements
 # Python 3.14 specific: Enhanced version-aware parsing
 output-format = "full"
-extend-exclude = ["vulture_whitelist.py"]
+extend-exclude = ["vulture_whitelist.py", "docs/dev-setup-guide"]
 
 [tool.ruff.lint]
 # Linting rules
@@ -276,6 +276,35 @@ pythonVersion = "3.14"
 pythonPlatform = "All"
 venvPath = "."
 venv = ".venv"
+
+# Dead code detection (Vulture 2.14+)
+[tool.vulture]
+paths = ["src/", "alembic/", "vulture_whitelist.py"]
+exclude = ["tests/"]
+min_confidence = 60
+ignore_decorators = [
+    "@router.*",           # FastAPI route handlers
+    "@app.command",        # Typer CLI commands
+    "@*_app.command",      # Typer CLI sub-app commands (track_app, etc.)
+    "@app.callback",       # Typer CLI callbacks
+    "@app.exception_handler",  # FastAPI exception handlers
+    "@task",               # Prefect tasks
+    "@flow",               # Prefect flows
+    "@field_validator",    # Pydantic field validators
+    "@model_validator",    # Pydantic model validators
+    "@computed_field",     # Pydantic computed fields
+]
+ignore_names = [
+    "model_config",        # Pydantic class-level config
+    "revision",            # Alembic migration variables
+    "down_revision",
+    "branch_labels",
+    "depends_on",
+    "upgrade",             # Alembic migration functions
+    "downgrade",
+    "do_GET",              # HTTP handler protocol
+    "log_message",         # HTTP handler protocol
+]
 
 [tool.typer.app]
 name = "narada"

@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.5.1"
+    "version": "0.5.3"
   },
   "paths": {
     "/api/v1/health": {
@@ -857,6 +857,7 @@
             "required": false,
             "schema": {
               "type": "string",
+              "pattern": "^(title|artist|added|duration)_(asc|desc)$",
               "description": "Sort field and direction",
               "default": "title_asc",
               "title": "Sort"
@@ -3465,7 +3466,14 @@
             "title": "Data"
           },
           "total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total"
           },
           "limit": {
@@ -3491,7 +3499,6 @@
         "type": "object",
         "required": [
           "data",
-          "total",
           "limit",
           "offset"
         ],
@@ -3507,7 +3514,14 @@
             "title": "Data"
           },
           "total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total"
           },
           "limit": {
@@ -3533,7 +3547,6 @@
         "type": "object",
         "required": [
           "data",
-          "total",
           "limit",
           "offset"
         ],
@@ -3549,7 +3562,14 @@
             "title": "Data"
           },
           "total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total"
           },
           "limit": {
@@ -3575,7 +3595,6 @@
         "type": "object",
         "required": [
           "data",
-          "total",
           "limit",
           "offset"
         ],
@@ -3591,7 +3610,14 @@
             "title": "Data"
           },
           "total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total"
           },
           "limit": {
@@ -3617,7 +3643,6 @@
         "type": "object",
         "required": [
           "data",
-          "total",
           "limit",
           "offset"
         ],
@@ -3633,7 +3658,14 @@
             "title": "Data"
           },
           "total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total"
           },
           "limit": {
@@ -3659,7 +3691,6 @@
         "type": "object",
         "required": [
           "data",
-          "total",
           "limit",
           "offset"
         ],

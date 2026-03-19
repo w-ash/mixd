@@ -67,9 +67,6 @@ class BusinessLimits:
 
     # Database
     BATCH_WARNING_THRESHOLD: Final = 100
-    TUPLE_IN_BATCH_SIZE: Final = (
-        5_000  # query planner safety limit for tuple-IN batches
-    )
 
     # Debug
     DEBUG_LOG_TRUNCATION_LIMIT: Final = 10

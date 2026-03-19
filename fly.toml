@@ -1,0 +1,42 @@
+# fly.toml app configuration file generated for narada on 2026-03-18T12:15:48-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'narada'
+primary_region = 'sjc'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[deploy]
+  release_command = 'alembic upgrade head'
+
+[env]
+  PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'true'
+  PYTHONUNBUFFERED = '1'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 25
+    soft_limit = 20
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/api/v1/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpus = 1
+  memory_mb = 512

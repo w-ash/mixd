@@ -32,10 +32,21 @@ err_console = get_error_console()
 def handle_cli_error(e: Exception, message: str) -> Never:
     """Print error message and exit with code 1.
 
-    Consolidates the repeated CLI error handling pattern:
-    ``err_console.print(f"[red]Error: {message}: {e}[/red]"); raise typer.Exit(1)``
+    Database errors are classified into actionable one-line messages.
+    Other errors show the exception string directly.
     """
-    err_console.print(f"[red]Error: {message}: {e}[/red]")
+    from sqlalchemy.exc import DatabaseError
+
+    if isinstance(e, DatabaseError):
+        from src.infrastructure.persistence.database.error_classification import (
+            classify_database_error,
+        )
+
+        info = classify_database_error(e)
+        err_console.print(f"[red]{message}: {info.user_message}[/red]")
+        err_console.print(f"[dim]{info.detail}[/dim]")
+    else:
+        err_console.print(f"[red]Error: {message}: {e}[/red]")
     raise typer.Exit(1) from e
 
 

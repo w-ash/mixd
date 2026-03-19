@@ -1,9 +1,7 @@
 """Track repository for like operations."""
 
 from datetime import UTC, datetime
-from typing import cast
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -34,29 +32,6 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             model_class=DBTrackLike,
             mapper=TrackLikeMapper(),
         )
-
-    @db_operation("count_total_liked")
-    async def count_total_liked(self) -> int:
-        """Count tracks liked on any service (DISTINCT track_id where is_liked=true)."""
-        stmt = select(func.count(func.distinct(self.model_class.track_id))).where(
-            self.model_class.is_liked == True,  # noqa: E712
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one()
-
-    @db_operation("count_liked_by_service")
-    async def count_liked_by_service(self) -> dict[str, int]:
-        """Count liked tracks grouped by service (single query, no N+1)."""
-        stmt = (
-            select(
-                self.model_class.service,
-                func.count(func.distinct(self.model_class.track_id)),
-            )
-            .where(self.model_class.is_liked == True)  # noqa: E712
-            .group_by(self.model_class.service)
-        )
-        result = await self.session.execute(stmt)
-        return {cast(str, row[0]): cast(int, row[1]) for row in result.fetchall()}
 
     @db_operation("get_track_likes")
     async def get_track_likes(

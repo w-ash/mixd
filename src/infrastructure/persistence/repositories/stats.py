@@ -1,0 +1,94 @@
+"""Cross-table read-only stats repository for dashboard aggregation.
+
+Replaces 8 sequential COUNT queries with 5 efficient queries:
+1. Scalar sub-selects for totals (tracks, plays, playlists, liked)
+2. GROUP BY plays by service
+3. GROUP BY likes by service
+4. GROUP BY tracks by connector
+5. GROUP BY playlists by connector
+
+Not parallelizable — AsyncSession supports one query at a time.
+"""
+
+# pyright: reportExplicitAny=false, reportAny=false
+# Legitimate Any: SQLAlchemy query result row attributes
+
+from sqlalchemy import distinct, func, select, true
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.domain.repositories.interfaces import DashboardAggregates
+from src.infrastructure.persistence.database.db_models import (
+    DBPlaylist,
+    DBPlaylistMapping,
+    DBTrack,
+    DBTrackLike,
+    DBTrackMapping,
+    DBTrackPlay,
+)
+from src.infrastructure.persistence.repositories.repo_decorator import db_operation
+
+
+class StatsRepository:
+    """Cross-table read-only aggregation queries for the dashboard."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    @db_operation("get_dashboard_aggregates")
+    async def get_dashboard_aggregates(self) -> DashboardAggregates:
+        """Compute all dashboard counts in 5 round trips (down from 8)."""
+        # --- Query 1: scalar totals via sub-selects --------------------------
+        totals_stmt = select(
+            select(func.count(DBTrack.id)).label("total_tracks"),
+            select(func.count(DBTrackPlay.id)).label("total_plays"),
+            select(func.count(DBPlaylist.id)).label("total_playlists"),
+            select(func.count(distinct(DBTrackLike.track_id)))
+            .where(DBTrackLike.is_liked == true())
+            .label("total_liked"),
+        )
+        totals_row = (await self._session.execute(totals_stmt)).one()
+
+        # --- Query 2: service breakdowns (plays + likes) ---------------------
+        plays_by_svc_stmt = select(
+            DBTrackPlay.service,
+            func.count(DBTrackPlay.id),
+        ).group_by(DBTrackPlay.service)
+        plays_rows = (await self._session.execute(plays_by_svc_stmt)).all()
+        plays_by_connector = {str(svc): int(cnt) for svc, cnt in plays_rows}
+
+        liked_by_svc_stmt = (
+            select(
+                DBTrackLike.service,
+                func.count(distinct(DBTrackLike.track_id)),
+            )
+            .where(DBTrackLike.is_liked == true())
+            .group_by(DBTrackLike.service)
+        )
+        liked_rows = (await self._session.execute(liked_by_svc_stmt)).all()
+        liked_by_connector = {str(svc): int(cnt) for svc, cnt in liked_rows}
+
+        # --- Query 3: connector breakdowns (tracks + playlists) --------------
+        tracks_by_conn_stmt = select(
+            DBTrackMapping.connector_name,
+            func.count(distinct(DBTrackMapping.track_id)),
+        ).group_by(DBTrackMapping.connector_name)
+        tracks_rows = (await self._session.execute(tracks_by_conn_stmt)).all()
+        tracks_by_connector = {str(name): int(cnt) for name, cnt in tracks_rows}
+
+        playlists_by_conn_stmt = select(
+            DBPlaylistMapping.connector_name,
+            func.count(DBPlaylistMapping.id),
+        ).group_by(DBPlaylistMapping.connector_name)
+        playlists_rows = (await self._session.execute(playlists_by_conn_stmt)).all()
+        playlists_by_connector = {str(name): int(cnt) for name, cnt in playlists_rows}
+
+        return DashboardAggregates(
+            total_tracks=int(totals_row.total_tracks),
+            total_plays=int(totals_row.total_plays),
+            total_playlists=int(totals_row.total_playlists),
+            total_liked=int(totals_row.total_liked),
+            tracks_by_connector=tracks_by_connector,
+            liked_by_connector=liked_by_connector,
+            plays_by_connector=plays_by_connector,
+            playlists_by_connector=playlists_by_connector,
+        )

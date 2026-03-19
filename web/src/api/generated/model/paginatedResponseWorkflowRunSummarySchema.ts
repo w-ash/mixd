@@ -3,13 +3,13 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.1
+ * OpenAPI spec version: 0.5.3
  */
 import type { WorkflowRunSummarySchema } from './workflowRunSummarySchema';
 
 export interface PaginatedResponseWorkflowRunSummarySchema {
   data: WorkflowRunSummarySchema[];
-  total: number;
+  total?: number | null;
   limit: number;
   offset: number;
   next_cursor?: string | null;

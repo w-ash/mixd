@@ -1054,4 +1054,4 @@ Fields:
 | `GetTrackConnectorMappingsUseCase` | v0.3.2+ | `GET /tracks/{id}/mappings` |
 | Connector playlist browse | v0.4.5+ | `GET /connectors/{connector}/playlists` |
 | Connector OAuth flows | v0.5.0 | `/auth/*`, `/connectors/*/auth-url` |
-| `GetUnmappedTracksUseCase` | v0.6.0 | `GET /tracks?unmapped_for=...` |
+| `GetUnmappedTracksUseCase` | v0.7.0 | `GET /tracks?unmapped_for=...` |

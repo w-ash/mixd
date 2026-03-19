@@ -1003,9 +1003,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ---
 
-### 6.5 LLM-Assisted Workflow Creation (v0.8.0 Sketch)
+### 6.5 LLM-Assisted Workflow Creation (v0.9.0 Sketch)
 
-> Forward-looking sketch for v0.8.0.
+> Forward-looking sketch for v0.9.0.
 
 **Concept**:
 - Chat interface: "Describe the playlist you want to create"
@@ -1019,7 +1019,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 7. Dashboard & Data Quality
 
-> **Dashboard available starting v0.3.3.** Requires stats aggregation use cases. Unmatched tracks review (7.2) requires `GetUnmappedTracksUseCase` from v0.6.0.
+> **Dashboard available starting v0.3.3.** Requires stats aggregation use cases. Unmatched tracks review (7.2) requires `GetUnmappedTracksUseCase` from v0.7.0.
 
 ### 7.1 Dashboard Overview
 
@@ -1081,7 +1081,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List unmatched | `GET /tracks?unmapped_for=spotify&limit=50` | `GetUnmappedTracksUseCase` | Needs implementation (v0.6.0) |
+| List unmatched | `GET /tracks?unmapped_for=spotify&limit=50` | `GetUnmappedTracksUseCase` | Needs implementation (v0.7.0) |
 | Batch re-match | `POST /tracks/rematch` | `MatchAndIdentifyTracksUseCase` | Exists |
 
 **Edge cases**:
