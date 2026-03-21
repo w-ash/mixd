@@ -16,3 +16,17 @@ repos:
     -   id: ruff
         args: [--fix]  # This includes import sorting (no need for separate I hook)
     -   id: ruff-format
+-   repo: local
+    hooks:
+    -   id: uv-lock-check
+        name: uv.lock in sync with pyproject.toml
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+    -   id: pnpm-lock-check
+        name: pnpm-lock.yaml in sync with package.json
+        entry: pnpm --prefix web install --frozen-lockfile
+        language: system
+        files: ^web/(package\.json|pnpm-lock\.yaml)$
+        pass_filenames: false
