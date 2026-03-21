@@ -116,6 +116,7 @@ def make_spotify_client(auth: httpx.Auth) -> httpx.AsyncClient:
             pool=5.0,
         ),
         event_hooks=_EVENT_HOOKS,
+        verify=True,
     )
 
 
@@ -125,6 +126,7 @@ def make_spotify_auth_client() -> httpx.AsyncClient:
         base_url=SPOTIFY_ACCOUNTS_BASE,
         timeout=httpx.Timeout(10.0),
         event_hooks=_EVENT_HOOKS,
+        verify=True,
     )
 
 
@@ -144,6 +146,7 @@ def make_lastfm_client() -> httpx.AsyncClient:
             pool=5.0,
         ),
         event_hooks=_EVENT_HOOKS,
+        verify=True,
     )
 
 
@@ -168,4 +171,5 @@ def make_musicbrainz_client() -> httpx.AsyncClient:
             pool=5.0,
         ),
         event_hooks=_EVENT_HOOKS,
+        verify=True,
     )

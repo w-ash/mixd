@@ -191,17 +191,33 @@ async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
             detail=f"File too large ({file.size} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
         )
 
-    # Save uploaded file to temp location for background processing.
+    # Save uploaded file to temp location with server-side byte counting.
+    # Streaming 64KB chunks avoids loading the entire file into memory and
+    # enforces the size limit regardless of what Content-Length claims.
     # Using os.* instead of pathlib for async-safe file I/O (ASYNC240).
     fd, temp_name = tempfile.mkstemp(suffix=".json")
+    oversized = False
     try:
-        content = await file.read()
-        os.write(fd, content)
-        os.close(fd)
-    except Exception:
+        bytes_written = 0
+        while chunk := await file.read(64 * 1024):
+            bytes_written += len(chunk)
+            if bytes_written > BusinessLimits.MAX_UPLOAD_BYTES:
+                oversized = True
+                break
+            os.write(fd, chunk)
+    except BaseException:
         os.close(fd)
         os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
         raise
+    else:
+        os.close(fd)
+
+    if oversized:
+        os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
+        )
 
     temp_path = Path(temp_name)
     operation_id, emitter = await _prepare_operation()

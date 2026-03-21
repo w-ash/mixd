@@ -213,18 +213,29 @@ class SpotifyTokenManager:
         logger.debug("Spotify authorization code captured")
         return captured["code"]
 
-    async def exchange_code(self, code: str) -> SpotifyTokenCache:
-        """Exchange authorization code for access + refresh tokens."""
+    async def exchange_code(
+        self, code: str, *, code_verifier: str | None = None
+    ) -> SpotifyTokenCache:
+        """Exchange authorization code for access + refresh tokens.
+
+        When ``code_verifier`` is provided (PKCE flow), it's included in the
+        token exchange so Spotify can verify the code_challenge sent during
+        authorization. The CLI flow omits this — PKCE is optional for
+        confidential clients that authenticate with a client_secret.
+        """
         redirect_uri = settings.credentials.spotify_redirect_uri
+        data: dict[str, str] = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
         async with make_spotify_auth_client() as client:
             response = await client.post(
                 "/api/token",
                 headers={"Authorization": f"Basic {self._basic_auth_header()}"},
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                },
+                data=data,
             )
             _ = response.raise_for_status()
             raw = cast(dict[str, object], response.json())

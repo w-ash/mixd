@@ -37,7 +37,7 @@ async def _get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
     if jwk_set is not None and (time.monotonic() - fetched_at) < _JWKS_CACHE_TTL:
         return jwk_set
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=True) as client:
         resp = await client.get(jwks_url, timeout=10)
         resp.raise_for_status()
         jwk_set = jwt.PyJWKSet.from_dict(resp.json())

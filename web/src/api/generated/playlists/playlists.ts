@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useMutation,
@@ -77,7 +77,7 @@ export const getListPlaylistsApiV1PlaylistsGetUrl = (params?: ListPlaylistsApiV1
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -89,16 +89,16 @@ export const getListPlaylistsApiV1PlaylistsGetUrl = (params?: ListPlaylistsApiV1
 }
 
 export const listPlaylistsApiV1PlaylistsGet = async (params?: ListPlaylistsApiV1PlaylistsGetParams, options?: RequestInit): Promise<listPlaylistsApiV1PlaylistsGetResponse> => {
-  
+
   return customFetch<listPlaylistsApiV1PlaylistsGetResponse>(getListPlaylistsApiV1PlaylistsGetUrl(params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -109,7 +109,7 @@ export const getListPlaylistsApiV1PlaylistsGetQueryKey = (params?: ListPlaylists
     ] as const;
     }
 
-    
+
 export const getListPlaylistsApiV1PlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -117,13 +117,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListPlaylistsApiV1PlaylistsGetQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>> = ({ signal }) => listPlaylistsApiV1PlaylistsGet(params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -162,7 +162,7 @@ export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typ
 
 export function useListPlaylistsApiV1PlaylistsGet<TData = Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError = HTTPValidationError>(
  params?: ListPlaylistsApiV1PlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistsApiV1PlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListPlaylistsApiV1PlaylistsGetQueryOptions(params,options)
@@ -201,15 +201,15 @@ export type createPlaylistApiV1PlaylistsPostResponse = (createPlaylistApiV1Playl
 export const getCreatePlaylistApiV1PlaylistsPostUrl = () => {
 
 
-  
+
 
   return `/api/v1/playlists`
 }
 
 export const createPlaylistApiV1PlaylistsPost = async (createPlaylistRequest: CreatePlaylistRequest, options?: RequestInit): Promise<createPlaylistApiV1PlaylistsPostResponse> => {
-  
+
   return customFetch<createPlaylistApiV1PlaylistsPostResponse>(getCreatePlaylistApiV1PlaylistsPostUrl(),
-  {      
+  {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -217,7 +217,7 @@ export const createPlaylistApiV1PlaylistsPost = async (createPlaylistRequest: Cr
       createPlaylistRequest,)
   }
 );}
-  
+
 
 
 
@@ -232,7 +232,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlaylistApiV1PlaylistsPost>>, {data: CreatePlaylistRequest}> = (props) => {
@@ -243,7 +243,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -291,15 +291,15 @@ export type backupPlaylistApiV1PlaylistsBackupPostResponse = (backupPlaylistApiV
 export const getBackupPlaylistApiV1PlaylistsBackupPostUrl = () => {
 
 
-  
+
 
   return `/api/v1/playlists/backup`
 }
 
 export const backupPlaylistApiV1PlaylistsBackupPost = async (backupPlaylistRequest: BackupPlaylistRequest, options?: RequestInit): Promise<backupPlaylistApiV1PlaylistsBackupPostResponse> => {
-  
+
   return customFetch<backupPlaylistApiV1PlaylistsBackupPostResponse>(getBackupPlaylistApiV1PlaylistsBackupPostUrl(),
-  {      
+  {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -307,7 +307,7 @@ export const backupPlaylistApiV1PlaylistsBackupPost = async (backupPlaylistReque
       backupPlaylistRequest,)
   }
 );}
-  
+
 
 
 
@@ -322,7 +322,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof backupPlaylistApiV1PlaylistsBackupPost>>, {data: BackupPlaylistRequest}> = (props) => {
@@ -333,7 +333,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -381,22 +381,22 @@ export type getPlaylistApiV1PlaylistsPlaylistIdGetResponse = (getPlaylistApiV1Pl
 export const getGetPlaylistApiV1PlaylistsPlaylistIdGetUrl = (playlistId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}`
 }
 
 export const getPlaylistApiV1PlaylistsPlaylistIdGet = async (playlistId: number, options?: RequestInit): Promise<getPlaylistApiV1PlaylistsPlaylistIdGetResponse> => {
-  
+
   return customFetch<getPlaylistApiV1PlaylistsPlaylistIdGetResponse>(getGetPlaylistApiV1PlaylistsPlaylistIdGetUrl(playlistId),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -407,7 +407,7 @@ export const getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey = (playlistId: nu
     ] as const;
     }
 
-    
+
 export const getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -415,13 +415,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>> = ({ signal }) => getPlaylistApiV1PlaylistsPlaylistIdGet(playlistId, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(playlistId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -460,7 +460,7 @@ export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<Return
 
 export function useGetPlaylistApiV1PlaylistsPlaylistIdGet<TData = Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError = HTTPValidationError>(
  playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistApiV1PlaylistsPlaylistIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryOptions(playlistId,options)
@@ -499,16 +499,16 @@ export type updatePlaylistApiV1PlaylistsPlaylistIdPatchResponse = (updatePlaylis
 export const getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchUrl = (playlistId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}`
 }
 
 export const updatePlaylistApiV1PlaylistsPlaylistIdPatch = async (playlistId: number,
     updatePlaylistRequest: UpdatePlaylistRequest, options?: RequestInit): Promise<updatePlaylistApiV1PlaylistsPlaylistIdPatchResponse> => {
-  
+
   return customFetch<updatePlaylistApiV1PlaylistsPlaylistIdPatchResponse>(getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchUrl(playlistId),
-  {      
+  {
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -516,7 +516,7 @@ export const updatePlaylistApiV1PlaylistsPlaylistIdPatch = async (playlistId: nu
       updatePlaylistRequest,)
   }
 );}
-  
+
 
 
 
@@ -531,7 +531,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlaylistApiV1PlaylistsPlaylistIdPatch>>, {playlistId: number;data: UpdatePlaylistRequest}> = (props) => {
@@ -542,7 +542,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -590,22 +590,22 @@ export type deletePlaylistApiV1PlaylistsPlaylistIdDeleteResponse = (deletePlayli
 export const getDeletePlaylistApiV1PlaylistsPlaylistIdDeleteUrl = (playlistId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}`
 }
 
 export const deletePlaylistApiV1PlaylistsPlaylistIdDelete = async (playlistId: number, options?: RequestInit): Promise<deletePlaylistApiV1PlaylistsPlaylistIdDeleteResponse> => {
-  
+
   return customFetch<deletePlaylistApiV1PlaylistsPlaylistIdDeleteResponse>(getDeletePlaylistApiV1PlaylistsPlaylistIdDeleteUrl(playlistId),
-  {      
+  {
     ...options,
     method: 'DELETE'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -620,7 +620,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>, {playlistId: number}> = (props) => {
@@ -631,13 +631,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeletePlaylistApiV1PlaylistsPlaylistIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deletePlaylistApiV1PlaylistsPlaylistIdDelete>>>
-    
+
     export type DeletePlaylistApiV1PlaylistsPlaylistIdDeleteMutationError = HTTPValidationError
 
     /**
@@ -681,7 +681,7 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetUrl = (playlis
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -694,16 +694,16 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetUrl = (playlis
 
 export const getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet = async (playlistId: number,
     params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: RequestInit): Promise<getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetResponse> => {
-  
+
   return customFetch<getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetResponse>(getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetUrl(playlistId,params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -715,7 +715,7 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey = (pl
     ] as const;
     }
 
-    
+
 export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(playlistId: number,
     params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -724,13 +724,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(playlistId,params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>> = ({ signal }) => getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet(playlistId,params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(playlistId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -773,7 +773,7 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
 export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError = HTTPValidationError>(
  playlistId: number,
     params?: GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryOptions(playlistId,params,options)
@@ -812,22 +812,22 @@ export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse = (listPla
 export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetUrl = (playlistId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}/links`
 }
 
 export const listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet = async (playlistId: number, options?: RequestInit): Promise<listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse> => {
-  
+
   return customFetch<listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse>(getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetUrl(playlistId),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -838,7 +838,7 @@ export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey = (pla
     ] as const;
     }
 
-    
+
 export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -846,13 +846,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryKey(playlistId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>> = ({ signal }) => listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet(playlistId, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(playlistId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -891,7 +891,7 @@ export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awa
 
 export function useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet<TData = Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError = HTTPValidationError>(
  playlistId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetQueryOptions(playlistId,options)
@@ -933,16 +933,16 @@ export type createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse = (creat
 export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostUrl = (playlistId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}/links`
 }
 
 export const createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost = async (playlistId: number,
     createLinkRequest: CreateLinkRequest, options?: RequestInit): Promise<createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse> => {
-  
+
   return customFetch<createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponse>(getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostUrl(playlistId),
-  {      
+  {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -950,7 +950,7 @@ export const createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost = async (playli
       createLinkRequest,)
   }
 );}
-  
+
 
 
 
@@ -965,7 +965,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlaylistLinkApiV1PlaylistsPlaylistIdLinksPost>>, {playlistId: number;data: CreateLinkRequest}> = (props) => {
@@ -976,7 +976,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1025,23 +1025,23 @@ export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteUrl =
     linkId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}/links/${linkId}`
 }
 
 export const deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete = async (playlistId: number,
     linkId: number, options?: RequestInit): Promise<deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse> => {
-  
+
   return customFetch<deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteResponse>(getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteUrl(playlistId,linkId),
-  {      
+  {
     ...options,
     method: 'DELETE'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -1056,7 +1056,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>, {playlistId: number;linkId: number}> = (props) => {
@@ -1067,13 +1067,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDelete>>>
-    
+
     export type DeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMutationError = HTTPValidationError
 
     /**
@@ -1116,7 +1116,7 @@ export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl = 
     linkId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}/links/${linkId}`
 }
@@ -1124,9 +1124,9 @@ export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl = 
 export const updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch = async (playlistId: number,
     linkId: number,
     updateLinkRequest: UpdateLinkRequest, options?: RequestInit): Promise<updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse> => {
-  
+
   return customFetch<updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponse>(getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchUrl(playlistId,linkId),
-  {      
+  {
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1134,7 +1134,7 @@ export const updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch = async 
       updateLinkRequest,)
   }
 );}
-  
+
 
 
 
@@ -1149,7 +1149,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch>>, {playlistId: number;linkId: number;data: UpdateLinkRequest}> = (props) => {
@@ -1160,7 +1160,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1211,7 +1211,7 @@ export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPrevie
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -1225,16 +1225,16 @@ export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPrevie
 export const previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet = async (playlistId: number,
     linkId: number,
     params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: RequestInit): Promise<previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse> => {
-  
+
   return customFetch<previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponse>(getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetUrl(playlistId,linkId,params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -1247,7 +1247,7 @@ export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPrevie
     ] as const;
     }
 
-    
+
 export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryOptions = <TData = Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError = HTTPValidationError>(playlistId: number,
     linkId: number,
     params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
@@ -1257,13 +1257,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryKey(playlistId,linkId,params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>> = ({ signal }) => previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet(playlistId,linkId,params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(playlistId && linkId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1310,7 +1310,7 @@ export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPre
  playlistId: number,
     linkId: number,
     params?: PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetQueryOptions(playlistId,linkId,params,options)
@@ -1353,7 +1353,7 @@ export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl =
     linkId: number,) => {
 
 
-  
+
 
   return `/api/v1/playlists/${playlistId}/links/${linkId}/sync`
 }
@@ -1361,9 +1361,9 @@ export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl =
 export const syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = async (playlistId: number,
     linkId: number,
     syncLinkRequestNull: SyncLinkRequest | null, options?: RequestInit): Promise<syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse> => {
-  
+
   return customFetch<syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse>(getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl(playlistId,linkId),
-  {      
+  {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1371,7 +1371,7 @@ export const syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = async
       syncLinkRequestNull,)
   }
 );}
-  
+
 
 
 
@@ -1386,7 +1386,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost>>, {playlistId: number;linkId: number;data: SyncLinkRequest | null}> = (props) => {
@@ -1397,7 +1397,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1419,4 +1419,3 @@ export const useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = <T
       > => {
       return useMutation(getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationOptions(options), queryClient);
     }
-    

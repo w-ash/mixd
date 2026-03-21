@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   faker
@@ -52,8 +52,8 @@ export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostRespo
 
 export const getListPlaylistsApiV1PlaylistsGetMockHandler = (overrideResponse?: PaginatedResponsePlaylistSummarySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponsePlaylistSummarySchema> | PaginatedResponsePlaylistSummarySchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/playlists', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListPlaylistsApiV1PlaylistsGetResponseMock(),
@@ -64,8 +64,8 @@ export const getListPlaylistsApiV1PlaylistsGetMockHandler = (overrideResponse?: 
 
 export const getCreatePlaylistApiV1PlaylistsPostMockHandler = (overrideResponse?: PlaylistDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PlaylistDetailSchema> | PlaylistDetailSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/playlists', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getCreatePlaylistApiV1PlaylistsPostResponseMock(),
@@ -76,8 +76,8 @@ export const getCreatePlaylistApiV1PlaylistsPostMockHandler = (overrideResponse?
 
 export const getBackupPlaylistApiV1PlaylistsBackupPostMockHandler = (overrideResponse?: PlaylistDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PlaylistDetailSchema> | PlaylistDetailSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/playlists/backup', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getBackupPlaylistApiV1PlaylistsBackupPostResponseMock(),
@@ -88,8 +88,8 @@ export const getBackupPlaylistApiV1PlaylistsBackupPostMockHandler = (overrideRes
 
 export const getGetPlaylistApiV1PlaylistsPlaylistIdGetMockHandler = (overrideResponse?: PlaylistDetailSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlaylistDetailSchema> | PlaylistDetailSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/playlists/:playlistId', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetPlaylistApiV1PlaylistsPlaylistIdGetResponseMock(),
@@ -100,8 +100,8 @@ export const getGetPlaylistApiV1PlaylistsPlaylistIdGetMockHandler = (overrideRes
 
 export const getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchMockHandler = (overrideResponse?: PlaylistDetailSchema | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<PlaylistDetailSchema> | PlaylistDetailSchema), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/playlists/:playlistId', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchResponseMock(),
@@ -113,7 +113,7 @@ export const getUpdatePlaylistApiV1PlaylistsPlaylistIdPatchMockHandler = (overri
 export const getDeletePlaylistApiV1PlaylistsPlaylistIdDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/playlists/:playlistId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-  
+
     return new HttpResponse(null,
       { status: 204
       })
@@ -122,8 +122,8 @@ export const getDeletePlaylistApiV1PlaylistsPlaylistIdDeleteMockHandler = (overr
 
 export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetMockHandler = (overrideResponse?: PaginatedResponsePlaylistEntrySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponsePlaylistEntrySchema> | PaginatedResponsePlaylistEntrySchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/playlists/:playlistId/tracks', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetResponseMock(),
@@ -134,8 +134,8 @@ export const getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetMockHandler = 
 
 export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetMockHandler = (overrideResponse?: PlaylistLinkSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlaylistLinkSchema[]> | PlaylistLinkSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/playlists/:playlistId/links', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponseMock(),
@@ -146,8 +146,8 @@ export const getListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetMockHandler = (
 
 export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMockHandler = (overrideResponse?: PlaylistLinkSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PlaylistLinkSchema> | PlaylistLinkSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/playlists/:playlistId/links', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostResponseMock(),
@@ -159,7 +159,7 @@ export const getCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPostMockHandler =
 export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/playlists/:playlistId/links/:linkId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-  
+
     return new HttpResponse(null,
       { status: 204
       })
@@ -168,8 +168,8 @@ export const getDeletePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdDeleteMockH
 
 export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMockHandler = (overrideResponse?: PlaylistLinkSchema | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<PlaylistLinkSchema> | PlaylistLinkSchema), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/playlists/:playlistId/links/:linkId', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchResponseMock(),
@@ -180,8 +180,8 @@ export const getUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatchMockHa
 
 export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetMockHandler = (overrideResponse?: SyncPreviewResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SyncPreviewResponse> | SyncPreviewResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/playlists/:playlistId/links/:linkId/sync/preview', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetResponseMock(),
@@ -192,8 +192,8 @@ export const getPreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPrevie
 
 export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMockHandler = (overrideResponse?: SyncStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SyncStartedResponse> | SyncStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/playlists/:playlistId/links/:linkId/sync', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponseMock(),

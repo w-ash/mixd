@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useMutation,
@@ -56,22 +56,22 @@ export type getSettingsApiV1SettingsGetResponse = (getSettingsApiV1SettingsGetRe
 export const getGetSettingsApiV1SettingsGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/settings`
 }
 
 export const getSettingsApiV1SettingsGet = async ( options?: RequestInit): Promise<getSettingsApiV1SettingsGetResponse> => {
-  
+
   return customFetch<getSettingsApiV1SettingsGetResponse>(getGetSettingsApiV1SettingsGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -82,7 +82,7 @@ export const getGetSettingsApiV1SettingsGetQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getGetSettingsApiV1SettingsGetQueryOptions = <TData = Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -90,13 +90,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetSettingsApiV1SettingsGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>> = ({ signal }) => getSettingsApiV1SettingsGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -135,7 +135,7 @@ export function useGetSettingsApiV1SettingsGet<TData = Awaited<ReturnType<typeof
 
 export function useGetSettingsApiV1SettingsGet<TData = Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSettingsApiV1SettingsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetSettingsApiV1SettingsGetQueryOptions(options)
@@ -174,15 +174,15 @@ export type patchSettingsApiV1SettingsPatchResponse = (patchSettingsApiV1Setting
 export const getPatchSettingsApiV1SettingsPatchUrl = () => {
 
 
-  
+
 
   return `/api/v1/settings`
 }
 
 export const patchSettingsApiV1SettingsPatch = async (userSettingsPatch: UserSettingsPatch, options?: RequestInit): Promise<patchSettingsApiV1SettingsPatchResponse> => {
-  
+
   return customFetch<patchSettingsApiV1SettingsPatchResponse>(getPatchSettingsApiV1SettingsPatchUrl(),
-  {      
+  {
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -190,7 +190,7 @@ export const patchSettingsApiV1SettingsPatch = async (userSettingsPatch: UserSet
       userSettingsPatch,)
   }
 );}
-  
+
 
 
 
@@ -205,7 +205,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchSettingsApiV1SettingsPatch>>, {data: UserSettingsPatch}> = (props) => {
@@ -216,7 +216,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -238,4 +238,3 @@ export const usePatchSettingsApiV1SettingsPatch = <TError = HTTPValidationError,
       > => {
       return useMutation(getPatchSettingsApiV1SettingsPatchMutationOptions(options), queryClient);
     }
-    

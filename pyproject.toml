@@ -1,6 +1,6 @@
 [project]
 name = "narada"
-version = "0.5.6"
+version = "0.5.7"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"

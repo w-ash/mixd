@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.5.5"
+    "version": "0.5.7"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -12,7 +12,7 @@
           "auth"
         ],
         "summary": "Get Spotify Auth Url",
-        "description": "Generate Spotify OAuth authorization URL with CSRF state.",
+        "description": "Generate Spotify OAuth authorization URL with CSRF state and PKCE.",
         "operationId": "get_spotify_auth_url_api_v1_connectors_spotify_auth_url_get",
         "responses": {
           "200": {

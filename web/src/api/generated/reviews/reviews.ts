@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useMutation,
@@ -66,7 +66,7 @@ export const getListReviewsApiV1ReviewsGetUrl = (params?: ListReviewsApiV1Review
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -78,16 +78,16 @@ export const getListReviewsApiV1ReviewsGetUrl = (params?: ListReviewsApiV1Review
 }
 
 export const listReviewsApiV1ReviewsGet = async (params?: ListReviewsApiV1ReviewsGetParams, options?: RequestInit): Promise<listReviewsApiV1ReviewsGetResponse> => {
-  
+
   return customFetch<listReviewsApiV1ReviewsGetResponse>(getListReviewsApiV1ReviewsGetUrl(params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -98,7 +98,7 @@ export const getListReviewsApiV1ReviewsGetQueryKey = (params?: ListReviewsApiV1R
     ] as const;
     }
 
-    
+
 export const getListReviewsApiV1ReviewsGetQueryOptions = <TData = Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>, TError = HTTPValidationError>(params?: ListReviewsApiV1ReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -106,13 +106,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListReviewsApiV1ReviewsGetQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>> = ({ signal }) => listReviewsApiV1ReviewsGet(params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -151,7 +151,7 @@ export function useListReviewsApiV1ReviewsGet<TData = Awaited<ReturnType<typeof 
 
 export function useListReviewsApiV1ReviewsGet<TData = Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>, TError = HTTPValidationError>(
  params?: ListReviewsApiV1ReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1ReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListReviewsApiV1ReviewsGetQueryOptions(params,options)
@@ -190,16 +190,16 @@ export type resolveReviewApiV1ReviewsReviewIdResolvePostResponse = (resolveRevie
 export const getResolveReviewApiV1ReviewsReviewIdResolvePostUrl = (reviewId: number,) => {
 
 
-  
+
 
   return `/api/v1/reviews/${reviewId}/resolve`
 }
 
 export const resolveReviewApiV1ReviewsReviewIdResolvePost = async (reviewId: number,
     resolveReviewRequest: ResolveReviewRequest, options?: RequestInit): Promise<resolveReviewApiV1ReviewsReviewIdResolvePostResponse> => {
-  
+
   return customFetch<resolveReviewApiV1ReviewsReviewIdResolvePostResponse>(getResolveReviewApiV1ReviewsReviewIdResolvePostUrl(reviewId),
-  {      
+  {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -207,7 +207,7 @@ export const resolveReviewApiV1ReviewsReviewIdResolvePost = async (reviewId: num
       resolveReviewRequest,)
   }
 );}
-  
+
 
 
 
@@ -222,7 +222,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveReviewApiV1ReviewsReviewIdResolvePost>>, {reviewId: number;data: ResolveReviewRequest}> = (props) => {
@@ -233,7 +233,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -255,4 +255,3 @@ export const useResolveReviewApiV1ReviewsReviewIdResolvePost = <TError = HTTPVal
       > => {
       return useMutation(getResolveReviewApiV1ReviewsReviewIdResolvePostMutationOptions(options), queryClient);
     }
-    

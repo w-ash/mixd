@@ -115,8 +115,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.server.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "Accept"],
     )
 
     # Site auth gate — only active when NEON_AUTH_URL is set (production)
@@ -143,6 +143,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(CachingMiddleware)
     app.add_middleware(StaticCacheMiddleware)
+
+    # Security headers — outermost layer (last add_middleware = first to run)
+    from src.interface.api.security_headers import SecurityHeadersMiddleware
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Exception → error envelope mapping
     register_exception_handlers(app)

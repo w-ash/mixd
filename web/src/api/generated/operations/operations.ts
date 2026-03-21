@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useQuery
@@ -63,22 +63,22 @@ export type streamOperationProgressApiV1OperationsOperationIdProgressGetResponse
 export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetUrl = (operationId: string,) => {
 
 
-  
+
 
   return `/api/v1/operations/${operationId}/progress`
 }
 
 export const streamOperationProgressApiV1OperationsOperationIdProgressGet = async (operationId: string, options?: RequestInit): Promise<streamOperationProgressApiV1OperationsOperationIdProgressGetResponse> => {
-  
+
   return customFetch<streamOperationProgressApiV1OperationsOperationIdProgressGetResponse>(getStreamOperationProgressApiV1OperationsOperationIdProgressGetUrl(operationId),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -89,7 +89,7 @@ export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetQuer
     ] as const;
     }
 
-    
+
 export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetQueryOptions = <TData = Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>, TError = HTTPValidationError>(operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -97,13 +97,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getStreamOperationProgressApiV1OperationsOperationIdProgressGetQueryKey(operationId);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>> = ({ signal }) => streamOperationProgressApiV1OperationsOperationIdProgressGet(operationId, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, enabled: !!(operationId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -142,7 +142,7 @@ export function useStreamOperationProgressApiV1OperationsOperationIdProgressGet<
 
 export function useStreamOperationProgressApiV1OperationsOperationIdProgressGet<TData = Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>, TError = HTTPValidationError>(
  operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof streamOperationProgressApiV1OperationsOperationIdProgressGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getStreamOperationProgressApiV1OperationsOperationIdProgressGetQueryOptions(operationId,options)
@@ -174,22 +174,22 @@ export type listActiveOperationsApiV1OperationsGetResponse = (listActiveOperatio
 export const getListActiveOperationsApiV1OperationsGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/operations`
 }
 
 export const listActiveOperationsApiV1OperationsGet = async ( options?: RequestInit): Promise<listActiveOperationsApiV1OperationsGetResponse> => {
-  
+
   return customFetch<listActiveOperationsApiV1OperationsGetResponse>(getListActiveOperationsApiV1OperationsGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -200,7 +200,7 @@ export const getListActiveOperationsApiV1OperationsGetQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getListActiveOperationsApiV1OperationsGetQueryOptions = <TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -208,13 +208,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListActiveOperationsApiV1OperationsGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>> = ({ signal }) => listActiveOperationsApiV1OperationsGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -253,7 +253,7 @@ export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<Return
 
 export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListActiveOperationsApiV1OperationsGetQueryOptions(options)
@@ -262,7 +262,3 @@ export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<Return
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
-
-

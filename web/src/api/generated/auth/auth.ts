@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useQuery
@@ -36,7 +36,7 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * Generate Spotify OAuth authorization URL with CSRF state.
+ * Generate Spotify OAuth authorization URL with CSRF state and PKCE.
  * @summary Get Spotify Auth Url
  */
 export type getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse200 = {
@@ -54,22 +54,22 @@ export type getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse = (getSpot
 export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/connectors/spotify/auth-url`
 }
 
 export const getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet = async ( options?: RequestInit): Promise<getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse> => {
-  
+
   return customFetch<getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse>(getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -80,7 +80,7 @@ export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryKey = () =
     ] as const;
     }
 
-    
+
 export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryOptions = <TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -88,13 +88,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>> = ({ signal }) => getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -133,7 +133,7 @@ export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awa
 
 export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryOptions(options)
@@ -168,22 +168,22 @@ export type getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse = (getLastfm
 export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/connectors/lastfm/auth-url`
 }
 
 export const getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet = async ( options?: RequestInit): Promise<getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse> => {
-  
+
   return customFetch<getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse>(getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -194,7 +194,7 @@ export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryKey = () => 
     ] as const;
     }
 
-    
+
 export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryOptions = <TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -202,13 +202,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>> = ({ signal }) => getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -247,7 +247,7 @@ export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Await
 
 export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryOptions(options)
@@ -290,7 +290,7 @@ export const getSpotifyCallbackAuthSpotifyCallbackGetUrl = (params?: SpotifyCall
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -302,16 +302,16 @@ export const getSpotifyCallbackAuthSpotifyCallbackGetUrl = (params?: SpotifyCall
 }
 
 export const spotifyCallbackAuthSpotifyCallbackGet = async (params?: SpotifyCallbackAuthSpotifyCallbackGetParams, options?: RequestInit): Promise<spotifyCallbackAuthSpotifyCallbackGetResponse> => {
-  
+
   return customFetch<spotifyCallbackAuthSpotifyCallbackGetResponse>(getSpotifyCallbackAuthSpotifyCallbackGetUrl(params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -322,7 +322,7 @@ export const getSpotifyCallbackAuthSpotifyCallbackGetQueryKey = (params?: Spotif
     ] as const;
     }
 
-    
+
 export const getSpotifyCallbackAuthSpotifyCallbackGetQueryOptions = <TData = Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>, TError = HTTPValidationError>(params?: SpotifyCallbackAuthSpotifyCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -330,13 +330,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getSpotifyCallbackAuthSpotifyCallbackGetQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>> = ({ signal }) => spotifyCallbackAuthSpotifyCallbackGet(params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -375,7 +375,7 @@ export function useSpotifyCallbackAuthSpotifyCallbackGet<TData = Awaited<ReturnT
 
 export function useSpotifyCallbackAuthSpotifyCallbackGet<TData = Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>, TError = HTTPValidationError>(
  params?: SpotifyCallbackAuthSpotifyCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof spotifyCallbackAuthSpotifyCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getSpotifyCallbackAuthSpotifyCallbackGetQueryOptions(params,options)
@@ -420,7 +420,7 @@ export const getLastfmCallbackAuthLastfmCallbackGetUrl = (params?: LastfmCallbac
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -432,16 +432,16 @@ export const getLastfmCallbackAuthLastfmCallbackGetUrl = (params?: LastfmCallbac
 }
 
 export const lastfmCallbackAuthLastfmCallbackGet = async (params?: LastfmCallbackAuthLastfmCallbackGetParams, options?: RequestInit): Promise<lastfmCallbackAuthLastfmCallbackGetResponse> => {
-  
+
   return customFetch<lastfmCallbackAuthLastfmCallbackGetResponse>(getLastfmCallbackAuthLastfmCallbackGetUrl(params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -452,7 +452,7 @@ export const getLastfmCallbackAuthLastfmCallbackGetQueryKey = (params?: LastfmCa
     ] as const;
     }
 
-    
+
 export const getLastfmCallbackAuthLastfmCallbackGetQueryOptions = <TData = Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>, TError = HTTPValidationError>(params?: LastfmCallbackAuthLastfmCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -460,13 +460,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getLastfmCallbackAuthLastfmCallbackGetQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>> = ({ signal }) => lastfmCallbackAuthLastfmCallbackGet(params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -505,7 +505,7 @@ export function useLastfmCallbackAuthLastfmCallbackGet<TData = Awaited<ReturnTyp
 
 export function useLastfmCallbackAuthLastfmCallbackGet<TData = Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>, TError = HTTPValidationError>(
  params?: LastfmCallbackAuthLastfmCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lastfmCallbackAuthLastfmCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getLastfmCallbackAuthLastfmCallbackGetQueryOptions(params,options)
@@ -514,7 +514,3 @@ export function useLastfmCallbackAuthLastfmCallbackGet<TData = Awaited<ReturnTyp
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
-
-

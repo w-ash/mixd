@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useQuery
@@ -54,22 +54,22 @@ export type getDashboardStatsApiV1StatsDashboardGetResponse = (getDashboardStats
 export const getGetDashboardStatsApiV1StatsDashboardGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/stats/dashboard`
 }
 
 export const getDashboardStatsApiV1StatsDashboardGet = async ( options?: RequestInit): Promise<getDashboardStatsApiV1StatsDashboardGetResponse> => {
-  
+
   return customFetch<getDashboardStatsApiV1StatsDashboardGetResponse>(getGetDashboardStatsApiV1StatsDashboardGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -80,7 +80,7 @@ export const getGetDashboardStatsApiV1StatsDashboardGetQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getGetDashboardStatsApiV1StatsDashboardGetQueryOptions = <TData = Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -88,13 +88,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetDashboardStatsApiV1StatsDashboardGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>> = ({ signal }) => getDashboardStatsApiV1StatsDashboardGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -133,7 +133,7 @@ export function useGetDashboardStatsApiV1StatsDashboardGet<TData = Awaited<Retur
 
 export function useGetDashboardStatsApiV1StatsDashboardGet<TData = Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDashboardStatsApiV1StatsDashboardGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetDashboardStatsApiV1StatsDashboardGetQueryOptions(options)
@@ -165,22 +165,22 @@ export type getIntegrityReportApiV1StatsIntegrityGetResponse = (getIntegrityRepo
 export const getGetIntegrityReportApiV1StatsIntegrityGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/stats/integrity`
 }
 
 export const getIntegrityReportApiV1StatsIntegrityGet = async ( options?: RequestInit): Promise<getIntegrityReportApiV1StatsIntegrityGetResponse> => {
-  
+
   return customFetch<getIntegrityReportApiV1StatsIntegrityGetResponse>(getGetIntegrityReportApiV1StatsIntegrityGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -191,7 +191,7 @@ export const getGetIntegrityReportApiV1StatsIntegrityGetQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getGetIntegrityReportApiV1StatsIntegrityGetQueryOptions = <TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -199,13 +199,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetIntegrityReportApiV1StatsIntegrityGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>> = ({ signal }) => getIntegrityReportApiV1StatsIntegrityGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -244,7 +244,7 @@ export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<Retu
 
 export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetIntegrityReportApiV1StatsIntegrityGetQueryOptions(options)
@@ -284,7 +284,7 @@ export const getGetMatchingHealthApiV1StatsMatchingGetUrl = (params?: GetMatchin
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    
+
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -296,16 +296,16 @@ export const getGetMatchingHealthApiV1StatsMatchingGetUrl = (params?: GetMatchin
 }
 
 export const getMatchingHealthApiV1StatsMatchingGet = async (params?: GetMatchingHealthApiV1StatsMatchingGetParams, options?: RequestInit): Promise<getMatchingHealthApiV1StatsMatchingGetResponse> => {
-  
+
   return customFetch<getMatchingHealthApiV1StatsMatchingGetResponse>(getGetMatchingHealthApiV1StatsMatchingGetUrl(params),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -316,7 +316,7 @@ export const getGetMatchingHealthApiV1StatsMatchingGetQueryKey = (params?: GetMa
     ] as const;
     }
 
-    
+
 export const getGetMatchingHealthApiV1StatsMatchingGetQueryOptions = <TData = Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>, TError = HTTPValidationError>(params?: GetMatchingHealthApiV1StatsMatchingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -324,13 +324,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetMatchingHealthApiV1StatsMatchingGetQueryKey(params);
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>> = ({ signal }) => getMatchingHealthApiV1StatsMatchingGet(params, { signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -369,7 +369,7 @@ export function useGetMatchingHealthApiV1StatsMatchingGet<TData = Awaited<Return
 
 export function useGetMatchingHealthApiV1StatsMatchingGet<TData = Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>, TError = HTTPValidationError>(
  params?: GetMatchingHealthApiV1StatsMatchingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMatchingHealthApiV1StatsMatchingGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetMatchingHealthApiV1StatsMatchingGetQueryOptions(params,options)
@@ -378,7 +378,3 @@ export function useGetMatchingHealthApiV1StatsMatchingGet<TData = Awaited<Return
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
-
-

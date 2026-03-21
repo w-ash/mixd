@@ -2,6 +2,7 @@
 
 **Current Version**: 0.5.6
 **Current Initiative**: v0.5.7 Security Hardening — not started
+**Next**: v0.6.x Multi-User Data Isolation
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -38,13 +39,14 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](v0.5.x.md#v055-parallel-execution--performance) |
 | **v0.5.6** | Auth gate, automated deploys & startup DX | ✅ Completed | [details](v0.5.x.md#v056-auth-gate-automated-deploys--startup-dx) |
 | **v0.5.7** | Security hardening | 🔜 Not Started | [details](v0.5.x.md#v057-security-hardening) |
-| **v0.6.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.6.x.md#v060-preference-system--likes-migration) |
-| **v0.6.1** | Tagging system | 🔜 Not Started | [details](v0.6.x.md#v061-tagging-system) |
-| **v0.6.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.6.x.md#v062-spotify-playlist-mapping-preference--tag-import) |
-| **v0.6.3** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.6.x.md#v063-workflow-integration--quick-filters) |
-| **v0.7.0** | Data quality tools | 🔜 Not Started | [details](v0.7.x.md#v070-data-quality) |
-| **v0.7.1** | Apple Music connector | 🔜 Not Started | [details](v0.7.x.md#v071-apple-music-connector) |
-| **v0.7.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.7.x.md#v072-rekordbox-connector) |
+| **v0.6.0** | Multi-user: schema + user identity | 🔜 Not Started | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
+| **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
+| **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
+| **v0.6.3** | Multi-user: testing + data claim | 🔜 Not Started | [details](v0.6.x.md#v063-testing--data-claim) |
+| **v0.7.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.7.x.md#v070-preference-system--likes-migration) |
+| **v0.7.1** | Tagging system | 🔜 Not Started | [details](v0.7.x.md#v071-tagging-system) |
+| **v0.7.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.7.x.md#v072-spotify-playlist-mapping-preference--tag-import) |
+| **v0.7.3** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.7.x.md#v073-workflow-integration--quick-filters) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
 | **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
 | **v0.9.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.9.x.md#v090-llm-assisted-workflow-creation) |
@@ -52,7 +54,9 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.10.1** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0101-first-class-albums) |
 | **v0.10.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0102-physical-media--discogs) |
 | **v0.10.3** | Manual scrobbling | 🔜 Not Started | [details](v0.10.x.md#v0103-manual-scrobbling) |
-| **v1.0.0** | Multi-user auth & production polish | 🔜 Not Started | [details](v1.0.x.md#v100-multi-user-auth--production-polish) |
+| **v1.0.0** | Data quality tools | 🔜 Not Started | [details](v1.0.x.md#v100-data-quality) |
+| **v1.0.1** | Apple Music connector | 🔜 Not Started | [details](v1.0.x.md#v101-apple-music-connector) |
+| **v1.0.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v1.0.x.md#v102-rekordbox-connector) |
 | **v1.1.0** | Privacy controls & public profiles | 🔜 Not Started | [details](v1.1.x.md#v110-privacy-controls--public-profiles) |
 | **v1.1.1** | Social graph & follows | 🔜 Not Started | [details](v1.1.x.md#v111-social-graph--follows) |
 | **v1.1.2** | Activity feed & social context | 🔜 Not Started | [details](v1.1.x.md#v112-activity-feed--social-context) |
@@ -72,12 +76,12 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.5.0–v0.5.3 | Infrastructure | Wants it deployed so they can access from any device | Self-hosts, expects clean setup | Needs hosted instance to exist |
 | v0.5.4 | OAuth + auth UX + WCAG + theming + settings | Connects services, picks light/dark mode, settings persist across devices | May prefer CLI auth, but web flow should be clean; appreciates system theme respect | "Connect Spotify" button IS the first impression; light mode widens appeal |
 | v0.5.5 | Performance | Faster workflow execution, snappier pages | Appreciates efficient infrastructure | Expects modern web app responsiveness |
-| v0.6.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
-| v0.7.0–v0.7.2 | Data quality + connectors | Fixes mappings, finds gaps, adds Rekordbox | Apple Music broadens self-host appeal | More services = less lock-in friction |
+| v0.6.x | Multi-user data isolation | Per-user data isolation on shared instance | Security hardening for self-hosted | Account creation on hosted instance |
+| v0.7.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use narada |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
-| v1.0.0 | Multi-user auth | Per-user data isolation on shared instance | Security hardening for self-hosted | Account creation on hosted instance |
+| v1.0.x | Data quality + connectors | Fixes mappings, finds gaps, adds Rekordbox | Apple Music broadens self-host appeal | More services = less lock-in friction |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |
 
 ---
@@ -86,16 +90,16 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 
 Visual guide to infrastructure capabilities across version milestones:
 
-| Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.x (Deployed) | v1.0.0 (Multi-User) |
+| Capability | v0.2.7 (CLI) | v0.3.0 (Web Local) | v0.5.x (Deployed) | v0.6.x (Multi-User) |
 |------------|--------------|-------------------|-------------------|---------------------|
-| **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ Same |
+| **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ + isolation tests |
 | **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
 | **Deployment** | ✅ uv install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
-| **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ + Email alerts |
-| **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Spotify + Last.fm OAuth | ✅ + Email/password |
-| **Database** | ✅ SQLite | ✅ PostgreSQL (Docker) | ✅ PostgreSQL | ✅ PostgreSQL |
+| **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ Same |
+| **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Neon Auth + OAuth | ✅ + per-user OAuth |
+| **Database** | ✅ SQLite | ✅ PostgreSQL (Docker) | ✅ PostgreSQL | ✅ + user_id scoping |
 | **Caching** | ❌ Not needed | ✅ Tanstack Query | ✅ + lru_cache | ✅ Same |
-| **Security** | ✅ Env vars, secrets | ✅ + CORS (localhost) | ✅ + HTTPS | ✅ + bcrypt |
+| **Security** | ✅ Env vars, secrets | ✅ + CORS (localhost) | ✅ + HTTPS + JWT | ✅ + token encryption |
 
 **Legend**: ✅ Ready | ⚠️ Needs work | ❌ Not needed
 

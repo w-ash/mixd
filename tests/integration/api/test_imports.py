@@ -122,6 +122,37 @@ class TestImportEndpoints:
         assert "operation_id" in response.json()
 
 
+class TestSpotifyHistoryUploadSize:
+    """Server-side upload size enforcement rejects oversized files."""
+
+    async def test_oversized_upload_returns_413(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Files exceeding MAX_UPLOAD_BYTES are rejected mid-stream."""
+        from unittest.mock import patch
+
+        with patch("src.interface.api.routes.imports.BusinessLimits") as mock_limits:
+            mock_limits.MAX_UPLOAD_BYTES = 1024  # 1 KB limit for test
+            content = b"x" * 2048  # 2 KB — exceeds patched limit
+            response = await client.post(
+                "/api/v1/imports/spotify/history",
+                files={"file": ("history.json", content, "application/json")},
+            )
+            assert response.status_code == 413
+
+    async def test_upload_within_limit_succeeds(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """A file within size limits is accepted and returns an operation_id."""
+        content = json.dumps([]).encode()
+        response = await client.post(
+            "/api/v1/imports/spotify/history",
+            files={"file": ("history.json", content, "application/json")},
+        )
+        assert response.status_code == 200
+        assert "operation_id" in response.json()
+
+
 class TestCheckpointEndpoints:
     """Tests the checkpoint status retrieval endpoint."""
 

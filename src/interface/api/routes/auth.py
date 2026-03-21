@@ -13,6 +13,8 @@ Flow:
 
 # pyright: reportAny=false, reportExplicitAny=false
 
+import base64
+import hashlib
 import secrets
 import time
 import urllib.parse
@@ -47,28 +49,45 @@ router = APIRouter(tags=["auth"])
 # In-memory state store with TTL. Single-user, single-worker app — no need
 # for database or Redis. States expire after 5 minutes.
 _CSRF_STATE_TTL = 300
-_csrf_states: dict[str, float] = {}
+# Maps state token → (expiry_timestamp, optional PKCE code_verifier)
+_csrf_states: dict[str, tuple[float, str | None]] = {}
 
 
-def _create_state() -> str:
-    """Generate a CSRF state token and store it with a TTL."""
+def _create_pkce_challenge(code_verifier: str) -> str:
+    """Compute S256 PKCE code_challenge from a code_verifier (RFC 7636)."""
+
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _create_state(*, code_verifier: str | None = None) -> str:
+    """Generate a CSRF state token and store it with a TTL.
+
+    Optionally stores a PKCE code_verifier alongside the state so the
+    callback can retrieve it during token exchange.
+    """
     # Prune expired states
     now = time.time()
-    expired = [k for k, v in _csrf_states.items() if v < now]
+    expired = [k for k, (exp, _) in _csrf_states.items() if exp < now]
     for k in expired:
         del _csrf_states[k]
 
     state = secrets.token_urlsafe(32)
-    _csrf_states[state] = now + _CSRF_STATE_TTL
+    _csrf_states[state] = (now + _CSRF_STATE_TTL, code_verifier)
     return state
 
 
-def _validate_state(state: str) -> bool:
-    """Validate and consume a CSRF state token."""
-    expiry = _csrf_states.pop(state, None)
-    if expiry is None:
-        return False
-    return time.time() < expiry
+def _validate_state(state: str) -> tuple[bool, str | None]:
+    """Validate and consume a CSRF state token.
+
+    Returns (is_valid, code_verifier). The code_verifier is None when
+    no PKCE was used for this state (e.g., non-Spotify flows).
+    """
+    entry = _csrf_states.pop(state, None)
+    if entry is None:
+        return False, None
+    expiry, code_verifier = entry
+    return time.time() < expiry, code_verifier
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +97,10 @@ def _validate_state(state: str) -> bool:
 
 @router.get("/api/v1/connectors/spotify/auth-url")
 async def get_spotify_auth_url() -> dict[str, str]:
-    """Generate Spotify OAuth authorization URL with CSRF state."""
-    state = _create_state()
+    """Generate Spotify OAuth authorization URL with CSRF state and PKCE."""
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = _create_pkce_challenge(code_verifier)
+    state = _create_state(code_verifier=code_verifier)
     params = {
         "client_id": settings.credentials.spotify_client_id,
         "response_type": "code",
@@ -87,6 +108,8 @@ async def get_spotify_auth_url() -> dict[str, str]:
         "scope": " ".join(SPOTIFY_SCOPES),
         "state": state,
         "show_dialog": "false",
+        "code_challenge_method": "S256",
+        "code_challenge": code_challenge,
     }
     auth_url = f"{SPOTIFY_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
     return {"auth_url": auth_url}
@@ -134,7 +157,8 @@ async def spotify_callback(
             f"/settings/integrations?auth=spotify&status=error&reason={urllib.parse.quote(error)}"
         )
 
-    if not _validate_state(state):
+    valid, code_verifier = _validate_state(state)
+    if not valid:
         logger.warning("Spotify auth callback with invalid CSRF state")
         return RedirectResponse(
             "/settings/integrations?auth=spotify&status=error&reason=invalid_state"
@@ -143,7 +167,7 @@ async def spotify_callback(
     try:
         storage = get_token_storage()
         mgr = SpotifyTokenManager(storage=storage)
-        token_info = await mgr.exchange_code(code)
+        token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
         await storage.save_token("spotify", StoredToken(**token_info))
 
         # Fetch display name and cache it with the token
@@ -201,7 +225,7 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
             "format": "json",
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
             resp = await client.get(
                 "https://ws.audioscrobbler.com/2.0/",
                 params=request_params,
@@ -237,7 +261,7 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
             "lastfm",
             StoredToken(
                 session_key=str(session_key),
-                token_type="session",
+                token_type="session",  # noqa: S106 — metadata label, not a secret
                 account_name=str(username),
             ),
         )

@@ -10,7 +10,7 @@ For the planning overview, see [README.md](README.md).
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution
 - **Workflow Debugging Tools** (L) - Interactive debugging for workflow testing
 - **Playlist Diffing and Merging** (L) - Visualize differences between local and remote playlists
-- **Canonical Genre Support** (L) - Complements v0.6.1 freeform tagging with curated MusicBrainz genre data. Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
+- **Canonical Genre Support** (L) - Complements v0.7.1 freeform tagging with curated MusicBrainz genre data. Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
     - **MusicBrainz API** (primary source, verified Feb 2026):
         - Endpoint: `GET /ws/2/recording/{MBID}?inc=genres&fmt=json`
         - Response: `[{name: str, id: str, count: int, disambiguation: str}]` — flat list per recording, sorted by community vote count
@@ -66,6 +66,7 @@ For the planning overview, see [README.md](README.md).
 - **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
 - **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
 - **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.
+- ~~**Playlist Sync Safety Guards**~~ → Scheduled as [v0.5.8: Playlist Sync Safety Guards](v0.5.x.md#v058-playlist-sync-safety-guards)
 - **External Change Detection** (S) - Compare Spotify `snapshot_id` (or equivalent) to detect external changes since last sync. Enables "out of sync" notifications.
 - **PAUSED Sync State** (S) - Allow users to pause sync on a link without unlinking. Requires scheduled sync infrastructure.
 

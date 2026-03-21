@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 
 export type ResolveReviewRequestAction = typeof ResolveReviewRequestAction[keyof typeof ResolveReviewRequestAction];

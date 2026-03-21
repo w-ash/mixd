@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   faker
@@ -64,8 +64,8 @@ export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
 
 export const getListWorkflowsApiV1WorkflowsGetMockHandler = (overrideResponse?: PaginatedResponseWorkflowSummarySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponseWorkflowSummarySchema> | PaginatedResponseWorkflowSummarySchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListWorkflowsApiV1WorkflowsGetResponseMock(),
@@ -76,8 +76,8 @@ export const getListWorkflowsApiV1WorkflowsGetMockHandler = (overrideResponse?: 
 
 export const getCreateWorkflowApiV1WorkflowsPostMockHandler = (overrideResponse?: WorkflowDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowDetailSchema> | WorkflowDetailSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getCreateWorkflowApiV1WorkflowsPostResponseMock(),
@@ -88,8 +88,8 @@ export const getCreateWorkflowApiV1WorkflowsPostMockHandler = (overrideResponse?
 
 export const getListNodeTypesApiV1WorkflowsNodesGetMockHandler = (overrideResponse?: NodeTypeInfoSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<NodeTypeInfoSchema[]> | NodeTypeInfoSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/nodes', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListNodeTypesApiV1WorkflowsNodesGetResponseMock(),
@@ -100,8 +100,8 @@ export const getListNodeTypesApiV1WorkflowsNodesGetMockHandler = (overrideRespon
 
 export const getValidateWorkflowApiV1WorkflowsValidatePostMockHandler = (overrideResponse?: WorkflowValidationResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowValidationResponse> | WorkflowValidationResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/validate', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getValidateWorkflowApiV1WorkflowsValidatePostResponseMock(),
@@ -112,8 +112,8 @@ export const getValidateWorkflowApiV1WorkflowsValidatePostMockHandler = (overrid
 
 export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMockHandler = (overrideResponse?: PreviewStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PreviewStartedResponse> | PreviewStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/preview', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostResponseMock(),
@@ -124,8 +124,8 @@ export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostMockHandler = (ov
 
 export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMockHandler = (overrideResponse?: PreviewStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PreviewStartedResponse> | PreviewStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/:workflowId/preview', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseMock(),
@@ -136,8 +136,8 @@ export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMockHandl
 
 export const getGetWorkflowApiV1WorkflowsWorkflowIdGetMockHandler = (overrideResponse?: WorkflowDetailSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowDetailSchema> | WorkflowDetailSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/:workflowId', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetWorkflowApiV1WorkflowsWorkflowIdGetResponseMock(),
@@ -148,8 +148,8 @@ export const getGetWorkflowApiV1WorkflowsWorkflowIdGetMockHandler = (overrideRes
 
 export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMockHandler = (overrideResponse?: WorkflowDetailSchema | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<WorkflowDetailSchema> | WorkflowDetailSchema), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/workflows/:workflowId', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchResponseMock(),
@@ -161,7 +161,7 @@ export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMockHandler = (overri
 export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/workflows/:workflowId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-  
+
     return new HttpResponse(null,
       { status: 204
       })
@@ -170,8 +170,8 @@ export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMockHandler = (overr
 
 export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMockHandler = (overrideResponse?: WorkflowRunStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowRunStartedResponse> | WorkflowRunStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/:workflowId/run', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponseMock(),
@@ -182,8 +182,8 @@ export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMockHandler = 
 
 export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetMockHandler = (overrideResponse?: PaginatedResponseWorkflowRunSummarySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponseWorkflowRunSummarySchema> | PaginatedResponseWorkflowRunSummarySchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/:workflowId/runs', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponseMock(),
@@ -194,8 +194,8 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetMockHandler = (ov
 
 export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler = (overrideResponse?: WorkflowRunDetailSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowRunDetailSchema> | WorkflowRunDetailSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/:workflowId/runs/:runId', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponseMock(),
@@ -206,8 +206,8 @@ export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler = 
 
 export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetMockHandler = (overrideResponse?: WorkflowVersionSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowVersionSchema[]> | WorkflowVersionSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/:workflowId/versions', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseMock(),
@@ -218,8 +218,8 @@ export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetMockHandl
 
 export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetMockHandler = (overrideResponse?: WorkflowVersionSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<WorkflowVersionSchema> | WorkflowVersionSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/workflows/:workflowId/versions/:version', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseMock(),
@@ -230,8 +230,8 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetMock
 
 export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMockHandler = (overrideResponse?: WorkflowDetailSchema | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowDetailSchema> | WorkflowDetailSchema), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/:workflowId/versions/:version/revert', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseMock(),

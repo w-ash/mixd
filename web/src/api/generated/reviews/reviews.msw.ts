@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   faker
@@ -30,8 +30,8 @@ export const getResolveReviewApiV1ReviewsReviewIdResolvePostResponseMock = (over
 
 export const getListReviewsApiV1ReviewsGetMockHandler = (overrideResponse?: MatchReviewListSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MatchReviewListSchema> | MatchReviewListSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/reviews', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListReviewsApiV1ReviewsGetResponseMock(),
@@ -42,8 +42,8 @@ export const getListReviewsApiV1ReviewsGetMockHandler = (overrideResponse?: Matc
 
 export const getResolveReviewApiV1ReviewsReviewIdResolvePostMockHandler = (overrideResponse?: ResolveReviewResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ResolveReviewResponse> | ResolveReviewResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/reviews/:reviewId/resolve', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-  
-  
+
+
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getResolveReviewApiV1ReviewsReviewIdResolvePostResponseMock(),

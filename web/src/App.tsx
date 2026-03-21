@@ -68,14 +68,24 @@ export function App() {
       <BrowserRouter>
         <Routes>
           {authEnabled && (
-            <Route
-              path="login"
-              element={
-                <Suspense fallback={<PageSkeleton />}>
-                  <Login />
-                </Suspense>
-              }
-            />
+            <>
+              <Route
+                path="login"
+                element={
+                  <Suspense fallback={<PageSkeleton />}>
+                    <Login />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="auth/*"
+                element={
+                  <Suspense fallback={<PageSkeleton />}>
+                    <Login />
+                  </Suspense>
+                }
+              />
+            </>
           )}
           <Route
             element={

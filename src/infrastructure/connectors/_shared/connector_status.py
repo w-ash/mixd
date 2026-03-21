@@ -45,7 +45,7 @@ async def _fetch_spotify_display_name(access_token: str) -> str | None:
     or None on any error.
     """
     try:
-        async with httpx.AsyncClient(timeout=SPOTIFY_ME_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=SPOTIFY_ME_TIMEOUT, verify=True) as client:
             resp = await client.get(
                 SPOTIFY_ME_URL,
                 headers={"Authorization": f"Bearer {access_token}"},

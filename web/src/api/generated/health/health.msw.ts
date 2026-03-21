@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   HttpResponse,
@@ -18,7 +18,7 @@ import type {
 export const getHealthCheckApiV1HealthGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/health', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-  
+
     return new HttpResponse(null,
       { status: 200
       })

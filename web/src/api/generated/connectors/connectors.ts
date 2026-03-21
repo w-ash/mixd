@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.5
+ * OpenAPI spec version: 0.5.7
  */
 import {
   useMutation,
@@ -55,22 +55,22 @@ export type getConnectorsApiV1ConnectorsGetResponse = (getConnectorsApiV1Connect
 export const getGetConnectorsApiV1ConnectorsGetUrl = () => {
 
 
-  
+
 
   return `/api/v1/connectors`
 }
 
 export const getConnectorsApiV1ConnectorsGet = async ( options?: RequestInit): Promise<getConnectorsApiV1ConnectorsGetResponse> => {
-  
+
   return customFetch<getConnectorsApiV1ConnectorsGetResponse>(getGetConnectorsApiV1ConnectorsGetUrl(),
-  {      
+  {
     ...options,
     method: 'GET'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -81,7 +81,7 @@ export const getGetConnectorsApiV1ConnectorsGetQueryKey = () => {
     ] as const;
     }
 
-    
+
 export const getGetConnectorsApiV1ConnectorsGetQueryOptions = <TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -89,13 +89,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetConnectorsApiV1ConnectorsGetQueryKey();
 
-  
+
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>> = ({ signal }) => getConnectorsApiV1ConnectorsGet({ signal, ...requestOptions });
 
-      
 
-      
+
+
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -134,7 +134,7 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
 
 export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorsApiV1ConnectorsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient 
+ , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetConnectorsApiV1ConnectorsGetQueryOptions(options)
@@ -173,22 +173,22 @@ export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse = (del
 export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl = (service: string,) => {
 
 
-  
+
 
   return `/api/v1/connectors/${service}/token`
 }
 
 export const deleteConnectorTokenApiV1ConnectorsServiceTokenDelete = async (service: string, options?: RequestInit): Promise<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse> => {
-  
+
   return customFetch<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse>(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl(service),
-  {      
+  {
     ...options,
     method: 'DELETE'
-    
-    
+
+
   }
 );}
-  
+
 
 
 
@@ -203,7 +203,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-      
+
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>, {service: string}> = (props) => {
@@ -214,13 +214,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-        
+
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteConnectorTokenApiV1ConnectorsServiceTokenDelete>>>
-    
+
     export type DeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationError = HTTPValidationError
 
     /**
@@ -236,4 +236,3 @@ export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete = <TError 
       > => {
       return useMutation(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions(options), queryClient);
     }
-    
