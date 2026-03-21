@@ -1,10 +1,16 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 
+import { authEnabled } from "./api/auth";
+import { AuthGuard } from "./components/auth/AuthGuard";
 import { PageLayout } from "./components/layout/PageLayout";
 import { Skeleton } from "./components/ui/skeleton";
 import { Toaster } from "./components/ui/sonner";
 import { WorkflowExecutionProvider } from "./contexts/WorkflowExecutionContext";
+
+const Login = lazy(() =>
+  import("./pages/Login").then((m) => ({ default: m.Login })),
+);
 
 function PageSkeleton() {
   return (
@@ -61,7 +67,27 @@ export function App() {
     <WorkflowExecutionProvider>
       <BrowserRouter>
         <Routes>
-          <Route element={<PageLayout />}>
+          {authEnabled && (
+            <Route
+              path="login"
+              element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <Login />
+                </Suspense>
+              }
+            />
+          )}
+          <Route
+            element={
+              authEnabled ? (
+                <AuthGuard>
+                  <PageLayout />
+                </AuthGuard>
+              ) : (
+                <PageLayout />
+              )
+            }
+          >
             <Route
               index
               element={

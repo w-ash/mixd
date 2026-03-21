@@ -66,10 +66,23 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             uow = get_unit_of_work(session)
             await seed_workflow_templates(uow)
     except Exception as e:
-        # Gracefully handle missing migration or DB errors during startup
-        from src.config import get_logger
+        # Classify database errors so the user sees actionable guidance
+        # (e.g., "PostgreSQL not running" instead of opaque OperationalError)
+        from sqlalchemy.exc import DatabaseError
 
-        get_logger(__name__).warning("Failed to seed workflow templates", error=str(e))
+        if isinstance(e, DatabaseError):
+            from src.infrastructure.persistence.database.error_classification import (
+                classify_database_error,
+            )
+
+            info = classify_database_error(e)
+            logger.warning(
+                "Failed to seed workflow templates",
+                reason=info.user_message,
+                category=info.category,
+            )
+        else:
+            logger.warning("Failed to seed workflow templates", error=str(e))
 
     yield
     logger.info("API server shutting down — cancelling background tasks")
@@ -105,6 +118,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Site auth gate — only active when NEON_AUTH_URL is set (production)
+    if settings.server.neon_auth_url:
+        from src.interface.api.auth_gate import NeonAuthMiddleware
+
+        app.add_middleware(
+            NeonAuthMiddleware,
+            jwks_url=settings.server.neon_auth_jwks_url,
+        )
+
+    # HTTP caching: ETags, Cache-Control, Server-Timing (pure ASGI — not BaseHTTPMiddleware)
+    from src.interface.api.caching import CachingMiddleware, StaticCacheMiddleware
+
+    app.add_middleware(CachingMiddleware)
+    app.add_middleware(StaticCacheMiddleware)
 
     # Exception → error envelope mapping
     register_exception_handlers(app)
@@ -167,8 +195,13 @@ def _mount_static(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail="Not found")
 
         # Serve actual files from dist/ if they exist (e.g. favicon)
+        # Security: resolve() + is_relative_to() prevents path traversal via %2e%2e
         file_path = _WEB_DIST / path
-        if path and file_path.is_file():
+        if (
+            path
+            and file_path.resolve().is_relative_to(_WEB_DIST.resolve())
+            and file_path.is_file()
+        ):
             return FileResponse(str(file_path))
         return FileResponse(str(index_html))
 

@@ -9,6 +9,7 @@ source_nodes.py, transform_definitions.py, destination_nodes.py, and
 enricher_nodes.py.
 """
 
+import functools
 from typing import Literal
 
 from attrs import define
@@ -620,10 +621,15 @@ def get_node_config_fields() -> dict[str, tuple[ConfigFieldDef, ...]]:
     return _NODE_CONFIG_FIELDS
 
 
-def get_enricher_metric_names() -> dict[str, set[str]]:
-    """Derive enricher → metric name sets from the canonical mapping."""
+@functools.cache
+def get_enricher_metric_names() -> dict[str, frozenset[str]]:
+    """Derive enricher → metric name sets from the canonical mapping.
+
+    Cached — ENRICHER_METRIC_DEFS is a module-level constant.
+    Returns frozensets for hashability (functools.cache requirement).
+    """
     return {
-        enricher: {opt.value for opt in opts}
+        enricher: frozenset(opt.value for opt in opts)
         for enricher, opts in ENRICHER_METRIC_DEFS.items()
     }
 

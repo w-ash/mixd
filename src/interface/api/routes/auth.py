@@ -120,7 +120,9 @@ async def get_lastfm_auth_url(request: Request) -> dict[str, str]:
 
 
 @router.get("/auth/spotify/callback")
-async def spotify_callback(code: str = "", state: str = "", error: str = "") -> RedirectResponse:
+async def spotify_callback(
+    code: str = "", state: str = "", error: str = ""
+) -> RedirectResponse:
     """Spotify OAuth callback — exchanges code for tokens, stores them.
 
     On success, redirects to /settings/integrations?auth=spotify&status=success.
@@ -128,11 +130,15 @@ async def spotify_callback(code: str = "", state: str = "", error: str = "") -> 
     """
     if error or not code:
         logger.warning(f"Spotify auth denied or failed: {error}")
-        return RedirectResponse(f"/settings/integrations?auth=spotify&status=error&reason={error}")
+        return RedirectResponse(
+            f"/settings/integrations?auth=spotify&status=error&reason={urllib.parse.quote(error)}"
+        )
 
     if not _validate_state(state):
         logger.warning("Spotify auth callback with invalid CSRF state")
-        return RedirectResponse("/settings/integrations?auth=spotify&status=error&reason=invalid_state")
+        return RedirectResponse(
+            "/settings/integrations?auth=spotify&status=error&reason=invalid_state"
+        )
 
     try:
         storage = get_token_storage()
@@ -151,7 +157,9 @@ async def spotify_callback(code: str = "", state: str = "", error: str = "") -> 
 
     except Exception:
         logger.opt(exception=True).error("Spotify auth callback failed")
-        return RedirectResponse("/settings/integrations?auth=spotify&status=error&reason=exchange_failed")
+        return RedirectResponse(
+            "/settings/integrations?auth=spotify&status=error&reason=exchange_failed"
+        )
 
 
 @router.get("/auth/lastfm/callback")
@@ -165,14 +173,18 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
     """
     if not token:
         logger.warning("Last.fm auth callback with no token")
-        return RedirectResponse("/settings/integrations?auth=lastfm&status=error&reason=no_token")
+        return RedirectResponse(
+            "/settings/integrations?auth=lastfm&status=error&reason=no_token"
+        )
 
     api_key = settings.credentials.lastfm_key
     api_secret = settings.credentials.lastfm_secret.get_secret_value()
 
     if not api_key or not api_secret:
         logger.error("Last.fm API key/secret not configured")
-        return RedirectResponse("/settings/integrations?auth=lastfm&status=error&reason=not_configured")
+        return RedirectResponse(
+            "/settings/integrations?auth=lastfm&status=error&reason=not_configured"
+        )
 
     try:
         # Exchange token for permanent session key via auth.getSession
@@ -200,18 +212,24 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
         if "error" in data:
             error_msg = data.get("message", "Unknown error")
             logger.warning(f"Last.fm auth.getSession failed: {error_msg}")
-            return RedirectResponse(f"/settings/integrations?auth=lastfm&status=error&reason={error_msg}")
+            return RedirectResponse(
+                f"/settings/integrations?auth=lastfm&status=error&reason={urllib.parse.quote(str(error_msg))}"
+            )
 
         raw_session = data.get("session")
         if not isinstance(raw_session, dict):
             logger.error("Last.fm auth.getSession returned no session object")
-            return RedirectResponse("/settings/integrations?auth=lastfm&status=error&reason=no_session")
+            return RedirectResponse(
+                "/settings/integrations?auth=lastfm&status=error&reason=no_session"
+            )
         session_key = str(raw_session.get("key", ""))
         username = str(raw_session.get("name", ""))
 
         if not session_key:
             logger.error("Last.fm auth.getSession returned no session key")
-            return RedirectResponse("/settings/integrations?auth=lastfm&status=error&reason=no_session_key")
+            return RedirectResponse(
+                "/settings/integrations?auth=lastfm&status=error&reason=no_session_key"
+            )
 
         # Store permanent session key
         storage = get_token_storage()
@@ -229,4 +247,6 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
 
     except Exception:
         logger.opt(exception=True).error("Last.fm auth callback failed")
-        return RedirectResponse("/settings/integrations?auth=lastfm&status=error&reason=exchange_failed")
+        return RedirectResponse(
+            "/settings/integrations?auth=lastfm&status=error&reason=exchange_failed"
+        )

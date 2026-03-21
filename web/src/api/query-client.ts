@@ -2,6 +2,18 @@ import { QueryClient } from "@tanstack/react-query";
 
 import { API_ERROR_CODES, ApiError } from "./client";
 
+/** Named staleTime presets by data volatility. */
+export const STALE = {
+  /** Tracks, active data — matches the global default (30s) */
+  FAST: 30_000,
+  /** Playlists (1 min) */
+  MEDIUM: 60_000,
+  /** Workflows (2 min) */
+  SLOW: 2 * 60_000,
+  /** Dashboard stats, connectors (5 min) */
+  STATIC: 5 * 60_000,
+} as const;
+
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {

@@ -9,7 +9,6 @@ export default defineConfig({
   },
   server: {
     forwardConsole: true,
-    open: true,
     proxy: {
       "/api": {
         target: "http://localhost:8000",

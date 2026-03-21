@@ -32,6 +32,7 @@ from src.domain.entities.workflow import (
     NodeExecutionEvent,
     NodeExecutionRecord,
     WorkflowDef,
+    WorkflowTaskDef,
 )
 
 from .node_registry import get_node
@@ -40,7 +41,6 @@ from .protocols import NodeExecutionObserver, NodeResult
 from .validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
-    topological_sort,
     validate_connector_availability,
     validate_workflow_def,
 )
@@ -186,9 +186,13 @@ def build_flow(
 ) -> Any:
     """Converts typed workflow definition into executable Prefect flow function.
 
-    Performs topological sort of tasks based on dependencies, creates shared database
-    session, and builds dynamic flow that executes nodes in correct order while
-    passing results between dependent tasks.
+    Computes parallel execution levels from the task DAG, then executes each
+    level concurrently via ``asyncio.gather()``. Tasks within a level are
+    independent by definition — their dependencies are all in prior levels.
+
+    Uses the official Prefect 3 pattern for async concurrency (asyncio.gather)
+    rather than ThreadPoolTaskRunner.submit(), which creates separate event
+    loops per thread and breaks asyncio.Queue-based SSE observers.
 
     Args:
         workflow_def: Typed workflow definition with tasks, dependencies, and config.
@@ -198,14 +202,26 @@ def build_flow(
     Returns:
         Async Prefect flow function ready for execution.
     """
+    from .validation import compute_parallel_levels
+
     node_observer = observer or NullNodeObserver()
 
     # Extract workflow metadata
     flow_name = workflow_def.name
     flow_description = workflow_def.description
 
-    # Sort tasks in execution order
-    sorted_tasks = topological_sort(workflow_def.tasks)
+    # Compute parallel execution levels from the DAG
+    levels = compute_parallel_levels(workflow_def.tasks)
+
+    # Flat execution_order mapping (1-based) for progress reporting
+    flat_order: dict[str, int] = {}
+    order_counter = 1
+    for level in levels:
+        for task_def in level:
+            flat_order[task_def.id] = order_counter
+            order_counter += 1
+
+    total_nodes = sum(len(level) for level in levels)
 
     @flow(
         name=flow_name,
@@ -217,28 +233,57 @@ def build_flow(
         workflow_operation_id: str | None = None,
         **parameters: object,
     ) -> dict[str, Any]:
-        """Executes workflow tasks in dependency order with shared database session."""
-        # Use Prefect's run logger to get flow context
+        """Executes workflow tasks level-by-level with concurrent independent nodes."""
         flow_logger = get_run_logger()
         flow_logger.info("Starting workflow")
 
-        # Set workflow name in context for progress tracking
         parameters["workflow_name"] = flow_name
-
-        # Create workflow context with all required providers
-        from src.infrastructure.persistence.database.db_connection import get_session
 
         from .context import create_workflow_context
 
-        # Create a single shared session for the entire workflow execution
-        async with get_session() as shared_session:
-            # Create workflow context with shared session
-            workflow_context = create_workflow_context(shared_session)
+        # Each task creates its own session from the PostgreSQL pool — no
+        # shared session needed under MVCC.
+        workflow_context = create_workflow_context()
 
-            # Initialize execution context — heterogeneous bag accumulating
-            # task results, upstream IDs, and progress metadata during execution
-            total_nodes = len(sorted_tasks)
-            context: dict[str, Any] = {
+        task_results: dict[str, NodeResult] = {}
+        node_records: list[NodeExecutionRecord] = []
+
+        async def _run_node_lifecycle(
+            task_def: WorkflowTaskDef,
+        ) -> tuple[str, NodeResult | Exception, bool]:
+            """Execute one node with full lifecycle management.
+
+            Wraps observer notification, timeout, error handling, and
+            diagnostics. Never raises — returns a status tuple so
+            ``asyncio.gather`` can run all tasks in a level even if one fails.
+
+            Returns:
+                (task_id, result_or_exception, was_fatal_error)
+            """
+            task_id = task_def.id
+            node_type = task_def.type
+            execution_order = flat_order[task_id]
+            config = task_def.config
+
+            # Graceful shutdown check (cooperative — checked at task start)
+            if _shutdown_requested:
+                node_records.append(
+                    NodeExecutionRecord(
+                        node_id=task_id,
+                        node_type=node_type,
+                        execution_order=execution_order,
+                        status="skipped",
+                        error_message="Cancelled by graceful shutdown",
+                    )
+                )
+                return (task_id, WorkflowCancelledError("Shutdown requested"), True)
+
+            flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
+
+            # Build task-specific context from static metadata + upstream results.
+            # Avoids copying the entire context bag (which grows with each completed
+            # node) — only includes what this task actually needs.
+            task_context: dict[str, Any] = {
                 "parameters": parameters,
                 "workflow_context": workflow_context,
                 "workflow_name": flow_name,
@@ -246,200 +291,205 @@ def build_flow(
                 "workflow_operation_id": workflow_operation_id,
                 "total_tasks": total_nodes,
                 "dry_run": dry_run,
+                "current_step": execution_order,
             }
-            task_results: dict[str, NodeResult] = {}
-            node_records: list[NodeExecutionRecord] = []
 
-            try:
-                # Execute tasks in dependency order
-                for task_index, task_def in enumerate(sorted_tasks):
-                    # Graceful shutdown: stop between nodes
-                    if _shutdown_requested:
-                        logger.warning(
-                            "Shutdown requested — cancelling remaining nodes",
-                            completed_nodes=task_index,
-                            remaining_nodes=total_nodes - task_index,
-                        )
-                        node_records.extend(
-                            NodeExecutionRecord(
-                                node_id=remaining.id,
-                                node_type=remaining.type,
-                                execution_order=task_index + 1,
-                                status="skipped",
-                                error_message="Cancelled by graceful shutdown",
-                            )
-                            for remaining in sorted_tasks[task_index:]
-                        )
-                        raise WorkflowCancelledError(
-                            f"Shutdown after {task_index}/{total_nodes} nodes"
-                        )
-
-                    task_id = task_def.id
-                    node_type = task_def.type
-                    execution_order = task_index + 1  # 1-based
-
-                    # Log the task start
-                    flow_logger.info(f"Starting task: {task_id} (type: {node_type})")
-
-                    # Resolve configuration with current context
-                    config = task_def.config
-
-                    # Create task-specific context with upstream results and progress tracking
-                    task_context = context.copy()
-                    task_context["current_step"] = execution_order
-
-                    if task_def.upstream:
-                        if len(task_def.upstream) == 1:
-                            # Single upstream case
-                            task_context["upstream_task_id"] = task_def.upstream[0]
-                        else:
-                            # Multiple upstream case - first one is primary by convention
-                            # (unless config specifies a primary_input)
-                            primary_input = config.get("primary_input")
-                            if primary_input and primary_input in task_def.upstream:
-                                task_context["upstream_task_id"] = primary_input
-                            else:
-                                task_context["upstream_task_id"] = task_def.upstream[0]
-
-                        # Add all upstream tasks as a list for nodes that need multiple inputs
-                        task_context["upstream_task_ids"] = task_def.upstream
-
-                        # Copy upstream task results into context
-                        for upstream_id in task_def.upstream:
-                            if upstream_id in task_results:
-                                task_context[upstream_id] = task_results[upstream_id]
-
-                    # Notify observer and time execution
-                    input_track_count = _get_input_track_count(task_def, task_results)
-                    base_event = NodeExecutionEvent(
-                        task_def=task_def,
-                        execution_order=execution_order,
-                        total_nodes=total_nodes,
-                        input_track_count=input_track_count,
-                    )
-                    await node_observer.on_node_starting(base_event)
-                    timeout_seconds = _get_node_timeout(node_type)
-                    start_ns = time.perf_counter_ns()
-
-                    was_degraded = False
-                    try:
-                        async with asyncio.timeout(timeout_seconds):
-                            result = await execute_node(node_type, task_context, config)
-                    except (TimeoutError, Exception) as exc:
-                        duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
-
-                        if isinstance(exc, TimeoutError):
-                            exc = TimeoutError(
-                                f"Node '{task_id}' ({node_type}) exceeded "
-                                f"{timeout_seconds}s timeout"
-                            )
-
-                        logger.opt(exception=True).error(
-                            "Node execution failed",
-                            node_id=task_id,
-                            node_type=node_type,
-                            execution_order=execution_order,
-                            total_nodes=total_nodes,
-                            duration_ms=duration_ms,
-                        )
-                        failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
-                        await node_observer.on_node_failed(failed_event, exc)
-
-                        # Fault tolerance: enricher failures degrade rather than kill
-                        if (
-                            _is_failure_recoverable(node_type)
-                            and task_def.upstream
-                            and task_def.upstream[0] in task_results
-                        ):
-                            upstream_result = task_results[task_def.upstream[0]]
-                            result = upstream_result  # pass through upstream tracklist
-                            node_records.append(
-                                failed_event.to_record(
-                                    status="degraded",
-                                    error_message=str(exc),
-                                )
-                            )
-                            was_degraded = True
-                            logger.warning(
-                                "Node degraded — continuing with upstream data",
-                                node_id=task_id,
-                                node_type=node_type,
-                                error=str(exc),
-                            )
-                            # Fall through to the success path (store result, continue)
-                        else:
-                            node_records.append(
-                                failed_event.to_record(
-                                    status="failed", error_message=str(exc)
-                                )
-                            )
-                            raise
+            if task_def.upstream:
+                if len(task_def.upstream) == 1:
+                    task_context["upstream_task_id"] = task_def.upstream[0]
+                else:
+                    primary_input = config.get("primary_input")
+                    if primary_input and primary_input in task_def.upstream:
+                        task_context["upstream_task_id"] = primary_input
                     else:
-                        duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+                        task_context["upstream_task_id"] = task_def.upstream[0]
 
-                    output_track_count = len(result["tracklist"].tracks)
+                task_context["upstream_task_ids"] = task_def.upstream
 
-                    # Structured track-count checkpoint for diagnostics
-                    input_count = input_track_count or 0
-                    delta = input_count - output_track_count
-                    checkpoint_extra: dict[str, Any] = {
-                        "node_id": task_id,
-                        "node_type": node_type,
-                        "input_count": input_count,
-                        "output_count": output_track_count,
-                        "delta": delta,
-                    }
-                    logger.info("track_count_checkpoint", **checkpoint_extra)
-                    if delta > 0:
-                        dropped_ids: list[int | None] = []
-                        if input_track_count and task_def.upstream:
-                            upstream_result = task_results.get(task_def.upstream[0])
-                            if upstream_result:
-                                output_ids = {t.id for t in result["tracklist"].tracks}
-                                dropped_ids = [
-                                    t.id
-                                    for t in upstream_result["tracklist"].tracks
-                                    if t.id not in output_ids
-                                ]
-                        logger.debug(
-                            "track_count_dropped_ids",
-                            node_id=task_id,
-                            dropped_track_ids=dropped_ids,
+                for upstream_id in task_def.upstream:
+                    if upstream_id in task_results:
+                        task_context[upstream_id] = task_results[upstream_id]
+
+            # Notify observer and time execution
+            input_track_count = _get_input_track_count(task_def, task_results)
+            base_event = NodeExecutionEvent(
+                task_def=task_def,
+                execution_order=execution_order,
+                total_nodes=total_nodes,
+                input_track_count=input_track_count,
+            )
+            await node_observer.on_node_starting(base_event)
+            timeout_seconds = _get_node_timeout(node_type)
+            start_ns = time.perf_counter_ns()
+
+            was_degraded = False
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    result = await execute_node(node_type, task_context, config)
+            except (TimeoutError, Exception) as exc:
+                duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+
+                if isinstance(exc, TimeoutError):
+                    exc = TimeoutError(
+                        f"Node '{task_id}' ({node_type}) exceeded "
+                        f"{timeout_seconds}s timeout"
+                    )
+
+                logger.opt(exception=True).error(
+                    "Node execution failed",
+                    node_id=task_id,
+                    node_type=node_type,
+                    execution_order=execution_order,
+                    total_nodes=total_nodes,
+                    duration_ms=duration_ms,
+                )
+                failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
+                await node_observer.on_node_failed(failed_event, exc)
+
+                # Fault tolerance: enricher failures degrade rather than kill
+                if (
+                    _is_failure_recoverable(node_type)
+                    and task_def.upstream
+                    and task_def.upstream[0] in task_results
+                ):
+                    upstream_result = task_results[task_def.upstream[0]]
+                    result = upstream_result  # pass through upstream tracklist
+                    node_records.append(
+                        failed_event.to_record(
+                            status="degraded",
+                            error_message=str(exc),
                         )
-
-                    # Only emit completed event for non-degraded nodes
-                    # (degraded nodes already had on_node_failed called above)
-                    if not was_degraded:
-                        completed_event = attrs.evolve(
-                            base_event,
-                            duration_ms=duration_ms,
-                            output_track_count=output_track_count,
+                    )
+                    was_degraded = True
+                    logger.warning(
+                        "Node degraded — continuing with upstream data",
+                        node_id=task_id,
+                        node_type=node_type,
+                        error=str(exc),
+                    )
+                    # Fall through to success path (store result)
+                else:
+                    node_records.append(
+                        failed_event.to_record(
+                            status="failed", error_message=str(exc)
                         )
-                        await node_observer.on_node_completed(completed_event, result)
-                        node_records.append(
-                            completed_event.to_record(status="completed")
+                    )
+                    return (task_id, exc, True)
+            else:
+                duration_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+
+            output_track_count = len(result["tracklist"].tracks)
+
+            # Structured track-count checkpoint for diagnostics
+            input_count = input_track_count or 0
+            delta = input_count - output_track_count
+            logger.info(
+                "track_count_checkpoint",
+                node_id=task_id,
+                node_type=node_type,
+                input_count=input_count,
+                output_count=output_track_count,
+                delta=delta,
+            )
+            if delta > 0:
+                dropped_ids: list[int | None] = []
+                if input_track_count and task_def.upstream:
+                    upstream_res = task_results.get(task_def.upstream[0])
+                    if upstream_res:
+                        output_ids = {t.id for t in result["tracklist"].tracks}
+                        dropped_ids = [
+                            t.id
+                            for t in upstream_res["tracklist"].tracks
+                            if t.id not in output_ids
+                        ]
+                logger.debug(
+                    "track_count_dropped_ids",
+                    node_id=task_id,
+                    dropped_track_ids=dropped_ids,
+                )
+
+            # Emit completed event (degraded nodes already had on_node_failed)
+            if not was_degraded:
+                completed_event = attrs.evolve(
+                    base_event,
+                    duration_ms=duration_ms,
+                    output_track_count=output_track_count,
+                )
+                await node_observer.on_node_completed(completed_event, result)
+                node_records.append(
+                    completed_event.to_record(status="completed")
+                )
+
+            # Store result key alias so downstream nodes can reference it
+            if task_def.result_key:
+                flow_logger.debug(
+                    f"Storing result under key: {task_def.result_key}"
+                )
+                task_results[task_def.result_key] = result
+
+            return (task_id, result, False)
+
+        # --- Level-based execution ---
+        try:
+            completed_count = 0
+            for level in levels:
+                # Graceful shutdown: check between levels
+                if _shutdown_requested:
+                    remaining_tasks = [
+                        td for lvl in levels for td in lvl if td.id not in task_results
+                    ]
+                    logger.warning(
+                        "Shutdown requested — cancelling remaining nodes",
+                        completed_nodes=completed_count,
+                        remaining_nodes=len(remaining_tasks),
+                    )
+                    node_records.extend(
+                        NodeExecutionRecord(
+                            node_id=remaining.id,
+                            node_type=remaining.type,
+                            execution_order=flat_order[remaining.id],
+                            status="skipped",
+                            error_message="Cancelled by graceful shutdown",
                         )
+                        for remaining in remaining_tasks
+                    )
+                    raise WorkflowCancelledError(
+                        f"Shutdown after {completed_count}/{total_nodes} nodes"
+                    )
 
-                    # Store result in context and task_results
-                    context[task_id] = result
-                    task_results[task_id] = result
+                if len(level) == 1:
+                    # Single task — execute directly (avoid gather overhead)
+                    task_id, result_or_exc, fatal = await _run_node_lifecycle(level[0])
+                    if fatal:
+                        raise result_or_exc  # type: ignore[misc]
+                    task_results[task_id] = result_or_exc  # type: ignore[assignment]
+                    completed_count += 1
+                else:
+                    # Multiple independent tasks — run concurrently
+                    outcomes = await asyncio.gather(
+                        *[_run_node_lifecycle(td) for td in level],
+                    )
+                    # Process outcomes: store results, check for fatal failures
+                    fatal_error: Exception | None = None
+                    for task_id, result_or_exc, fatal in outcomes:
+                        if fatal:
+                            if fatal_error is None:
+                                fatal_error = result_or_exc  # type: ignore[assignment]
+                        else:
+                            task_results[task_id] = result_or_exc  # type: ignore[assignment]
+                            completed_count += 1
+                    if fatal_error is not None:
+                        raise fatal_error
 
-                    # Also store in context under node-specified result key if present
-                    if task_def.result_key:
-                        flow_logger.debug(
-                            f"Storing result under key: {task_def.result_key}"
-                        )
-                        context[task_def.result_key] = result
+            flow_logger.info("Workflow completed successfully")
 
-                flow_logger.info("Workflow completed successfully")
-
-                context["_task_results"] = task_results
-                context["_node_records"] = node_records
-                return context
-            finally:
-                # Close cached connector instances (httpx pools) on success or failure,
-                # before the get_session() context manager exits
-                await workflow_context.connectors.aclose()
+            return {
+                "_task_results": task_results,
+                "_node_records": node_records,
+            }
+        finally:
+            # Close cached connector instances (httpx pools) on success or failure
+            await workflow_context.connectors.aclose()
 
     # Return the decorated flow function
     return workflow_flow

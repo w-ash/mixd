@@ -11,7 +11,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from attrs import define
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -173,9 +172,6 @@ class ConcreteWorkflowContext:
     connectors: ConnectorRegistry
     use_cases: UseCaseProvider
     metric_config: MetricConfigProvider
-    shared_session: AsyncSession | None = (
-        None  # Optional shared session for workflow transaction boundaries
-    )
 
     async def _with_uow[TResult](
         self,
@@ -183,8 +179,8 @@ class ConcreteWorkflowContext:
     ) -> TResult:
         """Acquire a UnitOfWork and run an async function against it.
 
-        Centralises the shared-session-or-new-session branching so callers
-        don't duplicate the same pattern.
+        Each call creates a fresh session from the PostgreSQL connection pool.
+        Per-task sessions are safe under MVCC — no shared session needed.
 
         Args:
             fn: Async callable receiving a UoW and returning a result.
@@ -193,8 +189,6 @@ class ConcreteWorkflowContext:
             get_unit_of_work,
         )
 
-        if self.shared_session is not None:
-            return await fn(get_unit_of_work(self.shared_session))
         async with get_session() as session:
             return await fn(get_unit_of_work(session))
 
@@ -237,17 +231,15 @@ class ConcreteWorkflowContext:
         return await self._with_uow(lambda uow: use_case.execute(command, uow))
 
 
-def create_workflow_context(
-    shared_session: AsyncSession | None = None,
-) -> WorkflowContext:
+def create_workflow_context() -> WorkflowContext:
     """Create a complete workflow context with all dependencies configured.
 
     Factory function that instantiates and wires together all the services
     needed for playlist workflow operations including configuration, logging,
     music service connectors, database access, and business logic.
 
-    Args:
-        shared_session: Optional pre-opened database session to share
+    Each use case / service call creates its own database session from the
+    PostgreSQL connection pool — no shared session needed under MVCC.
 
     Returns:
         Configured workflow context ready for use
@@ -264,5 +256,4 @@ def create_workflow_context(
         connectors=connectors,
         use_cases=use_cases,
         metric_config=metric_config,
-        shared_session=shared_session,
     )

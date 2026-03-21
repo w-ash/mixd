@@ -1,7 +1,7 @@
 # Project Narada — Planning
 
-**Current Version**: 0.5.4
-**Current Initiative**: v0.5.5 Parallel Execution & Performance — not started
+**Current Version**: 0.5.5
+**Current Initiative**: v0.6.0 Preference System & Likes Migration — not started
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -35,7 +35,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](v0.5.x.md#v052-postgresql-native-feature-adoption) |
 | **v0.5.3** | Containerization & deployment | ✅ Completed | [details](v0.5.x.md#v053-containerization--deployment) |
 | **v0.5.4** | OAuth + integrations UX + WCAG AA + light/dark mode + settings persistence | ✅ Completed | [details](v0.5.x.md#v054-oauth--credentials) |
-| **v0.5.5** | Parallel execution & performance | 🔜 Not Started | [details](v0.5.x.md#v055-parallel-execution--performance) |
+| **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](v0.5.x.md#v055-parallel-execution--performance) |
 | **v0.6.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.6.x.md#v060-preference-system--likes-migration) |
 | **v0.6.1** | Tagging system | 🔜 Not Started | [details](v0.6.x.md#v061-tagging-system) |
 | **v0.6.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.6.x.md#v062-spotify-playlist-mapping-preference--tag-import) |

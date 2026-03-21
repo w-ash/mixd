@@ -30,6 +30,7 @@ import {
   useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch,
   useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
 } from "@/api/generated/playlists/playlists";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BackLink } from "@/components/shared/BackLink";
 import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
@@ -167,21 +168,39 @@ function EditPlaylistDialog({
   const [description, setDescription] = useState(currentDescription ?? "");
   const queryClient = useQueryClient();
 
+  const detailQueryKey =
+    getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId);
+
   const updateMutation = useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch({
     mutation: {
+      onMutate: async ({ data }) => {
+        // Cancel in-flight refetches so they don't overwrite our optimistic update
+        await queryClient.cancelQueries({ queryKey: detailQueryKey });
+        const previous = queryClient.getQueryData(detailQueryKey);
+        // Optimistically update the detail cache
+        queryClient.setQueryData(detailQueryKey, (old: unknown) => {
+          if (!old || typeof old !== "object") return old;
+          return { ...old, ...(data as Record<string, unknown>) };
+        });
+        return { previous };
+      },
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey:
-            getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey(playlistId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
-        });
         setOpen(false);
       },
-      onError: (error: Error) => {
+      onError: (error: Error, _vars, context) => {
+        // Rollback to previous data on failure
+        if (context?.previous) {
+          queryClient.setQueryData(detailQueryKey, context.previous);
+        }
         toast.error("Failed to update playlist", {
           description: error.message,
+        });
+      },
+      onSettled: () => {
+        // Always refetch authoritative data after mutation settles
+        queryClient.invalidateQueries({ queryKey: detailQueryKey });
+        queryClient.invalidateQueries({
+          queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
         });
       },
     },
@@ -699,10 +718,18 @@ export function PlaylistDetail() {
     data: playlistData,
     isLoading: playlistLoading,
     isError: playlistError,
-  } = useGetPlaylistApiV1PlaylistsPlaylistIdGet(playlistId);
+  } = useGetPlaylistApiV1PlaylistsPlaylistIdGet(playlistId, {
+    query: { staleTime: STALE.MEDIUM },
+  });
 
   const { data: tracksData, isLoading: tracksLoading } =
-    useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet(playlistId);
+    useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet(
+      playlistId,
+      undefined,
+      {
+        query: { staleTime: STALE.MEDIUM },
+      },
+    );
 
   if (playlistLoading) return <DetailSkeleton />;
 

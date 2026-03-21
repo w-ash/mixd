@@ -131,6 +131,7 @@ Self-check after implementing:
 
 - **Architecture** → docs/architecture/README.md
 - **Development** → docs/development.md (setup, versioning, recipes)
+- **Deployment** → docs/deployment.md (local dev, Fly.io deploy, CI/CD)
 - **Database** → docs/architecture/database.md
 - **Workflows** → docs/guides/workflows.md
 - **Likes Sync** → docs/guides/likes-sync.md

@@ -432,6 +432,14 @@ class ServerConfig(BaseModel):
         default=["http://localhost:5173"],
         description="Allowed CORS origins. Defaults to Vite dev server. Add production domains when deploying.",
     )
+    neon_auth_url: str = Field(
+        default="",
+        description="Neon Auth service base URL. When set, all routes except health/auth require JWT. Empty = no auth (local dev).",
+    )
+    neon_auth_jwks_url: str = Field(
+        default="",
+        description="JWKS endpoint for JWT signature validation. Required when neon_auth_url is set.",
+    )
 
 
 class FreshnessConfig(BaseModel):
@@ -518,6 +526,9 @@ class Settings(BaseSettings):
         "server_host": ("server", "host"),
         "server_port": ("server", "port"),
         "cors_origins": ("server", None),
+        # Neon Auth
+        "neon_auth_url": ("server", None),
+        "neon_auth_jwks_url": ("server", None),
     }
 
     @model_validator(mode="before")

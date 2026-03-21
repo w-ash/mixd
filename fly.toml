@@ -9,12 +9,17 @@ primary_region = 'sjc'
 [build]
   dockerfile = 'Dockerfile'
 
+  [build.args]
+    VITE_NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
+
 [deploy]
   release_command = 'alembic upgrade head'
 
 [env]
   PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'true'
   PYTHONUNBUFFERED = '1'
+  NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
+  NEON_AUTH_JWKS_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth/.well-known/jwks.json'
 
 [http_service]
   internal_port = 8000

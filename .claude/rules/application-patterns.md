@@ -10,7 +10,7 @@ paths:
 - All use cases run through `application/runner.py` → `execute_use_case()`
 - **Typed connector resolvers**: Use `resolve_playlist_connector()`, `resolve_liked_track_connector()`, `resolve_love_track_connector()` from `_shared/connector_resolver.py` — these return typed capability protocols (`PlaylistConnector`, `LikedTrackConnector`, etc. from `connector_protocols.py`). Raw `resolve_connector()` returns `Any` and must not be used in typed code.
 - Command/Result objects: `@define(frozen=True)`
-- **Prefect workflows**: use `SharedSessionProvider` for dependency injection; pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see docs/guides/workflows.md)
+- **Prefect workflows**: each task creates its own session from the PostgreSQL pool; level-based `asyncio.gather()` for parallel DAG execution (see `compute_parallel_levels` in `validation.py`). Pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see docs/guides/workflows.md)
 - **Database-first workflows**: all workflow operations work on database tracks (`track.id is not None`), never on raw connector data. Source nodes MUST persist via `SavePlaylistUseCase` before returning.
 - **Intentional pattern repetition**: each use case owns its own Command/Result types, transaction boundaries, and error handling — keep them co-located even when similar.
 - **All use cases follow Command/Result**: every `execute()` takes `(command, uow) -> Result`. Even parameterless queries use an empty Command for API uniformity — the signature never changes when params are added later.

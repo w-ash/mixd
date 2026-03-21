@@ -5,6 +5,7 @@ import {
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet,
 } from "@/api/generated/workflows/workflows";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BackLink } from "@/components/shared/BackLink";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -101,7 +102,9 @@ export function WorkflowDetail() {
   const workflowId = Number(id);
 
   const { data, isLoading, isError } =
-    useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId);
+    useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId, {
+      query: { staleTime: STALE.SLOW },
+    });
 
   const { data: runsData } = useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet(
     workflowId,
@@ -109,6 +112,7 @@ export function WorkflowDetail() {
       limit: 10,
       offset: 0,
     },
+    { query: { staleTime: STALE.SLOW } },
   );
 
   const { isExecuting, nodeStatuses, execute } =

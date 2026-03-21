@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Disc3, HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -9,6 +9,7 @@ import {
   useGetConnectorsApiV1ConnectorsGet,
 } from "@/api/generated/connectors/connectors";
 import type { ConnectorStatusSchema } from "@/api/generated/model";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorCard } from "@/components/shared/ConnectorCard";
 import {
@@ -180,24 +181,26 @@ function ConnectorSection({
 
 export function Integrations() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } =
-    useGetConnectorsApiV1ConnectorsGet();
+    useGetConnectorsApiV1ConnectorsGet({
+      query: { staleTime: STALE.STATIC },
+    });
 
   const connectors = data?.status === 200 ? data.data : [];
 
   // Auth callback result — persisted so the card can show error state
   const [authResult, setAuthResult] = useState<AuthResult | null>(null);
 
-  // Handle auth callback query params on mount
+  // Handle auth callback query params (e.g. ?auth=spotify&status=success)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const service = params.get("auth");
-    const status = params.get("status") as "success" | "error" | null;
+    const service = searchParams.get("auth");
+    const status = searchParams.get("status") as "success" | "error" | null;
 
     if (!service || !status) return;
 
-    const reason = params.get("reason") ?? undefined;
+    const reason = searchParams.get("reason") ?? undefined;
     const label = getConnectorLabel(service);
 
     if (status === "success") {
@@ -213,7 +216,7 @@ export function Integrations() {
 
     // Clean the URL — remove query params without adding a history entry
     navigate("/settings/integrations", { replace: true });
-  }, [navigate, queryClient]);
+  }, [searchParams, navigate, queryClient]);
 
   // Check if we should show the onboarding hero:
   // no connectable services are connected

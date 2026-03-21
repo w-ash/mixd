@@ -15,15 +15,13 @@ from src.application.workflows.context import create_workflow_context
 class TestWorkflowContextContracts:
     """Test that workflow context provides working dependencies."""
 
-    async def test_workflow_context_with_shared_session_provides_real_repositories(
-        self, db_session
-    ):
-        """Test that workflow context with shared session provides working repositories.
+    async def test_workflow_context_provides_real_repositories(self):
+        """Test that workflow context provides working repositories.
 
         Prevents: 'NoneType' object has no attribute 'get_connector_mappings'
         """
-        # Create workflow context with shared session (workflow execution pattern)
-        context = create_workflow_context(shared_session=db_session)
+        # Create workflow context (per-task sessions from PostgreSQL pool)
+        context = create_workflow_context()
 
         # Verify use cases are available (Clean Architecture pattern)
         assert context.use_cases is not None, (
@@ -45,12 +43,11 @@ class TestWorkflowContextContracts:
             "get_create_connector_playlist_use_case must be callable"
         )
 
-    def test_workflow_context_without_session_provides_use_cases(self):
-        """Test that workflow context without session provides use cases.
+    def test_workflow_context_provides_use_cases(self):
+        """Test that workflow context provides use cases.
 
         Prevents: Runtime errors when context created outside workflow execution
         """
-        # Create workflow context without shared session (non-workflow usage)
         context = create_workflow_context()
 
         # Should not fail to create
@@ -99,12 +96,12 @@ class TestWorkflowContextContracts:
 class TestUseCaseProviderContracts:
     """Contract tests for use case provider interface (Clean Architecture)."""
 
-    async def test_use_case_provider_provides_all_required_use_cases(self, db_session):
+    async def test_use_case_provider_provides_all_required_use_cases(self):
         """Test that UseCaseProviderImpl provides all required use cases.
 
         Prevents: Missing use case errors in workflow execution
         """
-        context = create_workflow_context(shared_session=db_session)
+        context = create_workflow_context()
         use_cases = context.use_cases
 
         # Check all required use case provider methods exist
@@ -120,12 +117,12 @@ class TestUseCaseProviderContracts:
             method = getattr(use_cases, use_case_method)
             assert callable(method), f"{use_case_method} must be callable"
 
-    async def test_use_case_dependency_injection_integration(self, db_session):
+    async def test_use_case_dependency_injection_integration(self):
         """Test that use cases work properly with dependency injection.
 
         Prevents: Use case instantiation failures due to missing dependencies
         """
-        context = create_workflow_context(shared_session=db_session)
+        context = create_workflow_context()
 
         # Test that use cases can be instantiated successfully
         try:

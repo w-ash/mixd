@@ -19,6 +19,7 @@ Architecture, setup, and specs for contributing to narada.
 | Document | Type | Description |
 |----------|------|-------------|
 | [development.md](development.md) | Getting started | Developer setup, versioning, recipes |
+| [deployment.md](deployment.md) | Operations | Local dev, Fly.io deploy, CI/CD pipeline |
 | [dev-setup-guide/](dev-setup-guide/) | Getting started | Step-by-step environment setup |
 | [architecture/database.md](architecture/database.md) | Reference | Schema, relationships, migrations |
 | [web-ui/03-api-contracts.md](web-ui/03-api-contracts.md) | Reference | REST API endpoints and contracts |

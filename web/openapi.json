@@ -3,7 +3,7 @@
   "info": {
     "title": "Narada",
     "description": "Personal music metadata hub",
-    "version": "0.5.3"
+    "version": "0.5.5"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {

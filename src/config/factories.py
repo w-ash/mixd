@@ -7,6 +7,7 @@ keeping settings.py focused on configuration schema and validation.
 # pyright: reportAny=false
 # Legitimate Any: Pydantic model_dump() returns dict[str, Any]
 
+import functools
 from typing import TYPE_CHECKING
 
 from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 
 
+@functools.cache
 def create_matching_config() -> DomainMatchingConfig:
     """Create domain MatchingConfig from application settings.
 
@@ -27,6 +29,7 @@ def create_matching_config() -> DomainMatchingConfig:
     return DomainMatchingConfig(**settings.matching.model_dump())
 
 
+@functools.cache
 def create_evaluation_service() -> TrackMatchEvaluationService:
     """Create a TrackMatchEvaluationService with production config.
 

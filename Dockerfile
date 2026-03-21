@@ -29,6 +29,10 @@ FROM node:22-slim AS node-builder
 
 WORKDIR /app/web
 
+# Neon Auth URL injected at build time for the React frontend
+ARG VITE_NEON_AUTH_URL=""
+ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL
+
 # Install pnpm globally (simpler than corepack for build stages)
 RUN npm install -g pnpm@10
 

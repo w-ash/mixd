@@ -2,6 +2,7 @@ import { Music } from "lucide-react";
 import { Link } from "react-router";
 
 import { useListPlaylistsApiV1PlaylistsGet } from "@/api/generated/playlists/playlists";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { CreatePlaylistModal } from "@/components/shared/CreatePlaylistModal";
@@ -42,6 +43,7 @@ export function Playlists() {
 
   const { data, isLoading, isError, error } = useListPlaylistsApiV1PlaylistsGet(
     { limit, offset },
+    { query: { staleTime: STALE.MEDIUM, placeholderData: (prev) => prev } },
   );
 
   const response = data?.status === 200 ? data.data : undefined;

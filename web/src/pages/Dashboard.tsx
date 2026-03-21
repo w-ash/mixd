@@ -19,6 +19,7 @@ import {
   useGetDashboardStatsApiV1StatsDashboardGet,
   useGetMatchingHealthApiV1StatsMatchingGet,
 } from "@/api/generated/stats/stats";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
 import { QueryErrorState } from "@/components/shared/QueryErrorState";
@@ -402,9 +403,13 @@ function GettingStarted({ stats }: { stats: DashboardStatsSchema }) {
 
 export function Dashboard() {
   const { data, isLoading, isError, error } =
-    useGetDashboardStatsApiV1StatsDashboardGet();
+    useGetDashboardStatsApiV1StatsDashboardGet({
+      query: { staleTime: STALE.STATIC },
+    });
   const { data: matchingData, isLoading: matchingLoading } =
-    useGetMatchingHealthApiV1StatsMatchingGet();
+    useGetMatchingHealthApiV1StatsMatchingGet(undefined, {
+      query: { staleTime: STALE.STATIC },
+    });
 
   const stats = data?.status === 200 ? data.data : undefined;
   const health = matchingData?.status === 200 ? matchingData.data : undefined;

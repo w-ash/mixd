@@ -4,7 +4,7 @@ Extracted from prefect.py so that validation can run without importing
 the Prefect engine — needed by FastAPI routes and the React Flow editor.
 
 Provides:
-- topological_sort: Orders tasks by dependencies (3-color DFS with cycle detection)
+- compute_parallel_levels: BFS level grouping with cycle detection (Kahn's algorithm)
 - validate_workflow_def: Structural validation (required fields, upstream refs, node types, config)
 """
 
@@ -30,37 +30,53 @@ _FIELD_TYPE_MAP: dict[FieldType, type | tuple[type, ...]] = {
 }
 
 
-def topological_sort(tasks: list[WorkflowTaskDef]) -> list[WorkflowTaskDef]:
-    """Orders tasks by dependencies to ensure upstream tasks execute first.
+def compute_parallel_levels(tasks: list[WorkflowTaskDef]) -> list[list[WorkflowTaskDef]]:
+    """Group tasks into parallel execution levels using BFS topological sort.
 
-    Uses 3-color DFS to detect cycles: unvisited -> visiting (gray) -> visited (black).
-    A back-edge to a gray node means a cycle exists.
+    Level 0: tasks with no dependencies (can all run concurrently)
+    Level N: tasks whose ALL dependencies are in levels < N
+
+    Uses Kahn's algorithm — iteratively peels off zero-in-degree nodes.
+
+    Returns:
+        List of levels, each containing tasks that can execute in parallel.
+
+    Raises:
+        ValueError: If the task graph contains a cycle.
     """
-    graph = {task.id: task.upstream for task in tasks}
+    task_by_id = {t.id: t for t in tasks}
 
-    visited: set[str] = set()
-    visiting: set[str] = set()
-    result: list[WorkflowTaskDef] = []
+    # Build adjacency list (parent → children) for efficient traversal
+    children: dict[str, list[str]] = {t.id: [] for t in tasks}
+    in_degree: dict[str, int] = {}
+    for t in tasks:
+        in_degree[t.id] = len(t.upstream)
+        for parent_id in t.upstream:
+            children[parent_id].append(t.id)
 
-    task_by_id = {task.id: task for task in tasks}
+    # Start with zero-dependency tasks
+    current_ids = [t.id for t in tasks if in_degree[t.id] == 0]
+    levels: list[list[WorkflowTaskDef]] = []
+    visited = 0
 
-    def visit(node_id: str) -> None:
-        if node_id in visited:
-            return
-        if node_id in visiting:
-            raise ValueError(f"Cycle detected in workflow: {node_id}")
-        visiting.add(node_id)
-        for dep in graph.get(node_id, []):  # fallback for pre-validation callers
-            visit(dep)
-        visiting.discard(node_id)
-        visited.add(node_id)
-        if node_id in task_by_id:
-            result.append(task_by_id[node_id])
+    while current_ids:
+        levels.append([task_by_id[tid] for tid in current_ids])
+        visited += len(current_ids)
+        next_ids: list[str] = []
+        for tid in current_ids:
+            for child_id in children[tid]:
+                in_degree[child_id] -= 1
+                if in_degree[child_id] == 0:
+                    next_ids.append(child_id)
+        current_ids = next_ids
 
-    for task_id in graph:
-        visit(task_id)
+    if visited != len(tasks):
+        unvisited = {t.id for t in tasks} - {
+            t.id for level in levels for t in level
+        }
+        raise ValueError(f"Cycle detected in workflow: {sorted(unvisited)}")
 
-    return result
+    return levels
 
 
 def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) -> None:
@@ -119,6 +135,12 @@ def validate_workflow_def(workflow_def: WorkflowDef) -> None:
         raise ValueError("Workflow has no tasks")
 
     task_ids = {task.id for task in workflow_def.tasks}
+    if len(task_ids) != len(workflow_def.tasks):
+        from collections import Counter
+
+        counts = Counter(t.id for t in workflow_def.tasks)
+        dupes = [tid for tid, n in counts.items() if n > 1]
+        raise ValueError(f"Duplicate task IDs: {dupes}")
 
     # Validate upstream references point to existing tasks
     for task_def in workflow_def.tasks:
@@ -176,7 +198,7 @@ def validate_connector_availability(
 
 
 # Derived from the canonical ENRICHER_METRIC_DEFS in node_config_fields.py.
-_ENRICHER_METRICS: dict[str, set[str]] = get_enricher_metric_names()
+_ENRICHER_METRICS: dict[str, frozenset[str]] = get_enricher_metric_names()
 
 # Node types that reference metrics via config["metric_name"]
 _METRIC_CONSUMER_TYPES = {"filter.by_metric", "sorter.by_metric"}
@@ -292,7 +314,7 @@ def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, 
 
     # Check for cycles
     try:
-        topological_sort(workflow_def.tasks)
+        compute_parallel_levels(workflow_def.tasks)
     except ValueError as e:
         errors.append({"task_id": "", "field": "tasks", "message": str(e)})
 

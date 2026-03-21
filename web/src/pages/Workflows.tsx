@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import type { WorkflowSummarySchema } from "@/api/generated/model";
 import { useListWorkflowsApiV1WorkflowsGet } from "@/api/generated/workflows/workflows";
+import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { QueryErrorState } from "@/components/shared/QueryErrorState";
@@ -165,6 +166,7 @@ export function Workflows() {
 
   const { data, isLoading, isError, error } = useListWorkflowsApiV1WorkflowsGet(
     { limit, offset },
+    { query: { staleTime: STALE.SLOW, placeholderData: (prev) => prev } },
   );
 
   const response = data?.status === 200 ? data.data : undefined;

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Narada
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.3
+ * OpenAPI spec version: 0.5.5
  */
 
 export type GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200 = {[key: string]: string};

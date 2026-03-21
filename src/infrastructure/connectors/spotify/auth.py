@@ -79,7 +79,9 @@ class SpotifyTokenManager:
     for CLI usage, database-backed for hosted deployment.
 
     Example:
-        >>> from src.infrastructure.connectors._shared.token_storage import get_token_storage
+        >>> from src.infrastructure.connectors._shared.token_storage import (
+        ...     get_token_storage,
+        ... )
         >>> mgr = SpotifyTokenManager(storage=get_token_storage())
         >>> token = await mgr.get_valid_token()
     """
@@ -201,6 +203,11 @@ class SpotifyTokenManager:
         if not captured.get("code"):
             raise RuntimeError(
                 "Spotify authorization failed — no authorization code received. Ensure the redirect URI is configured as http://localhost:8888/callback."
+            )
+
+        if captured.get("state") != state:
+            raise RuntimeError(
+                "Spotify authorization failed — OAuth state mismatch (possible CSRF)."
             )
 
         logger.debug("Spotify authorization code captured")

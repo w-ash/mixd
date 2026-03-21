@@ -10,8 +10,8 @@ import src.application.workflows.node_catalog  # noqa: F401 — triggers node re
 from src.application.workflows.validation import (
     ConnectorNotAvailableError,
     _validate_node_config,
+    compute_parallel_levels,
     extract_required_connectors,
-    topological_sort,
     validate_connector_availability,
     validate_workflow_def,
 )
@@ -25,6 +25,19 @@ class TestValidateWorkflowDef:
         """Workflow with no tasks raises ValueError."""
         with pytest.raises(ValueError, match="Workflow has no tasks"):
             validate_workflow_def(WorkflowDef(id="empty", name="empty"))
+
+    def test_duplicate_task_ids_raises(self):
+        """Duplicate task IDs raise ValueError with clear message."""
+        wf = WorkflowDef(
+            id="test",
+            name="test",
+            tasks=[
+                WorkflowTaskDef(id="dup", type="source.playlist", config={"playlist_id": "1"}),
+                WorkflowTaskDef(id="dup", type="source.playlist", config={"playlist_id": "2"}),
+            ],
+        )
+        with pytest.raises(ValueError, match="Duplicate task IDs"):
+            validate_workflow_def(wf)
 
     def test_unknown_upstream_raises(self):
         """Upstream reference to nonexistent task raises ValueError."""
@@ -154,51 +167,6 @@ class TestValidateWorkflowDef:
                 ],
             )
         )
-
-
-class TestTopologicalSort:
-    """Tests for topological_sort with cycle detection."""
-
-    def test_cycle_detection_raises(self):
-        """Mutual dependency A->B->A raises ValueError."""
-        tasks = [
-            WorkflowTaskDef(id="A", type="x", upstream=["B"]),
-            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
-        ]
-        with pytest.raises(ValueError, match="Cycle detected"):
-            topological_sort(tasks)
-
-    def test_self_referencing_task_raises(self):
-        """Self-referencing task A->A raises ValueError."""
-        tasks = [WorkflowTaskDef(id="A", type="x", upstream=["A"])]
-        with pytest.raises(ValueError, match="Cycle detected"):
-            topological_sort(tasks)
-
-    def test_valid_dag_sorts_correctly(self):
-        """Linear chain C->B->A produces correct order [A, B, C]."""
-        tasks = [
-            WorkflowTaskDef(id="C", type="x", upstream=["B"]),
-            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
-            WorkflowTaskDef(id="A", type="x"),
-        ]
-        result = topological_sort(tasks)
-        ids = [t.id for t in result]
-        assert ids.index("A") < ids.index("B") < ids.index("C")
-
-    def test_no_upstream_tasks(self):
-        """Tasks with no dependencies are sorted without error."""
-        tasks = [
-            WorkflowTaskDef(id="A", type="x"),
-            WorkflowTaskDef(id="B", type="x"),
-        ]
-        result = topological_sort(tasks)
-        assert len(result) == 2
-
-    def test_dangling_upstream_reference(self):
-        """Upstream reference to nonexistent task is handled gracefully."""
-        tasks = [WorkflowTaskDef(id="A", type="x", upstream=["nonexistent"])]
-        result = topological_sort(tasks)
-        assert len(result) == 1
 
 
 class TestNodeExecutionRecord:
@@ -388,6 +356,87 @@ class TestValidateConnectorAvailability:
     def test_empty_required(self):
         """No requirements always passes."""
         assert validate_connector_availability(set(), ["spotify"]) == []
+
+
+class TestComputeParallelLevels:
+    """Tests for compute_parallel_levels BFS level grouping."""
+
+    def test_linear_chain_produces_single_task_levels(self):
+        """A→B→C produces 3 levels of 1 task each."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x"),
+            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
+            WorkflowTaskDef(id="C", type="x", upstream=["B"]),
+        ]
+        levels = compute_parallel_levels(tasks)
+        level_ids = [[t.id for t in level] for level in levels]
+        assert level_ids == [["A"], ["B"], ["C"]]
+
+    def test_independent_sources_grouped_in_one_level(self):
+        """Two independent sources + a combiner produces [[A,B], [C]]."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x"),
+            WorkflowTaskDef(id="B", type="x"),
+            WorkflowTaskDef(id="C", type="x", upstream=["A", "B"]),
+        ]
+        levels = compute_parallel_levels(tasks)
+        assert len(levels) == 2
+        assert sorted(t.id for t in levels[0]) == ["A", "B"]
+        assert [t.id for t in levels[1]] == ["C"]
+
+    def test_diamond_dag(self):
+        """Diamond: A→(B,C)→D produces [[A], [B,C], [D]]."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x"),
+            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
+            WorkflowTaskDef(id="C", type="x", upstream=["A"]),
+            WorkflowTaskDef(id="D", type="x", upstream=["B", "C"]),
+        ]
+        levels = compute_parallel_levels(tasks)
+        assert len(levels) == 3
+        assert [t.id for t in levels[0]] == ["A"]
+        assert sorted(t.id for t in levels[1]) == ["B", "C"]
+        assert [t.id for t in levels[2]] == ["D"]
+
+    def test_cycle_detection_raises(self):
+        """Mutual dependency A→B→A raises ValueError."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x", upstream=["B"]),
+            WorkflowTaskDef(id="B", type="x", upstream=["A"]),
+        ]
+        with pytest.raises(ValueError, match="Cycle detected"):
+            compute_parallel_levels(tasks)
+
+    def test_single_task(self):
+        """Single task produces one level with one task."""
+        tasks = [WorkflowTaskDef(id="A", type="x")]
+        levels = compute_parallel_levels(tasks)
+        assert len(levels) == 1
+        assert [t.id for t in levels[0]] == ["A"]
+
+    def test_all_independent_tasks(self):
+        """All independent tasks are in a single level."""
+        tasks = [
+            WorkflowTaskDef(id="A", type="x"),
+            WorkflowTaskDef(id="B", type="x"),
+            WorkflowTaskDef(id="C", type="x"),
+        ]
+        levels = compute_parallel_levels(tasks)
+        assert len(levels) == 1
+        assert sorted(t.id for t in levels[0]) == ["A", "B", "C"]
+
+    def test_preserves_all_tasks(self):
+        """All tasks appear exactly once across all levels."""
+        tasks = [
+            WorkflowTaskDef(id="src1", type="x"),
+            WorkflowTaskDef(id="src2", type="x"),
+            WorkflowTaskDef(id="enrich1", type="x", upstream=["src1"]),
+            WorkflowTaskDef(id="enrich2", type="x", upstream=["src2"]),
+            WorkflowTaskDef(id="combine", type="x", upstream=["enrich1", "enrich2"]),
+        ]
+        levels = compute_parallel_levels(tasks)
+        all_ids = [t.id for level in levels for t in level]
+        assert sorted(all_ids) == sorted(t.id for t in tasks)
 
 
 class TestConnectorNotAvailableError:

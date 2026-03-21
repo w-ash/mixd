@@ -2,7 +2,7 @@
 
 Tests that workflow result extraction, metrics aggregation, execution
 guard, and per-node timeout mapping work correctly.
-Validation and topological sort tests have moved to test_validation.py.
+Validation and DAG scheduling tests live in test_validation.py.
 """
 
 import pytest

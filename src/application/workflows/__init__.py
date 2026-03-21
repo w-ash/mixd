@@ -20,7 +20,6 @@ from .registry_validation import validate_registry
 from .validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
-    topological_sort,
     validate_connector_availability,
     validate_workflow_def,
 )
@@ -42,7 +41,6 @@ __all__ = [
     "make_node",
     "node",
     "run_workflow",
-    "topological_sort",
     "validate_connector_availability",
     "validate_registry",
     "validate_workflow_def",
