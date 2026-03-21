@@ -39,6 +39,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](v0.5.x.md#v055-parallel-execution--performance) |
 | **v0.5.6** | Auth gate, automated deploys & startup DX | ✅ Completed | [details](v0.5.x.md#v056-auth-gate-automated-deploys--startup-dx) |
 | **v0.5.7** | Security hardening | 🔜 Not Started | [details](v0.5.x.md#v057-security-hardening) |
+| **v0.5.8** | Playlist sync safety guards | 🔜 Not Started | [details](v0.5.x.md#v058-playlist-sync-safety-guards) |
 | **v0.6.0** | Multi-user: schema + user identity | 🔜 Not Started | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
 | **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
 | **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
