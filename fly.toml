@@ -20,6 +20,7 @@ primary_region = 'sjc'
   PYTHONUNBUFFERED = '1'
   NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
   NEON_AUTH_JWKS_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth/.well-known/jwks.json'
+  ALLOWED_EMAILS = 'a@ashwright.net'
 
 [http_service]
   internal_port = 8000

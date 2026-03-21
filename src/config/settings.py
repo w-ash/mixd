@@ -19,6 +19,7 @@ The configuration is organized into logical groups:
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: Pydantic settings validators, loguru config
 
+import contextlib
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, cast
 
@@ -440,6 +441,10 @@ class ServerConfig(BaseModel):
         default="",
         description="JWKS endpoint for JWT signature validation. Required when neon_auth_url is set.",
     )
+    allowed_emails: str = Field(
+        default="",
+        description="Comma-separated email allowlist. Only these users can access the app. Empty = anyone with valid auth.",
+    )
 
 
 class FreshnessConfig(BaseModel):
@@ -529,6 +534,7 @@ class Settings(BaseSettings):
         # Neon Auth
         "neon_auth_url": ("server", None),
         "neon_auth_jwks_url": ("server", None),
+        "allowed_emails": ("server", None),
     }
 
     @model_validator(mode="before")
@@ -568,10 +574,8 @@ class Settings(BaseSettings):
 
             # Parse JSON strings for complex types (lists, dicts)
             if isinstance(value, str) and value.startswith(("[", "{")):
-                try:
+                with contextlib.suppress(json.JSONDecodeError, ValueError):
                     value = json.loads(value)
-                except (json.JSONDecodeError, ValueError):
-                    pass  # Keep as string — Pydantic will validate
 
             transformed.setdefault(group, {})[field_key or env_key] = value
 

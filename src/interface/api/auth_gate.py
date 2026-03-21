@@ -58,41 +58,55 @@ def _decode_jwt(token: str, jwk_set: jwt.PyJWKSet) -> dict[str, Any]:
 
 async def _send_401(send: Send) -> None:
     """Send a 401 JSON response with WWW-Authenticate challenge."""
-    body = json.dumps(
-        {
-            "error": {
-                "code": "UNAUTHORIZED",
-                "message": "Authentication required",
-            }
+    body = json.dumps({
+        "error": {
+            "code": "UNAUTHORIZED",
+            "message": "Authentication required",
         }
-    ).encode()
+    }).encode()
 
-    await send(
-        {
-            "type": "http.response.start",
-            "status": 401,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"www-authenticate", b'Bearer realm="narada"'),
-                (b"content-length", str(len(body)).encode()),
-            ],
+    await send({
+        "type": "http.response.start",
+        "status": 401,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"www-authenticate", b'Bearer realm="narada"'),
+            (b"content-length", str(len(body)).encode()),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+async def _send_403(send: Send) -> None:
+    """Send a 403 JSON response for unauthorized users."""
+    body = json.dumps({
+        "error": {
+            "code": "FORBIDDEN",
+            "message": "Your account is not authorized to access this application",
         }
-    )
+    }).encode()
+
+    await send({
+        "type": "http.response.start",
+        "status": 403,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+    })
     await send({"type": "http.response.body", "body": body})
 
 
 async def _send_redirect(send: Send, location: str) -> None:
     """Send a 302 redirect to the login page."""
-    await send(
-        {
-            "type": "http.response.start",
-            "status": 302,
-            "headers": [
-                (b"location", location.encode()),
-                (b"content-length", b"0"),
-            ],
-        }
-    )
+    await send({
+        "type": "http.response.start",
+        "status": 302,
+        "headers": [
+            (b"location", location.encode()),
+            (b"content-length", b"0"),
+        ],
+    })
     await send({"type": "http.response.body", "body": b""})
 
 
@@ -110,9 +124,12 @@ class NeonAuthMiddleware:
     API requests without a token receive a 401 JSON response.
     """
 
-    def __init__(self, app: ASGIApp, jwks_url: str) -> None:
+    def __init__(
+        self, app: ASGIApp, jwks_url: str, allowed_emails: frozenset[str] | None = None
+    ) -> None:
         self.app = app
         self.jwks_url = jwks_url
+        self.allowed_emails = allowed_emails
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -135,10 +152,16 @@ class NeonAuthMiddleware:
             try:
                 jwk_set = await _get_jwk_set(self.jwks_url)
                 claims = _decode_jwt(token, jwk_set)
-            except (jwt.InvalidTokenError, httpx.HTTPError):
+            except jwt.InvalidTokenError, httpx.HTTPError:
                 await _send_401(send)
                 return
             else:
+                # Check email allowlist if configured
+                if self.allowed_emails:
+                    email = claims.get("email", "")
+                    if email not in self.allowed_emails:
+                        await _send_403(send)
+                        return
                 # Attach user info to scope for downstream use
                 scope["auth_user"] = claims
                 await self.app(scope, receive, send)

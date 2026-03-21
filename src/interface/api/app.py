@@ -123,9 +123,19 @@ def create_app() -> FastAPI:
     if settings.server.neon_auth_url:
         from src.interface.api.auth_gate import NeonAuthMiddleware
 
+        allowed = (
+            frozenset(
+                e.strip()
+                for e in settings.server.allowed_emails.split(",")
+                if e.strip()
+            )
+            if settings.server.allowed_emails
+            else None
+        )
         app.add_middleware(
             NeonAuthMiddleware,
             jwks_url=settings.server.neon_auth_jwks_url,
+            allowed_emails=allowed,
         )
 
     # HTTP caching: ETags, Cache-Control, Server-Timing (pure ASGI — not BaseHTTPMiddleware)
