@@ -10,8 +10,8 @@ export function MixdLogo({ size = "sm" }: MixdLogoProps) {
   const sheenId = useId();
   const svgClass = cn(size === "lg" ? "size-16" : "size-12", "shrink-0");
   const textClass = cn(
-    "font-display tracking-[0.25em] uppercase text-text-muted",
-    size === "lg" ? "text-sm" : "text-xs",
+    "font-display tracking-[0.3em] pl-[0.3em] uppercase text-text-muted",
+    size === "lg" ? "text-base" : "text-sm",
   );
 
   return (

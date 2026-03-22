@@ -1,43 +1,20 @@
-# Mixd Development Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What Mixd Does
 
-**Personal music metadata hub** - Own your data, put it to work on your terms, and share it without exploitation. Playlists, preferences, and tags belong to you — not platforms, not algorithms, not scrapers.
+**Personal music metadata hub** — reclaims listening data from Spotify, Last.fm, and MusicBrainz, unifies it across services, and lets users build smart playlists via declarative workflow pipelines. Users own their data, not platforms.
 
-### User Problem
-- Streaming algorithms are opaque and non-customizable
-- Listening history/playlists locked per service
-- No cross-service operations (can't sort Spotify by Last.fm counts)
-- Users want control: "show me liked tracks unplayed 6mo" is impossible
+## Core Principles
 
-### Primary Persona
-**The Weekly Curator** — Power listener (~15k liked tracks, years of play history across Spotify + Last.fm) who refuses to let platforms lock away their listening identity. Reclaims data, unifies it across services, and curates playlists on their own terms. 15+ curated playlists, weekly refresh ritual. Web UI primary, CLI for automation. See [docs/personas.md](docs/personas.md).
-
-### Secondary Personas
-- **The Tinkerer** — Tech-savvy music enthusiast who explores the system deeply. Enjoys understanding how things work, reads the docs, might run a local copy. Needs good docs, templates, and clear error messages.
-- **The Casual Enthusiast** — Music lover who wants control but historically couldn't use the tools. LLM-assisted workflow creation (v0.9.0) is the key adoption enabler — describe what you want in plain English, get a working playlist.
-
-### Anti-Personas
-- **The Passive Listener** — Happy with algorithms. If they'd use a feature, it's too generic.
-- **The Data Exploiter** — Wants to extract value from user data: engagement metrics, ad targeting, data brokering, AI training on taste profiles. If a feature serves the platform more than the person, it's this anti-persona.
-
-### Solution: Workflows
-Declarative pipelines composing user-defined criteria:
-- "Current Obsessions" = liked → 8+ plays last 30d → top 20
-- "Hidden Gems" = liked → 3+ plays but untouched 6mo → playlist
-- "Discovery Mix" = interleave recent plays + old favorites → random 40
-
-Powered by: import history, backup likes/playlists, cross-service identity mapping, enrichment from multiple sources.
-
-## Core Principles (YOU MUST FOLLOW)
-
-- **Python 3.14+ Required** - Modern features, type safety, 2026 best practices
-- **Ruthlessly DRY** - No code duplication in single-maintainer codebase
-- **Clean Breaks** - No backward compatibility or legacy adapters
-- **Batch-First** - Design for collections, single items are degenerate cases
-- **Immutable Domain** - Pure transformations, no side effects
-- **User Goal-Focused** - Design features around "what is the user trying to accomplish?" not "what can our APIs do?"
-- **Data Sovereignty** - Users own their listening identity. Reclaim it, put it to work, share it safely. Public content serves the user's intent to share, never a platform's intent to extract.
+- **Python 3.14+** — use modern features and type safety
+- **DRY** — single-maintainer codebase, no duplication
+- **Clean breaks** over backward compatibility — no legacy adapters
+- **Batch-first** — design for collections, single items are degenerate cases
+- **Immutable domain** — pure transformations, no side effects
+- **User goal-focused** — design around "what is the user trying to accomplish?" not "what can our APIs do?"
+- **Data sovereignty** — users own their listening identity, not platforms
 
 ## Architecture
 
@@ -49,13 +26,13 @@ Powered by: import history, backup likes/playlists, cross-service identity mappi
 - **Infrastructure** (`src/infrastructure/`) - API adapters (Spotify/Last.fm/MusicBrainz), SQLAlchemy repos, metadata providers.
 - **Interface** (`src/interface/`) - CLI via Typer + Rich, Web via FastAPI + React.
 
-**Stack**: Python 3.14+, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), Prefect 3.0, attrs, Typer + Rich, FastAPI, React 19, Vite 7, Tanstack Query, Tailwind v4
-
-Layer-specific enforcement rules live in `.claude/rules/` and load automatically per path.
+Layer-specific rules auto-load from `.claude/rules/` when editing matching files.
 
 → See docs/architecture/layers-and-patterns.md for full layer responsibilities
 
 ## Essential Commands
+
+Docker must be running — tests use testcontainers PostgreSQL.
 
 ```bash
 # Development
@@ -100,13 +77,9 @@ Layer-specific coding patterns (attrs, SQLAlchemy, repository, use cases) live i
 
 ## Testing
 
-**Tests are mandatory for every implementation.** A feature is not done until tests exist and pass.
-
-Self-check after implementing:
-1. Write tests (happy path + at least one error/edge case)
-2. Right test level — domain=unit, use case=unit+mocks, repository=integration
-3. Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`)
-4. Run: `uv run pytest tests/path/to/test_file.py -x`
+Write tests for every change (happy path + at least one error/edge case).
+Right test level — domain=unit, use case=unit+mocks, repository=integration.
+Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 
 ### When to Run What
 
@@ -125,7 +98,12 @@ Self-check after implementing:
 - `uv run basedpyright src/` + `uv run ruff check .`
 - `pnpm --prefix web check && pnpm --prefix web build`
 
-**NEVER** run the full suite after every small edit — it breaks the feedback loop.
+Avoid running the full suite after every small edit — it breaks the feedback loop.
+
+## Gotchas
+
+- `web/src/api/generated/` is auto-generated by Orval — regenerate with `pnpm --prefix web sync-api`, don't hand-edit
+- Version lives in `pyproject.toml` only — derived everywhere else via `importlib.metadata`
 
 ## Documentation Map
 

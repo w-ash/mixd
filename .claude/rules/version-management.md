@@ -22,5 +22,5 @@ Version lives in `pyproject.toml` only — single source of truth.
 3. Verify: `uv run python -c "from src import __version__; print(__version__)"` and `head -7 web/openapi.json`
 4. Update docs manually (semantic content, not auto-derivable):
    - `docs/backlog/README.md` — current version + milestone status
-   - `docs/backlog/v0.4.x.md` (or relevant) — check off completed items with implementation notes
+   - the relevant version file in `docs/backlog/` (see `docs/backlog/README.md` for the version matrix) — check off completed items with implementation notes
    - `docs/web-ui/` — update implementation status markers on endpoints, user flows, architecture

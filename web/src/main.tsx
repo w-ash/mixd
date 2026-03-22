@@ -1,5 +1,4 @@
 import { NeonAuthUIProvider } from "@neondatabase/auth/react/ui";
-import "@neondatabase/auth/ui/css";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

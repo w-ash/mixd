@@ -9,7 +9,7 @@ paths:
 - `selectinload()` for ALL relationships (lazy loading 1000 tracks = 1001 queries; selectinload = 2)
 - `expire_on_commit=False` in all session configs
 - Batch operations: `save_batch()`, `get_by_ids()`, `delete_batch()`
-- Shared session per Prefect workflow (NOT session-per-task) — prevents SQLite "database locked"
+- Per-task sessions from PostgreSQL pool (NOT shared session) — each task calls `_with_uow()` for a fresh session; MVCC handles concurrent reads/writes safely across parallel tasks
 - API clients extend `BaseAPIClient` from `base.py` — use `_api_call("op_name", impl, *args)` for retry + context + suppress
 - Retry via `tenacity` policies from `_shared/retry_policies.py` — use shared policies, not bare `@retry`
 - Retry policies integrate with `ErrorClassifier` — retries "temporary"/"rate_limit", fails fast on "permanent"
