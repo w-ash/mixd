@@ -164,9 +164,9 @@ class GetLikedTracksUseCase:
                 service=command.connector_filter, is_liked=True, sort_by=command.sort_by
             )
         else:
-            # Query canonical "narada" service — the source of truth for all likes
+            # Query canonical "mixd" service — the source of truth for all likes
             track_likes = await like_repo.get_all_liked_tracks(
-                service="narada", is_liked=True, sort_by=command.sort_by
+                service="mixd", is_liked=True, sort_by=command.sort_by
             )
 
         # Extract track IDs and apply limit

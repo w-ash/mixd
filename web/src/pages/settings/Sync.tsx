@@ -89,7 +89,7 @@ function OperationCard({
   });
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-4 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
+    <div className="flex flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-5 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-sm font-semibold">{title}</h3>
@@ -334,7 +334,7 @@ export function Sync() {
 
   return (
     <div>
-      <title>Sync — Narada</title>
+      <title>Sync — Mixd</title>
       <PageHeader
         title="Sync"
         description="Import and sync your music data across services."

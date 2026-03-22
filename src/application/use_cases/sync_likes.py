@@ -79,12 +79,12 @@ async def save_likes(
     Args:
         track_id: Internal track ID.
         uow: Unit of work for transaction management.
-        services: Services to save likes for (defaults to ["narada"]).
+        services: Services to save likes for (defaults to ["mixd"]).
         timestamp: When this sync happened (used for last_synced).
         is_liked: Whether the track is liked.
         liked_at: When the user originally liked the track.
     """
-    services = services or ["narada"]
+    services = services or ["mixd"]
     now = timestamp or datetime.now(UTC)
     like_repo = uow.get_like_repository()
 
@@ -254,11 +254,11 @@ class ImportSpotifyLikesUseCase:
             if existing_ids:
                 like_repo = uow.get_like_repository()
                 like_status = await like_repo.get_liked_status_batch(
-                    existing_ids, ["spotify", "narada"]
+                    existing_ids, ["spotify", "mixd"]
                 )
                 for track_id in existing_ids:
                     statuses = like_status.get(track_id, {})
-                    if all(statuses.get(s, False) for s in ("spotify", "narada")):
+                    if all(statuses.get(s, False) for s in ("spotify", "mixd")):
                         already_synced += 1
                         batch_already_synced += 1
                     else:
@@ -308,7 +308,7 @@ class ImportSpotifyLikesUseCase:
                     track_liked_at = liked_at_map.get(track_id)
                     like_entries.extend(
                         (track_id, service, True, batch_time, track_liked_at)
-                        for service in ("spotify", "narada")
+                        for service in ("spotify", "mixd")
                     )
                 try:
                     await like_repo.save_track_likes_batch(like_entries)
@@ -453,26 +453,24 @@ class ExportLastFmLikesUseCase:
         # Get unsynced likes
         like_repo = uow.get_like_repository()
         unsynced = await like_repo.get_unsynced_likes(
-            source_service="narada",
+            source_service="mixd",
             target_service="lastfm",
             is_liked=True,
             since_timestamp=filter_time,
         )
 
-        total_narada = await like_repo.count_liked_tracks(
-            service="narada", is_liked=True
-        )
-        already_loved = total_narada - len(unsynced)
+        total_mixd = await like_repo.count_liked_tracks(service="mixd", is_liked=True)
+        already_loved = total_mixd - len(unsynced)
         total_to_export = len(unsynced)
 
-        if total_narada > 0:
+        if total_mixd > 0:
             logger.info(
-                f"Export: {total_narada} total, {already_loved} already loved "
-                + f"({already_loved / total_narada * 100:.1f}%), {total_to_export} candidates"
+                f"Export: {total_mixd} total, {already_loved} already loved "
+                + f"({already_loved / total_mixd * 100:.1f}%), {total_to_export} candidates"
             )
         else:
             logger.info(
-                f"Export: no liked tracks in narada, {total_to_export} candidates"
+                f"Export: no liked tracks in mixd, {total_to_export} candidates"
             )
 
         exported = 0

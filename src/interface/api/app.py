@@ -2,7 +2,7 @@
 
 create_app() builds a configured FastAPI instance with CORS, routers, and
 exception handlers. run_server() is the uv script entry point for
-`narada-api`.
+`mixd-api`.
 
 When web/dist/ exists (frontend build output), the app also serves the
 React SPA with a catch-all fallback to index.html for client-side routing.
@@ -100,7 +100,7 @@ def create_app() -> FastAPI:
     - Static file serving + SPA catch-all when web/dist/ exists
     """
     app = FastAPI(
-        title="Narada",
+        title="Mixd",
         description="Personal music metadata hub",
         version=__version__,
         docs_url="/api/docs",
@@ -226,7 +226,7 @@ app = create_app()
 
 
 def run_server() -> None:
-    """Script entry point for `narada-api`."""
+    """Script entry point for `mixd-api`."""
     import uvicorn
 
     from src.config import settings

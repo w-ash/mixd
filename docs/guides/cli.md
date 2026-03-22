@@ -1,4 +1,4 @@
-# Narada CLI Reference
+# Mixd CLI Reference
 
 Command-line interface for managing your music library, running workflows, and syncing data across services.
 
@@ -7,7 +7,7 @@ Command-line interface for managing your music library, running workflows, and s
 ## Command Overview
 
 ```
-narada
+mixd
 ├── version                          Show version information
 ├── connectors                       Check music service connector status
 ├── stats                            Library statistics and dashboard
@@ -42,8 +42,8 @@ Execute and manage playlist workflows.
 
 | Command | Description |
 |---------|-------------|
-| `narada workflow list` | List available workflow definitions |
-| `narada workflow run [WORKFLOW_ID]` | Execute a specific workflow |
+| `mixd workflow list` | List available workflow definitions |
+| `mixd workflow run [WORKFLOW_ID]` | Execute a specific workflow |
 
 **`workflow run` options:**
 - `--show-results` / `--no-results` — show detailed result metrics (default: show)
@@ -51,10 +51,10 @@ Execute and manage playlist workflows.
 - `--quiet` / `-q` — minimal output
 
 ```bash
-narada workflow list
-narada workflow run discovery_mix
-narada workflow run discovery_mix --format json
-narada workflow run                          # interactive selection
+mixd workflow list
+mixd workflow run discovery_mix
+mixd workflow run discovery_mix --format json
+mixd workflow run                          # interactive selection
 ```
 
 ### playlist
@@ -63,22 +63,22 @@ Manage stored playlists and data operations.
 
 | Command | Description |
 |---------|-------------|
-| `narada playlist list` | List all playlists in local database |
-| `narada playlist backup CONNECTOR PLAYLIST_ID` | Backup a playlist from a music service |
-| `narada playlist create --name NAME` | Create a new empty playlist |
-| `narada playlist update PLAYLIST_ID` | Update playlist name and/or description |
-| `narada playlist delete PLAYLIST_ID` | Delete a playlist from local database |
+| `mixd playlist list` | List all playlists in local database |
+| `mixd playlist backup CONNECTOR PLAYLIST_ID` | Backup a playlist from a music service |
+| `mixd playlist create --name NAME` | Create a new empty playlist |
+| `mixd playlist update PLAYLIST_ID` | Update playlist name and/or description |
+| `mixd playlist delete PLAYLIST_ID` | Delete a playlist from local database |
 
 **`playlist create` options:** `--name` / `-n` (required), `--description` / `-d`
 **`playlist update` options:** `--name` / `-n`, `--description` / `-d`
 **`playlist delete` options:** `--force` / `-f` — skip confirmation prompt
 
 ```bash
-narada playlist list
-narada playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
-narada playlist create --name "My Playlist" --description "Best tracks"
-narada playlist update 5 --name "New Name"
-narada playlist delete 3 --force
+mixd playlist list
+mixd playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
+mixd playlist create --name "My Playlist" --description "Best tracks"
+mixd playlist update 5 --name "New Name"
+mixd playlist delete 3 --force
 ```
 
 ### history
@@ -87,9 +87,9 @@ Import and manage your music play history.
 
 | Command | Description |
 |---------|-------------|
-| `narada history import-lastfm` | Import play history from Last.fm API with smart daily chunking |
-| `narada history import-spotify [FILE_PATH]` | Import play history from Spotify JSON export file(s) |
-| `narada history checkpoints` | Show sync checkpoint status for all services |
+| `mixd history import-lastfm` | Import play history from Last.fm API with smart daily chunking |
+| `mixd history import-spotify [FILE_PATH]` | Import play history from Spotify JSON export file(s) |
+| `mixd history checkpoints` | Show sync checkpoint status for all services |
 
 **`history import-lastfm` options:**
 - `--from-date` — start date (YYYY-MM-DD), establishes import window on first run
@@ -100,11 +100,11 @@ Import and manage your music play history.
 - `--batch-size` / `-b` — tracks per processing batch
 
 ```bash
-narada history import-lastfm                                          # incremental from last checkpoint
-narada history import-lastfm --from-date 2025-01-01 --to-date 2025-06-30
-narada history import-spotify                                         # all files in data/imports/
-narada history import-spotify ~/Downloads/spotify_export.json
-narada history checkpoints
+mixd history import-lastfm                                          # incremental from last checkpoint
+mixd history import-lastfm --from-date 2025-01-01 --to-date 2025-06-30
+mixd history import-spotify                                         # all files in data/imports/
+mixd history import-spotify ~/Downloads/spotify_export.json
+mixd history checkpoints
 ```
 
 ### likes
@@ -113,8 +113,8 @@ Import and export liked tracks across music services.
 
 | Command | Description |
 |---------|-------------|
-| `narada likes import-spotify` | Import liked tracks from Spotify into local library |
-| `narada likes export-lastfm` | Export liked tracks to Last.fm as loved tracks |
+| `mixd likes import-spotify` | Import liked tracks from Spotify into local library |
+| `mixd likes export-lastfm` | Export liked tracks to Last.fm as loved tracks |
 
 **`likes import-spotify` options:**
 - `--limit` / `-l` — tracks per API request batch
@@ -126,11 +126,11 @@ Import and export liked tracks across music services.
 - `--date` — override checkpoint date (ISO format: `2025-08-01`)
 
 ```bash
-narada likes import-spotify
-narada likes import-spotify --max-imports 500
-narada likes export-lastfm
-narada likes export-lastfm --batch-size 25 --max-exports 100
-narada likes export-lastfm --date 2025-08-01
+mixd likes import-spotify
+mixd likes import-spotify --max-imports 500
+mixd likes export-lastfm
+mixd likes export-lastfm --batch-size 25 --max-exports 100
+mixd likes export-lastfm --date 2025-08-01
 ```
 
 ### tracks
@@ -139,10 +139,10 @@ Track management operations including merging duplicates.
 
 | Command | Description |
 |---------|-------------|
-| `narada tracks list` | List/search tracks with filtering |
-| `narada tracks show TRACK_ID` | Show detailed track info (likes, plays, playlists) |
-| `narada tracks playlists TRACK_ID` | Show which playlists contain a track |
-| `narada tracks merge` | Merge two duplicate tracks |
+| `mixd tracks list` | List/search tracks with filtering |
+| `mixd tracks show TRACK_ID` | Show detailed track info (likes, plays, playlists) |
+| `mixd tracks playlists TRACK_ID` | Show which playlists contain a track |
+| `mixd tracks merge` | Merge two duplicate tracks |
 
 **`tracks list` options:**
 - `--query` / `-q` — search by title/artist
@@ -156,19 +156,19 @@ Track management operations including merging duplicates.
 **`tracks merge` options:** `--winner-id` (required), `--loser-id` (required), `--force`
 
 ```bash
-narada tracks list --query "Radiohead" --liked --limit 20
-narada tracks show 42
-narada tracks playlists 42
-narada tracks merge --winner-id 10 --loser-id 25 --force
+mixd tracks list --query "Radiohead" --liked --limit 20
+mixd tracks show 42
+mixd tracks playlists 42
+mixd tracks merge --winner-id 10 --loser-id 25 --force
 ```
 
 ### System Commands
 
 | Command | Description |
 |---------|-------------|
-| `narada version` | Show version information |
-| `narada connectors` | Check music service connector status |
-| `narada stats` | Library statistics and dashboard |
+| `mixd version` | Show version information |
+| `mixd connectors` | Check music service connector status |
+| `mixd stats` | Library statistics and dashboard |
 
 ## Output Formats
 
@@ -230,22 +230,22 @@ uv run alembic current              # check migration status
 uv run alembic upgrade head         # apply pending migrations
 
 # full reset (destroys all data)
-rm data/db/narada.db
+rm data/db/mixd.db
 uv run alembic upgrade head
 ```
 
 ### Authentication
 
 ```bash
-narada connectors                       # verify service connections
+mixd connectors                       # verify service connections
 ```
 
-Re-run OAuth flow by deleting the cached token and running a command that requires authentication (e.g., `narada likes import-spotify`).
+Re-run OAuth flow by deleting the cached token and running a command that requires authentication (e.g., `mixd likes import-spotify`).
 
 ### Verbose Mode
 
 ```bash
-narada -v workflow run discovery_mix    # debug output for any command
+mixd -v workflow run discovery_mix    # debug output for any command
 ```
 
 ## Related Documentation

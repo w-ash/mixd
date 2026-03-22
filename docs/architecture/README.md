@@ -1,6 +1,6 @@
-# Narada Architecture
+# Mixd Architecture
 
-Narada is a personal music metadata hub that integrates Spotify, Last.fm, and MusicBrainz. By maintaining local representations of music entities with cross-service mappings, it enables features that transcend individual platform limitations — sorting Spotify playlists by Last.fm play counts, syncing likes between services, and building sophisticated playlists using cross-service data.
+Mixd is a personal music metadata hub that integrates Spotify, Last.fm, and MusicBrainz. By maintaining local representations of music entities with cross-service mappings, it enables features that transcend individual platform limitations — sorting Spotify playlists by Last.fm play counts, syncing likes between services, and building sophisticated playlists using cross-service data.
 
 ## Dependency Flow
 

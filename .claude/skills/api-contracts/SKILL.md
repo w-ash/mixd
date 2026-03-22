@@ -1,10 +1,10 @@
 ---
 name: api-contracts
-description: Narada REST API endpoint reference — all routes, request/response schemas, SSE event format, pagination, error codes, and use case mapping. Use when implementing FastAPI route handlers or frontend Tanstack Query hooks.
+description: Mixd REST API endpoint reference — all routes, request/response schemas, SSE event format, pagination, error codes, and use case mapping. Use when implementing FastAPI route handlers or frontend Tanstack Query hooks.
 user-invocable: false
 ---
 
-# Narada API Contracts Reference
+# Mixd API Contracts Reference
 
 > Condensed from `docs/web-ui/03-api-contracts.md`. Base URL: `/api/v1`. All entity IDs are integers; operation IDs are UUID strings.
 

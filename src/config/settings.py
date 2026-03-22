@@ -55,7 +55,7 @@ class DatabaseConfig(BaseModel):
     """
 
     url: str = Field(
-        default="postgresql+psycopg://narada:narada@localhost:5432/narada",
+        default="postgresql+psycopg://mixd:mixd@localhost:5432/mixd",
         description="SQLAlchemy connection URL (postgresql+psycopg://).",
     )
 
@@ -72,7 +72,7 @@ class LoggingConfig(BaseModel):
         description="Minimum log level for the rotating log file.",
     )
     log_file: Path = Field(
-        default=Path("narada.log"),
+        default=Path("mixd.log"),
         description="Path to the application log file.",
     )
     real_time_debug: bool = Field(
@@ -142,7 +142,7 @@ class CredentialsConfig(BaseModel):
         description="Spotify OAuth client secret. Required for all Spotify operations.",
     )
     spotify_redirect_uri: str = Field(
-        default="http://localhost:8888/callback",
+        default="http://127.0.0.1:8888/callback",
         description="OAuth callback URL registered in the Spotify developer dashboard.",
     )
 
@@ -600,7 +600,7 @@ def _normalize_database_url(url: str) -> str:
     Handles common variants:
     - ``postgres://`` (Fly.io, Heroku) → ``postgresql+psycopg://``
     - ``postgresql://`` (plain) → ``postgresql+psycopg://``
-    - ``postgresql+psycopg_async://`` (legacy narada) → ``postgresql+psycopg://``
+    - ``postgresql+psycopg_async://`` (legacy mixd) → ``postgresql+psycopg://``
 
     psycopg3's ``+psycopg`` dialect works for both ``create_engine()`` and
     ``create_async_engine()`` — SQLAlchemy auto-selects sync/async mode.

@@ -1,4 +1,4 @@
-"""SQLAlchemy database models for the Narada music platform.
+"""SQLAlchemy database models for the Mixd music platform.
 
 This module implements a simplified architecture using hard deletes for all entities,
 following SQLAlchemy 2.0 best practices with modern type annotations.
@@ -341,7 +341,7 @@ class DBTrackLike(BaseEntity):
 
     # Core fields
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
-    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'narada'
+    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     is_liked: Mapped[bool] = mapped_column(Boolean, default=True)
     liked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -387,7 +387,7 @@ class DBTrackPlay(BaseEntity):
 
     # Core fields
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
-    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'narada'
+    service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     played_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -12,7 +12,7 @@ paths:
 
 Version lives in `pyproject.toml` only — single source of truth.
 
-`src.__version__` reads it via `importlib.metadata.version("narada")`. FastAPI `app.version`, the health endpoint, and the OpenAPI schema all derive from `__version__`. Never hardcode version strings.
+`src.__version__` reads it via `importlib.metadata.version("mixd")`. FastAPI `app.version`, the health endpoint, and the OpenAPI schema all derive from `__version__`. Never hardcode version strings.
 
 **Critical**: `importlib.metadata` reads from the *installed* package metadata, not directly from `pyproject.toml`. After changing the version in `pyproject.toml`, you **must** run `uv sync` to update the installed metadata before the new version appears at runtime.
 

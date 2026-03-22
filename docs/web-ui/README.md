@@ -1,6 +1,6 @@
-# Narada Web UI Documentation
+# Mixd Web UI Documentation
 
-Documentation for the Narada web interface, organized by concern.
+Documentation for the Mixd web interface, organized by concern.
 
 ## Documents
 

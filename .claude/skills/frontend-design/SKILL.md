@@ -1,12 +1,12 @@
 ---
-name: narada-frontend-design
-description: Narada's visual identity for the web UI. Use when writing React components, Tailwind styles, CSS, or any frontend code in web/. Provides typography, color, motion, and component guidelines for the dark editorial music aesthetic.
+name: mixd-frontend-design
+description: Mixd's visual identity for the web UI. Use when writing React components, Tailwind styles, CSS, or any frontend code in web/. Provides typography, color, motion, and component guidelines for the dark editorial music aesthetic.
 user-invocable: false
 ---
 
-# Narada Frontend Design
+# Mixd Frontend Design
 
-> Background knowledge for all frontend work. Ensures every session produces consistent, distinctive UI matching Narada's dark editorial aesthetic.
+> Background knowledge for all frontend work. Ensures every session produces consistent, distinctive UI matching Mixd's dark editorial aesthetic.
 
 ## Audience
 

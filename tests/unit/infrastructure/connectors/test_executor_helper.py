@@ -25,7 +25,7 @@ class TestExecutorHelperFunctions:
 
         assert isinstance(executor, ThreadPoolExecutor)
         assert executor._max_workers == settings.api.lastfm.concurrency
-        assert executor._thread_name_prefix == "narada_io"
+        assert executor._thread_name_prefix == "mixd_io"
 
         # Clean up
         executor.shutdown(wait=False)

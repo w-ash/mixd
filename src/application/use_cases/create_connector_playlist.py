@@ -52,7 +52,7 @@ class CreateConnectorPlaylistCommand:
     tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
     playlist_name: str = field(validator=non_empty_string)
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
-    playlist_description: str = "Created by Narada"
+    playlist_description: str = "Created by Mixd"
     create_internal_playlist: bool = True  # Whether to also create internal playlist
     metadata: dict[str, object] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
@@ -236,7 +236,7 @@ class CreateConnectorPlaylistUseCase:
             # Build metadata response (format may vary by connector)
             external_metadata: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
                 "created_at": datetime.now(UTC).isoformat(),
-                "owner": "narada",
+                "owner": "mixd",
                 "public": False,  # Default for privacy
                 "collaborative": False,
                 "follower_count": 0,

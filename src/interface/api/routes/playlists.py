@@ -304,6 +304,8 @@ async def preview_playlist_sync(
         connector_name=result.connector_name,
         playlist_name=result.playlist_name,
         has_comparison_data=result.has_comparison_data,
+        safety_flagged=result.safety_flagged,
+        safety_message=result.safety_message,
     )
 
 
@@ -319,15 +321,18 @@ async def sync_playlist_link(
     GET /operations/{operation_id}/progress (existing SSE endpoint).
     """
     direction_override = None
-    if body and body.direction_override:
-        direction_override = SyncDirection(body.direction_override)
+    confirmed = False
+    if body:
+        if body.direction_override:
+            direction_override = SyncDirection(body.direction_override)
+        confirmed = body.confirmed
 
     operation_id, sse_queue = await prepare_sse_operation()
 
     launch_background(
         f"playlist_sync_{operation_id}",
         lambda: _execute_sync_background(
-            operation_id, link_id, direction_override, sse_queue
+            operation_id, link_id, direction_override, sse_queue, confirmed=confirmed
         ),
     )
 
@@ -339,6 +344,8 @@ async def _execute_sync_background(
     link_id: int,
     direction_override: SyncDirection | None,
     sse_queue: asyncio.Queue[object],
+    *,
+    confirmed: bool = False,
 ) -> None:
     """Execute playlist link sync in background, pushing SSE events."""
     from asyncio import CancelledError
@@ -348,6 +355,7 @@ async def _execute_sync_background(
         command = SyncPlaylistLinkCommand(
             link_id=link_id,
             direction_override=direction_override,
+            confirmed=confirmed,
         )
         result = await execute_use_case(
             lambda uow: SyncPlaylistLinkUseCase().execute(command, uow)

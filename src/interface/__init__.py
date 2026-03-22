@@ -1,4 +1,4 @@
-"""Interface layer for Narada - handles user interactions and presentation concerns.
+"""Interface layer for Mixd - handles user interactions and presentation concerns.
 
 This layer contains:
 - CLI interface (Typer + Rich) for command-line interactions

@@ -57,8 +57,8 @@ def backup(
     with the latest tracks and metadata from the service.
 
     Examples:
-        narada playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
-        narada playlist backup spotify 1A2B3C4D5E6F7G8H9I0J1K
+        mixd playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
+        mixd playlist backup spotify 1A2B3C4D5E6F7G8H9I0J1K
     """
     run_async(_backup_playlist_async(connector, playlist_id))
 
@@ -74,8 +74,8 @@ def create(
     """Create a new empty playlist in your local database.
 
     Examples:
-        narada playlist create --name "My Playlist"
-        narada playlist create --name "Favorites" --description "Best tracks"
+        mixd playlist create --name "My Playlist"
+        mixd playlist create --name "Favorites" --description "Best tracks"
     """
     run_async(_create_playlist_async(name, description))
 
@@ -95,8 +95,8 @@ def update(
     """Update a playlist's name and/or description.
 
     Examples:
-        narada playlist update 5 --name "New Name"
-        narada playlist update 3 --description "Updated description"
+        mixd playlist update 5 --name "New Name"
+        mixd playlist update 3 --description "Updated description"
     """
     if name is None and description is None:
         console.print(
@@ -117,8 +117,8 @@ def delete(
     cannot be undone. Use --force to skip confirmation prompt.
 
     Examples:
-        narada playlist delete 5
-        narada playlist delete 3 --force
+        mixd playlist delete 5
+        mixd playlist delete 3 --force
     """
     run_async(_delete_playlist_async(playlist_id, force))
 

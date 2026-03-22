@@ -8,7 +8,7 @@
 ## Primary Navigation (Sidebar)
 
 ```
-Narada
+Mixd
 ├── Dashboard        /                    Stats, health, activity feed
 ├── Library          /library             Track browsing & search
 ├── Playlists        /playlists           List, detail, edit, links
@@ -55,7 +55,7 @@ Every page has an empty state. Text guides users to the canonical location for t
 | Workflows `/workflows` | "No workflows yet. Create your first workflow or start from a template." [Create Workflow] [Browse Templates] |
 | Imports `/imports` | "No import history. Connect a service in Settings first." Available operations cards still shown. |
 | Playlist Detail (no tracks) | "This playlist is empty. Add tracks by linking a connector playlist or using workflows." |
-| Track Detail (no mappings) | "Not mapped to any services. This track exists only in your Narada library." |
+| Track Detail (no mappings) | "Not mapped to any services. This track exists only in your Mixd library." |
 | Track Detail (no plays) | "No play data. Import listening history from the Import Center." |
 
 ---
@@ -90,5 +90,5 @@ Touch targets: minimum 44x44px per WCAG 2.2 AA.
 
 - **Sidebar indicator**: Badge on "Imports" when operations are running
 - **Active operation toast**: Persistent toast for background operations with progress % and link
-- **Tab title**: Dynamic -- "Narada (Importing...)" during active operations, otherwise "Narada - Page Name"
+- **Tab title**: Dynamic -- "Mixd (Importing...)" during active operations, otherwise "Mixd - Page Name"
 - **Breadcrumbs**: Shown on detail pages (e.g., Playlists > My Playlist > Links)

@@ -1,12 +1,12 @@
 ---
 name: subagent-guide
-description: When and how to use narada's specialized subagents — architecture-guardian, test-pyramid-architect, sqlalchemy-async-optimizer, log-diagnostician, react-architecture-specialist, vitest-strategy-architect, workflow-manager. Use when delegating to subagents or choosing which agent to invoke.
+description: When and how to use mixd's specialized subagents — architecture-guardian, test-pyramid-architect, sqlalchemy-async-optimizer, log-diagnostician, react-architecture-specialist, vitest-strategy-architect, workflow-manager. Use when delegating to subagents or choosing which agent to invoke.
 user-invocable: false
 ---
 
 # Subagent Usage Guide
 
-Narada uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
+Mixd uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
 
 ## Available Subagents (7 Total, 3 Active at a Time)
 
@@ -21,7 +21,7 @@ Narada uses specialized Claude Code subagents for deep technical expertise. Main
 6. **vitest-strategy-architect** - Vitest component testing, React Testing Library, Playwright E2E
 
 **Task Agents**:
-7. **workflow-manager** - Create, update, validate, and debug workflow definitions via `narada workflow` CLI
+7. **workflow-manager** - Create, update, validate, and debug workflow definitions via `mixd workflow` CLI
 
 ## Rotation Strategy (Maximize 3 Active)
 
@@ -149,7 +149,7 @@ All agents use modern Claude Code frontmatter fields:
 - react-architecture-specialist: `vite build`, `vitest` execution
 - vitest-strategy-architect: `vitest`, `playwright test` execution
 - log-diagnostician: `jq`, `grep`, `sqlite3` (log analysis)
-- workflow-manager: `narada workflow *` commands only
+- workflow-manager: `mixd workflow *` commands only
 
 **Why read-only**: Subagents provide expert guidance, main agent implements with full context. This preserves:
 - Context awareness (main agent sees full picture)

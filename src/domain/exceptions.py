@@ -20,3 +20,15 @@ class TemplateReadOnlyError(Exception):
 
 class TracklistInvariantError(DomainError):
     """Raised when a tracklist violates workflow invariants."""
+
+
+class ConfirmationRequiredError(DomainError):
+    """Raised when a destructive operation requires explicit user confirmation."""
+
+    def __init__(
+        self, message: str, *, removals: int, total: int, remaining: int
+    ) -> None:
+        super().__init__(message)
+        self.removals = removals
+        self.total = total
+        self.remaining = remaining

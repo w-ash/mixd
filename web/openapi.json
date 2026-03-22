@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Narada",
+    "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.5.7"
+    "version": "0.5.8"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -4331,6 +4331,11 @@
               }
             ],
             "title": "Direction Override"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed",
+            "default": false
           }
         },
         "type": "object",
@@ -4367,6 +4372,22 @@
             "type": "boolean",
             "title": "Has Comparison Data",
             "default": true
+          },
+          "safety_flagged": {
+            "type": "boolean",
+            "title": "Safety Flagged",
+            "default": false
+          },
+          "safety_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safety Message"
           }
         },
         "type": "object",

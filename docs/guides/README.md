@@ -1,6 +1,6 @@
-# Narada User Guides
+# Mixd User Guides
 
-Documentation for using narada — writing workflows, syncing likes, and running CLI commands.
+Documentation for using mixd — writing workflows, syncing likes, and running CLI commands.
 
 ## Documents
 

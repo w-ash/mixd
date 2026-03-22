@@ -18,7 +18,7 @@ export function EmptyState({
   return (
     <div
       role={role}
-      className="flex flex-col items-center justify-center gap-3 rounded-lg border border-border-muted bg-surface-sunken px-8 py-16 text-center"
+      className="flex flex-col items-center justify-center gap-4 rounded-lg border border-border-muted bg-surface-sunken px-8 py-16 text-center"
     >
       {icon && (
         <span

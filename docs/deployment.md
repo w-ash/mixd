@@ -1,4 +1,4 @@
-# Running & Deploying Narada
+# Running & Deploying Mixd
 
 ## Local Development
 
@@ -22,7 +22,7 @@ When you need finer control:
 ```bash
 docker compose up -d                    # Start PostgreSQL only
 uv run alembic upgrade head             # Run migrations
-uv run narada-api                       # API server (hot-reload on src/)
+uv run mixd-api                       # API server (hot-reload on src/)
 pnpm --prefix web dev                   # Vite dev server (HMR)
 ```
 
@@ -46,7 +46,7 @@ cp .env.example .env
 Required for full functionality:
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `LASTFM_KEY` / `LASTFM_SECRET` — [Last.fm API](https://www.last.fm/api/account/create)
-- `DATABASE_URL` — defaults to local Docker Postgres (`postgresql+psycopg://narada:narada@localhost:5432/narada`)
+- `DATABASE_URL` — defaults to local Docker Postgres (`postgresql+psycopg://mixd:mixd@localhost:5432/mixd`)
 
 ## Deploying to Fly.io
 
@@ -56,7 +56,7 @@ Required for full functionality:
 
 2. Create the app (already done — `fly.toml` exists):
    ```bash
-   fly launch  # Only needed once; app name: narada, region: sjc
+   fly launch  # Only needed once; app name: mixd, region: sjc
    ```
 
 3. Create a [Neon](https://neon.tech) PostgreSQL project and copy the **pooler** connection string from the dashboard.

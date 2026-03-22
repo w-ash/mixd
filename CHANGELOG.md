@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Narada are documented here.
+All notable changes to Mixd are documented here.
 
 ## [Unreleased]
 
@@ -127,4 +127,3 @@ All notable changes to Narada are documented here.
 ### Cleanup
 
 - remove redundant session regression test and complete Clean Architecture migration
-

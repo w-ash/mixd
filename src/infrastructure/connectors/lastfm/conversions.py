@@ -101,7 +101,7 @@ def convert_lastfm_to_domain_track(
     lastfm_metadata: dict[str, Any] = {}
     import attrs
 
-    for attrs_field in attrs.fields(type(lastfm_info)):
+    for attrs_field in attrs.fields(lastfm_info):
         value = getattr(lastfm_info, attrs_field.name)
         if value is not None:
             lastfm_metadata[attrs_field.name] = value

@@ -143,4 +143,65 @@ describe("SyncConfirmationDialog", () => {
     renderDialog({ open: false });
     expect(screen.queryByText("Sync Preview")).not.toBeInTheDocument();
   });
+
+  it("shows destructive warning when safety_flagged is true", async () => {
+    server.use(
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json({
+            tracks_to_add: 0,
+            tracks_to_remove: 147,
+            tracks_unchanged: 3,
+            direction: "push",
+            connector_name: "spotify",
+            playlist_name: "Test Playlist",
+            has_comparison_data: true,
+            safety_flagged: true,
+            safety_message:
+              "This will remove 147 of 150 tracks. 3 will remain.",
+          });
+        },
+      ),
+    );
+
+    renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByText("Destructive sync detected")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("This will remove 147 of 150 tracks. 3 will remain."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show warning when safety_flagged is false", async () => {
+    server.use(
+      http.get(
+        "*/api/v1/playlists/:playlistId/links/:linkId/sync/preview",
+        () => {
+          return HttpResponse.json({
+            tracks_to_add: 3,
+            tracks_to_remove: 1,
+            tracks_unchanged: 10,
+            direction: "push",
+            connector_name: "spotify",
+            playlist_name: "Test Playlist",
+            has_comparison_data: true,
+            safety_flagged: false,
+            safety_message: null,
+          });
+        },
+      ),
+    );
+
+    renderDialog();
+
+    await waitFor(() => {
+      expect(screen.getByText("+3")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText("Destructive sync detected"),
+    ).not.toBeInTheDocument();
+  });
 });

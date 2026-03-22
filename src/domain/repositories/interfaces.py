@@ -283,7 +283,7 @@ class LikeRepositoryProtocol(Protocol):
 
         Args:
             track_id: Internal track ID.
-            service: Service name ('spotify', 'lastfm', 'narada').
+            service: Service name ('spotify', 'lastfm', 'mixd').
             is_liked: Whether the track is liked.
             last_synced: When this like was last synced.
             liked_at: When the user originally liked the track. Falls back to now() if not provided.

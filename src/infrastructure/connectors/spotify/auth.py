@@ -193,7 +193,7 @@ class SpotifyTokenManager:
             def log_message(self, format: str, *args: Any) -> None:
                 pass  # Suppress HTTP server access logs
 
-        server = HTTPServer(("localhost", 8888), _CallbackHandler)
+        server = HTTPServer(("127.0.0.1", 8888), _CallbackHandler)
 
         logger.info("Opening Spotify authorization in browser...")
         webbrowser.open(auth_url)
@@ -202,7 +202,7 @@ class SpotifyTokenManager:
 
         if not captured.get("code"):
             raise RuntimeError(
-                "Spotify authorization failed — no authorization code received. Ensure the redirect URI is configured as http://localhost:8888/callback."
+                "Spotify authorization failed — no authorization code received. Ensure the redirect URI is configured as http://127.0.0.1:8888/callback."
             )
 
         if captured.get("state") != state:

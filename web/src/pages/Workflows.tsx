@@ -176,7 +176,7 @@ export function Workflows() {
 
   return (
     <div>
-      <title>Workflows — Narada</title>
+      <title>Workflows — Mixd</title>
       <PageHeader
         title="Workflows"
         description="Declarative pipelines that compose your music criteria into playlists."

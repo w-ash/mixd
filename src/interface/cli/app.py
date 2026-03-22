@@ -16,7 +16,7 @@ console = get_console()
 
 # Initialize main app with modern configuration
 app = typer.Typer(
-    help=f"🎵 Narada v{VERSION} - Your personal music integration platform",
+    help=f"🎵 Mixd v{VERSION} - Your personal music integration platform",
     no_args_is_help=True,
     rich_markup_mode="rich",
     add_completion=True,
@@ -39,7 +39,7 @@ def init_cli(
         typer.Option("--verbose", "-v", help="Enable verbose output"),
     ] = False,
 ) -> None:
-    """Initialize Narada CLI with Rich console management."""
+    """Initialize Mixd CLI with Rich console management."""
     setup_loguru_logger(verbose)
     Path("data").mkdir(exist_ok=True)
 

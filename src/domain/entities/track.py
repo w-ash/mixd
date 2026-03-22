@@ -138,7 +138,7 @@ class TrackLike:
     """Immutable representation of a track like/love interaction."""
 
     track_id: int
-    service: str  # 'spotify', 'lastfm', 'narada'
+    service: str  # 'spotify', 'lastfm', 'mixd'
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None

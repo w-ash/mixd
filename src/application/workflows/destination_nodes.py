@@ -125,7 +125,7 @@ async def create_playlist(
             tracklist=tracklist,
             playlist_name=playlist_name,
             connector=connector,
-            playlist_description=config.get("description", "Created by Narada"),
+            playlist_description=config.get("description", "Created by Mixd"),
             create_internal_playlist=True,
         )
         result = await workflow_context.execute_use_case(
@@ -146,7 +146,7 @@ async def create_playlist(
         command = CreateCanonicalPlaylistCommand(
             name=playlist_name,
             tracklist=tracklist,
-            description=config.get("description", "Created by Narada"),
+            description=config.get("description", "Created by Mixd"),
         )
         result = await workflow_context.execute_use_case(
             workflow_context.use_cases.get_create_canonical_playlist_use_case, command

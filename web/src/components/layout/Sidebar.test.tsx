@@ -1,5 +1,7 @@
+import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { server } from "@/test/setup";
 import { renderWithProviders, screen } from "@/test/test-utils";
 
 import { Sidebar } from "./Sidebar";
@@ -17,7 +19,7 @@ describe("Sidebar", () => {
 
   it("renders the brand name", () => {
     renderWithProviders(<Sidebar />);
-    expect(screen.getByText("narada")).toBeInTheDocument();
+    expect(screen.getByText("mixd")).toBeInTheDocument();
   });
 
   it("renders settings sub-navigation items", () => {
@@ -46,9 +48,14 @@ describe("Sidebar", () => {
     expect(playlistLink?.className).toContain("text-primary");
   });
 
-  it("renders version in footer", () => {
+  it("renders version from health API", async () => {
+    server.use(
+      http.get("*/api/v1/health", () =>
+        HttpResponse.json({ status: "healthy", version: "0.5.8" }),
+      ),
+    );
     renderWithProviders(<Sidebar />);
-    expect(screen.getByText(/v0\.4/)).toBeInTheDocument();
+    expect(await screen.findByText(/v0\.5\.8/)).toBeInTheDocument();
   });
 
   it("renders theme toggle in footer", () => {

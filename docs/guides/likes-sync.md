@@ -1,13 +1,13 @@
-# Narada Likes Synchronization Guide
+# Mixd Likes Synchronization Guide
 
-This guide explains how to use Narada to synchronize "liked" tracks between different music services, with Narada serving as the source of truth for your music preferences.
+This guide explains how to use Mixd to synchronize "liked" tracks between different music services, with Mixd serving as the source of truth for your music preferences.
 
 ## Overview
 
-Narada's likes synchronization system enables you to:
+Mixd's likes synchronization system enables you to:
 
-1. **Import liked tracks from Spotify** into the local Narada database
-2. **Export liked tracks from Narada to Last.fm** as "loved" tracks
+1. **Import liked tracks from Spotify** into the local Mixd database
+2. **Export liked tracks from Mixd to Last.fm** as "loved" tracks
 3. **Maintain synchronization over time** with incremental updates
 4. **Preserve complete track metadata** while handling cross-service differences
 
@@ -19,17 +19,17 @@ Before using the likes synchronization features, ensure:
 
 1. **API credentials** configured in `.env` (see [development.md](../development.md) for setup)
 2. **Database initialized** — runs automatically on first use
-3. **Service connections verified** — run `narada connectors` to check status
+3. **Service connections verified** — run `mixd connectors` to check status
 
 ## Command Usage
 
 ### Importing Liked Tracks from Spotify
 
 ```bash
-narada likes import-spotify [OPTIONS]
+mixd likes import-spotify [OPTIONS]
 ```
 
-This command fetches tracks you've saved/liked on Spotify and imports them into the Narada database, preserving their like status and complete metadata.
+This command fetches tracks you've saved/liked on Spotify and imports them into the Mixd database, preserving their like status and complete metadata.
 
 #### Options
 
@@ -40,13 +40,13 @@ This command fetches tracks you've saved/liked on Spotify and imports them into 
 
 ```bash
 # Import all liked tracks from Spotify
-narada likes import-spotify
+mixd likes import-spotify
 
 # Import only the first 500 liked tracks
-narada likes import-spotify --max-imports 500
+mixd likes import-spotify --max-imports 500
 
 # Adjust API batch size for slower connections
-narada likes import-spotify --limit 25
+mixd likes import-spotify --limit 25
 ```
 
 #### What Happens During Import
@@ -54,17 +54,17 @@ narada likes import-spotify --limit 25
 1. **Fetch Liked Tracks**: Retrieves your saved tracks from Spotify
 2. **Track Resolution**: Creates or updates tracks in the local database
 3. **Metadata Storage**: Preserves complete Spotify metadata
-4. **Like Status**: Marks tracks as liked in Narada
+4. **Like Status**: Marks tracks as liked in Mixd
 5. **Progress Tracking**: Shows real-time progress with Rich formatting
 6. **Checkpoint Saving**: Enables resumable operations if interrupted
 
 ### Exporting Liked Tracks to Last.fm
 
 ```bash
-narada likes export-lastfm [OPTIONS]
+mixd likes export-lastfm [OPTIONS]
 ```
 
-This command identifies tracks that are liked in Narada but not yet loved on Last.fm, and marks them as loved on Last.fm through intelligent track matching.
+This command identifies tracks that are liked in Mixd but not yet loved on Last.fm, and marks them as loved on Last.fm through intelligent track matching.
 
 #### Options
 
@@ -76,16 +76,16 @@ This command identifies tracks that are liked in Narada but not yet loved on Las
 
 ```bash
 # Export all liked tracks to Last.fm
-narada likes export-lastfm
+mixd likes export-lastfm
 
 # Export with smaller batch size for API stability
-narada likes export-lastfm --batch-size 25
+mixd likes export-lastfm --batch-size 25
 
 # Export only the first 100 tracks for testing
-narada likes export-lastfm --max-exports 100
+mixd likes export-lastfm --max-exports 100
 
 # Re-export everything since a specific date
-narada likes export-lastfm --date 2025-01-01
+mixd likes export-lastfm --date 2025-01-01
 ```
 
 #### What Happens During Export
@@ -109,10 +109,10 @@ To fully synchronize your likes between Spotify and Last.fm for the first time:
 
 ```bash
 # Step 1: Import all liked tracks from Spotify
-narada likes import-spotify
+mixd likes import-spotify
 
 # Step 2: Export all liked tracks to Last.fm
-narada likes export-lastfm
+mixd likes export-lastfm
 ```
 
 **Expected Results**:
@@ -127,8 +127,8 @@ After the initial synchronization, run the same commands periodically to keep se
 
 ```bash
 # Run weekly or monthly to catch new likes
-narada likes import-spotify
-narada likes export-lastfm
+mixd likes import-spotify
+mixd likes export-lastfm
 ```
 
 The checkpoint system ensures only new changes are processed, making subsequent runs much faster.
@@ -139,10 +139,10 @@ For very large music libraries, use batch sizing and limits:
 
 ```bash
 # Import with lower API batch size for stability
-narada likes import-spotify --limit 25
+mixd likes import-spotify --limit 25
 
 # Export in smaller batches with rate limiting consideration
-narada likes export-lastfm --batch-size 25
+mixd likes export-lastfm --batch-size 25
 ```
 
 ### Testing and Validation
@@ -151,20 +151,20 @@ To test the system before full synchronization:
 
 ```bash
 # Test import with a small subset
-narada likes import-spotify --max-imports 100
+mixd likes import-spotify --max-imports 100
 
 # Test export with a small subset
-narada likes export-lastfm --max-exports 50
+mixd likes export-lastfm --max-exports 50
 
 # Check service connections
-narada connectors
+mixd connectors
 ```
 
 ## Track Matching System
 
 ### How Track Matching Works
 
-Narada uses a sophisticated multi-stage matching process:
+Mixd uses a sophisticated multi-stage matching process:
 
 1. **Exact ID Matching**: Uses Spotify ID, ISRC, and MusicBrainz ID for deterministic matches
 2. **Metadata Matching**: Fuzzy matching on artist names and track titles

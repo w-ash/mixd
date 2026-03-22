@@ -26,7 +26,7 @@ def create_executor_for_connectors() -> ThreadPoolExecutor:
     """
     return ThreadPoolExecutor(
         max_workers=settings.api.lastfm.concurrency,
-        thread_name_prefix="narada_io",
+        thread_name_prefix="mixd_io",
     )
 
 

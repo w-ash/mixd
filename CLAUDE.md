@@ -1,6 +1,6 @@
-# Narada Development Guide
+# Mixd Development Guide
 
-## What Narada Does
+## What Mixd Does
 
 **Personal music metadata hub** - Own your data, put it to work on your terms, and share it without exploitation. Playlists, preferences, and tags belong to you — not platforms, not algorithms, not scrapers.
 
@@ -78,10 +78,10 @@ pnpm --prefix web build              # Production build
 pnpm --prefix web sync-api           # Export OpenAPI schema + Orval codegen
 
 # User-facing CLI
-narada workflow                      # Interactive workflow browser
-narada workflow run                  # Execute a workflow
-narada history import-lastfm         # Import listening history
-narada likes import-spotify          # Backup liked tracks
+mixd workflow                      # Interactive workflow browser
+mixd workflow run                  # Execute a workflow
+mixd history import-lastfm         # Import listening history
+mixd likes import-spotify          # Backup liked tracks
 ```
 
 → See docs/development.md for setup, versioning, and recipes

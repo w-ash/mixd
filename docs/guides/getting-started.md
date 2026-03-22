@@ -19,11 +19,11 @@ From clone to running your first workflow in about 10 minutes.
 ## 1. Clone and install
 
 ```bash
-git clone <repository-url> && cd narada
+git clone <repository-url> && cd mixd
 uv sync
 ```
 
-`uv sync` installs Python 3.14, all dependencies, and the `narada` CLI in one step.
+`uv sync` installs Python 3.14, all dependencies, and the `mixd` CLI in one step.
 
 ## 2. Configure credentials
 
@@ -59,7 +59,7 @@ uv run pytest tests/unit/ -x -q
 uv run pytest
 
 # CLI sanity check
-uv run narada --help
+uv run mixd --help
 ```
 
 ## 5. Import your data
@@ -68,10 +68,10 @@ With credentials configured:
 
 ```bash
 # Backup your Spotify liked tracks
-narada likes import-spotify
+mixd likes import-spotify
 
 # Import Last.fm listening history
-narada history import-lastfm
+mixd history import-lastfm
 ```
 
 Both commands show progress and report totals when complete.
@@ -97,10 +97,10 @@ pnpm --prefix web dev
 
 ```bash
 # Interactive workflow browser
-narada workflow
+mixd workflow
 
 # Execute a specific workflow
-narada workflow run
+mixd workflow run
 ```
 
 See [workflows.md](workflows.md) for how to author your own workflows.

@@ -1,6 +1,6 @@
 # Data Model
 
-How Narada resolves track identity across services, handles temporal data, and manages entity lifecycle.
+How Mixd resolves track identity across services, handles temporal data, and manages entity lifecycle.
 
 ## Entity Resolution Model
 

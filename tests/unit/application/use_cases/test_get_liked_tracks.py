@@ -139,17 +139,17 @@ class TestGetLikedTracksUseCase:
             service="spotify", is_liked=True, sort_by="title_asc"
         )
 
-    async def test_execute_queries_narada_when_no_filter(self, mock_uow):
-        """Test that canonical 'narada' service is queried when no connector filter."""
+    async def test_execute_queries_mixd_when_no_filter(self, mock_uow):
+        """Test that canonical 'mixd' service is queried when no connector filter."""
         command = GetLikedTracksCommand(sort_by="liked_at_desc")
         use_case = GetLikedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
 
-        # Verify repository was called once for the canonical "narada" service
+        # Verify repository was called once for the canonical "mixd" service
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
-            service="narada", is_liked=True, sort_by="liked_at_desc"
+            service="mixd", is_liked=True, sort_by="liked_at_desc"
         )
 
     async def test_execute_respects_limit(self, mock_uow, sample_likes):

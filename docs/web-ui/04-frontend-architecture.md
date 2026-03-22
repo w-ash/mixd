@@ -375,7 +375,7 @@ The `customFetch` mutator **must** return `{ data: body, status, headers }` — 
 
 **Component layers**:
 - **`ui/`**: shadcn/ui primitives, customized to dark editorial aesthetic (Button, Card, Table, Dialog, Command, etc.)
-- **`shared/`**: Narada-specific composites reusable across pages (e.g., `TrackRow` in Library, Playlist Detail, Search Modal; `AlbumArt` with glow effect)
+- **`shared/`**: Mixd-specific composites reusable across pages (e.g., `TrackRow` in Library, Playlist Detail, Search Modal; `AlbumArt` with glow effect)
 - **`pages/`**: Route-level, compose ui + shared. Own data fetching via Tanstack Query hooks.
 - Keep components small. Extract when reused, not preemptively.
 

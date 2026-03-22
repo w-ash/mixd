@@ -1,6 +1,6 @@
 # Technology Stack
 
-Core technology decisions, supporting libraries, and architectural benefits that guide Narada's implementation.
+Core technology decisions, supporting libraries, and architectural benefits that guide Mixd's implementation.
 
 ## Core Technology Decisions
 

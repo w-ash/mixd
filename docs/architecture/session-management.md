@@ -1,6 +1,6 @@
 # Database Session Management
 
-How Narada manages database sessions to handle SQLite's concurrency limitations while maintaining Clean Architecture principles and proper transaction boundary control through the UnitOfWork pattern.
+How Mixd manages database sessions to handle SQLite's concurrency limitations while maintaining Clean Architecture principles and proper transaction boundary control through the UnitOfWork pattern.
 
 ## Transaction Management Philosophy
 

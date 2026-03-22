@@ -82,6 +82,7 @@ class SyncLinkRequest(BaseModel):
     """Request body for POST /playlists/{id}/links/{link_id}/sync."""
 
     direction_override: str | None = None
+    confirmed: bool = False
 
 
 class UpdateLinkRequest(BaseModel):
@@ -104,6 +105,8 @@ class SyncPreviewResponse(BaseModel):
     connector_name: str
     playlist_name: str
     has_comparison_data: bool = True
+    safety_flagged: bool = False
+    safety_message: str | None = None
 
 
 class SyncStartedResponse(BaseModel):

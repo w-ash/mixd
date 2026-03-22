@@ -1,1 +1,1 @@
-"""Narada application layer - use cases and orchestration."""
+"""Mixd application layer - use cases and orchestration."""

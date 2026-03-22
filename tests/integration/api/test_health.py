@@ -39,5 +39,5 @@ class TestErrorHandling:
 
         assert response.status_code == 200
         schema = response.json()
-        assert schema["info"]["title"] == "Narada"
+        assert schema["info"]["title"] == "Mixd"
         assert "paths" in schema

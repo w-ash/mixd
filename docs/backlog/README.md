@@ -1,7 +1,6 @@
-# Project Narada — Planning
+# Project Mixd — Planning
 
-**Current Version**: 0.5.6
-**Current Initiative**: v0.5.7 Security Hardening — not started
+**Current Version**: 0.5.9
 **Next**: v0.6.x Multi-User Data Isolation
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -38,8 +37,9 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.4** | OAuth + integrations UX + WCAG AA + light/dark mode + settings persistence | ✅ Completed | [details](v0.5.x.md#v054-oauth--credentials) |
 | **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](v0.5.x.md#v055-parallel-execution--performance) |
 | **v0.5.6** | Auth gate, automated deploys & startup DX | ✅ Completed | [details](v0.5.x.md#v056-auth-gate-automated-deploys--startup-dx) |
-| **v0.5.7** | Security hardening | 🔜 Not Started | [details](v0.5.x.md#v057-security-hardening) |
-| **v0.5.8** | Playlist sync safety guards | 🔜 Not Started | [details](v0.5.x.md#v058-playlist-sync-safety-guards) |
+| **v0.5.7** | Security hardening | ✅ Completed | [details](v0.5.x.md#v057-security-hardening) |
+| **v0.5.8** | Playlist sync safety guards | ✅ Completed | [details](v0.5.x.md#v058-playlist-sync-safety-guards) |
+| **v0.5.9** | Project rename: narada → mixd | ✅ Completed | [details](v0.5.x.md#v059-project-rename--narada--mixd) |
 | **v0.6.0** | Multi-user: schema + user identity | 🔜 Not Started | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
 | **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
 | **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
@@ -80,7 +80,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.6.x | Multi-user data isolation | Per-user data isolation on shared instance | Security hardening for self-hosted | Account creation on hosted instance |
 | v0.7.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
-| v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use narada |
+| v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
 | v1.0.x | Data quality + connectors | Fixes mappings, finds gaps, adds Rekordbox | Apple Music broadens self-host appeal | More services = less lock-in friction |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |

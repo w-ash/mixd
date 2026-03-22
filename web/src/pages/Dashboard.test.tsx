@@ -144,7 +144,7 @@ describe("Dashboard", () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("Welcome to Narada")).toBeInTheDocument();
+      expect(screen.getByText("Welcome to Mixd")).toBeInTheDocument();
     });
 
     expect(screen.getByText("Connect services")).toBeInTheDocument();

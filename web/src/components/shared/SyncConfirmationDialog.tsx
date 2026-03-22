@@ -141,6 +141,7 @@ export function SyncConfirmationDialog({
 
   const label = getConnectorLabel(connectorName);
   const hasComparisonData = preview?.has_comparison_data !== false;
+  const isSafetyFlagged = preview?.safety_flagged === true;
   const hasChanges =
     preview &&
     hasComparisonData &&
@@ -170,6 +171,7 @@ export function SyncConfirmationDialog({
       title="Sync Preview"
       description={`Review what will change before syncing ${playlistName}.`}
       confirmLabel={confirmLabel}
+      destructive={isSafetyFlagged}
       isPending={isPending}
       disabled={
         previewLoading || (hasComparisonData && !hasChanges && !previewError)
@@ -220,7 +222,26 @@ export function SyncConfirmationDialog({
 
       {preview &&
         (hasComparisonData ? (
-          <PreviewContent preview={preview} />
+          <>
+            <PreviewContent preview={preview} />
+            {isSafetyFlagged && (
+              <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <div>
+                  <p className="font-medium">Destructive sync detected</p>
+                  <p className="mt-1 text-red-400/80">
+                    {preview.safety_message}
+                  </p>
+                  <p className="mt-1 text-red-400/80">
+                    Direction:{" "}
+                    {effectiveDirection === "push"
+                      ? `Local \u2192 ${label}`
+                      : `${label} \u2192 Local`}
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <FirstSyncContent
             connectorName={connectorName}

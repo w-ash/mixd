@@ -103,7 +103,7 @@ class LastFMConnector(BaseAPIConnector):
         return {
             track_id: {
                 f.name: v
-                for f in attrs.fields(type(info))
+                for f in attrs.fields(info)
                 if (v := getattr(info, f.name)) is not None
             }
             for track_id, info in typed_results.items()

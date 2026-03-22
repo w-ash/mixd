@@ -145,7 +145,7 @@ async def find_duplicate_candidates() -> None:
             winner_id = min(track1.track_id, track2.track_id)
             loser_id = max(track1.track_id, track2.track_id)
             console.print(
-                f"  narada tracks merge --winner-id {winner_id} --loser-id {loser_id}"
+                f"  mixd tracks merge --winner-id {winner_id} --loser-id {loser_id}"
             )
 
         if len(duplicates_found) > 5:
@@ -153,7 +153,7 @@ async def find_duplicate_candidates() -> None:
 
         console.print()
         console.print(
-            "💡 [dim]Tip: Use 'narada tracks show <track-id>' to inspect tracks before merging[/dim]"
+            "💡 [dim]Tip: Use 'mixd tracks show <track-id>' to inspect tracks before merging[/dim]"
         )
 
 

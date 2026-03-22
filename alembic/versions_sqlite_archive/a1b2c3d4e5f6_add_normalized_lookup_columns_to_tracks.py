@@ -6,19 +6,20 @@ Create Date: 2026-03-12 12:00:00.000000
 
 """
 
+from collections.abc import Sequence
 import json
 import re
 import unicodedata
-from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "040d47093f7d"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "040d47093f7d"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +54,9 @@ def upgrade() -> None:
     """Add title_normalized + artist_normalized columns, backfill, create composite index."""
     # Step 1: Add nullable columns
     with op.batch_alter_table("tracks", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("title_normalized", sa.String(255), nullable=True))
+        batch_op.add_column(
+            sa.Column("title_normalized", sa.String(255), nullable=True)
+        )
         batch_op.add_column(
             sa.Column("artist_normalized", sa.String(255), nullable=True)
         )
@@ -69,12 +72,14 @@ def upgrade() -> None:
         if artists_raw:
             try:
                 artists_data = (
-                    json.loads(artists_raw) if isinstance(artists_raw, str) else artists_raw
+                    json.loads(artists_raw)
+                    if isinstance(artists_raw, str)
+                    else artists_raw
                 )
                 names = artists_data.get("names", [])
                 if names:
                     artist_norm = _normalize(names[0])
-            except (json.JSONDecodeError, AttributeError, TypeError):
+            except json.JSONDecodeError, AttributeError, TypeError:
                 pass
 
         conn.execute(

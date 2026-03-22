@@ -1,18 +1,18 @@
-# Narada Development Guide
+# Mixd Development Guide
 
 ## Getting Started
 
 ### Setup
 ```bash
-git clone <repository-url> && cd narada
+git clone <repository-url> && cd mixd
 uv sync
 cp .env.example .env  # Edit with your service credentials
 docker compose up -d   # Start local PostgreSQL (OrbStack or Docker Desktop)
 uv run alembic upgrade head
-uv run pytest && uv run narada --help  # Verify installation
+uv run pytest && uv run mixd --help  # Verify installation
 ```
 
-> **New to narada?** See the [Getting Started guide](guides/getting-started.md) for the full walkthrough — prerequisites, credentials, first workflow.
+> **New to mixd?** See the [Getting Started guide](guides/getting-started.md) for the full walkthrough — prerequisites, credentials, first workflow.
 
 ## Quick Reference
 
@@ -26,7 +26,7 @@ uv run pytest && uv run narada --help  # Verify installation
 Version is defined **once** in `pyproject.toml` and derived everywhere else:
 
 ```
-pyproject.toml  ──→  importlib.metadata.version("narada")
+pyproject.toml  ──→  importlib.metadata.version("mixd")
                          │
                          ├── src/__version__
                          ├── FastAPI app.version (app.py)

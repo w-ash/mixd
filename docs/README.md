@@ -1,10 +1,10 @@
-# Narada Documentation
+# Mixd Documentation
 
 Central index for all project documentation, organized by audience.
 
 ## User Documentation
 
-Guides and references for using narada — writing workflows, syncing likes, running CLI commands.
+Guides and references for using mixd — writing workflows, syncing likes, running CLI commands.
 
 | Document | Type | Description |
 |----------|------|-------------|
@@ -14,7 +14,7 @@ Guides and references for using narada — writing workflows, syncing likes, run
 
 ## Developer Documentation
 
-Architecture, setup, and specs for contributing to narada.
+Architecture, setup, and specs for contributing to mixd.
 
 | Document | Type | Description |
 |----------|------|-------------|
@@ -29,7 +29,7 @@ Architecture, setup, and specs for contributing to narada.
 
 ## Quick Navigation
 
-- **Using narada?** → [guides/](guides/) for workflows, likes sync, and CLI
+- **Using mixd?** → [guides/](guides/) for workflows, likes sync, and CLI
 - **New to the codebase?** → [development.md](development.md) then [architecture/](architecture/)
 - **Working on the web UI?** → [web-ui/README.md](web-ui/README.md)
 - **Planning work?** → [backlog/README.md](backlog/README.md)

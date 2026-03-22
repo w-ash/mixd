@@ -185,7 +185,7 @@ function MatchingHealthSkeleton() {
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
           key={i}
-          className="rounded-xl border border-border-muted bg-surface p-4 space-y-3"
+          className="rounded-xl border border-border-muted bg-surface p-5 space-y-3"
         >
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-20 w-full" />
@@ -325,7 +325,7 @@ function StepCard({ step, title, description, to, done, icon }: StepCardProps) {
     <Link
       to={to}
       className={cn(
-        "group flex items-start gap-4 rounded-xl border p-4 transition-all duration-150",
+        "group flex items-start gap-4 rounded-xl border p-5 transition-all duration-150",
         done
           ? "border-border-muted bg-surface opacity-60"
           : "border-border bg-surface-elevated shadow-elevated hover:shadow-glow hover:border-primary/20",
@@ -362,7 +362,7 @@ function GettingStarted({ stats }: { stats: DashboardStatsSchema }) {
     <div className="mx-auto max-w-lg space-y-4">
       <div className="text-center space-y-1">
         <h2 className="font-display text-lg font-medium text-text">
-          Welcome to Narada
+          Welcome to Mixd
         </h2>
         <p className="text-sm text-text-muted">
           Get started by connecting your music services and importing your data.
@@ -415,8 +415,8 @@ export function Dashboard() {
   const health = matchingData?.status === 200 ? matchingData.data : undefined;
 
   return (
-    <div className="space-y-10">
-      <title>Dashboard — Narada</title>
+    <div className="space-y-8">
+      <title>Dashboard — Mixd</title>
       <PageHeader
         title="Dashboard"
         description="Your music library at a glance"

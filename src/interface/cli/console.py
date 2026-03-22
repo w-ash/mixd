@@ -1,4 +1,4 @@
-"""Shared Rich console and Live Display management for Narada CLI.
+"""Shared Rich console and Live Display management for Mixd CLI.
 
 Provides app-level console management with contextual Live Display activation
 for progress tracking commands. Integrates with Typer's Rich markup support
@@ -26,14 +26,14 @@ GOLD_BRIGHT = "#D4AC35"
 GOLD_DIM = "#9E7B1F"
 
 
-# Block-letter NARADA art (raw, no markup — colorized at render time)
+# Block-letter MIXD art (raw, no markup — colorized at render time)
 _BANNER_ART = (
-    "███░  ██░  █████░  ██████░   █████░  ██████░   █████░ ",
-    "████░ ██░ ██░  ██░ ██░  ██░ ██░  ██░ ██░  ██░ ██░  ██░",
-    "██░██░██░ ███████░ ██████░  ███████░ ██░  ██░ ███████░",
-    "██░ ████░ ██░  ██░ ██░ ██░  ██░  ██░ ██░  ██░ ██░  ██░",
-    "██░  ███░ ██░  ██░ ██░  ██░ ██░  ██░ ██████░  ██░  ██░",
-    " ░░   ░░░  ░░   ░░  ░░   ░░  ░░   ░░  ░░░░░░   ░░   ░░",
+    "██░   ██░ ██░ ██░  ██░ ██████░  ",
+    "███░ ███░ ██░  ██░██░  ██░  ██░ ",
+    "████████░ ██░   ███░   ██░  ██░ ",
+    "██░█░███░ ██░  ██░██░  ██░  ██░ ",
+    "██░   ██░ ██░ ██░  ██░ ██████░  ",
+    " ░░    ░░  ░░  ░░   ░░  ░░░░░░  ",
 )
 
 
@@ -57,7 +57,7 @@ def _colorize_blocks(line: str) -> str:
 
 
 def print_banner(version: str) -> None:
-    """Print the block-letter NARADA banner with gold color tiers."""
+    """Print the block-letter MIXD banner with gold color tiers."""
     console = get_console()
     pad = " " * 13
     lines = [pad + _colorize_blocks(line) for line in _BANNER_ART]

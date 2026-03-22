@@ -67,7 +67,7 @@ function IntegrationsSkeleton() {
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 key={j}
-                className="rounded-xl border border-border p-4 space-y-2"
+                className="rounded-xl border border-border p-5 space-y-3"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -230,7 +230,7 @@ export function Integrations() {
 
   return (
     <div>
-      <title>Integrations — Narada</title>
+      <title>Integrations — Mixd</title>
       <PageHeader
         title="Integrations"
         description="Your music services. Connect streaming services and data sources to build your unified library."

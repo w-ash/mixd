@@ -3,11 +3,11 @@
 
 [changelog]
 header = """# Changelog\n
-All notable changes to Narada are documented here.\n
+All notable changes to Mixd are documented here.\n
 """
 body = """
 {%- macro remote_url() -%}
-  https://github.com/w-ash/narada
+  https://github.com/w-ash/mixd
 {%- endmacro -%}
 
 {% if version -%}

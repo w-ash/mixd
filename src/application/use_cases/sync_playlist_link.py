@@ -25,7 +25,9 @@ from src.application.use_cases.update_connector_playlist import (
 )
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
+from src.domain.playlist.diff_engine import calculate_playlist_diff
+from src.domain.playlist.sync_safety import check_sync_safety
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -41,6 +43,7 @@ class SyncPlaylistLinkCommand:
 
     link_id: int
     direction_override: SyncDirection | None = None
+    confirmed: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -75,8 +78,7 @@ class SyncPlaylistLinkUseCase:
             if link is None:
                 raise NotFoundError(f"Playlist link {command.link_id} not found")
 
-            assert link.id is not None  # guaranteed by database fetch
-            link_id: int = link.id
+            link_id: int = link.id  # type: ignore[assignment]  # guaranteed non-None by database fetch
             direction = command.direction_override or link.sync_direction
 
             # Mark as syncing
@@ -86,7 +88,7 @@ class SyncPlaylistLinkUseCase:
         # Run sync outside the initial transaction — push/pull create their own
         try:
             if direction == SyncDirection.PUSH:
-                result = await self._push_sync(link, uow)
+                result = await self._push_sync(link, uow, confirmed=command.confirmed)
             else:
                 result = await self._pull_sync(link, uow)
 
@@ -123,12 +125,42 @@ class SyncPlaylistLinkUseCase:
             raise
 
     async def _push_sync(
-        self, link: PlaylistLink, uow: UnitOfWorkProtocol
+        self,
+        link: PlaylistLink,
+        uow: UnitOfWorkProtocol,
+        *,
+        confirmed: bool = False,
     ) -> SyncPlaylistLinkResult:
-        """Push canonical playlist to external service."""
+        """Push canonical playlist to external service.
+
+        When ``confirmed`` is False, runs a safety check against the cached
+        external playlist. If the diff would remove a destructive number of
+        tracks, raises ``ConfirmationRequiredError`` instead of proceeding.
+        """
         async with uow:
             playlist_repo = uow.get_playlist_repository()
             playlist = await playlist_repo.get_playlist_by_id(link.playlist_id)
+
+            # Safety check against cached external playlist (no API call)
+            if not confirmed:
+                external = await playlist_repo.get_playlist_by_connector(
+                    link.connector_name,
+                    link.connector_playlist_identifier,
+                    raise_if_not_found=False,
+                )
+                if external is not None:
+                    diff = calculate_playlist_diff(external, playlist)
+                    removes = diff.operation_summary.get("remove", 0)
+                    safety = check_sync_safety(
+                        removals=removes, total_current=len(external.tracks)
+                    )
+                    if safety.flagged:
+                        raise ConfirmationRequiredError(
+                            safety.reason or "Destructive sync requires confirmation",
+                            removals=safety.removals,
+                            total=safety.total_current,
+                            remaining=safety.remaining_after_sync,
+                        )
 
         tracklist = playlist.to_tracklist()
 

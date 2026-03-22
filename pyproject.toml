@@ -1,6 +1,6 @@
 [project]
-name = "narada"
-version = "0.5.7"
+name = "mixd"
+version = "0.5.9"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv>=1.2.1,<2",
     "rich>=14.3.3,<15",
     "typer>=0.24.1,<0.25",
-    "attrs>=25.4.0,<26",
+    "attrs>=26.1.0,<27",
     "tenacity>=9.1.4,<10",
     "prefect>=3.6.19,<4",
     "griffe>=1.5,<2",  # Prefect depends on griffe v1 API; v2.0 breaks imports
@@ -29,15 +29,15 @@ dependencies = [
 ]
 
 [project.scripts]
-narada = "src.interface.cli.app:main"
-narada-api = "src.interface.api.app:run_server"
+mixd = "src.interface.cli.app:main"
+mixd-api = "src.interface.api.app:run_server"
 export-openapi = "scripts.export_openapi:main"
 
 [project.urls]
-Homepage = "https://github.com/w-ash/narada"
-Documentation = "https://github.com/w-ash/narada/docs"
-Repository = "https://github.com/w-ash/narada"
-"Bug Tracker" = "https://github.com/w-ash/narada/issues"
+Homepage = "https://github.com/w-ash/mixd"
+Documentation = "https://github.com/w-ash/mixd/docs"
+Repository = "https://github.com/w-ash/mixd"
+"Bug Tracker" = "https://github.com/w-ash/mixd/issues"
 
 [dependency-groups]
 dev = [
@@ -130,7 +130,7 @@ unfixable = []
 
 # Per-file rule exceptions
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]   # Don't complain about unused imports in __init__ files
+"__init__.py" = ["F401", "RUF067"]   # Allow unused imports and non-reexport code (version reading)
 "src/interface/api/**/*.py" = [
     "RUF029",   # FastAPI requires async handlers even without await (framework awaits them)
 ]
@@ -176,7 +176,7 @@ unfixable = []
 
 # Import sorting configuration
 [tool.ruff.lint.isort]
-known-first-party = ["narada", "src"]
+known-first-party = ["mixd", "src"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 combine-as-imports = true
 split-on-trailing-comma = true
@@ -233,7 +233,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["narada", "src"]
+source = ["mixd", "src"]
 omit = ["tests/*"]
 
 # Type checking configuration - BasedPyright (modern Python-focused type checker)
@@ -308,5 +308,5 @@ ignore_names = [
 ]
 
 [tool.typer.app]
-name = "narada"
+name = "mixd"
 help = "Music metadata integration and playlist management platform"

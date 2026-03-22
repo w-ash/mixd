@@ -3,7 +3,7 @@ paths:
   - "src/**/*.py"
   - "tests/**/*.py"
 ---
-# Python 3.14+ Conventions (Narada-Specific)
+# Python 3.14+ Conventions (Mixd-Specific)
 
 - **Timestamps**: `datetime.now(UTC)` NOT `datetime.now()` or `datetime.utcnow()`
 - **UUID**: `uuid7()` for database IDs, `uuid4()` for random IDs only

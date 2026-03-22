@@ -19,7 +19,7 @@ from prefect import flow, tags, task
 from prefect.cache_policies import NONE
 from prefect.logging import get_run_logger
 
-# Use Narada's standard logger for module-level logging
+# Use Mixd's standard logger for module-level logging
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config.constants import NodeType, WorkflowConstants
 from src.config.logging import get_logger
@@ -370,9 +370,7 @@ def build_flow(
                     # Fall through to success path (store result)
                 else:
                     node_records.append(
-                        failed_event.to_record(
-                            status="failed", error_message=str(exc)
-                        )
+                        failed_event.to_record(status="failed", error_message=str(exc))
                     )
                     return (task_id, exc, True)
             else:
@@ -416,15 +414,11 @@ def build_flow(
                     output_track_count=output_track_count,
                 )
                 await node_observer.on_node_completed(completed_event, result)
-                node_records.append(
-                    completed_event.to_record(status="completed")
-                )
+                node_records.append(completed_event.to_record(status="completed"))
 
             # Store result key alias so downstream nodes can reference it
             if task_def.result_key:
-                flow_logger.debug(
-                    f"Storing result under key: {task_def.result_key}"
-                )
+                flow_logger.debug(f"Storing result under key: {task_def.result_key}")
                 task_results[task_def.result_key] = result
 
             return (task_id, result, False)

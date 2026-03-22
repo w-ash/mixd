@@ -53,7 +53,7 @@ All of it — because the capabilities form a single story: **reclaim, unify, un
 
 | Field | |
 |---|---|
-| **Context** | Music lover who uses Spotify daily, maybe Apple Music. Has thousands of liked tracks and years of listening history locked away in services that would rather feed them an algorithm than give them control. Knows their taste is more interesting than Discover Weekly gives them credit for. Proficient with web apps — comfortable navigating a dashboard, connecting accounts, editing settings — but isn't going to pull a repo from GitHub, run a CLI, or deploy anything. Needs narada hosted or delivered as an app. |
+| **Context** | Music lover who uses Spotify daily, maybe Apple Music. Has thousands of liked tracks and years of listening history locked away in services that would rather feed them an algorithm than give them control. Knows their taste is more interesting than Discover Weekly gives them credit for. Proficient with web apps — comfortable navigating a dashboard, connecting accounts, editing settings — but isn't going to pull a repo from GitHub, run a CLI, or deploy anything. Needs mixd hosted or delivered as an app. |
 | **Goal** | "I just want an easier way to find music I'll actually like — based on what I already listen to, not what Spotify's algorithm thinks I should hear. And I want my playlists to be *mine*, not something a platform generated for me." |
 | **Key behavior** | Signs up via invite or open registration. Connects Spotify via OAuth. Tells the LLM assistant what they want in plain English: "make me a playlist of tracks I've loved but haven't played in months" or "mix my most-played songs from this year with stuff I liked last summer." Reviews the generated playlist, tweaks it ("fewer remixes", "nothing before 2020"), pushes to Spotify. Comes back weekly when they see the results are actually good. |
 | **Pain point** | Has always wanted more control over their music but the tools that offer it require technical knowledge — pipeline composition, config keys, or at minimum learning a new interface language. Streaming platforms exploit this gap: "you want better playlists? Here's our algorithm. Take it or leave it." The desire for control exists, the technical bar has always been too high, and the LLM agent finally changes that equation. |
@@ -80,8 +80,8 @@ This persona makes v0.9.0 (LLM-assisted creation) the most important adoption fe
 | **Context** | Uses one streaming service. Listens to Discover Weekly, Release Radar, or algorithmic playlists. Does not manage playlists manually. |
 | **Goal** | "Just play me something good." |
 | **Key behavior** | Opens Spotify, hits play on a recommended playlist, never thinks about it again. |
-| **Pain point** | None relevant to narada — satisfied with algorithmic curation. |
-| **Not this person** | This is the litmus test: "Would the Passive Listener use this feature?" If yes, the feature is probably too generic or algorithmic. Narada builds tools for deliberate curation, not passive consumption. |
+| **Pain point** | None relevant to mixd — satisfied with algorithmic curation. |
+| **Not this person** | This is the litmus test: "Would the Passive Listener use this feature?" If yes, the feature is probably too generic or algorithmic. Mixd builds tools for deliberate curation, not passive consumption. |
 
 ---
 
@@ -92,7 +92,7 @@ This persona makes v0.9.0 (LLM-assisted creation) the most important adoption fe
 | **Context** | Thinks in terms of engagement metrics, data monetization, ad targeting, or training AI on user behavior. Wants to extract value from the listening data users have entrusted to the platform. |
 | **Goal** | "We could sell anonymized listening data to labels" or "Let's track engagement time to optimize the feed algorithm." |
 | **Key behavior** | Proposes features where the primary beneficiary is the platform, not the user. Metrics-driven decisions that optimize for retention/engagement over user satisfaction. Data collection beyond what serves the user's stated goals. |
-| **Pain point** | N/A — this person's goals are antithetical to Narada's mission. |
+| **Pain point** | N/A — this person's goals are antithetical to Mixd's mission. |
 | **Not this person** | This is the ethics test: "Does this feature serve the user who created the data, or does it serve someone else?" Social features (v1.1.x) serve the user — they chose to share. Scraping, data brokering, attention optimization, and AI training on user data serve the exploiter. The distinction: user-initiated sharing vs platform-initiated extraction. |
 
 ---
@@ -127,4 +127,4 @@ Findings from auditing the codebase and backlog against the personas above. Last
 
 11. **Unscheduled cleanup** — "Multi-Language Support" and "Advanced Analytics Dashboard" moved to explicit "Not Building" section. Neither serves a defined persona.
 
-12. **v1.1.x: Social & Sharing** (March 2026) — Letterboxd-inspired social layer. Privacy controls, one-way follows, listening-centric activity feed, shareable playlist links with OG meta tags. Public playlists as the viral discovery mechanism. Social is additive (personal utility first), but public content is the path from hobby project to broader adoption. Serves the Casual Enthusiast growth path: shareable playlists make Narada discoverable to non-technical music lovers.
+12. **v1.1.x: Social & Sharing** (March 2026) — Letterboxd-inspired social layer. Privacy controls, one-way follows, listening-centric activity feed, shareable playlist links with OG meta tags. Public playlists as the viral discovery mechanism. Social is additive (personal utility first), but public content is the path from hobby project to broader adoption. Serves the Casual Enthusiast growth path: shareable playlists make Mixd discoverable to non-technical music lovers.

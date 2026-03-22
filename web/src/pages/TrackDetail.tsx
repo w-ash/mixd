@@ -360,7 +360,7 @@ export function TrackDetail() {
 
   return (
     <div>
-      <title>{track.title} — Narada</title>
+      <title>{track.title} — Mixd</title>
       <BackLink to="/library">Library</BackLink>
 
       <PageHeader
@@ -370,7 +370,7 @@ export function TrackDetail() {
       />
 
       {/* Core metadata */}
-      <dl className="mb-6 flex flex-wrap gap-x-8 gap-y-3">
+      <dl className="mb-6 flex flex-wrap gap-x-6 gap-y-2">
         {track.album && <Field label="Album">{track.album}</Field>}
         <Field label="Duration">{formatDuration(track.duration_ms)}</Field>
         {track.release_date && (

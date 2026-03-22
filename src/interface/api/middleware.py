@@ -11,7 +11,11 @@ from sqlalchemy.exc import DatabaseError
 from src.application.workflows.prefect import WorkflowAlreadyRunningError
 from src.application.workflows.validation import ConnectorNotAvailableError
 from src.config import get_logger
-from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
+from src.domain.exceptions import (
+    ConfirmationRequiredError,
+    NotFoundError,
+    TemplateReadOnlyError,
+)
 
 logger = get_logger(__name__)
 
@@ -41,6 +45,25 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": "TEMPLATE_READONLY",
                     "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(ConfirmationRequiredError)
+    async def confirmation_required_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: ConfirmationRequiredError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "CONFIRMATION_REQUIRED",
+                    "message": str(exc),
+                    "details": {
+                        "removals": exc.removals,
+                        "total": exc.total,
+                        "remaining": exc.remaining,
+                    },
                 }
             },
         )

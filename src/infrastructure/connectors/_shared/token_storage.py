@@ -70,7 +70,7 @@ class FileTokenStorage:
     .spotify_cache format for backward compatibility with spotipy.
     """
 
-    cache_dir: Path = field(factory=lambda: Path())
+    cache_dir: Path = field(factory=Path)
 
     def _path_for(self, service: str) -> Path:
         if service == "spotify":
@@ -109,7 +109,7 @@ class FileTokenStorage:
 def get_token_storage() -> TokenStorage:
     """Return the appropriate TokenStorage implementation.
 
-    Always returns DatabaseTokenStorage since narada is PostgreSQL-only (v0.5.1+).
+    Always returns DatabaseTokenStorage since mixd is PostgreSQL-only (v0.5.1+).
     FileTokenStorage is available for explicit use in CLI or testing.
     """
     from src.infrastructure.persistence.repositories.token_storage import (

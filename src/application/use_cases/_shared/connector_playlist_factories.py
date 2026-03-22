@@ -15,7 +15,7 @@ def create_connector_playlist_item_from_track(
     position: int,
     connector_name: str,
     added_at: datetime | None = None,
-    added_by_id: str = "narada",
+    added_by_id: str = "mixd",
 ) -> ConnectorPlaylistItem | None:
     """Create ConnectorPlaylistItem from track if it has connector identifier.
 
@@ -54,7 +54,7 @@ def create_connector_playlist_items_from_tracks(
     tracks: list[Track],
     connector_name: str,
     added_at: datetime | None = None,
-    added_by_id: str = "narada",
+    added_by_id: str = "mixd",
 ) -> list[ConnectorPlaylistItem]:
     """Batch create ConnectorPlaylistItems from track list.
 

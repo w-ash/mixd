@@ -35,7 +35,7 @@ class TestCreateConnectorPlaylistItemFromTrack:
         assert item.connector_track_identifier == "sp_123"
         assert item.position == 0
         assert item.added_at == fixed_time.isoformat()
-        assert item.added_by_id == "narada"
+        assert item.added_by_id == "mixd"
         assert item.extras["track_uri"] == "spotify:track:sp_123"
         assert item.extras["local"] is False
 

@@ -6,7 +6,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Narada — Warm Editorial Music Aesthetic
+ * Mixd — Warm Editorial Music Aesthetic
  *
  * Dim-lit record shop meets design magazine.
  * Album art glows against warm dark surfaces.
@@ -45,8 +45,6 @@
 
   /* Spacing */
   --spacing-page: 2rem;
-  --spacing-section: 1.5rem;
-
   /* Animations */
   --animate-shimmer: shimmer 1.5s ease-in-out infinite;
   --animate-fade-up: fade-up 300ms ease-out both;
@@ -60,31 +58,31 @@
 /* ── Mode-dependent tokens (swap via CSS custom properties) ── */
 @theme inline {
   /* Surface hierarchy */
-  --color-surface: var(--narada-surface);
-  --color-surface-elevated: var(--narada-surface-elevated);
-  --color-surface-sunken: var(--narada-surface-sunken);
+  --color-surface: var(--mixd-surface);
+  --color-surface-elevated: var(--mixd-surface-elevated);
+  --color-surface-sunken: var(--mixd-surface-sunken);
 
   /* Text hierarchy */
-  --color-text: var(--narada-text);
-  --color-text-muted: var(--narada-text-muted);
-  --color-text-faint: var(--narada-text-faint);
+  --color-text: var(--mixd-text);
+  --color-text-muted: var(--mixd-text-muted);
+  --color-text-faint: var(--mixd-text-faint);
 
   /* Border extensions */
-  --color-border-muted: var(--narada-border-muted);
+  --color-border-muted: var(--mixd-border-muted);
 
   /* Primary extensions */
-  --color-primary-hover: var(--narada-primary-hover);
-  --color-primary-muted: var(--narada-primary-muted);
+  --color-primary-hover: var(--mixd-primary-hover);
+  --color-primary-muted: var(--mixd-primary-muted);
 
   /* Secondary extensions */
-  --color-secondary-hover: var(--narada-secondary-hover);
+  --color-secondary-hover: var(--mixd-secondary-hover);
 
   /* Destructive extensions */
-  --color-destructive-hover: var(--narada-destructive-hover);
+  --color-destructive-hover: var(--mixd-destructive-hover);
 
   /* Elevation */
-  --shadow-elevated: var(--narada-shadow-elevated);
-  --shadow-glow: var(--narada-shadow-glow);
+  --shadow-elevated: var(--mixd-shadow-elevated);
+  --shadow-glow: var(--mixd-shadow-glow);
 
   /* shadcn/ui token bridge */
   --radius-sm: calc(var(--radius) - 4px);
@@ -131,30 +129,30 @@
 :root {
   --radius: 0.5rem;
 
-  /* Narada surface tokens — warm off-whites */
-  --narada-surface: oklch(0.97 0.005 60);
-  --narada-surface-elevated: oklch(0.99 0.003 60);
-  --narada-surface-sunken: oklch(0.93 0.008 60);
+  /* Mixd surface tokens — warm off-whites */
+  --mixd-surface: oklch(0.97 0.005 60);
+  --mixd-surface-elevated: oklch(0.99 0.003 60);
+  --mixd-surface-sunken: oklch(0.93 0.008 60);
 
-  /* Narada text tokens — warm near-blacks */
-  --narada-text: oklch(0.15 0.01 60);
-  --narada-text-muted: oklch(0.4 0.02 60);
-  --narada-text-faint: oklch(0.45 0.01 60);
+  /* Mixd text tokens — warm near-blacks */
+  --mixd-text: oklch(0.15 0.01 60);
+  --mixd-text-muted: oklch(0.4 0.02 60);
+  --mixd-text-faint: oklch(0.45 0.01 60);
 
-  /* Narada border */
-  --narada-border-muted: oklch(0.88 0.01 60);
+  /* Mixd border */
+  --mixd-border-muted: oklch(0.88 0.01 60);
 
-  /* Narada primary extensions — deeper amber for light backgrounds */
-  --narada-primary-hover: oklch(0.45 0.16 85);
-  --narada-primary-muted: oklch(0.55 0.1 85);
+  /* Mixd primary extensions — deeper amber for light backgrounds */
+  --mixd-primary-hover: oklch(0.45 0.16 85);
+  --mixd-primary-muted: oklch(0.55 0.1 85);
 
-  /* Narada secondary/destructive extensions */
-  --narada-secondary-hover: oklch(0.6 0.12 25);
-  --narada-destructive-hover: oklch(0.5 0.2 25);
+  /* Mixd secondary/destructive extensions */
+  --mixd-secondary-hover: oklch(0.6 0.12 25);
+  --mixd-destructive-hover: oklch(0.5 0.2 25);
 
-  /* Narada elevation — warm, soft */
-  --narada-shadow-elevated: 0 2px 12px oklch(0.5 0.01 60 / 0.08);
-  --narada-shadow-glow: 0 0 20px oklch(0.55 0.15 85 / 0.08);
+  /* Mixd elevation — warm, soft */
+  --mixd-shadow-elevated: 0 2px 12px oklch(0.5 0.01 60 / 0.08);
+  --mixd-shadow-glow: 0 0 20px oklch(0.55 0.15 85 / 0.08);
 
   /* shadcn/ui — light palette */
   --background: oklch(0.97 0.005 60);
@@ -200,30 +198,30 @@
 
 /* ── Dark palette — dim-lit vinyl lounge ─────────── */
 .dark {
-  /* Narada surface tokens — warm near-blacks */
-  --narada-surface: oklch(0.13 0.01 60);
-  --narada-surface-elevated: oklch(0.17 0.01 60);
-  --narada-surface-sunken: oklch(0.1 0.01 60);
+  /* Mixd surface tokens — warm near-blacks */
+  --mixd-surface: oklch(0.13 0.01 60);
+  --mixd-surface-elevated: oklch(0.17 0.01 60);
+  --mixd-surface-sunken: oklch(0.1 0.01 60);
 
-  /* Narada text tokens */
-  --narada-text: oklch(0.93 0.01 90);
-  --narada-text-muted: oklch(0.6 0.02 60);
-  --narada-text-faint: oklch(0.6 0.01 60);
+  /* Mixd text tokens */
+  --mixd-text: oklch(0.93 0.01 90);
+  --mixd-text-muted: oklch(0.6 0.02 60);
+  --mixd-text-faint: oklch(0.6 0.01 60);
 
-  /* Narada border */
-  --narada-border-muted: oklch(0.2 0.01 60);
+  /* Mixd border */
+  --mixd-border-muted: oklch(0.2 0.01 60);
 
-  /* Narada primary extensions */
-  --narada-primary-hover: oklch(0.8 0.15 85);
-  --narada-primary-muted: oklch(0.55 0.1 85);
+  /* Mixd primary extensions */
+  --mixd-primary-hover: oklch(0.8 0.15 85);
+  --mixd-primary-muted: oklch(0.55 0.1 85);
 
-  /* Narada secondary/destructive extensions */
-  --narada-secondary-hover: oklch(0.75 0.12 25);
-  --narada-destructive-hover: oklch(0.65 0.2 25);
+  /* Mixd secondary/destructive extensions */
+  --mixd-secondary-hover: oklch(0.75 0.12 25);
+  --mixd-destructive-hover: oklch(0.65 0.2 25);
 
-  /* Narada elevation — ambient glow */
-  --narada-shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
-  --narada-shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
+  /* Mixd elevation — ambient glow */
+  --mixd-shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
+  --mixd-shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
 
   /* shadcn/ui — dark palette */
   --background: oklch(0.13 0.01 60);

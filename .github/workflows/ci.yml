@@ -20,9 +20,9 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: narada_test
-          POSTGRES_USER: narada
-          POSTGRES_PASSWORD: narada
+          POSTGRES_DB: mixd_test
+          POSTGRES_USER: mixd
+          POSTGRES_PASSWORD: mixd
         ports: ["5432:5432"]
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
@@ -48,7 +48,7 @@ jobs:
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
         env:
-          DATABASE_URL: postgresql+psycopg://narada:narada@localhost:5432/narada_test
+          DATABASE_URL: postgresql+psycopg://mixd:mixd@localhost:5432/mixd_test
 
   web:
     name: Web

@@ -220,7 +220,7 @@ function OutputTracksTable({
   if (tracks.length === 0) return null;
 
   return (
-    <section className="mt-10 space-y-3">
+    <section className="mt-8 space-y-3">
       <SectionHeader title="Output Tracks" />
       <Table>
         <TableHeader>
@@ -330,7 +330,7 @@ export function WorkflowRunDetail() {
 
   return (
     <div>
-      <title>{`Run #${run.id} — Narada`}</title>
+      <title>{`Run #${run.id} — Mixd`}</title>
       <BackLink to={`/workflows/${workflowId}`}>{workflowName}</BackLink>
 
       <PageHeader
@@ -373,7 +373,7 @@ export function WorkflowRunDetail() {
       )}
 
       {/* Run metadata */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-text-muted">
+      <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-text-muted">
         {run.started_at && (
           <span>
             Started{" "}
@@ -423,7 +423,7 @@ export function WorkflowRunDetail() {
 
       {/* Per-node execution details (expandable) */}
       {sortedNodes.length > 0 && (
-        <section className="mt-10 space-y-3">
+        <section className="mt-8 space-y-3">
           <SectionHeader title="Node Execution Details" />
           <div className="space-y-2">
             {sortedNodes.map((node) => (

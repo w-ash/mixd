@@ -1,10 +1,10 @@
 """Export user-created workflows from an old SQLite database to JSON files.
 
 One-time migration script for v0.5.3 containerization. Produces JSON files
-compatible with `narada workflow create --file <path>`.
+compatible with `mixd workflow create --file <path>`.
 
 Usage:
-    python scripts/export_sqlite_workflows.py [path/to/narada.db] [output_dir]
+    python scripts/export_sqlite_workflows.py [path/to/mixd.db] [output_dir]
 
 Templates are excluded — they auto-seed on startup.
 """
@@ -16,7 +16,7 @@ import sys
 
 
 def main() -> None:
-    db_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/db/narada.db")
+    db_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/db/mixd.db")
     output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path()
 
     if not db_path.exists():
@@ -43,7 +43,7 @@ def main() -> None:
         print(f"Exported: {out_file}")
 
     print(f"\nDone — {len(rows)} workflow(s) exported.")
-    print("Import on new instance: narada workflow create --file <path>")
+    print("Import on new instance: mixd workflow create --file <path>")
 
 
 if __name__ == "__main__":

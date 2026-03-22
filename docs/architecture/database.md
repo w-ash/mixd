@@ -1,8 +1,8 @@
-# Narada Database Design
+# Mixd Database Design
 
 ## Overview
 
-Narada's database design follows a focused schema pattern that prioritizes essential storage needs while maintaining flexibility for future expansion. Each entity maps to a core domain concept while avoiding unnecessary normalization that would increase query complexity.
+Mixd's database design follows a focused schema pattern that prioritizes essential storage needs while maintaining flexibility for future expansion. Each entity maps to a core domain concept while avoiding unnecessary normalization that would increase query complexity.
 
 The database uses PostgreSQL with SQLAlchemy 2.0 async patterns via psycopg3 (psycopg[binary]). Local development uses Docker Compose (`docker compose up -d`); deployment targets Neon's managed PostgreSQL.
 
@@ -227,7 +227,7 @@ The database uses a rich relationship model with SQLAlchemy's relationship featu
 
 ### Connection URL Format
 ```
-postgresql+psycopg://narada:narada@localhost:5432/narada
+postgresql+psycopg://mixd:mixd@localhost:5432/mixd
 ```
 
 ### Session Factory Configuration

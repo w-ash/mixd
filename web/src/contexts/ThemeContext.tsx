@@ -22,7 +22,7 @@ interface ThemeContextValue {
   setMode: (mode: ThemeMode) => void;
 }
 
-const STORAGE_KEY = "narada-theme";
+const STORAGE_KEY = "mixd-theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);

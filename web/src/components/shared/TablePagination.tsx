@@ -30,7 +30,7 @@ export function TablePagination({
   const end = Math.min(page * limit, total);
 
   return (
-    <div className="mt-4 flex items-center justify-between">
+    <div className="mt-6 flex items-center justify-between">
       <p className="text-sm tabular-nums text-text-muted">
         {start}&ndash;{end} of {total}
       </p>

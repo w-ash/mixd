@@ -34,7 +34,7 @@ def _build_user_agent() -> str:
     """Build User-Agent string. Cached — version never changes at runtime."""
     from src import __version__
 
-    return f"Narada/{__version__}"
+    return f"Mixd/{__version__}"
 
 
 # -------------------------------------------------------------------------

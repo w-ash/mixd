@@ -71,14 +71,10 @@ export function App() {
             <>
               <Route
                 path="login"
-                element={
-                  <Suspense fallback={<PageSkeleton />}>
-                    <Login />
-                  </Suspense>
-                }
+                element={<Navigate to="/auth/sign-in" replace />}
               />
               <Route
-                path="auth/*"
+                path="auth/:pathname"
                 element={
                   <Suspense fallback={<PageSkeleton />}>
                     <Login />

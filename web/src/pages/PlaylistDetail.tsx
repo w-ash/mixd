@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeftRight,
+  ArrowDownLeft,
   ArrowRight,
+  ArrowUpRight,
   HelpCircle,
   Link2,
   Loader2,
@@ -430,13 +431,20 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: number }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="push">
-                    Push — local is truth, sync to service
+                    Push — Mixd controls, syncs to{" "}
+                    {getConnectorLabel(connector)}
                   </SelectItem>
                   <SelectItem value="pull">
-                    Pull — service is truth, sync to local
+                    Pull — {getConnectorLabel(connector)} controls, syncs to
+                    Mixd
                   </SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-text-faint font-body">
+                {direction === "push"
+                  ? "Your local playlist is the source of truth. Changes here push to the external service."
+                  : "The external playlist is the source of truth. Changes there pull into your library."}
+              </p>
             </div>
           </div>
 
@@ -615,8 +623,10 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
                       syncMutation.isPending ||
                       isSyncing ? (
                         <Loader2 className="mr-1 size-3 animate-spin" />
+                      ) : link.sync_direction === "push" ? (
+                        <ArrowUpRight className="mr-1 size-3" />
                       ) : (
-                        <ArrowLeftRight className="mr-1 size-3" />
+                        <ArrowDownLeft className="mr-1 size-3" />
                       )}
                       {syncButtonLabel}
                     </Button>
@@ -698,7 +708,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
             syncMutation.mutate({
               playlistId,
               linkId: syncDialogLink.id,
-              data: { direction_override: directionOverride },
+              data: { direction_override: directionOverride, confirmed: true },
             });
             setSyncDialogLink(null);
           }}
@@ -752,7 +762,7 @@ export function PlaylistDetail() {
 
   return (
     <div>
-      <title>{playlist.name} — Narada</title>
+      <title>{playlist.name} — Mixd</title>
       <BackLink to="/playlists">Playlists</BackLink>
       <PageHeader
         title={playlist.name}

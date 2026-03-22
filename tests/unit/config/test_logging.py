@@ -31,7 +31,7 @@ class TestCurrentLoggingBehavior:
         assert hasattr(test_logger, "error")
         assert hasattr(test_logger, "bind")
 
-        # Should have narada service context
+        # Should have mixd service context
         # Note: Testing exact binding is complex with Loguru, so we test functionality
         test_logger.info("Test message")
 
@@ -178,7 +178,7 @@ class TestErrorHandling:
         # Should have sensible defaults
         assert minimal_config.console_level == "INFO"
         assert minimal_config.file_level == "DEBUG"
-        assert minimal_config.log_file == Path("narada.log")
+        assert minimal_config.log_file == Path("mixd.log")
         assert minimal_config.real_time_debug is True
 
 

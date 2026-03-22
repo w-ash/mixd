@@ -571,7 +571,7 @@ def _show_interactive_workflow_browser() -> None:
     console.print(
         brand_panel(
             "🎵 [bold]Workflow Browser[/bold]\n[dim]Discover and execute playlist transformation workflows[/dim]",
-            "Narada Workflows",
+            "Mixd Workflows",
             emoji="⚡",
         )
     )

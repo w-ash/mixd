@@ -1,4 +1,4 @@
-"""Database layer for Narada music integration platform.
+"""Database layer for Mixd music integration platform.
 
 This package provides database models and utilities for persistence, including:
 - Core entity models (Track, Playlist, etc.)

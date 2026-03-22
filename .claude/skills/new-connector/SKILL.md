@@ -1,6 +1,6 @@
 ---
 name: new-connector
-description: Step-by-step guide for adding a new external service connector to narada — Pydantic models, API client, conversions, matching provider
+description: Step-by-step guide for adding a new external service connector to mixd — Pydantic models, API client, conversions, matching provider
 disable-model-invocation: true
 ---
 

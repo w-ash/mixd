@@ -70,7 +70,7 @@ async def _send_401(send: Send) -> None:
         "status": 401,
         "headers": [
             (b"content-type", b"application/json"),
-            (b"www-authenticate", b'Bearer realm="narada"'),
+            (b"www-authenticate", b'Bearer realm="mixd"'),
             (b"content-length", str(len(body)).encode()),
         ],
     })

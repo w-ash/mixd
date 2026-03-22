@@ -1,1 +1,1 @@
-"""Narada infrastructure layer - external implementations."""
+"""Mixd infrastructure layer - external implementations."""

@@ -1,6 +1,6 @@
 # Workflow System
 
-How Narada's database-first workflow architecture ensures data consistency across cross-service operations. This is the most important constraint for anyone writing workflow nodes.
+How Mixd's database-first workflow architecture ensures data consistency across cross-service operations. This is the most important constraint for anyone writing workflow nodes.
 
 ## Critical Design Principle: Database-Centric Operations
 
@@ -146,4 +146,4 @@ To ensure architectural compliance:
 3. **Enrichment and metrics operations require database tracks**
 4. **Cross-service operations work through database mappings**
 
-This database-first approach is fundamental to Narada's ability to provide unified operations across music services while maintaining data consistency and enabling sophisticated cross-service workflows.
+This database-first approach is fundamental to Mixd's ability to provide unified operations across music services while maintaining data consistency and enabling sophisticated cross-service workflows.

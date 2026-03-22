@@ -174,6 +174,49 @@ class TestPreviewNeverSynced:
         assert result.playlist_name == "My Playlist"
 
 
+class TestPreviewSafetyCheck:
+    """Safety check integration in preview results."""
+
+    @pytest.mark.asyncio
+    async def test_large_removal_flags_safety(self):
+        """Push with canonical=5, external=150 → 145 removals flags safety."""
+        uow = _make_uow_with_playlists(
+            canonical_track_count=5, external_track_count=150
+        )
+
+        result = await PreviewPlaylistSyncUseCase().execute(
+            PreviewPlaylistSyncCommand(link_id=1), uow
+        )
+
+        assert result.safety_flagged is True
+        assert result.safety_message is not None
+        assert "145" in result.safety_message
+
+    @pytest.mark.asyncio
+    async def test_small_removal_no_safety_flag(self):
+        """Push with canonical=7, external=10 → 3 removals not flagged."""
+        uow = _make_uow_with_playlists(canonical_track_count=7, external_track_count=10)
+
+        result = await PreviewPlaylistSyncUseCase().execute(
+            PreviewPlaylistSyncCommand(link_id=1), uow
+        )
+
+        assert result.safety_flagged is False
+        assert result.safety_message is None
+
+    @pytest.mark.asyncio
+    async def test_no_comparison_data_no_safety_flag(self):
+        """Never-synced links can't be destructive — no cached external."""
+        uow = _make_uow_with_playlists(external_exists=False)
+
+        result = await PreviewPlaylistSyncUseCase().execute(
+            PreviewPlaylistSyncCommand(link_id=1), uow
+        )
+
+        assert result.safety_flagged is False
+        assert result.safety_message is None
+
+
 class TestPreviewPlaylistSyncErrors:
     """Error handling for preview."""
 

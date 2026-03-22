@@ -1,5 +1,5 @@
 # =============================================================================
-# Narada — Multi-stage production build
+# Mixd — Multi-stage production build
 # =============================================================================
 # Stage 1: Python dependencies via uv
 # Stage 2: Frontend build via pnpm
@@ -50,41 +50,41 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 FROM python:3.14-slim-trixie AS runtime
 
-LABEL org.opencontainers.image.source="https://github.com/w-ash/narada" \
+LABEL org.opencontainers.image.source="https://github.com/w-ash/mixd" \
       org.opencontainers.image.description="Personal music metadata hub" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # Create non-root user
-RUN groupadd --gid 1000 narada && \
-    useradd --uid 1000 --gid narada --create-home narada
+RUN groupadd --gid 1000 mixd && \
+    useradd --uid 1000 --gid mixd --create-home mixd
 
 WORKDIR /app
 
 # Copy Python venv from builder (dependencies only — no project source)
-COPY --chown=narada:narada --from=python-builder /app/.venv /app/.venv
+COPY --chown=mixd:mixd --from=python-builder /app/.venv /app/.venv
 
 # Copy source tree (needed for imports and _WEB_DIST path resolution)
-COPY --chown=narada:narada src/ src/
+COPY --chown=mixd:mixd src/ src/
 
 # Copy Alembic (migrations run via release_command or entrypoint)
-COPY --chown=narada:narada alembic/ alembic/
-COPY --chown=narada:narada alembic.ini ./
+COPY --chown=mixd:mixd alembic/ alembic/
+COPY --chown=mixd:mixd alembic.ini ./
 
 # pyproject.toml needed at runtime for version reading via tomllib
-COPY --chown=narada:narada pyproject.toml ./
+COPY --chown=mixd:mixd pyproject.toml ./
 
 # Copy built frontend (served by FastAPI static file mount)
-COPY --chown=narada:narada --from=node-builder /app/web/dist web/dist/
+COPY --chown=mixd:mixd --from=node-builder /app/web/dist web/dist/
 
 # Create data directory for logs/imports (ephemeral in Fly.io)
-RUN mkdir -p /app/data && chown narada:narada /app/data
+RUN mkdir -p /app/data && chown mixd:mixd /app/data
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PREFECT_SERVER_ALLOW_EPHEMERAL_MODE=true \
-    LOGGING__LOG_FILE=/app/data/narada.log
+    LOGGING__LOG_FILE=/app/data/mixd.log
 
-USER narada
+USER mixd
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

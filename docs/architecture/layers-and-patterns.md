@@ -1,10 +1,10 @@
 # Layers & Architectural Patterns
 
-How Narada's Clean Architecture is structured, the patterns each layer uses, and the core system components that implement cross-service operations.
+How Mixd's Clean Architecture is structured, the patterns each layer uses, and the core system components that implement cross-service operations.
 
 ## Clean Architecture Foundation
 
-Narada implements Clean Architecture principles with strict dependency boundaries to ensure maintainability, testability, and adaptability.
+Mixd implements Clean Architecture principles with strict dependency boundaries to ensure maintainability, testability, and adaptability.
 
 ### Dependency Flow
 
@@ -374,10 +374,10 @@ Optimize: API usage through batching and sequencing
 ### Cross-Service Synchronization
 
 **Challenge**: Services don't communicate with each other
-**Solution**: Narada as intelligent intermediary
+**Solution**: Mixd as intelligent intermediary
 
 ```
-Service A → Narada (Resolution) → Service B
+Service A → Mixd (Resolution) → Service B
 ```
 
 **Synchronization Types**:

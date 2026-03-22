@@ -236,7 +236,7 @@ export function Library() {
 
   return (
     <div>
-      <title>Library — Narada</title>
+      <title>Library — Mixd</title>
       <PageHeader
         title="Library"
         description={

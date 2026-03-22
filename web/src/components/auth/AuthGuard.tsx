@@ -5,7 +5,7 @@ import { Navigate } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Redirects unauthenticated users to /login.
+ * Redirects unauthenticated users to /auth/sign-in.
  * Only mounted when authEnabled is true (VITE_NEON_AUTH_URL is set).
  */
 export function AuthGuard({ children }: { children: ReactNode }) {
@@ -20,7 +20,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   }
 
   if (!data) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/auth/sign-in" replace />;
   }
 
   return children;

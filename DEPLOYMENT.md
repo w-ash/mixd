@@ -15,7 +15,7 @@ Run the full stack in containers (alternative to `pnpm dev`):
 docker compose --profile full up --build
 ```
 
-This starts PostgreSQL + the narada app container. The app runs migrations on startup, then serves at `http://localhost:8000`.
+This starts PostgreSQL + the mixd app container. The app runs migrations on startup, then serves at `http://localhost:8000`.
 
 Default `docker compose up` still starts only PostgreSQL for the standard `pnpm dev` workflow.
 
@@ -26,9 +26,9 @@ Default `docker compose up` still starts only PostgreSQL for the standard `pnpm 
    ```
    postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
    ```
-3. Narada auto-normalizes the URL scheme — no manual conversion needed
+3. Mixd auto-normalizes the URL scheme — no manual conversion needed
 
-**Important**: Use the pooler endpoint (built-in PgBouncer) for connection multiplexing. Neon's pooler does not support PostgreSQL startup parameters (`-c` options in connection strings), so narada uses `SET` commands post-connect instead.
+**Important**: Use the pooler endpoint (built-in PgBouncer) for connection multiplexing. Neon's pooler does not support PostgreSQL startup parameters (`-c` options in connection strings), so mixd uses `SET` commands post-connect instead.
 
 ## Fly.io Initial Setup
 
@@ -38,13 +38,13 @@ fly launch --no-deploy
 
 # Set secrets (DATABASE_URL from Neon, API credentials from .env)
 fly secrets set \
-  DATABASE_URL="postgresql://user:pass@ep-xxx.us-east-1.aws.neon.tech/narada?sslmode=require" \
+  DATABASE_URL="postgresql://user:pass@ep-xxx.us-east-1.aws.neon.tech/mixd?sslmode=require" \
   SPOTIFY_CLIENT_ID="..." \
   SPOTIFY_CLIENT_SECRET="..." \
   LASTFM_KEY="..." \
   LASTFM_SECRET="..." \
   LASTFM_USERNAME="..." \
-  CORS_ORIGINS='["https://narada.fly.dev"]'
+  CORS_ORIGINS='["https://mixd.fly.dev"]'
 
 # Deploy
 fly deploy
@@ -66,15 +66,15 @@ If you have workflows in an old SQLite database:
 
 ```bash
 # Export from old SQLite instance
-python scripts/export_sqlite_workflows.py path/to/narada.db exported_workflows/
+python scripts/export_sqlite_workflows.py path/to/mixd.db exported_workflows/
 
 # Import into the new instance (run locally with DATABASE_URL pointing to Neon)
 for f in exported_workflows/*.json; do
-  narada workflow create --file "$f"
+  mixd workflow create --file "$f"
 done
 ```
 
-Alternatively, if the old instance is still running: `narada workflow export --all`
+Alternatively, if the old instance is still running: `mixd workflow export --all`
 
 Templates auto-seed on startup — only user-created workflows need migration.
 
@@ -89,7 +89,7 @@ Neon provides automatic point-in-time recovery on all plans (including free tier
 fly logs
 
 # Health check
-curl https://narada.fly.dev/api/v1/health
+curl https://mixd.fly.dev/api/v1/health
 ```
 
 The health endpoint returns `200` with database status when connected, `503` when degraded.

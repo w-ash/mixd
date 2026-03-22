@@ -50,7 +50,7 @@ function RunHistoryTable({
   if (runs.length === 0) return null;
 
   return (
-    <section className="mt-10 space-y-3">
+    <section className="mt-8 space-y-3">
       <SectionHeader title="Execution History" />
       <Table>
         <TableHeader>
@@ -139,7 +139,7 @@ export function WorkflowDetail() {
 
   return (
     <div>
-      <title>{workflow.name} — Narada</title>
+      <title>{workflow.name} — Mixd</title>
       <BackLink to="/workflows">Workflows</BackLink>
 
       <PageHeader

@@ -1,6 +1,6 @@
 """Logging configuration and utilities using Loguru.
 
-This module provides centralized logging setup for the Narada application,
+This module provides centralized logging setup for the Mixd application,
 including structured logging with Loguru, error handling decorators for
 external API calls, and integration with third-party libraries like Prefect.
 
@@ -74,7 +74,7 @@ class PrefectToLoguruHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             loguru_level = self._LEVEL_MAPPING.get(record.levelno, "INFO")
-            bound = logger.bind(module=record.name, service="narada")
+            bound = logger.bind(module=record.name, service="mixd")
 
             # Forward exception tracebacks so they appear in loguru output
             if record.exc_info and record.exc_info[0] is not None:
@@ -232,7 +232,7 @@ def setup_loguru_logger(verbose: bool = False) -> None:
                 "serialize": settings.logging.serialize,
             },
         ],
-        extra={"service": "narada", "module": "root"},
+        extra={"service": "mixd", "module": "root"},
     )
 
 
@@ -278,7 +278,7 @@ def get_logger(name: str) -> Logger:
     """
     return logger.bind(
         module=name,
-        service="narada",
+        service="mixd",
     )
 
 

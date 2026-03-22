@@ -12,8 +12,8 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistResult,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.domain.exceptions import NotFoundError
-from tests.fixtures import make_mock_uow, make_playlist
+from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
+from tests.fixtures import make_mock_uow, make_playlist, make_tracks
 
 
 def _make_link(
@@ -165,3 +165,136 @@ class TestSyncPlaylistLinkErrors:
             assert calls[0].args == (1, SyncStatus.SYNCING)
             assert calls[-1].args == (1, SyncStatus.ERROR)
             assert "Spotify API error" in str(calls[-1].kwargs.get("error", ""))
+
+
+def _make_uow_with_safety_setup(
+    *,
+    canonical_track_count: int = 5,
+    external_track_count: int = 150,
+    external_cached: bool = True,
+) -> AsyncMock:
+    """Set up UoW for safety check tests with configurable playlist sizes."""
+    link = _make_link(direction=SyncDirection.PUSH)
+    uow = make_mock_uow()
+
+    link_repo = uow.get_playlist_link_repository()
+    updated_link = _make_link(status=SyncStatus.SYNCED)
+    link_repo.get_link.side_effect = [link, updated_link]
+    link_repo.update_sync_status.return_value = None
+
+    canonical = make_playlist(
+        id=42,
+        name="My Playlist",
+        tracks=make_tracks(count=canonical_track_count),
+    )
+    playlist_repo = uow.get_playlist_repository()
+    playlist_repo.get_playlist_by_id.return_value = canonical
+
+    if external_cached:
+        external = make_playlist(
+            id=99,
+            name="External Playlist",
+            tracks=make_tracks(count=external_track_count),
+        )
+        playlist_repo.get_playlist_by_connector.return_value = external
+    else:
+        playlist_repo.get_playlist_by_connector.return_value = None
+
+    return uow
+
+
+class TestSyncPlaylistLinkSafetyCheck:
+    """Safety check gates destructive push syncs."""
+
+    @pytest.mark.asyncio
+    async def test_push_blocked_without_confirmation(self):
+        """Destructive push (145 removals) raises ConfirmationRequiredError."""
+        uow = _make_uow_with_safety_setup(
+            canonical_track_count=5, external_track_count=150
+        )
+
+        with pytest.raises(ConfirmationRequiredError) as exc_info:
+            await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+            )
+
+        assert exc_info.value.removals == 145
+        assert exc_info.value.total == 150
+        assert exc_info.value.remaining == 5
+
+    @pytest.mark.asyncio
+    async def test_push_proceeds_with_confirmation(self):
+        """Same destructive diff but confirmed=True bypasses safety."""
+        uow = _make_uow_with_safety_setup(
+            canonical_track_count=5, external_track_count=150
+        )
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_push_sync", wraps=None, new_callable=AsyncMock
+        ) as mock_push:
+            from src.application.use_cases.sync_playlist_link import (
+                SyncPlaylistLinkResult,
+            )
+
+            mock_push.return_value = SyncPlaylistLinkResult(
+                link=_make_link(), tracks_added=0, tracks_removed=145
+            )
+
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=1, confirmed=True), uow
+            )
+
+            assert result.tracks_removed == 145
+            mock_push.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_push_no_cached_external_skips_check(self):
+        """First sync (no cached external) proceeds without confirmation."""
+        uow = _make_uow_with_safety_setup(external_cached=False)
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_push_sync", wraps=None, new_callable=AsyncMock
+        ) as mock_push:
+            from src.application.use_cases.sync_playlist_link import (
+                SyncPlaylistLinkResult,
+            )
+
+            mock_push.return_value = SyncPlaylistLinkResult(
+                link=_make_link(), tracks_added=5, tracks_removed=0
+            )
+
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+            )
+
+            assert result.tracks_added == 5
+
+    @pytest.mark.asyncio
+    async def test_pull_not_affected_by_safety_check(self):
+        """Pull direction bypasses safety check entirely."""
+        link = _make_link(direction=SyncDirection.PULL)
+        uow = make_mock_uow()
+        link_repo = uow.get_playlist_link_repository()
+        updated_link = _make_link(
+            direction=SyncDirection.PULL, status=SyncStatus.SYNCED
+        )
+        link_repo.get_link.side_effect = [link, updated_link]
+        link_repo.update_sync_status.return_value = None
+
+        with patch.object(
+            SyncPlaylistLinkUseCase, "_pull_sync", new_callable=AsyncMock
+        ) as mock_pull:
+            from src.application.use_cases.sync_playlist_link import (
+                SyncPlaylistLinkResult,
+            )
+
+            mock_pull.return_value = SyncPlaylistLinkResult(
+                link=link, tracks_added=100, tracks_removed=0
+            )
+
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+            )
+
+            assert result.tracks_added == 100
+            mock_pull.assert_called_once()

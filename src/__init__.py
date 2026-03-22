@@ -1,4 +1,4 @@
-"""Narada source code root package."""
+"""Mixd source code root package."""
 
 from pathlib import Path
 import tomllib

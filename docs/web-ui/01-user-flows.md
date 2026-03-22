@@ -25,7 +25,7 @@ These flows are primarily designed for **The Weekly Curator** (primary persona).
 
 #### v0.3.0–v0.4.0: Local credential detection
 
-The web UI reads existing credentials established by the CLI (`narada` commands or direct env var configuration).
+The web UI reads existing credentials established by the CLI (`mixd` commands or direct env var configuration).
 
 **Steps**:
 
@@ -34,7 +34,7 @@ The web UI reads existing credentials established by the CLI (`narada` commands 
 2. **Spotify** checks for a valid token in the `.spotify_cache` file (same file the CLI writes).
    - If found and not expired: shows **Connected** with the account name.
    - If expired: backend attempts a token refresh using the stored refresh token.
-   - If missing or refresh fails: shows **Not Connected** with guidance: "Run `narada likes import-spotify` from the CLI to authenticate, or paste credentials below."
+   - If missing or refresh fails: shows **Not Connected** with guidance: "Run `mixd likes import-spotify` from the CLI to authenticate, or paste credentials below."
 
 3. **Manual token input** (fallback): Settings provides a text field to paste a Spotify OAuth token directly. This is for development convenience — the CLI remains the primary auth method.
 
@@ -223,7 +223,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Which playlists | `GET /tracks/{id}/playlists` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
 
 **Edge cases**:
-- Track has no connector mappings: Show "Not mapped to any services. This track exists only in your Narada library."
+- Track has no connector mappings: Show "Not mapped to any services. This track exists only in your Mixd library."
 - Track has no play history: Show "No play data. Import your listening history to see plays."
 - Track was deleted: 404 response. Show "Track not found" with link back to library.
 
@@ -572,7 +572,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Steps**:
 
 1. Confirmation panel:
-   - "This will love tracks on Last.fm that are liked in Narada but not yet loved on Last.fm."
+   - "This will love tracks on Last.fm that are liked in Mixd but not yet loved on Last.fm."
    - Shows count: "142 tracks to export" (pre-calculated via `GET /imports/lastfm/export-likes/preview`).
    - **Start Export** button.
 
@@ -636,14 +636,14 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - **Linked Playlists** table:
      | Connector | External Playlist | Sync Direction | Last Synced | Actions |
      |-----------|-----------------|----------------|-------------|---------|
-     | Spotify | "My Chill Mix" | Narada Master | 2 hours ago | Sync / Edit / Unlink |
+     | Spotify | "My Chill Mix" | Mixd Master | 2 hours ago | Sync / Edit / Unlink |
      | Apple Music | "Chill Vibes" | Manual | Never | Push / Pull / Edit / Unlink |
 
    - **Link New** button
 
 2. **Sync direction badges** are color-coded:
-   - **Narada Master** (blue): Narada pushes changes to connector
-   - **Connector Master** (green): Connector changes pulled into Narada
+   - **Mixd Master** (blue): Mixd pushes changes to connector
+   - **Connector Master** (green): Connector changes pulled into Mixd
    - **Manual** (grey): User triggers push/pull explicitly
 
 **Backend calls**:
@@ -672,10 +672,10 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - Each result: playlist name, track count, owner, thumbnail
 
 4. User selects a playlist and chooses **sync direction**:
-   - Radio buttons: Narada Master / Connector Master / Manual
+   - Radio buttons: Mixd Master / Connector Master / Manual
    - Helper text explains each option:
-     - Narada Master: "Changes you make in Narada will be pushed to Spotify."
-     - Connector Master: "Changes on Spotify will be pulled into Narada."
+     - Mixd Master: "Changes you make in Mixd will be pushed to Spotify."
+     - Connector Master: "Changes on Spotify will be pulled into Mixd."
      - Manual: "You control when to push or pull. No automatic sync."
 
 5. User clicks **Link**.
@@ -707,8 +707,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - Calls `PATCH /playlists/{id}/links/{link_id}` with `{ sync_direction }`.
 3. Updated direction reflected in the table.
 
-**Apple Music warning**: When user sets sync direction to **Narada Master** for an Apple Music link:
-- Warning banner: "Apple Music doesn't support individual track reorder or removal. Narada Master mode will replace the entire playlist on each sync."
+**Apple Music warning**: When user sets sync direction to **Mixd Master** for an Apple Music link:
+- Warning banner: "Apple Music doesn't support individual track reorder or removal. Mixd Master mode will replace the entire playlist on each sync."
 - User must acknowledge before saving.
 
 **Backend calls**:
@@ -720,13 +720,13 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ### 5.4 Manual Push/Pull
 
-**Trigger**: User clicks **Push** or **Pull** on a Manual-direction link, or **Sync** on a Narada/Connector Master link.
+**Trigger**: User clicks **Push** or **Pull** on a Manual-direction link, or **Sync** on a Mixd/Connector Master link.
 
 **Steps**:
 
 1. Confirmation dialog:
-   - **Push**: "Push Narada playlist 'X' to Spotify? This will update the Spotify playlist to match."
-   - **Pull**: "Pull Spotify playlist 'X' into Narada? This will update the Narada playlist to match Spotify."
+   - **Push**: "Push Mixd playlist 'X' to Spotify? This will update the Spotify playlist to match."
+   - **Pull**: "Pull Spotify playlist 'X' into Mixd? This will update the Mixd playlist to match Spotify."
 
 2. User confirms.
    - Calls `POST /playlists/{id}/links/{link_id}/sync` with `{ direction: "push" | "pull" }`.
@@ -746,7 +746,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | 3 | `GET /operations/{id}/progress` | SSE stream | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
-- Sync conflicts (tracks modified on both sides since last sync): Backend resolves based on sync direction. Narada Master = Narada wins. Connector Master = connector wins. Summary shows conflict count.
+- Sync conflicts (tracks modified on both sides since last sync): Backend resolves based on sync direction. Mixd Master = Mixd wins. Connector Master = connector wins. Summary shows conflict count.
 - Connector API failure mid-sync: Partial sync committed. Summary shows "3 of 5 tracks synced. 2 failed." Retry option.
 
 ---
@@ -1112,7 +1112,7 @@ Backend calls:
 Active operations are visible globally:
 - **Sidebar indicator**: Small badge/dot on "Imports" nav item when operations are running.
 - **Background operations toast**: When user navigates away from a progress view, a persistent toast shows "Import running... 45%" with a link to return.
-- **Tab title**: "Narada (Importing...)" while an operation is active.
+- **Tab title**: "Mixd (Importing...)" while an operation is active.
 
 ### Error Handling Patterns
 

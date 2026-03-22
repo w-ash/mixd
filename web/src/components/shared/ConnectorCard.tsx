@@ -112,7 +112,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
     <>
       <div
         className={cn(
-          "flex h-full flex-col rounded-xl border border-border bg-surface-elevated p-4 transition-all duration-150",
+          "flex h-full flex-col rounded-xl border border-border bg-surface-elevated p-5 transition-all duration-150",
           isActive &&
             cn(
               "shadow-elevated hover:shadow-glow hover:border-primary/20",

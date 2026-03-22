@@ -1,6 +1,6 @@
 # API Contracts
 
-> Endpoint reference for the Narada REST API.
+> Endpoint reference for the Mixd REST API.
 > Each endpoint notes which existing use case backs it and its implementation status.
 > Implemented endpoints have concrete schemas; future endpoints have stub schemas.
 
@@ -362,7 +362,7 @@ GET    /playlists/{id}/links
 
 ```
 POST   /playlists/{id}/links
-       body: { connector: str, connector_playlist_id: str, sync_direction: "narada" | "connector" | "manual" }
+       body: { connector: str, connector_playlist_id: str, sync_direction: "mixd" | "connector" | "manual" }
        → PlaylistMapping
 ```
 - **Use case**: `CreatePlaylistLinkUseCase`

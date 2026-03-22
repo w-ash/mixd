@@ -1,4 +1,4 @@
-"""FastAPI web interface for Narada.
+"""FastAPI web interface for Mixd.
 
 Provides REST API endpoints for playlist management, connector status,
 and future workflow execution. Sits in the interface layer alongside CLI —

@@ -1,4 +1,4 @@
-"""CLI interface module for Narada.
+"""CLI interface module for Mixd.
 
 Command-line interface following Clean Architecture principles:
 - Only depends on Application layer

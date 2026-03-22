@@ -1,8 +1,8 @@
-# Narada
+# Mixd
 
 **Personal music metadata hub — own your data, put it to work on your terms, and share it without exploitation.**
 
-Streaming services lock your listening history, likes, and playlists behind proprietary algorithms you can't customize. Narada puts you in control: import your data, sync it across services, build smart playlists using criteria *you* define, and share your taste with friends — without your data being scraped, sold, or fed to someone else's algorithm.
+Streaming services lock your listening history, likes, and playlists behind proprietary algorithms you can't customize. Mixd puts you in control: import your data, sync it across services, build smart playlists using criteria *you* define, and share your taste with friends — without your data being scraped, sold, or fed to someone else's algorithm.
 
 ## What You Can Do
 
@@ -68,21 +68,21 @@ Workflows are declarative pipelines: **Source → Enrich → Filter → Sort →
 ## Quick Start
 
 ```bash
-git clone https://github.com/w-ash/narada.git && cd narada
+git clone https://github.com/w-ash/mixd.git && cd mixd
 cp .env.example .env          # Add your Spotify and Last.fm API credentials
 docker compose up -d           # Start PostgreSQL
 uv sync                        # Install Python dependencies
 uv run alembic upgrade head    # Run database migrations
-narada connectors              # Verify service connections
+mixd connectors              # Verify service connections
 ```
 
 ```bash
 # Import your data
-narada likes import-spotify         # Backup liked tracks
-narada history import-lastfm        # Import listening history
+mixd likes import-spotify         # Backup liked tracks
+mixd history import-lastfm        # Import listening history
 
 # Run a workflow
-narada workflow                     # Interactive workflow browser
+mixd workflow                     # Interactive workflow browser
 
 # Launch the web UI
 pnpm dev                            # Starts PostgreSQL + API + Vite dev server
@@ -92,7 +92,7 @@ Full setup: [docs/development.md](docs/development.md) — CLI reference: [docs/
 
 ## Documentation
 
-- **Using narada?** → [docs/guides/](docs/guides/) — workflows, likes sync, CLI reference
+- **Using mixd?** → [docs/guides/](docs/guides/) — workflows, likes sync, CLI reference
 - **Contributing?** → [docs/development.md](docs/development.md) then [docs/architecture/](docs/architecture/)
 - **Roadmap & backlog** → [docs/backlog/](docs/backlog/)
 - **Full index** → [docs/README.md](docs/README.md)

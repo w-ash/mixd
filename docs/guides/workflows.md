@@ -1,11 +1,11 @@
-# Narada Workflow Architecture Guide
+# Mixd Workflow Architecture Guide
 
-**Version**: 2.0 (Clean Architecture Complete)  
+**Version**: 2.0 (Clean Architecture Complete)
 **Status**: Production-ready with sophisticated playlist update capabilities
 
 ## Core Concepts
 
-Narada's workflow architecture enables declarative transformation pipelines through a clean separation of node definition from execution logic. Built on Clean Architecture principles with comprehensive test coverage, this system provides enterprise-grade playlist management capabilities including sophisticated differential updates, conflict resolution, and cross-platform synchronization.
+Mixd's workflow architecture enables declarative transformation pipelines through a clean separation of node definition from execution logic. Built on Clean Architecture principles with comprehensive test coverage, this system provides enterprise-grade playlist management capabilities including sophisticated differential updates, conflict resolution, and cross-platform synchronization.
 
 ### Architectural Principles
 
@@ -80,7 +80,7 @@ A workflow is defined in JSON as a directed acyclic graph (DAG) of tasks:
 | `filter.by_artists` | Excludes tracks whose artists appear in exclusion source | `exclusion_source`: Task ID of exclusion source<br>`exclude_all_artists`: Boolean, if true, excludes tracks if any artist is present in the exclusion source |
 | `filter.by_metric` | Filters tracks based on metric value range | `metric_name`: Metric to filter by<br>`min_value`: Minimum value (inclusive)<br>`max_value`: Maximum value (inclusive)<br>`include_missing`: Whether to include tracks without the metric |
 | `filter.by_duration` | Filters tracks by duration range | `min_ms`: Minimum duration in milliseconds (inclusive)<br>`max_ms`: Maximum duration in milliseconds (inclusive)<br>`include_missing`: Whether to include tracks without duration data |
-| `filter.by_liked_status` | **Filters tracks by liked/loved status on a specific service** | `service`: Service name to check (required) — `"spotify"`, `"lastfm"`, `"narada"`, etc.<br>`is_liked`: Boolean — `true` to keep liked tracks, `false` to keep non-liked tracks (default: `true`) |
+| `filter.by_liked_status` | **Filters tracks by liked/loved status on a specific service** | `service`: Service name to check (required) — `"spotify"`, `"lastfm"`, `"mixd"`, etc.<br>`is_liked`: Boolean — `true` to keep liked tracks, `false` to keep non-liked tracks (default: `true`) |
 | `filter.by_explicit` | Filters tracks by explicit content flag | `keep`: Which tracks to keep — `"explicit"`, `"clean"`, or `"all"` (default: `"all"`)<br>**Note**: Requires upstream Spotify enrichment to populate the `explicit_flag` metric |
 | `filter.by_play_history` | **Advanced play history filtering with flexible date and play count constraints** | `min_plays`: Minimum play count (inclusive)<br>`max_plays`: Maximum play count (inclusive)<br>`after_date`: Earliest date for play history (absolute)<br>`before_date`: Latest date for play history (absolute)<br>`days_back`: Number of days back from now (relative)<br>`days_forward`: Number of days forward from now (relative)<br>`include_missing`: Include tracks with no play history<br>**Note**: At least one constraint required. Relative dates take precedence over absolute dates. |
 
@@ -174,15 +174,15 @@ This pattern uses sophisticated differential operations to update existing playl
     { "id": "source", "type": "source.playlist", "config": {"playlist_id": "source_id", "connector": "spotify"} },
     { "id": "enrich", "type": "enricher.spotify", "upstream": ["source"] },
     { "id": "filter", "type": "filter.by_metric", "config": {"metric_name": "lastfm_global_playcount", "min_value": 1000}, "upstream": ["enrich"] },
-    { "id": "update", "type": "destination.update_playlist", 
+    { "id": "update", "type": "destination.update_playlist",
       "config": {
         "playlist_id": "target_playlist_id",
         "operation_type": "update_spotify",
         "conflict_resolution": "local_wins",
         "preserve_order": true,
         "dry_run": false
-      }, 
-      "upstream": ["filter"] 
+      },
+      "upstream": ["filter"]
     }
   ]
 }
@@ -322,7 +322,7 @@ This example demonstrates the new `source.playlist` node with smart ID resolutio
     },
     {
       "id": "canonical_source",
-      "type": "source.playlist", 
+      "type": "source.playlist",
       "config": {
         "playlist_id": "123"
       }
@@ -358,7 +358,7 @@ Key Features Demonstrated:
 ```json
 {
   "id": "discovery_mix",
-  "name": "New Release Discovery Mix", 
+  "name": "New Release Discovery Mix",
   "description": "Create a playlist of recent tracks sorted by play count",
   "version": "2.0",
   "tasks": [
@@ -585,7 +585,7 @@ This example demonstrates sophisticated playlist updates with differential opera
 
 This workflow demonstrates:
 - **Multi-stage filtering**: Combines Last.fm global play count with personal play history
-- **Sophisticated sorting**: Uses global play counts for discovery potential  
+- **Sophisticated sorting**: Uses global play counts for discovery potential
 - **Smart ID resolution**: Automatically resolves Spotify playlist IDs to canonical playlists
 - **Overwrite with preservation**: Uses differential algorithm to minimize changes and preserve metadata
 - **Dynamic metadata updates**: Templates update both playlist name and description with current data
@@ -771,7 +771,7 @@ Here's a complete example showing the new template naming capabilities:
 
 **Available Template Parameters:**
 - `{track_count}`: Number of tracks in the final playlist
-- `{date}`: Current date in YYYY-MM-DD format  
+- `{date}`: Current date in YYYY-MM-DD format
 - `{time}`: Current time in HH:MM format
 - `{datetime}`: Combined date and time in YYYY-MM-DD HH:MM format
 

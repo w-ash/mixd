@@ -33,7 +33,7 @@ def dist_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     assets = dist / "assets"
     assets.mkdir()
     (assets / "index-abc123.js").write_text(
-        "console.log('narada');",
+        "console.log('mixd');",
         encoding="utf-8",
     )
 
@@ -107,7 +107,7 @@ class TestStaticServing:
     ) -> None:
         resp = await client_with_static.get("/assets/index-abc123.js")
         assert resp.status_code == 200
-        assert "narada" in resp.text
+        assert "mixd" in resp.text
 
     async def test_favicon_served_directly(
         self, client_with_static: httpx.AsyncClient

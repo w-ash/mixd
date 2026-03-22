@@ -253,7 +253,7 @@ async def _show_checkpoints_async() -> None:
 def _show_interactive_history_menu() -> None:
     """Display interactive history management menu."""
     run_interactive_menu(
-        title="Narada History",
+        title="Mixd History",
         subtitle="📊 Import your music play history",
         options=[
             MenuOption(

@@ -166,7 +166,7 @@ def _show_interactive_likes_menu() -> None:
             console.print("\n[dim]No previous Last.fm export found[/dim]")
 
     run_interactive_menu(
-        title="Narada Likes",
+        title="Mixd Likes",
         subtitle="💚 Manage your liked tracks across services",
         options=[
             MenuOption(

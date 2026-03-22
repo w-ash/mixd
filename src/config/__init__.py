@@ -1,4 +1,4 @@
-"""Configuration module for Narada.
+"""Configuration module for Mixd.
 
 This module provides a clean, type-safe configuration system using Pydantic Settings.
 

@@ -1,10 +1,10 @@
 ---
 name: database-schema
-description: Narada's 10-table SQLite database schema — tables, columns, relationships, indexes, cascade behavior, and session management patterns. Use when writing repository methods, database migrations, queries, or any persistence-layer code.
+description: Mixd's 10-table SQLite database schema — tables, columns, relationships, indexes, cascade behavior, and session management patterns. Use when writing repository methods, database migrations, queries, or any persistence-layer code.
 user-invocable: false
 ---
 
-# Narada Database Schema Reference
+# Mixd Database Schema Reference
 
 > Condensed from `docs/architecture/database.md`. All tables inherit `BaseEntity` → `id`, `created_at`, `updated_at`.
 

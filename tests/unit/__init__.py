@@ -1,1 +1,1 @@
-"""Unit tests for narada components."""
+"""Unit tests for mixd components."""

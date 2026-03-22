@@ -567,7 +567,7 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             label="Description",
             field_type="string",
             description="Optional description for the playlist",
-            placeholder="Created by Narada",
+            placeholder="Created by Mixd",
         ),
         ConfigFieldDef(
             key="connector",

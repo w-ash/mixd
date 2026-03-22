@@ -53,7 +53,7 @@ export function Playlists() {
 
   return (
     <div>
-      <title>Playlists — Narada</title>
+      <title>Playlists — Mixd</title>
       <PageHeader
         title="Playlists"
         description="Your canonical playlists across all services."

@@ -1,7 +1,7 @@
 import { defineConfig } from "orval";
 
 export default defineConfig({
-  narada: {
+  mixd: {
     input: {
       target: "./openapi.json",
     },

@@ -12,6 +12,7 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError
 from src.domain.playlist.diff_engine import calculate_playlist_diff
+from src.domain.playlist.sync_safety import check_sync_safety
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -40,6 +41,8 @@ class PreviewPlaylistSyncResult:
     connector_name: str = field(default="")
     playlist_name: str = field(default="")
     has_comparison_data: bool = field(default=True)
+    safety_flagged: bool = field(default=False)
+    safety_message: str | None = field(default=None)
 
 
 @define(slots=True)
@@ -115,6 +118,8 @@ class PreviewPlaylistSyncUseCase:
         )
         unchanged = current_count - removes
 
+        safety = check_sync_safety(removals=removes, total_current=current_count)
+
         return PreviewPlaylistSyncResult(
             tracks_to_add=adds,
             tracks_to_remove=removes,
@@ -122,4 +127,6 @@ class PreviewPlaylistSyncUseCase:
             direction=direction,
             connector_name=link.connector_name,
             playlist_name=canonical.name,
+            safety_flagged=safety.flagged,
+            safety_message=safety.reason,
         )
