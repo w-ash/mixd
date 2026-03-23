@@ -6,11 +6,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
 # Virtual environments
 .venv/
 
@@ -21,9 +16,6 @@ htmlcov/
 .ruff_cache/
 
 # Package management (uv.lock and .python-version are committed)
-
-# Jupyter Notebook
-.ipynb_checkpoints
 
 ###################
 # IDEs & Editors  #
@@ -95,9 +87,12 @@ node_modules/
 web/dist/
 
 ###################
+# Tool Artifacts  #
+###################
+.playwright-mcp/
+
+###################
 # Project-specific #
 ###################
 var/
-/var/**/*
-infra/
 data/
