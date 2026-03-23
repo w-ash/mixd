@@ -1033,9 +1033,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         if not entities:
             return [] if return_models else 0
 
-        entities = self._deduplicate_batch(
-            entities, lookup_keys, label="bulk_upsert"
-        )
+        entities = self._deduplicate_batch(entities, lookup_keys, label="bulk_upsert")
         self._add_timestamps(entities)
 
         try:

@@ -26,7 +26,7 @@ from src.application.workflows.prefect import (
 )
 from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
 from src.config.constants import WorkflowConstants, truncate_error_message
-from src.config.logging import get_logger
+from src.config.logging import get_logger, logging_context
 from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
     RunStatus,
@@ -285,7 +285,7 @@ class ExecuteWorkflowRunUseCase:
 
         timer = ExecutionTimer()
 
-        with logger.contextualize(
+        with logging_context(
             workflow_id=workflow_def.id,
             workflow_name=workflow_def.name,
             run_id=run_id,
@@ -356,14 +356,15 @@ class ExecuteWorkflowRunUseCase:
                         error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
                     )
                 except CancelledError, Exception:
-                    logger.opt(exception=True).error(
-                        "Failed to update cancelled run status to FAILED"
+                    logger.error(
+                        "Failed to update cancelled run status to FAILED",
+                        exc_info=True,
                     )
 
                 raise  # Re-raise so caller can handle SSE cleanup
 
             except Exception as exc:
-                logger.opt(exception=True).error("Workflow execution failed")
+                logger.error("Workflow execution failed", exc_info=True)
 
                 duration_ms = timer.stop()
                 error_msg = truncate_error_message(
@@ -378,8 +379,9 @@ class ExecuteWorkflowRunUseCase:
                         error_message=error_msg,
                     )
                 except Exception:
-                    logger.opt(exception=True).error(
-                        "Failed to update run status to FAILED"
+                    logger.error(
+                        "Failed to update run status to FAILED",
+                        exc_info=True,
                     )
 
                 return ExecuteWorkflowRunResult(

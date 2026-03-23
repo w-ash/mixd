@@ -1,401 +1,298 @@
-"""Tests for logging configuration and functionality.
+"""Tests for structlog-based logging configuration.
 
-This module provides comprehensive tests for the logging system to ensure
-backward compatibility during refactoring and verify all logging features work correctly.
+Verifies setup_logging(), get_logger(), logging_context(), per-workflow-run
+JSONL sinks, Rich progress console coordination, and rotation/retention helpers.
 """
 
+import json
 import logging
 from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
+import structlog
+
 from src.config.logging import (
-    PrefectToLoguruHandler,
+    _parse_retention,
+    _parse_rotation,
+    add_workflow_run_logger,
+    enable_unified_console_output,
     get_logger,
-    intercept_prefect_loggers,
-    setup_loguru_logger,
+    logging_context,
+    remove_workflow_run_logger,
+    restore_standard_console_output,
+    setup_logging,
 )
 from src.config.settings import LoggingConfig
 
 
-class TestCurrentLoggingBehavior:
-    """Baseline tests for current logging behavior."""
+class TestSetupLogging:
+    """Test setup_logging() configures handlers correctly."""
 
-    def test_get_logger_returns_bound_logger(self):
-        """Test that get_logger returns a properly bound Loguru logger."""
-        test_logger = get_logger("test.module")
-
-        # Should be a Loguru logger with bound context
-        assert hasattr(test_logger, "info")
-        assert hasattr(test_logger, "debug")
-        assert hasattr(test_logger, "error")
-        assert hasattr(test_logger, "bind")
-
-        # Should have mixd service context
-        # Note: Testing exact binding is complex with Loguru, so we test functionality
-        test_logger.info("Test message")
-
-    def test_get_logger_with_module_name(self):
-        """Test get_logger with __name__ pattern."""
-        module_name = "src.config.test_module"
-        test_logger = get_logger(module_name)
-
-        # Should not raise and should be callable
-        test_logger.debug("Debug message")
-        test_logger.info("Info message")
-        test_logger.error("Error message")
-
-    def test_setup_loguru_logger_default_config(self):
-        """Test setup_loguru_logger with default configuration."""
+    def test_setup_creates_console_and_file_handlers(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a temporary settings for testing
             test_log_file = Path(temp_dir) / "test.log"
-
             with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                with patch("src.config.logging.settings.logging.console_level", "INFO"):
-                    with patch(
-                        "src.config.logging.settings.logging.file_level", "DEBUG"
-                    ):
-                        # Should not raise
-                        setup_loguru_logger(verbose=False)
+                setup_logging(verbose=False)
 
-                        # Test that logging works
-                        test_logger = get_logger(__name__)
-                        test_logger.info("Test setup message")
+                root = logging.getLogger()
+                handler_types = [type(h).__name__ for h in root.handlers]
+                assert "StreamHandler" in handler_types
+                assert "RotatingFileHandler" in handler_types
 
-                        # Log file should exist
-                        assert test_log_file.exists()
-
-    def test_setup_loguru_logger_verbose_mode(self):
-        """Test setup_loguru_logger with verbose=True."""
+    def test_setup_verbose_sets_debug_console(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "test_verbose.log"
-
+            test_log_file = Path(temp_dir) / "test.log"
             with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                setup_loguru_logger(verbose=True)
+                setup_logging(verbose=True)
 
-                # Should work in verbose mode
-                test_logger = get_logger(__name__)
-                test_logger.debug("Debug message in verbose mode")
-                test_logger.info("Info message in verbose mode")
+                root = logging.getLogger()
+                stream_handlers = [
+                    h
+                    for h in root.handlers
+                    if isinstance(h, logging.StreamHandler)
+                    and not isinstance(h, logging.FileHandler)
+                ]
+                assert stream_handlers
+                assert stream_handlers[0].level == logging.DEBUG
 
-
-class TestLoggingIntegration:
-    """Integration tests for logging system."""
-
-    def test_full_logging_workflow(self):
-        """Test complete logging workflow from setup to usage."""
+    def test_setup_creates_log_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "integration_test.log"
+            nested = Path(temp_dir) / "logs" / "nested" / "test.log"
+            with patch("src.config.logging.settings.logging.log_file", nested):
+                setup_logging()
+                assert nested.parent.exists()
 
+    def test_file_handler_produces_flat_json(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_log_file = Path(temp_dir) / "test.log"
             with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                # Setup logging
-                setup_loguru_logger(verbose=False)
+                setup_logging()
+                logger = get_logger("test.json")
+                logger.info("flat json test", operation="verify")
 
-                # Get logger and log messages at different levels
-                test_logger = get_logger("integration.test")
+                # Force flush
+                for h in logging.getLogger().handlers:
+                    h.flush()
 
-                test_logger.debug("Debug message")
-                test_logger.info("Info message", context="test")
-                test_logger.warning("Warning message")
-                test_logger.error("Error message")
+                content = test_log_file.read_text().strip()
+                assert content, "Log file should not be empty"
 
-                # Log file should exist and contain messages
-                assert test_log_file.exists()
+                entry = json.loads(content.split("\n")[-1])
 
-                # Read log file content
-                log_content = test_log_file.read_text()
+                # Flat structure — no nesting
+                assert entry["level"] == "info"
+                assert entry["event"] == "flat json test"
+                assert entry["operation"] == "verify"
+                assert entry["service"] == "mixd"
+                assert "timestamp" in entry
+                assert "logger" in entry
 
-                # Should contain structured log entries
-                assert "integration.test" in log_content
-                assert "Info message" in log_content
-
-    def test_logger_context_binding(self):
-        """Test that logger context binding works correctly."""
-        test_logger = get_logger("context.test")
-
-        # Should support context binding
-        contextual_logger = test_logger.bind(operation="test_op", batch_id=123)
-
-        # Should not raise
-        contextual_logger.info("Contextual message")
+                # Must NOT have loguru's nested structure
+                assert "record" not in entry
 
 
-class TestLoggingConfiguration:
-    """Test logging configuration system."""
+class TestGetLogger:
+    """Test get_logger() factory."""
 
-    def test_settings_integration(self):
-        """Test that logging uses settings correctly."""
-        from src.config.settings import settings
+    def test_returns_bound_logger(self):
+        logger = get_logger("test.module")
+        assert hasattr(logger, "info")
+        assert hasattr(logger, "debug")
+        assert hasattr(logger, "error")
+        assert hasattr(logger, "bind")
 
-        assert hasattr(settings.logging, "console_level")
-        assert hasattr(settings.logging, "file_level")
-        assert hasattr(settings.logging, "log_file")
-        assert hasattr(settings.logging, "real_time_debug")
+    def test_logger_has_service_and_module_context(self):
+        with structlog.testing.capture_logs() as captured:
+            logger = get_logger("my.module")
+            logger.info("hello")
 
-        # New fields should be accessible with defaults
-        assert hasattr(settings.logging, "diagnose_in_production")
-        assert hasattr(settings.logging, "backtrace_in_production")
-        assert hasattr(settings.logging, "console_format")
-        assert hasattr(settings.logging, "file_format")
-        assert hasattr(settings.logging, "rotation")
-        assert hasattr(settings.logging, "retention")
-        assert hasattr(settings.logging, "compression")
-        assert hasattr(settings.logging, "serialize")
-        assert hasattr(settings.logging, "catch_internal_errors")
+        assert len(captured) >= 1
+        entry = captured[-1]
+        assert entry["service"] == "mixd"
+        assert entry["module"] == "my.module"
+        assert entry["event"] == "hello"
 
-        # Test default values
-        assert settings.logging.diagnose_in_production is False
-        assert settings.logging.backtrace_in_production is False
-        assert settings.logging.console_format is None
-        assert settings.logging.file_format is None
-        assert settings.logging.rotation == "10 MB"
-        assert settings.logging.retention == "1 week"
-        assert settings.logging.compression == "zip"
-        assert settings.logging.serialize is True
-        assert settings.logging.catch_internal_errors is True
 
-    def test_log_file_directory_creation(self):
-        """Test that log directory is created if it doesn't exist."""
+class TestLoggingContext:
+    """Test logging_context() context manager."""
+
+    def test_binds_and_unbinds_context(self):
+        """Verify contextvars are bound inside and unbound outside the block."""
+        structlog.contextvars.clear_contextvars()
+
+        with logging_context(workflow_id=42, run_id="abc"):
+            # Inside: contextvars should be set
+            import contextvars
+
+            ctx = contextvars.copy_context()
+            ctx_keys = {k.name for k in ctx if k.name.startswith("structlog_")}
+            assert "structlog_workflow_id" in ctx_keys
+            assert "structlog_run_id" in ctx_keys
+
+        # Outside: contextvars should be cleared (reset to sentinel Ellipsis)
+        ctx = contextvars.copy_context()
+        ctx_keys = {
+            k.name for k in ctx if k.name.startswith("structlog_") and ctx[k] is not ...
+        }
+        assert "structlog_workflow_id" not in ctx_keys
+        assert "structlog_run_id" not in ctx_keys
+
+    def test_context_appears_in_json_output(self):
+        """Verify contextvars merge into flat JSON log output."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            nested_log_file = Path(temp_dir) / "logs" / "nested" / "test.log"
-
-            with patch("src.config.logging.settings.logging.log_file", nested_log_file):
-                setup_loguru_logger()
-
-                # Directory should be created
-                assert nested_log_file.parent.exists()
-
-
-class TestErrorHandling:
-    """Test error handling in logging system."""
-
-    def test_logging_with_invalid_settings(self):
-        """Test logging behavior with edge case settings."""
-        # Test with minimal settings
-        minimal_config = LoggingConfig()
-
-        # Should have sensible defaults
-        assert minimal_config.console_level == "INFO"
-        assert minimal_config.file_level == "DEBUG"
-        assert minimal_config.log_file == Path("mixd.log")
-        assert minimal_config.real_time_debug is True
-
-
-class TestSecurityEnhancements:
-    """Test new security-focused logging features."""
-
-    def test_production_security_defaults(self):
-        """Test that production security settings default to safe values."""
-        from src.config.settings import LoggingConfig
-
-        config = LoggingConfig()
-        assert config.diagnose_in_production is False  # Safe default
-        assert config.backtrace_in_production is False  # Safe default
-
-    def test_verbose_mode_overrides_security(self):
-        """Test that verbose mode enables diagnostics regardless of production settings."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "security_test.log"
-
+            test_log_file = Path(temp_dir) / "ctx.log"
             with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                with patch(
-                    "src.config.logging.settings.logging.diagnose_in_production", False
-                ):
-                    with patch(
-                        "src.config.logging.settings.logging.backtrace_in_production",
-                        False,
-                    ):
-                        # Even with production security disabled, verbose should enable diagnostics
-                        setup_loguru_logger(verbose=True)
+                setup_logging()
+                structlog.contextvars.clear_contextvars()
 
-                        # Should work without issues
-                        test_logger = get_logger("security.test")
-                        test_logger.info("Security test message")
+                logger = get_logger("ctx.json")
+                with logging_context(workflow_id=42):
+                    logger.info("inside context")
 
-    def test_custom_format_strings(self):
-        """Test that custom format strings are used when provided."""
-        custom_console_format = "CUSTOM: {time} | {message}"
-        custom_file_format = "FILE: {time} | {level} | {message}"
+                for h in logging.getLogger().handlers:
+                    h.flush()
 
+                content = test_log_file.read_text().strip()
+                lines = [
+                    line for line in content.split("\n") if "inside context" in line
+                ]
+                assert lines
+                entry = json.loads(lines[0])
+                assert entry["workflow_id"] == 42
+
+    def test_unbinds_on_exception(self):
+        structlog.contextvars.clear_contextvars()
+
+        def _raise_inside_context():
+            with logging_context(key="value"):
+                raise ValueError("test")
+
+        with pytest.raises(ValueError):
+            _raise_inside_context()
+
+        import contextvars
+
+        ctx = contextvars.copy_context()
+        for k in ctx:
+            if k.name == "structlog_key":
+                assert ctx[k] is ..., "key should be unbound after exception"
+
+
+class TestWorkflowRunLogger:
+    """Test per-workflow-run JSONL sink."""
+
+    def test_add_and_remove_run_logger(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "format_test.log"
+            with patch("src.config.logging.settings.workflow_log_dir", temp_dir):
+                setup_logging()
+                handle = add_workflow_run_logger("wf_1", "run_abc")
 
-            with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                with patch(
-                    "src.config.logging.settings.logging.console_format",
-                    custom_console_format,
-                ):
-                    with patch(
-                        "src.config.logging.settings.logging.file_format",
-                        custom_file_format,
-                    ):
-                        setup_loguru_logger()
+                assert handle == "run_abc"
 
-                        # Should work with custom formats
-                        test_logger = get_logger("format.test")
-                        test_logger.info("Format test message")
+                # Log with matching context
+                structlog.contextvars.clear_contextvars()
+                structlog.contextvars.bind_contextvars(workflow_run_id="run_abc")
+                logger = get_logger("workflow.test")
+                logger.info("run log entry")
+                structlog.contextvars.unbind_contextvars("workflow_run_id")
 
-    def test_configurable_rotation_settings(self):
-        """Test that rotation settings are configurable."""
+                # Flush handlers
+                for h in logging.getLogger().handlers:
+                    h.flush()
+
+                # Check JSONL file
+                log_path = Path(temp_dir) / "wf_1" / "run_abc.jsonl"
+                assert log_path.exists()
+
+                content = log_path.read_text().strip()
+                assert content
+                entry = json.loads(content.split("\n")[-1])
+                assert entry["event"] == "run log entry"
+                assert entry["workflow_run_id"] == "run_abc"
+
+                # Cleanup
+                remove_workflow_run_logger(handle)
+
+    def test_run_filter_excludes_other_runs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            test_log_file = Path(temp_dir) / "rotation_test.log"
+            with patch("src.config.logging.settings.workflow_log_dir", temp_dir):
+                setup_logging()
+                handle = add_workflow_run_logger("wf_1", "run_xyz")
 
-            with patch("src.config.logging.settings.logging.log_file", test_log_file):
-                with patch("src.config.logging.settings.logging.rotation", "5 MB"):
-                    with patch(
-                        "src.config.logging.settings.logging.retention", "3 days"
-                    ):
-                        with patch(
-                            "src.config.logging.settings.logging.compression", "gz"
-                        ):
-                            setup_loguru_logger()
+                # Log WITHOUT matching context
+                structlog.contextvars.clear_contextvars()
+                logger = get_logger("workflow.test")
+                logger.info("unrelated log")
 
-                            # Should work with custom rotation settings
-                            test_logger = get_logger("rotation.test")
-                            test_logger.info("Rotation test message")
+                for h in logging.getLogger().handlers:
+                    h.flush()
+
+                log_path = Path(temp_dir) / "wf_1" / "run_xyz.jsonl"
+                content = log_path.read_text().strip() if log_path.exists() else ""
+                assert "unrelated log" not in content
+
+                remove_workflow_run_logger(handle)
+
+    def test_remove_nonexistent_handle_is_safe(self):
+        remove_workflow_run_logger("nonexistent")
 
 
 class TestConsoleOutputCoordination:
-    """Regression tests for enable/restore console output lifecycle."""
+    """Test Rich progress bar console coordination."""
 
-    def test_restore_standard_console_output_after_enable(self, capsys):
-        """Logging restore must not fall through to the error-recovery path.
-
-        Regression: restore_standard_console_output() used delattr() on the
-        enable_unified_console_output function, treating it as a namespace for
-        module-level globals. This caused AttributeError that was caught by the
-        except block, triggering a "Warning: Failed to restore..." print and
-        a full reset instead of a clean restore.
-        """
-        from unittest.mock import MagicMock
-
-        from src.config.logging import (
-            enable_unified_console_output,
-            restore_standard_console_output,
-        )
-
+    def test_enable_and_restore_lifecycle(self, capsys):
+        setup_logging()
         mock_console = MagicMock()
         enable_unified_console_output(mock_console)
 
         restore_standard_console_output()
 
-        # The error-recovery path prints a warning to stdout — verify it was NOT hit
         captured = capsys.readouterr()
-        assert "Failed to restore" not in captured.out
+        assert "Failed" not in captured.out
 
     def test_restore_without_enable_is_safe(self):
-        """Calling restore without a prior enable should not crash."""
-        from src.config.logging import restore_standard_console_output
-
-        # Should be a no-op, not an error
         restore_standard_console_output()
 
 
-class TestPrefectToLoguruHandler:
-    """Tests for the extracted PrefectToLoguruHandler bridge."""
+class TestRotationHelpers:
+    """Test _parse_rotation and _parse_retention."""
 
-    def test_prefect_handler_forwards_exception_traceback(self):
-        """Verify record.exc_info reaches logger.opt(exception=...)."""
-        handler = PrefectToLoguruHandler()
+    def test_parse_rotation_mb(self):
+        assert _parse_rotation("10 MB") == 10 * 1024 * 1024
 
-        # Create a LogRecord with exc_info
-        try:
-            raise RuntimeError("test traceback")  # noqa: TRY301
-        except RuntimeError:
-            import sys
+    def test_parse_rotation_kb(self):
+        assert _parse_rotation("500 KB") == 500 * 1024
 
-            exc_info = sys.exc_info()
+    def test_parse_rotation_gb(self):
+        assert _parse_rotation("1 GB") == 1024**3
 
-        record = logging.LogRecord(
-            name="prefect.flow_runs",
-            level=logging.ERROR,
-            pathname="",
-            lineno=0,
-            msg="Flow run failed",
-            args=(),
-            exc_info=exc_info,
-        )
+    def test_parse_retention_week(self):
+        assert _parse_retention("1 week") == 7
 
-        with patch("src.config.logging.logger") as mock_logger:
-            mock_bound = MagicMock()
-            mock_logger.bind.return_value = mock_bound
-            mock_opt = MagicMock()
-            mock_bound.opt.return_value = mock_opt
+    def test_parse_retention_weeks(self):
+        assert _parse_retention("2 weeks") == 14
 
-            handler.emit(record)
+    def test_parse_retention_days(self):
+        assert _parse_retention("3 days") == 3
 
-            # Should have called .opt(exception=exc_info).log(...)
-            mock_bound.opt.assert_called_once_with(exception=exc_info)
-            mock_opt.log.assert_called_once_with("ERROR", "Flow run failed")
+    def test_parse_retention_month(self):
+        assert _parse_retention("1 month") == 30
 
-    def test_prefect_handler_without_exception(self):
-        """Verify normal records (no exc_info) go through .log() directly."""
-        handler = PrefectToLoguruHandler()
-
-        record = logging.LogRecord(
-            name="prefect.tasks",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="Task completed",
-            args=(),
-            exc_info=None,
-        )
-
-        with patch("src.config.logging.logger") as mock_logger:
-            mock_bound = MagicMock()
-            mock_logger.bind.return_value = mock_bound
-
-            handler.emit(record)
-
-            # Should call .log() directly, NOT .opt()
-            mock_bound.log.assert_called_once_with("INFO", "Task completed")
-            mock_bound.opt.assert_not_called()
+    def test_parse_retention_default(self):
+        assert _parse_retention("forever") == 7
 
 
-class TestInterceptPrefectLoggers:
-    """Tests for the intercept_prefect_loggers() function."""
+class TestLoggingConfigDefaults:
+    """Test LoggingConfig settings defaults."""
 
-    def test_intercept_prefect_loggers_attaches_bridge_handler(self):
-        """Verify prefect logger gets the PrefectToLoguruHandler."""
-        prefect_logger = logging.getLogger("prefect")
-        # Clear any handlers from previous tests
-        prefect_logger.handlers.clear()
-
-        intercept_prefect_loggers()
-
-        bridge_handlers = [
-            h for h in prefect_logger.handlers if isinstance(h, PrefectToLoguruHandler)
-        ]
-        assert len(bridge_handlers) == 1
-
-        # Propagation should be disabled to prevent duplicate output
-        assert prefect_logger.propagate is False
-
-    def test_intercept_prefect_loggers_covers_subsystems(self):
-        """Verify all key Prefect subsystem loggers are intercepted."""
-        intercept_prefect_loggers()
-
-        for name in ["prefect.flow_runs", "prefect.task_runs", "prefect.engine"]:
-            sub_logger = logging.getLogger(name)
-            bridge_handlers = [
-                h for h in sub_logger.handlers if isinstance(h, PrefectToLoguruHandler)
-            ]
-            assert len(bridge_handlers) >= 1, f"{name} missing bridge handler"
-
-
-class TestEnhancedLoggingFeatures:
-    """Test the enhanced logging features actually work in practice."""
-
-    def test_production_security_settings_accessible(self):
-        """Test that new security settings are accessible and have safe defaults."""
-        from src.config.settings import settings
-
-        # New security settings should exist and be secure by default
-        assert hasattr(settings.logging, "diagnose_in_production")
-        assert hasattr(settings.logging, "backtrace_in_production")
-
-        # Should default to False for production safety
-        assert settings.logging.diagnose_in_production is False
-        assert settings.logging.backtrace_in_production is False
+    def test_sensible_defaults(self):
+        config = LoggingConfig()
+        assert config.console_level == "INFO"
+        assert config.file_level == "DEBUG"
+        assert config.log_file == Path("mixd.log")
+        assert config.rotation == "10 MB"
+        assert config.retention == "1 week"
+        assert config.prefect_log_level == "DEBUG"
+        assert config.prefect_logger_level == "DEBUG"

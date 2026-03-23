@@ -11,7 +11,7 @@ This replaces the business logic previously scattered across:
 from typing import cast
 
 from attrs import define
-from loguru import logger as _loguru_logger
+import structlog
 
 from src.domain.entities import Track
 from src.domain.matching.algorithms import (
@@ -27,7 +27,7 @@ from src.domain.matching.types import (
     RawProviderMatch,
 )
 
-logger = _loguru_logger.bind(module=__name__)
+logger = structlog.get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -46,7 +46,7 @@ class TrackMatchEvaluationService:
 
     config: MatchingConfig
 
-    def should_accept_match(self, confidence: int, match_method: str) -> bool:
+    def should_accept_match(self, confidence: int, _match_method: str) -> bool:
         """Business rule: auto-accept if above the upper threshold.
 
         Args:
@@ -58,7 +58,7 @@ class TrackMatchEvaluationService:
         """
         return confidence >= self.config.auto_accept_threshold
 
-    def should_review_match(self, confidence: int, match_method: str) -> bool:
+    def should_review_match(self, confidence: int, _match_method: str) -> bool:
         """Business rule: queue for review if in the gray zone.
 
         The gray zone is between review_threshold and auto_accept_threshold.

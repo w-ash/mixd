@@ -180,7 +180,7 @@ async def spotify_callback(
         return RedirectResponse("/settings/integrations?auth=spotify&status=success")
 
     except Exception:
-        logger.opt(exception=True).error("Spotify auth callback failed")
+        logger.error("Spotify auth callback failed", exc_info=True)
         return RedirectResponse(
             "/settings/integrations?auth=spotify&status=error&reason=exchange_failed"
         )
@@ -270,7 +270,7 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
         return RedirectResponse("/settings/integrations?auth=lastfm&status=success")
 
     except Exception:
-        logger.opt(exception=True).error("Last.fm auth callback failed")
+        logger.error("Last.fm auth callback failed", exc_info=True)
         return RedirectResponse(
             "/settings/integrations?auth=lastfm&status=error&reason=exchange_failed"
         )

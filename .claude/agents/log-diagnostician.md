@@ -18,7 +18,7 @@ You are a Mixd log analysis specialist. When a Mixd operation fails or produces 
 ```bash
 # Write the filter first
 cat > /tmp/jq_filter.jq << 'FILTER'
-select(.record.exception != null) | {time: .record.time.repr, msg: .record.message}
+select(.exception != null) | {time: .timestamp, msg: .event}
 FILTER
 
 # Then run it
@@ -31,55 +31,54 @@ This applies to every filter containing `!=`, `!test(...)`, or any other use of 
 
 ```
 data/logs/app/mixd.log          # current (JSON Lines, append-only)
-data/logs/app/mixd.*.log.zip    # rotated + zipped (10 MB rotation, 1 week retention)
+data/logs/app/mixd.log.N        # rotated (10 MB rotation, 7 backups)
 ```
 
 Always start with `data/logs/app/mixd.log` unless the user specifies a date, then use Glob to find the relevant rotated file.
 
-## JSON Lines Schema
+## JSON Lines Schema (structlog flat format)
 
-Each line is one JSON object. Critical fields:
+Each line is one JSON object with **flat top-level keys** (no nesting):
 
 ```
-.text                            # human-readable pre-formatted line (fallback for context)
-.record.level.name               # "DEBUG" | "INFO" | "WARNING" | "ERROR" | "SUCCESS"
-.record.message                  # log message string
-.record.time.repr                # "2026-02-18 18:52:45.405065-08:00"
-.record.time.timestamp           # unix epoch float (use for time-range filtering)
-.record.name                     # logger module path
-.record.function / .record.line  # source location
-.record.exception                # null OR {type, value, traceback} — see note below
-.record.extra                    # structured context dict; common keys:
-  .service          # component (e.g. "spotify_client", "http_client", "lastfm_client")
-  .operation        # set by @resilient_operation (e.g. "get_spotify_playlist")
-  .duration_seconds # set on completion by @resilient_operation (success or failure)
-  .error_type       # ★ PRIMARY exception class name — check this first
-  .error_message    # ★ PRIMARY exception str — check this first
-  .exc_info         # boolean true if exc_info=True was passed — does NOT mean traceback captured
-  .http_status_code # HTTP status when error is HTTPStatusError
-  .error_classification  # "rate_limit_exceeded" | "server_error" | "permanent" etc.
-  .method / .url    # set by HTTP event hooks on every request/response
-  .status           # HTTP status set by response hook
-  .retry_after      # Retry-After header value on 4xx/5xx
+.level              # "debug" | "info" | "warning" | "error" | "critical" (lowercase)
+.event              # log message string
+.timestamp          # ISO 8601 "2026-03-22T10:00:00.000000Z"
+.logger             # logger module path (e.g. "src.application.use_cases.sync_likes")
+.func_name          # source function name
+.lineno             # source line number
+.service            # component (e.g. "mixd", "spotify_client", "http_client")
+.module             # module name (usually same as .logger)
+.operation          # set by logging_context (e.g. "get_spotify_playlist")
+.duration_seconds   # set on completion by @resilient_operation
+.error_type         # exception class name
+.error_message      # exception str
+.http_status_code   # HTTP status when error is HTTPStatusError
+.error_classification  # "rate_limit_exceeded" | "server_error" | "permanent" etc.
+.method / .url      # set by HTTP event hooks on every request/response
+.status             # HTTP status set by response hook
+.retry_after        # Retry-After header value on 4xx/5xx
+.workflow_run_id    # set by logging_context during workflow execution
+.exception          # structured dict when exc_info=True (type, value, frames)
 ```
 
-### `.record.exception` — what to expect
+### Exception handling
 
-`@resilient_operation` failures use `logger.opt(exception=True).error(...)`, so `.record.exception` **is populated** for all connector-layer failures caught by that decorator. It contains `{type, value, traceback: true}` — use the "Extract exception details" recipe to pull it.
+`@resilient_operation` failures use `logger.error(..., exc_info=True)`, so `.exception` is populated for all connector-layer failures. It contains a structured dict with `exc_type`, `exc_value`, and `frames`.
 
-**Primary exception source** (always present): `.extra.error_type` (class name) and `.extra.error_message` (str) from `_build_error_context()`. These are faster to query and don't require the jq null-check workaround.
+**Primary exception source** (always present): `.error_type` (class name) and `.error_message` (str) from `_build_error_context()`. These are faster to query than `.exception`.
 
 
 ## Key Pattern Recognition
 
-### `@resilient_operation` decorator (src/config/logging.py)
+### `@resilient_operation` decorator
 
 Emits exactly 3 messages per decorated call:
 
 ```
-DEBUG   "Starting operation: {name}"        — operation beginning; .extra.operation set
-INFO    "Operation completed: {name}"        — success; .extra.duration_seconds present
-ERROR   "Operation failed: {name}"           — failure; .extra.error_type + .extra.error_message
+DEBUG   "Starting operation: {name}"        — operation beginning; .operation set
+INFO    "Operation completed: {name}"        — success; .duration_seconds present
+ERROR   "Operation failed: {name}"           — failure; .error_type + .error_message
 ```
 
 A "Starting operation" with no subsequent "completed" or "failed" indicates the process was killed or hung.
@@ -87,59 +86,59 @@ A "Starting operation" with no subsequent "completed" or "failed" indicates the 
 ### HTTP event hooks (src/infrastructure/connectors/_shared/http_client.py)
 
 ```
-DEBUG   "HTTP request"          — fires BEFORE network I/O; .extra.method + .extra.url
-DEBUG   "HTTP response"         — 2xx responses only; .extra.status + .extra.url
-WARNING "HTTP error response"   — 4xx/5xx responses; .extra.status + .extra.url + .extra.retry_after
+DEBUG   "HTTP request"          — fires BEFORE network I/O; .method + .url
+DEBUG   "HTTP response"         — 2xx responses only; .status + .url
+WARNING "HTTP error response"   — 4xx/5xx responses; .status + .url + .retry_after
 ```
 
 ### HTTP request hook fires before network I/O
 
-The "HTTP request" log is emitted by the httpx event hook at the start of `send()`, **before** the TCP connection or TLS handshake happens. This has an important diagnostic implication:
+The "HTTP request" log is emitted by the httpx event hook at the start of `send()`, **before** the TCP connection or TLS handshake happens:
 
 - **"HTTP request" → "HTTP response/error" gap ≥ 50ms**: normal network latency
-- **"HTTP request" → "Operation failed" gap ≤ 5ms, no response log**: the error happened **inside the send call** — in the hook itself, during connection setup, or in the event loop — NOT from a server response. This is a distinct failure mode from a network timeout or server error. Common causes: sync hook returning `None` being awaited, SSL context error, connection pool exhausted.
+- **"HTTP request" → "Operation failed" gap ≤ 5ms, no response log**: the error happened **inside the send call** — in the hook itself, during connection setup, or in the event loop — NOT from a server response.
 
 ### Token refresh failure
 
-Look for `HTTP request` to `accounts.spotify.com/api/token` **not followed** by an `HTTP response` or `HTTP error response`, with "Operation failed" arriving ≤5ms later. Check `.extra.error_type` for the failure cause — a `TypeError` here means a code error in the auth path, not a network problem.
+Look for `HTTP request` to `accounts.spotify.com/api/token` **not followed** by an `HTTP response` or `HTTP error response`, with "Operation failed" arriving ≤5ms later.
 
 ### Silent pipeline short-circuit
 
 If an import ran but produced zero results, look for:
-- `WARNING` or `ERROR` entries early in the timeline (before results would appear)
-- An operation that "completed" with `.extra.duration_seconds` near-zero (returned empty immediately)
-- Missing "Starting operation" for an expected downstream step (upstream returned empty, skipping it)
+- `WARNING` or `ERROR` entries early in the timeline
+- An operation that "completed" with `.duration_seconds` near-zero (returned empty immediately)
+- Missing "Starting operation" for an expected downstream step
 
 ## jq Recipes (all use filter files to avoid `!` quoting issues)
 
 ### Start here: orient with errors and warnings
 ```bash
 cat > /tmp/jq_orient.jq << 'FILTER'
-select(.record.level.name == "ERROR" or .record.level.name == "WARNING")
-| {time: .record.time.repr, level: .record.level.name, msg: .record.message, extra: .record.extra}
+select(.level == "error" or .level == "warning")
+| {time: .timestamp, level: .level, msg: .event, service: .service, operation: .operation}
 FILTER
 jq -cf /tmp/jq_orient.jq data/logs/app/mixd.log | tail -20
 ```
 
-### Narrow to a specific time window (most useful for incident analysis)
+### Narrow to a specific time window
 ```bash
 cat > /tmp/jq_window.jq << 'FILTER'
-select(.record.time.repr | startswith("2026-02-20 09:16:18"))
-| {time: .record.time.repr, level: .record.level.name, msg: .record.message, exception: .record.exception, extra: .record.extra, text: .text}
+select(.timestamp | startswith("2026-03-22T09:16:18"))
+| {time: .timestamp, level: .level, msg: .event, exception: .exception, service: .service}
 FILTER
 jq -cf /tmp/jq_window.jq data/logs/app/mixd.log
 ```
-Replace the timestamp prefix as needed — use `"2026-02-20 09:16"` for a full minute, `"2026-02-20 09"` for an hour.
+Replace the timestamp prefix as needed — use `"2026-03-22T09:16"` for a full minute.
 
-### Extract exception details (check .extra first, .record.exception second)
+### Extract exception details
 ```bash
 cat > /tmp/jq_exceptions.jq << 'FILTER'
-select(.record.level.name == "ERROR")
-| {time: .record.time.repr,
-   msg: .record.message,
-   error_type: .record.extra.error_type,
-   error_message: .record.extra.error_message,
-   traceback: .record.exception}
+select(.level == "error")
+| {time: .timestamp,
+   msg: .event,
+   error_type: .error_type,
+   error_message: .error_message,
+   traceback: .exception}
 FILTER
 jq -cf /tmp/jq_exceptions.jq data/logs/app/mixd.log | tail -10
 ```
@@ -148,20 +147,20 @@ jq -cf /tmp/jq_exceptions.jq data/logs/app/mixd.log | tail -10
 ```bash
 cat > /tmp/jq_op.jq << 'FILTER'
 select(
-  (.record.extra.operation == "get_spotify_playlist") or
-  (.record.message | contains("get_spotify_playlist"))
+  (.operation == "get_spotify_playlist") or
+  (.event | contains("get_spotify_playlist"))
 )
-| {time: .record.time.repr, level: .record.level.name, msg: .record.message, extra: .record.extra}
+| {time: .timestamp, level: .level, msg: .event, service: .service}
 FILTER
 jq -cf /tmp/jq_op.jq data/logs/app/mixd.log
 ```
 Replace `"get_spotify_playlist"` with the operation name.
 
-### All HTTP calls (request + response) in sequence
+### All HTTP calls in sequence
 ```bash
 cat > /tmp/jq_http.jq << 'FILTER'
-select(.record.extra.url != null)
-| {time: .record.time.repr, level: .record.level.name, method: .record.extra.method, status: .record.extra.status, url: .record.extra.url}
+select(.url != null)
+| {time: .timestamp, level: .level, method: .method, status: .status, url: .url}
 FILTER
 jq -cf /tmp/jq_http.jq data/logs/app/mixd.log | tail -30
 ```
@@ -169,13 +168,13 @@ jq -cf /tmp/jq_http.jq data/logs/app/mixd.log | tail -30
 ### All failed operations with error details
 ```bash
 cat > /tmp/jq_failures.jq << 'FILTER'
-select(.record.message | startswith("Operation failed"))
-| {time: .record.time.repr,
-   op: .record.extra.operation,
-   error_type: .record.extra.error_type,
-   error_message: .record.extra.error_message,
-   classification: .record.extra.error_classification,
-   duration_s: .record.extra.duration_seconds}
+select(.event | startswith("Operation failed"))
+| {time: .timestamp,
+   op: .operation,
+   error_type: .error_type,
+   error_message: .error_message,
+   classification: .error_classification,
+   duration_s: .duration_seconds}
 FILTER
 jq -cf /tmp/jq_failures.jq data/logs/app/mixd.log
 ```
@@ -183,8 +182,8 @@ jq -cf /tmp/jq_failures.jq data/logs/app/mixd.log
 ### Errors from a specific service
 ```bash
 cat > /tmp/jq_svc.jq << 'FILTER'
-select(.record.level.name == "ERROR" and .record.extra.service == "spotify_client")
-| {time: .record.time.repr, msg: .record.message, extra: .record.extra}
+select(.level == "error" and .service == "spotify_client")
+| {time: .timestamp, msg: .event, operation: .operation}
 FILTER
 jq -cf /tmp/jq_svc.jq data/logs/app/mixd.log
 ```
@@ -193,23 +192,22 @@ Replace `"spotify_client"` with the target service.
 ### Rate limit events (HTTP 429)
 ```bash
 cat > /tmp/jq_429.jq << 'FILTER'
-select(.record.extra.status == 429)
-| {time: .record.time.repr, url: .record.extra.url, retry_after: .record.extra.retry_after}
+select(.status == 429)
+| {time: .timestamp, url: .url, retry_after: .retry_after}
 FILTER
 jq -cf /tmp/jq_429.jq data/logs/app/mixd.log
 ```
 
 ### All unique services that logged
 ```bash
-jq -r '.record.extra.service // empty' data/logs/app/mixd.log | sort -u
+jq -r '.service // empty' data/logs/app/mixd.log | sort -u
 ```
-(No `!` in this one — safe as inline.)
 
-### Retry events (tenacity before_sleep)
+### Retry events
 ```bash
 cat > /tmp/jq_retries.jq << 'FILTER'
-select(.record.message | test("retry|Retrying|backoff|pausing"; "i"))
-| {time: .record.time.repr, msg: .record.message, extra: .record.extra}
+select(.event | test("retry|Retrying|backoff|pausing"; "i"))
+| {time: .timestamp, msg: .event, service: .service}
 FILTER
 jq -cf /tmp/jq_retries.jq data/logs/app/mixd.log
 ```
@@ -218,11 +216,11 @@ jq -cf /tmp/jq_retries.jq data/logs/app/mixd.log
 
 1. **Locate log**: use `data/logs/app/mixd.log`; use Glob for rotated files if user specifies a date
 2. **Orient**: run the "errors and warnings" recipe to understand the scope
-3. **Narrow to incident window**: use timestamp-prefix filtering — it's the fastest way to zoom in
-4. **Extract exception details**: check `.extra.error_type` and `.extra.error_message` first; check `.record.exception` second (usually null)
-5. **Build HTTP timeline**: correlate "HTTP request" → "HTTP response/error" gaps to distinguish hook errors (≤5ms, no response) from server errors (response present) from timeouts (≥timeout setting, no response)
-6. **Build operation timeline**: filter by `.extra.operation` to get start → HTTP calls → failure sequence
-7. **Cross-reference source**: if `.record.function` and `.record.line` point to something useful, use Read on the relevant source file to show context
+3. **Narrow to incident window**: use timestamp-prefix filtering
+4. **Extract exception details**: check `.error_type` and `.error_message` first; check `.exception` second
+5. **Build HTTP timeline**: correlate "HTTP request" → "HTTP response/error" gaps
+6. **Build operation timeline**: filter by `.operation` to get start → HTTP calls → failure sequence
+7. **Cross-reference source**: use `.func_name` and `.lineno` with Read on the relevant source file
 8. **Report**: structured diagnosis
 
 ## Output Format
@@ -230,24 +228,24 @@ jq -cf /tmp/jq_retries.jq data/logs/app/mixd.log
 ```
 ## Diagnosis: [operation name] failed at [timestamp]
 
-**Root Cause**: [.extra.error_type]: [.extra.error_message]
-**HTTP Status**: [if applicable — from .extra.status or .extra.http_status_code]
-**Error Classification**: [from .extra.error_classification, if set]
+**Root Cause**: [.error_type]: [.error_message]
+**HTTP Status**: [if applicable — from .status or .http_status_code]
+**Error Classification**: [from .error_classification, if set]
 
 **Timeline** (time-ordered):
-- [time] DEBUG   Starting operation: [name]
-- [time] DEBUG   HTTP request [METHOD] [url]
-- [time] WARNING HTTP error response [status] [url]   ← or absent if hook-level failure
-- [time] ERROR   Operation failed: [name] ([duration_s]s elapsed)
+- [time] debug   Starting operation: [name]
+- [time] debug   HTTP request [METHOD] [url]
+- [time] warning HTTP error response [status] [url]
+- [time] error   Operation failed: [name] ([duration_s]s elapsed)
 
-**Exception** (from .extra):
-  type:    [.extra.error_type]
-  message: [.extra.error_message]
+**Exception** (from top-level fields):
+  type:    [.error_type]
+  message: [.error_message]
 
-**Traceback** (from .record.exception — present on all @resilient_operation failures):
-  [traceback content, or "null" for logs predating 2026-02-20 fix]
+**Traceback** (from .exception — present on all @resilient_operation failures):
+  [traceback content, or null]
 
-**Source Location**: [file]:[line] in [function] (from .record.name / .record.function / .record.line)
+**Source Location**: [.logger]:[.lineno] in [.func_name]
 
 **Suggested Fix**: [1-2 sentences based on error type and timeline pattern]
 ```

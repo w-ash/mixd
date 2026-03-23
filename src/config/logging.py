@@ -1,254 +1,180 @@
-"""Logging configuration and utilities using Loguru.
+"""Logging configuration and utilities using structlog.
 
-This module provides centralized logging setup for the Mixd application,
-including structured logging with Loguru, error handling decorators for
-external API calls, and integration with third-party libraries like Prefect.
-
-Key Components:
---------------
-- Structured logging with Loguru
-- Progress.console unified output coordination
+Provides centralized logging setup with dual output: colorized console for
+humans, flat JSON for file/agents/aggregation. Uses structlog in stdlib
+integration mode so Prefect, Uvicorn, and FastAPI logs flow through
+automatically — no bridge code needed.
 
 Public API:
 ----------
-setup_loguru_logger(verbose: bool = False) -> None
-    Configure Loguru logger for the application
+setup_logging(verbose: bool = False) -> None
+    Configure structlog + stdlib handlers for the application
 
-get_logger(name: str) -> Logger
+get_logger(name: str) -> BoundLogger
     Get a context-aware logger for your module
-    Args: name - Usually __name__ from the calling module
     Usage: logger = get_logger(__name__)
 
-Quick Start:
------------
-1. Get a logger for your module:
-    ```python
-    from src.config import get_logger
-
-    logger = get_logger(__name__)
-    ```
-
-2. Log with structured context:
-    ```python
-    logger.info("Starting sync", playlist_id=123)
-    ```
+logging_context(**kwargs) -> ContextManager
+    Bind structured context for the duration of a block (async-safe via contextvars)
+    Usage: with logging_context(workflow_id=42): ...
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: Pydantic settings validators, loguru config
-
+from collections.abc import Iterator
+from contextlib import contextmanager
 import logging
+import logging.handlers
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING, Any, ClassVar, override
 
-from loguru import logger
 from rich.console import Console
-
-if TYPE_CHECKING:
-    from loguru import Logger
+import structlog
+from structlog.contextvars import bind_contextvars, unbind_contextvars
+from structlog.stdlib import BoundLogger
 
 from .settings import settings
-
-# =============================================================================
-# PREFECT → LOGURU BRIDGE
-# =============================================================================
-
-
-class PrefectToLoguruHandler(logging.Handler):
-    """Routes Python logging (including Prefect) through Loguru for unified formatting.
-
-    Extracted to top-level so it can be used by both `enable_unified_console_output()`
-    (CLI progress coordination) and `intercept_prefect_loggers()` (API server).
-    """
-
-    _LEVEL_MAPPING: ClassVar[dict[int, str]] = {
-        logging.DEBUG: "DEBUG",
-        logging.INFO: "INFO",
-        logging.WARNING: "WARNING",
-        logging.ERROR: "ERROR",
-        logging.CRITICAL: "CRITICAL",
-    }
-
-    @override
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            loguru_level = self._LEVEL_MAPPING.get(record.levelno, "INFO")
-            bound = logger.bind(module=record.name, service="mixd")
-
-            # Forward exception tracebacks so they appear in loguru output
-            if record.exc_info and record.exc_info[0] is not None:
-                bound.opt(exception=record.exc_info).log(
-                    loguru_level, record.getMessage()
-                )
-            else:
-                bound.log(loguru_level, record.getMessage())
-
-        except Exception:
-            self.handleError(record)
-
-
-# Prefect logger names to intercept — covers Prefect 3.0 subsystems
-_PREFECT_LOGGERS = [
-    "prefect",
-    "prefect.flow_runs",
-    "prefect.task_runs",
-    "prefect.logging",
-    "prefect.engine",
-    "prefect.client",
-    "prefect.worker",
-    "prefect.workers",
-    "prefect.server",
-    "prefect.api",
-    "prefect.flows",
-    "prefect.tasks",
-    "prefect.infrastructure",
-    "prefect.deployments",
-    "prefect.blocks",
-    "prefect.runtime",
-    "prefect.settings",
-    "prefect.orchestration",
-]
-
-
-def intercept_prefect_loggers() -> None:
-    """Attach PrefectToLoguruHandler to all Prefect loggers.
-
-    Safe to call multiple times — clears existing bridge handlers before
-    re-attaching. Used by both CLI (via enable_unified_console_output) and
-    API server (via lifespan).
-    """
-    bridge_handler = PrefectToLoguruHandler()
-    bridge_handler.setLevel(getattr(logging, settings.logging.prefect_bridge_level))
-
-    original_handlers: dict[str, list[logging.Handler]] = {}
-    for logger_name in _PREFECT_LOGGERS:
-        target_logger = logging.getLogger(logger_name)
-        original_handlers[logger_name] = target_logger.handlers.copy()
-
-        # Remove existing console handlers to prevent duplication
-        target_logger.handlers = [
-            h
-            for h in target_logger.handlers
-            if not isinstance(h, logging.StreamHandler)
-        ]
-
-        target_logger.addHandler(bridge_handler)
-        target_logger.setLevel(getattr(logging, settings.logging.prefect_logger_level))
-        target_logger.propagate = False
-
-    global _original_handlers_by_logger, _bridge_handler
-    _original_handlers_by_logger = original_handlers
-    _bridge_handler = bridge_handler
-
-
-# =============================================================================
-# MODULE-LEVEL STATE FOR CONSOLE OUTPUT COORDINATION
-# =============================================================================
-
-# Store state for console output coordination
-_original_handlers_by_logger: dict[str, list[logging.Handler]] = {}
-_bridge_handler: logging.Handler | None = None
 
 # =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 
 
-def setup_loguru_logger(verbose: bool = False) -> None:
-    """Configure Loguru logger for the application.
+def _shared_processors() -> list[structlog.types.Processor]:
+    """Processor chain shared by all output handlers."""
+    return [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.ExtraAdder(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.CallsiteParameterAdder([
+            structlog.processors.CallsiteParameter.FUNC_NAME,
+            structlog.processors.CallsiteParameter.LINENO,
+        ]),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
+    ]
+
+
+def setup_logging(verbose: bool = False) -> None:
+    """Configure structlog with dual output: pretty console + flat JSON file.
+
+    Uses stdlib integration mode — all Python loggers (Prefect, Uvicorn, etc.)
+    flow through structlog's processor pipeline automatically.
 
     Args:
-        verbose: Enable verbose logging with debug level and detailed tracebacks
-
-    Note:
-        - Uses modern logger.configure() for centralized configuration
-        - Console format is colorized and simplified
-        - File format includes full structured information
-        - Security controls for production environments
-        - All settings configurable via environment variables
+        verbose: Enable DEBUG console output and richer tracebacks.
     """
-    # Create log directory structure
-    log_file_path = Path(settings.logging.log_file)
-    log_dir = log_file_path.parent
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    # -------------------------------------------------------------------------
-    # Determine Security Settings
-    # -------------------------------------------------------------------------
-    # In verbose mode, override production security settings
-    enable_backtrace = verbose or settings.logging.backtrace_in_production
-    enable_diagnose = verbose or settings.logging.diagnose_in_production
-
-    # Console level - DEBUG in verbose, otherwise from settings
     console_level = "DEBUG" if verbose else settings.logging.console_level
 
-    # Enqueue setting for async safety
-    enqueue_logs = not settings.logging.real_time_debug
+    # Create log directory
+    log_file_path = Path(settings.logging.log_file)
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # -------------------------------------------------------------------------
-    # Format Strings
-    # -------------------------------------------------------------------------
-    # Use custom formats if provided, otherwise use sensible defaults
-    console_format = settings.logging.console_format or (
-        "<green>{time:HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:"
-        "<cyan>{line}</cyan> - "
-        "<level>{message}</level>"
-    )
+    shared = _shared_processors()
 
-    file_format = settings.logging.file_format or (
-        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level} | {process}:{thread} | "
-        "{extra[service]} | {extra[module]} | {name}:{function}:{line} | {message}"
-    )
-
-    # -------------------------------------------------------------------------
-    # Modern Loguru Configuration
-    # -------------------------------------------------------------------------
-    _ = logger.configure(
-        handlers=[
-            # Console handler
-            {
-                "sink": sys.stdout,
-                "level": console_level,
-                "format": console_format,
-                "colorize": True,
-                "backtrace": enable_backtrace,
-                "diagnose": enable_diagnose,
-            },
-            # File handler
-            {
-                "sink": str(settings.logging.log_file),
-                "level": settings.logging.file_level,
-                "format": file_format,
-                "rotation": settings.logging.rotation,
-                "retention": settings.logging.retention,
-                "compression": settings.logging.compression,
-                "backtrace": enable_backtrace,
-                "diagnose": enable_diagnose,
-                "enqueue": enqueue_logs,
-                "catch": settings.logging.catch_internal_errors,
-                "serialize": settings.logging.serialize,
-            },
+    # --- Configure structlog (wraps stdlib logging) ---
+    structlog.configure(
+        processors=[
+            *shared,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
-        extra={"service": "mixd", "module": "root"},
+        wrapper_class=BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
     )
 
+    # --- Console handler (colorized for humans) ---
+    # Warm editorial palette matching the mixd brand identity
+    # Uses 256-color ANSI escapes for muted, readable tones
+    level_styles: dict[str, str] = {
+        "debug": "\033[38;5;245m",  # warm gray — unobtrusive
+        "info": "\033[38;5;178m",  # amber/gold — brand primary
+        "warning": "\033[38;5;214m",  # bright amber — attention
+        "warn": "\033[38;5;214m",
+        "error": "\033[38;5;167m",  # muted red — urgent but not garish
+        "critical": "\033[1;38;5;167m",  # bold muted red
+        "exception": "\033[38;5;167m",
+        "notset": "\033[38;5;245m",
+    }
 
-def setup_script_logger(script_name: str) -> None:
-    """Lightweight logging config for standalone scripts — console only, no file."""
-    logger.configure(
-        handlers=[
-            {
-                "sink": sys.stderr,
-                "level": "DEBUG",
-                "format": "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-                "colorize": True,
-            },
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(getattr(logging, console_level))
+    console_handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                structlog.dev.ConsoleRenderer(
+                    colors=True,
+                    level_styles=level_styles,
+                ),
+            ],
+        )
+    )
+
+    # --- File handler (flat JSON for agents/jq/Fly.io) ---
+    file_handler = logging.handlers.RotatingFileHandler(
+        str(log_file_path),
+        maxBytes=_parse_rotation(settings.logging.rotation),
+        backupCount=_parse_retention(settings.logging.retention),
+    )
+    file_handler.setLevel(getattr(logging, settings.logging.file_level))
+    file_handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                structlog.processors.dict_tracebacks,
+                structlog.processors.JSONRenderer(),
+            ],
+        )
+    )
+
+    # --- Root logger ---
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(console_handler)
+    root.addHandler(file_handler)
+    root.setLevel(logging.DEBUG)  # Let handlers filter by their own levels
+
+    # --- Prefect log levels (stdlib integration — no bridge needed) ---
+    logging.getLogger("prefect").setLevel(
+        getattr(logging, settings.logging.prefect_log_level)
+    )
+
+    # Suppress noisy third-party loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+
+def setup_script_logger(_script_name: str) -> None:
+    """Lightweight console-only logging for standalone scripts."""
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
-        extra={"service": script_name, "module": script_name},
+        wrapper_class=BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
     )
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                structlog.dev.ConsoleRenderer(colors=True),
+            ],
+        )
+    )
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG)
 
 
 # =============================================================================
@@ -256,199 +182,203 @@ def setup_script_logger(script_name: str) -> None:
 # =============================================================================
 
 
-def get_logger(name: str) -> Logger:
+def get_logger(name: str) -> BoundLogger:
     """Get a pre-configured logger instance for the given module.
 
     Args:
         name: Module name (typically __name__)
 
     Returns:
-        Pre-configured Loguru logger instance with module context
+        Pre-configured structlog BoundLogger with module context
 
     Example:
         ```python
         logger = get_logger(__name__)
         logger.info("Operation complete", operation="sync")
         ```
-
-    Notes:
-        - Returns a bound logger with structured context
-        - Inherits global Loguru configuration
-        - Thread-safe for async operations
     """
-    return logger.bind(
-        module=name,
-        service="mixd",
-    )
+    return structlog.get_logger(name, service="mixd", module=name)
 
 
 # =============================================================================
-# PROGRESS.CONSOLE UNIFIED LOGGING
+# CONTEXT MANAGEMENT
 # =============================================================================
 
 
-def enable_unified_console_output(progress_console: Console) -> None:
-    """Enable unified console output through Rich Progress.console for coordinated display.
+@contextmanager
+def logging_context(**kwargs: object) -> Iterator[None]:
+    """Bind structured log context for the duration of a block.
 
-    Routes all logging (Loguru + Python/Prefect) through Progress.console to ensure
-    proper coordination between log messages and progress bars. This ensures logs
-    appear above pinned progress bars rather than interfering with them.
+    Replaces loguru's ``logger.contextualize()``. Uses structlog's contextvars
+    for async-safe propagation across ``await`` boundaries.
 
-    Args:
-        progress_console: Rich Console instance from Progress (progress.console)
+    Example:
+        ```python
+        with logging_context(workflow_id=42, run_id="abc123"):
+            logger.info("Starting workflow")  # includes workflow_id, run_id
+        ```
     """
-
-    from loguru import logger as loguru_logger
-
+    bind_contextvars(**kwargs)
     try:
-        # Remove all existing Loguru handlers (public API: no-arg remove clears all)
-        loguru_logger.remove()
-
-        # Create custom sink that routes to Progress.console with Rich formatting
-        def progress_console_sink(message: Any) -> None:
-            """Custom Loguru sink that routes logs through Progress.console with Rich markup."""
-            try:
-                # Extract record information from Loguru message object
-                record = message.record
-
-                # Format timestamp
-                timestamp = record["time"].strftime("%H:%M:%S.%f")[:-3]
-
-                # Map levels to Rich colors
-                level_colors = {
-                    "DEBUG": "blue",
-                    "INFO": "white",
-                    "WARNING": "yellow",
-                    "ERROR": "red",
-                    "CRITICAL": "bright_red",
-                }
-                level_name = record["level"].name
-                level_color = level_colors.get(level_name, "white")
-
-                # Create Rich formatted message (no ANSI codes)
-                rich_message = (
-                    f"[green]{timestamp}[/green] | "
-                    f"[{level_color}]{level_name: <8}[/{level_color}] | "
-                    f"[cyan]{record['name']}[/cyan]:[cyan]{record['function']}[/cyan]:[cyan]{record['line']}[/cyan] - "
-                    f"[{level_color}]{record['message']}[/{level_color}]"
-                )
-
-                # Print with Rich markup (no raw ANSI codes)
-                progress_console.print(rich_message, highlight=False)
-
-            except Exception:
-                # Fallback: print plain message
-                progress_console.print(str(message).rstrip(), highlight=False)
-
-        # Add Progress.console sink for application logs with Rich formatting
-        _ = loguru_logger.add(
-            progress_console_sink,
-            level=settings.logging.console_level,
-            format="{message}",  # Simple format since we handle formatting in the sink
-            colorize=False,  # Disable ANSI colors - use Rich markup instead
-        )
-
-        # Keep file logging intact
-        log_file_path = Path(settings.logging.log_file)
-        file_format = settings.logging.file_format or (
-            "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level} | {process}:{thread} | "
-            "{extra[service]} | {extra[module]} | {name}:{function}:{line} | {message}"
-        )
-
-        _ = loguru_logger.add(
-            str(log_file_path),
-            level=settings.logging.file_level,
-            format=file_format,
-            rotation=settings.logging.rotation,
-            retention=settings.logging.retention,
-            compression=settings.logging.compression,
-            enqueue=not settings.logging.real_time_debug,
-            catch=settings.logging.catch_internal_errors,
-            serialize=settings.logging.serialize,
-        )
-
-        # Route Prefect logs through Loguru for unified formatting
-        # This creates: Prefect → Loguru → Progress.console pipeline
-        intercept_prefect_loggers()
-
-    except Exception as e:
-        # Fallback error reporting through progress console
-        progress_console.print(
-            f"[yellow]Warning: Failed to configure progress console logging: {e}[/yellow]"
-        )
+        yield
+    finally:
+        unbind_contextvars(*kwargs.keys())
 
 
-def add_workflow_run_logger(workflow_id: str, run_id: str) -> int:
-    """Add a temporary Loguru sink that writes per-run JSONL log file.
+# =============================================================================
+# PER-WORKFLOW-RUN JSONL SINKS
+# =============================================================================
 
-    Returns the sink ID so the caller can remove it when the run completes.
-    The sink only captures log entries that have a matching ``workflow_run_id``
-    in their ``extra`` dict — other log entries are filtered out.
+_active_run_handlers: dict[str, logging.Handler] = {}
+
+
+def add_workflow_run_logger(workflow_id: str, run_id: str) -> str:
+    """Add a temporary handler that writes per-run JSONL log file.
+
+    Returns the run_id as a handle for ``remove_workflow_run_logger()``.
+    The handler only captures log entries with a matching ``workflow_run_id``
+    in the structlog context.
     """
     log_dir = Path(settings.workflow_log_dir) / workflow_id
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{run_id}.jsonl"
 
-    def _run_filter(record: Any) -> bool:
-        return record["extra"].get("workflow_run_id") == run_id
-
-    sink_id: int = logger.add(
-        str(log_path),
-        level="DEBUG",
-        serialize=True,
-        filter=_run_filter,
-        enqueue=False,  # Real-time writes for crash safety
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=_shared_processors(),
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ],
     )
-    return sink_id
+
+    class _RunHandler(logging.FileHandler):
+        """FileHandler that only writes logs with a matching workflow_run_id.
+
+        Uses structlog's public API to read contextvars directly, avoiding
+        a full context copy on every log record.
+        """
+
+        def emit(self, record: logging.LogRecord) -> None:
+            from structlog.contextvars import get_contextvars
+
+            if get_contextvars().get("workflow_run_id") == run_id:
+                super().emit(record)
+
+    handler = _RunHandler(str(log_path))
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(formatter)
+
+    logging.getLogger().addHandler(handler)
+    _active_run_handlers[run_id] = handler
+    return run_id
 
 
-def remove_workflow_run_logger(sink_id: int) -> None:
-    """Remove a per-run log sink after workflow execution completes."""
-    import contextlib
+def remove_workflow_run_logger(handle: str) -> None:
+    """Remove a per-run log handler after workflow execution completes."""
+    handler = _active_run_handlers.pop(handle, None)
+    if handler:
+        logging.getLogger().removeHandler(handler)
+        handler.close()
 
-    with contextlib.suppress(ValueError):
-        logger.remove(sink_id)
+
+# =============================================================================
+# RICH PROGRESS CONSOLE COORDINATION
+# =============================================================================
+
+_saved_console_handler: logging.Handler | None = None
+
+
+class _RichProgressHandler(logging.Handler):
+    """Logging handler that routes output through a Rich Console."""
+
+    def __init__(self, console: Console) -> None:
+        super().__init__()
+        self._console = console
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self._console.print(msg, highlight=False)
+        except Exception:
+            self.handleError(record)
+
+
+def enable_unified_console_output(progress_console: Console) -> None:
+    """Route all console logging through Rich Progress.console.
+
+    Ensures log messages appear above pinned progress bars rather than
+    interfering with them. File logging is unaffected.
+
+    Args:
+        progress_console: Rich Console instance from Progress (progress.console)
+    """
+    global _saved_console_handler
+    root = logging.getLogger()
+
+    # Find and remove the current console StreamHandler
+    for h in root.handlers[:]:
+        if isinstance(h, logging.StreamHandler) and not isinstance(
+            h, (logging.FileHandler, logging.handlers.RotatingFileHandler)
+        ):
+            _saved_console_handler = h
+            root.removeHandler(h)
+            break
+
+    # Add handler that writes through Progress.console
+    rich_handler = _RichProgressHandler(progress_console)
+    rich_handler.setLevel(getattr(logging, settings.logging.console_level))
+    rich_handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=_shared_processors(),
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                structlog.dev.ConsoleRenderer(colors=False),
+            ],
+        )
+    )
+    root.addHandler(rich_handler)
 
 
 def restore_standard_console_output() -> None:
-    """Restore standard console output after unified Progress.console coordination ends."""
-    try:
-        import logging
+    """Restore standard console handler after Progress coordination ends."""
+    global _saved_console_handler
+    root = logging.getLogger()
 
-        from loguru import logger as loguru_logger
+    # Remove Rich progress handler(s)
+    for h in root.handlers[:]:
+        if isinstance(h, _RichProgressHandler):
+            root.removeHandler(h)
+            h.close()
 
-        global _original_handlers_by_logger, _bridge_handler
+    # Restore saved console handler
+    if _saved_console_handler:
+        root.addHandler(_saved_console_handler)
+        _saved_console_handler = None
 
-        # Remove all current Loguru handlers
-        loguru_logger.remove()
 
-        # Restore normal Loguru configuration
-        setup_loguru_logger()
+# =============================================================================
+# ROTATION / RETENTION HELPERS
+# =============================================================================
 
-        # Restore Python logging for all intercepted loggers
-        if _original_handlers_by_logger:
-            for logger_name, original_handlers in _original_handlers_by_logger.items():
-                target_logger = logging.getLogger(logger_name)
-                target_logger.handlers.clear()
 
-                # Restore original handlers and propagation for this logger
-                for handler in original_handlers:
-                    target_logger.addHandler(handler)
+def _parse_rotation(rotation_str: str) -> int:
+    """Convert '10 MB' to bytes for RotatingFileHandler.maxBytes."""
+    parts = rotation_str.strip().split()
+    value = float(parts[0])
+    unit = parts[1].upper() if len(parts) > 1 else "B"
+    multipliers = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}
+    return int(value * multipliers.get(unit, 1))
 
-                # Restore propagation (we set it to False)
-                target_logger.propagate = True
 
-            _original_handlers_by_logger = {}
-
-        # Clean up bridge handler reference
-        _bridge_handler = None
-
-    except Exception as e:
-        # Final fallback: complete reconfiguration
-        print(
-            f"Warning: Failed to restore progress console logging, doing full reset: {e}"
-        )
-        from loguru import logger as loguru_logger
-
-        loguru_logger.remove()
-        setup_loguru_logger()
+def _parse_retention(retention_str: str) -> int:
+    """Convert '1 week' to backup count for RotatingFileHandler.backupCount."""
+    lower = retention_str.lower().strip()
+    if "week" in lower:
+        weeks = int(lower.split()[0]) if lower[0].isdigit() else 1
+        return weeks * 7
+    if "day" in lower:
+        return int(lower.split()[0]) if lower[0].isdigit() else 3
+    if "month" in lower:
+        return 30
+    return 7  # default

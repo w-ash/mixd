@@ -40,10 +40,6 @@ NonNegativeInt = Annotated[int, Field(ge=0)]
 ConfidenceScore = Annotated[int, Field(ge=0, le=100)]
 SimilarityScore = Annotated[float, Field(ge=0.0, le=1.0)]
 
-# Log level literals — Loguru accepts TRACE/SUCCESS, stdlib logging does not
-LoguruLevel = Literal[
-    "TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"
-]
 StdlibLogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
@@ -61,72 +57,39 @@ class DatabaseConfig(BaseModel):
 
 
 class LoggingConfig(BaseModel):
-    """Logging configuration for console and file output."""
+    """Logging configuration for console and file output.
 
-    console_level: LoguruLevel = Field(
+    Uses structlog in stdlib integration mode — Prefect/Uvicorn/FastAPI logs
+    flow through automatically. Console gets colorized output, file gets flat JSON.
+    """
+
+    console_level: StdlibLogLevel = Field(
         default="INFO",
-        description="Minimum log level for console (stderr) output.",
+        description="Minimum log level for console (stdout) output.",
     )
-    file_level: LoguruLevel = Field(
+    file_level: StdlibLogLevel = Field(
         default="DEBUG",
-        description="Minimum log level for the rotating log file.",
+        description="Minimum log level for the rotating JSON log file.",
     )
     log_file: Path = Field(
         default=Path("mixd.log"),
         description="Path to the application log file.",
     )
-    real_time_debug: bool = Field(
-        default=True,
-        description="Flush file logs immediately instead of buffering. Useful for debugging crashes where buffered output would be lost.",
-    )
-
-    # Security: these two should stay False in production
-    diagnose_in_production: bool = Field(
-        default=False,
-        description="Allow Loguru to inspect local variables in tracebacks. Disable in production to prevent sensitive data exposure.",
-    )
-    backtrace_in_production: bool = Field(
-        default=False,
-        description="Include full exception chain tracebacks. Disable in production to reduce log verbosity and information leakage.",
-    )
-
-    console_format: str | None = Field(
-        default=None,
-        description="Custom Loguru format string for console output. None uses the built-in default.",
-    )
-    file_format: str | None = Field(
-        default=None,
-        description="Custom Loguru format string for file output. None uses the built-in default.",
-    )
     rotation: str = Field(
         default="10 MB",
-        description="Log file rotation trigger (size or time interval).",
+        description="Log file rotation trigger (e.g., '10 MB', '100 MB').",
     )
     retention: str = Field(
         default="1 week",
-        description="How long rotated log files are kept before deletion.",
+        description="How long rotated log files are kept (mapped to backup count).",
     )
-    compression: str = Field(
-        default="zip",
-        description="Compression format for rotated log files.",
-    )
-    serialize: bool = Field(
-        default=True,
-        description="Enable JSON structured logging for file output.",
-    )
-    catch_internal_errors: bool = Field(
-        default=True,
-        description="Catch and log errors within Loguru itself instead of propagating.",
-    )
-
-    # Prefect levels use getattr(logging, level) — stdlib only, no TRACE/SUCCESS
-    prefect_bridge_level: StdlibLogLevel = Field(
+    prefect_log_level: StdlibLogLevel = Field(
         default="DEBUG",
-        description="Minimum level for the handler that forwards Prefect framework logs into Loguru.",
+        description="Minimum level for Prefect framework logs (stdlib integration — no bridge needed).",
     )
     prefect_logger_level: StdlibLogLevel = Field(
         default="DEBUG",
-        description="Minimum level applied to individual Prefect logger instances (prefect.flow, prefect.task, etc.).",
+        description="Minimum level applied to individual Prefect logger instances.",
     )
 
 
@@ -518,7 +481,6 @@ class Settings(BaseSettings):
         "console_log_level": ("logging", "console_level"),
         "file_log_level": ("logging", "file_level"),
         "log_file": ("logging", "log_file"),
-        "log_real_time_debug": ("logging", "real_time_debug"),
         # Credentials (identity — flat name matches field name)
         "spotify_client_id": ("credentials", None),
         "spotify_client_secret": ("credentials", None),

@@ -99,11 +99,12 @@ async def _push_sse_node_event(
             )
         )
     except Exception:
-        logger.opt(exception=True).warning(
+        logger.warning(
             "Failed to push SSE node_status event",
             run_id=run_id,
             node_id=event.task_def.id,
             status=status,
+            exc_info=True,
         )
     return counter
 
@@ -374,9 +375,10 @@ class RunHistoryObserver:
             )
         except Exception:
             self._persist_failure_count += 1
-            logger.opt(exception=True).warning(
+            logger.warning(
                 "Failed to persist node status",
                 run_id=self._run_id,
                 node_id=event.task_def.id,
                 status=status,
+                exc_info=True,
             )

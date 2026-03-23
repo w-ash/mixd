@@ -54,7 +54,7 @@ def _on_task_done(task: asyncio.Task[None]) -> None:
     if task.cancelled():
         logger.warning("Background task cancelled", **extra)
     elif exc := task.exception():
-        logger.opt(exception=exc).error("Background task failed", **extra)
+        logger.error("Background task failed", exc_info=exc, **extra)
     else:
         logger.info("Background task completed", **extra)
 

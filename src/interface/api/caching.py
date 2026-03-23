@@ -19,19 +19,21 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Path prefix → Cache-Control value (longest prefix first — first match wins)
-_CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(sorted(
-    [
-        ("/api/v1/workflows/nodes", "max-age=86400, stale-while-revalidate=604800"),
-        ("/api/v1/stats/", "max-age=30, stale-while-revalidate=300"),
-        ("/api/v1/connectors", "max-age=300, stale-while-revalidate=600"),
-        ("/api/v1/settings", "max-age=60, stale-while-revalidate=300"),
-        ("/api/v1/health", "no-cache"),
-        ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
-        ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),
-        ("/api/v1/workflows", "max-age=10, stale-while-revalidate=60"),
-    ],
-    key=lambda p: -len(p[0]),
-))
+_CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
+    sorted(
+        [
+            ("/api/v1/workflows/nodes", "max-age=86400, stale-while-revalidate=604800"),
+            ("/api/v1/stats/", "max-age=30, stale-while-revalidate=300"),
+            ("/api/v1/connectors", "max-age=300, stale-while-revalidate=600"),
+            ("/api/v1/settings", "max-age=60, stale-while-revalidate=300"),
+            ("/api/v1/health", "no-cache"),
+            ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
+            ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),
+            ("/api/v1/workflows", "max-age=10, stale-while-revalidate=60"),
+        ],
+        key=lambda p: -len(p[0]),
+    )
+)
 
 _DEFAULT_POLICY = "max-age=10, stale-while-revalidate=30"
 
@@ -100,7 +102,11 @@ class CachingMiddleware:
                 more_body = message.get("more_body", False)
                 body_parts.append(body)
 
-                if not more_body and response_headers is not None and initial_message is not None:
+                if (
+                    not more_body
+                    and response_headers is not None
+                    and initial_message is not None
+                ):
                     # Final body chunk — compute ETag and send
                     full_body = b"".join(body_parts)
 
@@ -117,9 +123,7 @@ class CachingMiddleware:
                         await send({"type": "http.response.body", "body": b""})
                     else:
                         await send(initial_message)
-                        await send(
-                            {"type": "http.response.body", "body": full_body}
-                        )
+                        await send({"type": "http.response.body", "body": full_body})
 
         await self.app(scope, receive, send_wrapper)
 

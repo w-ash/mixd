@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from src.config import get_logger
+from src.config.logging import logging_context
 from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
@@ -111,9 +112,7 @@ class BaseMatchingProvider(ABC):
 
         total = len(tracks)
 
-        with logger.contextualize(
-            operation=f"match_{self.service_name}", track_count=total
-        ):
+        with logging_context(operation=f"match_{self.service_name}", track_count=total):
             # Partition tracks by matching method
             isrc_tracks, artist_title_tracks, unprocessable_tracks = (
                 self._partition_tracks(tracks)

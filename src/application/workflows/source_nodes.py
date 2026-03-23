@@ -169,11 +169,12 @@ async def playlist_source(
         try:
             outcome = await workflow_context.execute_service(_sync_and_upsert)
         except Exception as e:
-            logger.opt(exception=True).error(
+            logger.error(
                 f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
                 connector=connector,
                 playlist_id=playlist_id,
                 error_type=type(e).__name__,
+                exc_info=True,
             )
             raise
 

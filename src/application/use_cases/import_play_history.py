@@ -17,6 +17,7 @@ from attrs import define, field
 from src.application.utilities.batch_results import BatchResult
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
+from src.config.logging import logging_context
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import (
     NullProgressEmitter,
@@ -153,7 +154,7 @@ class ImportTracksUseCase:
 
         timer = ExecutionTimer()
 
-        with logger.contextualize(
+        with logging_context(
             operation="import_tracks_use_case",
             service=command.service,
             mode=command.mode,

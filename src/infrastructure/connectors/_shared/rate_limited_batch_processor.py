@@ -40,7 +40,7 @@ from attrs import define, field
 from src.config import get_logger
 
 if TYPE_CHECKING:
-    from loguru import Logger
+    from structlog.stdlib import BoundLogger
 
 logger = get_logger(__name__).bind(service="rate_limited_batch_processor")
 
@@ -85,7 +85,7 @@ class RateLimitedBatchProcessor:
     batch_start_time: float = field(init=False)
     total_expected_items: int = field(init=False)
     shutdown_event: asyncio.Event = field(init=False)
-    logger: Logger = field(init=False)
+    logger: BoundLogger = field(init=False)
 
     def __attrs_post_init__(self):
         """Initialize runtime state after attrs construction."""

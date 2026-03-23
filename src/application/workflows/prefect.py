@@ -22,7 +22,7 @@ from prefect.logging import get_run_logger
 # Use Mixd's standard logger for module-level logging
 from src.application.services.progress_manager import AsyncProgressManager
 from src.config.constants import NodeType, WorkflowConstants
-from src.config.logging import get_logger
+from src.config.logging import get_logger, logging_context
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
     OperationStatus,
@@ -335,13 +335,14 @@ def build_flow(
                         f"{timeout_seconds}s timeout"
                     )
 
-                logger.opt(exception=True).error(
+                logger.error(
                     "Node execution failed",
                     node_id=task_id,
                     node_type=node_type,
                     execution_order=execution_order,
                     total_nodes=total_nodes,
                     duration_ms=duration_ms,
+                    exc_info=True,
                 )
                 failed_event = attrs.evolve(base_event, duration_ms=duration_ms)
                 await node_observer.on_node_failed(failed_event, exc)
@@ -647,7 +648,7 @@ async def run_workflow(
     run_sink_id = add_workflow_run_logger(workflow_def.id, workflow_run_id)
 
     try:
-        with logger.contextualize(
+        with logging_context(
             workflow_id=workflow_def.id,
             workflow_name=workflow_name,
             workflow_run_id=workflow_run_id,

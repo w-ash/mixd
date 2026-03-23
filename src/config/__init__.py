@@ -7,11 +7,11 @@ Public API:
 settings: Settings instance
     Modern Pydantic settings object with nested configuration
 
-get_logger(name: str) -> Logger
+get_logger(name: str) -> BoundLogger
     Get a context-aware logger for your module
 
-setup_loguru_logger(verbose: bool = False) -> None
-    Configure Loguru logger for the application
+setup_logging(verbose: bool = False) -> None
+    Configure structlog + stdlib handlers for the application
 
 Constants (non-configurable system values):
     BusinessLimits, HTTPStatus, MatchMethod, MappingOrigin, ReviewStatus,
@@ -47,9 +47,9 @@ from .factories import create_evaluation_service, create_matching_config
 from .logging import (
     enable_unified_console_output,
     get_logger,
-    intercept_prefect_loggers,
+    logging_context,
     restore_standard_console_output,
-    setup_loguru_logger,
+    setup_logging,
     setup_script_logger,
 )
 from .settings import (
@@ -79,10 +79,10 @@ __all__ = [
     "get_database_url",
     "get_logger",
     "get_sync_database_url",
-    "intercept_prefect_loggers",
     "log_startup_warnings",
+    "logging_context",
     "restore_standard_console_output",
     "settings",
-    "setup_loguru_logger",
+    "setup_logging",
     "setup_script_logger",
 ]

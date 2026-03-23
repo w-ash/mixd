@@ -18,11 +18,11 @@ from typing import Any, ClassVar, override
 
 from attrs import define, field
 import httpx
-from loguru import logger as _loguru_logger
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
+from src.config.logging import logging_context
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
     RetryPolicyFactory,
@@ -495,7 +495,7 @@ class SpotifyAPIClient(BaseAPIClient):
             name: Optional new playlist name
             description: Optional new playlist description
         """
-        with _loguru_logger.contextualize(operation="update_spotify_playlist_metadata"):
+        with logging_context(operation="update_spotify_playlist_metadata"):
             await self._retry_policy(
                 self._playlist_change_details_impl, playlist_id, name, description
             )

@@ -107,24 +107,32 @@ def upgrade() -> None:
 
     # ── Phase 3A: GIN trigram indexes for ILIKE acceleration ────────
     op.create_index(
-        "ix_tracks_title_trgm", "tracks", ["title"],
+        "ix_tracks_title_trgm",
+        "tracks",
+        ["title"],
         postgresql_using="gin",
         postgresql_ops={"title": "gin_trgm_ops"},
     )
     op.create_index(
-        "ix_tracks_album_trgm", "tracks", ["album"],
+        "ix_tracks_album_trgm",
+        "tracks",
+        ["album"],
         postgresql_using="gin",
         postgresql_ops={"album": "gin_trgm_ops"},
     )
     op.create_index(
-        "ix_tracks_artists_text_trgm", "tracks", ["artists_text"],
+        "ix_tracks_artists_text_trgm",
+        "tracks",
+        ["artists_text"],
         postgresql_using="gin",
         postgresql_ops={"artists_text": "gin_trgm_ops"},
     )
 
     # ── Phase 2B: GIN index on artists JSONB ────────────────────────
     op.create_index(
-        "ix_tracks_artists_gin", "tracks", ["artists"],
+        "ix_tracks_artists_gin",
+        "tracks",
+        ["artists"],
         postgresql_using="gin",
         postgresql_ops={"artists": "jsonb_path_ops"},
     )
@@ -138,7 +146,9 @@ def upgrade() -> None:
 
     # ── Phase 4B: BRIN index on track_plays.played_at ───────────────
     op.create_index(
-        "ix_track_plays_played_at_brin", "track_plays", ["played_at"],
+        "ix_track_plays_played_at_brin",
+        "track_plays",
+        ["played_at"],
         postgresql_using="brin",
     )
 
@@ -191,11 +201,13 @@ def downgrade() -> None:
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
+
 def _convert_json_to_jsonb(table: str, columns: list[str]) -> None:
     """Convert JSON columns to JSONB (PostgreSQL auto-casts)."""
     for col in columns:
         op.alter_column(
-            table, col,
+            table,
+            col,
             type_=JSONB,
             existing_type=sa.JSON(),
             postgresql_using=f"{col}::jsonb",
@@ -206,7 +218,8 @@ def _convert_jsonb_to_json(table: str, columns: list[str]) -> None:
     """Revert JSONB columns back to JSON."""
     for col in columns:
         op.alter_column(
-            table, col,
+            table,
+            col,
             type_=sa.JSON(),
             existing_type=JSONB,
             postgresql_using=f"{col}::json",
@@ -220,7 +233,8 @@ def _widen_varchar(
 ) -> None:
     """Remove VARCHAR(N) length constraint → VARCHAR (unbounded)."""
     op.alter_column(
-        table, column,
+        table,
+        column,
         type_=sa.String(),
         existing_type=current_type or sa.String(255),
     )

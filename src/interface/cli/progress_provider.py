@@ -27,15 +27,16 @@ from rich.progress import (
 )
 
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from structlog.stdlib import BoundLogger
+
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,
     ProgressOperation,
 )
 from src.interface.cli.console import GOLD
-
-if TYPE_CHECKING:
-    from loguru import Logger
 
 logger = get_logger(__name__).bind(service="rich_progress_provider")
 
@@ -99,7 +100,7 @@ class RichProgressProvider:
     _live: Live
     _progress_started: bool
     _lock: asyncio.Lock
-    _logger: Logger
+    _logger: BoundLogger
 
     def __init__(self, show_rate: bool = True):
         """Initialize Rich progress provider with Progress.console coordination.

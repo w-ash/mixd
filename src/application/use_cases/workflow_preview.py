@@ -21,7 +21,7 @@ from src.application.workflows.prefect import (
     is_workflow_running,
 )
 from src.config.constants import WorkflowConstants
-from src.config.logging import get_logger
+from src.config.logging import get_logger, logging_context
 from src.domain.entities.workflow import WorkflowDef
 
 logger = get_logger(__name__).bind(service="workflow_preview")
@@ -64,7 +64,7 @@ class PreviewWorkflowUseCase:
 
         timer = ExecutionTimer()
 
-        with logger.contextualize(
+        with logging_context(
             workflow_id=workflow_def.id,
             workflow_name=workflow_def.name,
             mode="preview",
@@ -101,5 +101,5 @@ class PreviewWorkflowUseCase:
                 )
 
             except Exception:
-                logger.opt(exception=True).error("Preview execution failed")
+                logger.error("Preview execution failed", exc_info=True)
                 raise

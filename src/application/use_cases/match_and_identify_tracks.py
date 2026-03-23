@@ -19,6 +19,7 @@ from attrs import define, field
 
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
+from src.config.logging import logging_context
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Track, TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -138,7 +139,7 @@ class MatchAndIdentifyTracksUseCase:
 
         # Note: TrackMappingService initialization removed - relinking handled by SpotifyConnector
 
-        with logger.contextualize(
+        with logging_context(
             operation="match_and_identify_tracks",
             connector=command.connector,
             track_count=len(command.tracklist.tracks),
@@ -316,14 +317,14 @@ class MatchAndIdentifyTracksUseCase:
 
             if command.progress_manager and sub_op_id:
                 await complete_sub_operation(command.progress_manager, sub_op_id)
-
-            return raw_matches
         except Exception:
             if command.progress_manager and sub_op_id:
                 await complete_sub_operation(
                     command.progress_manager, sub_op_id, OperationStatus.FAILED
                 )
             raise
+        else:
+            return raw_matches
 
     async def _persist_review_candidates(
         self,

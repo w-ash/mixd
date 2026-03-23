@@ -1034,7 +1034,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 log.warning("Failed to set primary mapping - no matching record found")
 
         except Exception:
-            log.opt(exception=True).error("Error setting primary mapping")
+            log.error("Error setting primary mapping", exc_info=True)
             return False
         else:
             return success

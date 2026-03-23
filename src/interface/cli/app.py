@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 
 from src import __version__
-from src.config import setup_loguru_logger
+from src.config import setup_logging
 from src.interface.cli.console import get_console, print_banner
 
 VERSION = __version__
@@ -40,7 +40,7 @@ def init_cli(
     ] = False,
 ) -> None:
     """Initialize Mixd CLI with Rich console management."""
-    setup_loguru_logger(verbose)
+    setup_logging(verbose)
     Path("data").mkdir(exist_ok=True)
 
     from src.config import log_startup_warnings

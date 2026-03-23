@@ -16,10 +16,11 @@ from uuid import uuid4
 
 from attrs import define
 
-if TYPE_CHECKING:
-    from loguru import Logger
-
 from src.config import get_logger
+
+if TYPE_CHECKING:
+    from structlog.stdlib import BoundLogger
+
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,
@@ -53,7 +54,7 @@ class AsyncProgressManager:
 
     _coordinator: ProgressCoordinator
     _subscriber_lock: asyncio.Lock
-    _logger: Logger
+    _logger: BoundLogger
 
     def __init__(self):
         """Initialize progress manager."""

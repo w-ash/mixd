@@ -308,7 +308,7 @@ class SpotifyTokenManager:
                     self._token_info["refresh_token"]
                 )
             except Exception:
-                logger.opt(exception=True).warning("Silent token refresh failed")
+                logger.warning("Silent token refresh failed", exc_info=True)
                 return None
             else:
                 await self._save_to_storage(self._token_info)

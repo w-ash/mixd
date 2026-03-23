@@ -10,12 +10,12 @@ from enum import Enum
 from typing import Final
 
 from attrs import define, field
-from loguru import logger as _loguru_logger
+import structlog
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
-logger = _loguru_logger.bind(module=__name__)
+logger = structlog.get_logger(__name__)
 
 _DEBUG_TRUNCATION: Final = 10
 

@@ -38,7 +38,7 @@ Core technology decisions, supporting libraries, and architectural benefits that
 | **aiolimiter** | Rate limiting | Async rate limiting for API compliance, leaky bucket algorithm |
 | **rapidfuzz** | String matching | High-performance fuzzy matching for track resolution |
 | **toolz** | Functional utilities | Functional composition, efficient data processing |
-| **loguru** | Logging | Context-aware logging, minimal configuration |
+| **structlog** | Logging | Structured logging with stdlib integration, flat JSON + colorized console dual output |
 
 ---
 

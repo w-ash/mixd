@@ -64,14 +64,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 @pytest.fixture(autouse=True, scope="session")
 def _suppress_file_logging():
-    """Prevent tests from writing to the production log file."""
-    from loguru import logger as loguru_logger
+    """Prevent tests from writing to the production log file.
 
-    loguru_logger.configure(
-        handlers=[
-            {"sink": sys.stderr, "level": "WARNING", "format": "{level} | {message}"},
-        ],
-    )
+    Configures stdlib root logger to stderr-only at WARNING level,
+    suppressing the file handler that setup_logging() would normally add.
+    """
+    import logging
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.WARNING)
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
 
 
 @pytest.fixture(scope="session")
@@ -87,8 +92,7 @@ def postgres_url():
     with PostgresContainer("postgres:17-alpine") as pg:
         # testcontainers returns psycopg2:// URL; convert to psycopg3 driver
         sync_url = pg.get_connection_url()
-        async_url = sync_url.replace("psycopg2://", "psycopg://")
-        yield async_url
+        yield sync_url.replace("psycopg2://", "psycopg://")
 
 
 @async_fixture(scope="session", loop_scope="session")

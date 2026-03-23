@@ -6,7 +6,7 @@ warnings when the metrics dict is empty but the tracklist has tracks.
 
 import re
 
-from loguru import logger
+import structlog
 
 from src.application.metadata_transforms.metric_transforms import (
     filter_by_metric_range,
@@ -16,20 +16,11 @@ from src.domain.entities.track import TrackList
 from tests.fixtures import make_track
 
 
-def _capture_loguru_warnings(func):
-    """Helper to capture loguru warning messages during a function call."""
-    captured: list[str] = []
-
-    def sink(message):
-        if message.record["level"].name == "WARNING":
-            captured.append(message.record["message"])
-
-    sink_id = logger.add(sink, level="WARNING", format="{message}")
-    try:
+def _capture_warnings(func):
+    """Helper to capture structlog warning messages during a function call."""
+    with structlog.testing.capture_logs() as captured:
         func()
-    finally:
-        logger.remove(sink_id)
-    return captured
+    return [e["event"] for e in captured if e.get("log_level") == "warning"]
 
 
 class TestSortByExternalMetricsWarning:
@@ -37,7 +28,7 @@ class TestSortByExternalMetricsWarning:
         """Sort emits a warning when no metric data is available."""
         tracklist = TrackList(tracks=[make_track(id=1), make_track(id=2)])
 
-        warnings = _capture_loguru_warnings(
+        warnings = _capture_warnings(
             lambda: sort_by_external_metrics(
                 "lastfm_user_playcount", tracklist=tracklist
             )
@@ -55,7 +46,7 @@ class TestSortByExternalMetricsWarning:
             metadata={"metrics": {"lastfm_user_playcount": {1: 42}}},
         )
 
-        warnings = _capture_loguru_warnings(
+        warnings = _capture_warnings(
             lambda: sort_by_external_metrics(
                 "lastfm_user_playcount", tracklist=tracklist
             )
@@ -65,7 +56,7 @@ class TestSortByExternalMetricsWarning:
 
     def test_no_warning_on_empty_tracklist(self):
         """No warning when tracklist is empty — nothing to sort."""
-        warnings = _capture_loguru_warnings(
+        warnings = _capture_warnings(
             lambda: sort_by_external_metrics(
                 "lastfm_user_playcount", tracklist=TrackList()
             )
@@ -78,7 +69,7 @@ class TestFilterByMetricRangeWarning:
         """Filter emits a warning when no metric data is available."""
         tracklist = TrackList(tracks=[make_track(id=1)])
 
-        warnings = _capture_loguru_warnings(
+        warnings = _capture_warnings(
             lambda: filter_by_metric_range(
                 "lastfm_user_playcount", min_value=5, tracklist=tracklist
             )
@@ -96,7 +87,7 @@ class TestFilterByMetricRangeWarning:
             metadata={"metrics": {"lastfm_user_playcount": {1: 42}}},
         )
 
-        warnings = _capture_loguru_warnings(
+        warnings = _capture_warnings(
             lambda: filter_by_metric_range(
                 "lastfm_user_playcount", min_value=5, tracklist=tracklist
             )

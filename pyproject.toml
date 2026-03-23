@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.5.9"
+version = "0.5.10"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -10,7 +10,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.47,<3",
     "alembic>=1.18.4,<2",
     "httpx>=0.28.1,<0.29",
-    "loguru>=0.7.3,<0.8",
+    "structlog>=25.1,<26",
     "python-dotenv>=1.2.1,<2",
     "rich>=14.3.3,<15",
     "typer>=0.24.1,<0.25",
@@ -144,7 +144,10 @@ unfixable = []
     "ASYNC230", # Allow sync file operations in async test functions (test data)
     "ASYNC240", # Allow pathlib in async test fixtures (cleanup code)
     "ERA001",   # Allow commented-out code in tests (documentation, debugging)
+    "N802",     # Allow uppercase in function names (e.g., pgcode test names)
     "N806",     # Allow uppercase variables for Mock classes
+    "S105",     # Allow hardcoded password strings (test tokens)
+    "S106",     # Allow hardcoded password arguments (test tokens)
     "PT011",    # Allow broad pytest.raises without match (simpler test patterns)
     "B017",     # Allow pytest.raises(Exception) for general exception testing
     "E721",     # Allow type() == comparisons for exact type checking in tests

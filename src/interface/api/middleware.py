@@ -138,7 +138,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
-        logger.opt(exception=True).error("Unhandled API error", error=str(exc))
+        logger.error("Unhandled API error", error=str(exc), exc_info=exc)
         return JSONResponse(
             status_code=500,
             content={

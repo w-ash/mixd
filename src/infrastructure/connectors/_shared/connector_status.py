@@ -55,7 +55,7 @@ async def _fetch_spotify_display_name(access_token: str) -> str | None:
             name = data.get("display_name") or data.get("id")
             return str(name) if name else None
     except Exception:
-        logger.opt(exception=True).debug("Failed to fetch Spotify display name")
+        logger.debug("Failed to fetch Spotify display name", exc_info=True)
         return None
 
 

@@ -75,7 +75,7 @@ def db_operation(operation_name: str | None = None):
 
             try:
                 # Start timing
-                logger.trace(
+                logger.debug(
                     f"DB operation starting: {repo_name}.{func_name}",
                     operation=func_name,
                     **context,
@@ -86,7 +86,7 @@ def db_operation(operation_name: str | None = None):
 
                 # Log success with timing
                 exec_time = (time.perf_counter() - start_time) * 1000
-                logger.trace(
+                logger.debug(
                     f"DB operation completed: {repo_name}.{func_name}",
                     operation=func_name,
                     exec_time_ms=exec_time,

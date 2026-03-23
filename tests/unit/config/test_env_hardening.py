@@ -2,9 +2,9 @@
 
 from unittest.mock import patch
 
-from loguru import logger
 from pydantic import ValidationError
 import pytest
+import structlog
 
 from src.config.settings import (
     ServerConfig,
@@ -16,11 +16,9 @@ from src.config.settings import (
 
 @pytest.fixture
 def capture_logs():
-    """Capture Loguru output into a list of message strings."""
-    messages: list[str] = []
-    handler_id = logger.add(lambda msg: messages.append(str(msg)), level="WARNING")
-    yield messages
-    logger.remove(handler_id)
+    """Capture structlog output into a list of event dicts."""
+    with structlog.testing.capture_logs() as logs:
+        yield logs
 
 
 class TestGetDatabaseUrl:
@@ -81,17 +79,17 @@ class TestLogStartupWarnings:
         creds = self._make_credentials(lastfm_key="some_key")
         with patch.object(settings, "credentials", creds):
             log_startup_warnings()
-        combined = "".join(capture_logs)
-        assert "Spotify not configured" in combined
-        assert "Last.fm not configured" not in combined
+        events = [e["event"] for e in capture_logs]
+        assert any("Spotify not configured" in e for e in events)
+        assert not any("Last.fm not configured" in e for e in events)
 
     def test_warns_when_lastfm_unconfigured(self, capture_logs):
         creds = self._make_credentials(spotify_id="some_id")
         with patch.object(settings, "credentials", creds):
             log_startup_warnings()
-        combined = "".join(capture_logs)
-        assert "Last.fm not configured" in combined
-        assert "Spotify not configured" not in combined
+        events = [e["event"] for e in capture_logs]
+        assert any("Last.fm not configured" in e for e in events)
+        assert not any("Spotify not configured" in e for e in events)
 
     def test_silent_when_all_configured(self, capture_logs):
         creds = self._make_credentials(spotify_id="some_id", lastfm_key="some_key")

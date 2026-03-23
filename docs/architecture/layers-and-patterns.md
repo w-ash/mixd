@@ -21,7 +21,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 - **Contents**: Settings management, logging setup, constants
 - **Structure**:
   - `settings.py` - Pydantic Settings with environment variable loading
-  - `logging.py` - Loguru configuration with structured logging
+  - `logging.py` - structlog configuration with dual output (console + flat JSON)
   - `constants.py` - Application-wide constants
 - **Key Principle**: Zero business logic, only configuration and cross-cutting utilities
 
@@ -389,7 +389,7 @@ Service A → Mixd (Resolution) → Service B
 
 ## Cross-Cutting Concerns
 
-- **Logging**: Loguru with JSON structured logging, context propagation via `get_logger(__name__).bind()`
+- **Logging**: structlog with flat JSON file output + colorized console, context propagation via `get_logger(__name__).bind()` and `logging_context()` for async-safe contextvars
 - **Error Handling**: Tenacity retry with exponential backoff, `ErrorClassifier` protocol per connector
 - **Progress**: Rich Live display with coordinated console logging via `RichProgressProvider`
 - **Testing**: Comprehensive test suite (<1min fast suite), `db_session` fixture with isolated temp databases

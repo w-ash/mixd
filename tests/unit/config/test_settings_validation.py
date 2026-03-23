@@ -48,7 +48,7 @@ class TestDefaultsPassConstraints:
     def test_logging_config_defaults(self):
         config = LoggingConfig()
         assert config.console_level == "INFO"
-        assert config.prefect_bridge_level == "DEBUG"
+        assert config.prefect_log_level == "DEBUG"
 
     def test_freshness_config_defaults(self):
         config = FreshnessConfig()
@@ -252,29 +252,27 @@ class TestLogLevelValidation:
         with pytest.raises(ValidationError):
             LoggingConfig(file_level="VERBOSE")
 
-    def test_loguru_levels_accepted_for_console(self):
-        """TRACE and SUCCESS are Loguru-specific but valid for console/file."""
-        config = LoggingConfig(console_level="TRACE")
-        assert config.console_level == "TRACE"
-        config = LoggingConfig(console_level="SUCCESS")
-        assert config.console_level == "SUCCESS"
-
-    def test_trace_rejected_for_prefect_bridge(self):
-        """TRACE is Loguru-only; Prefect bridge uses getattr(logging, level)."""
+    def test_loguru_levels_rejected(self):
+        """TRACE and SUCCESS are loguru-only — rejected now that all levels use StdlibLogLevel."""
         with pytest.raises(ValidationError):
-            LoggingConfig(prefect_bridge_level="TRACE")
+            LoggingConfig(console_level="TRACE")
+        with pytest.raises(ValidationError):
+            LoggingConfig(console_level="SUCCESS")
+
+    def test_trace_rejected_for_prefect(self):
+        """TRACE is not a valid stdlib level."""
+        with pytest.raises(ValidationError):
+            LoggingConfig(prefect_log_level="TRACE")
 
     def test_success_rejected_for_prefect_logger(self):
-        """SUCCESS is Loguru-only; Prefect logger uses getattr(logging, level)."""
+        """SUCCESS is not a valid stdlib level."""
         with pytest.raises(ValidationError):
             LoggingConfig(prefect_logger_level="SUCCESS")
 
     def test_valid_stdlib_levels_for_prefect(self):
         for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-            config = LoggingConfig(
-                prefect_bridge_level=level, prefect_logger_level=level
-            )
-            assert config.prefect_bridge_level == level
+            config = LoggingConfig(prefect_log_level=level, prefect_logger_level=level)
+            assert config.prefect_log_level == level
 
 
 class TestEnvIgnoreEmpty:

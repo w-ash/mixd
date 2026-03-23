@@ -30,7 +30,9 @@ _FIELD_TYPE_MAP: dict[FieldType, type | tuple[type, ...]] = {
 }
 
 
-def compute_parallel_levels(tasks: list[WorkflowTaskDef]) -> list[list[WorkflowTaskDef]]:
+def compute_parallel_levels(
+    tasks: list[WorkflowTaskDef],
+) -> list[list[WorkflowTaskDef]]:
     """Group tasks into parallel execution levels using BFS topological sort.
 
     Level 0: tasks with no dependencies (can all run concurrently)
@@ -71,9 +73,7 @@ def compute_parallel_levels(tasks: list[WorkflowTaskDef]) -> list[list[WorkflowT
         current_ids = next_ids
 
     if visited != len(tasks):
-        unvisited = {t.id for t in tasks} - {
-            t.id for level in levels for t in level
-        }
+        unvisited = {t.id for t in tasks} - {t.id for level in levels for t in level}
         raise ValueError(f"Cycle detected in workflow: {sorted(unvisited)}")
 
     return levels

@@ -28,7 +28,9 @@ class TestGetConnectors:
         assert names == {"spotify", "lastfm", "musicbrainz", "apple"}
 
 
-def _mock_storage(spotify_token: StoredToken | None = None, lastfm_token: StoredToken | None = None) -> AsyncMock:
+def _mock_storage(
+    spotify_token: StoredToken | None = None, lastfm_token: StoredToken | None = None
+) -> AsyncMock:
     """Create a mock TokenStorage with configured return values."""
     storage = AsyncMock()
 
@@ -48,9 +50,7 @@ def _mock_storage(spotify_token: StoredToken | None = None, lastfm_token: Stored
 class TestSpotifyStatus:
     """Spotify connector status detection from TokenStorage."""
 
-    async def test_disconnected_when_no_token(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_disconnected_when_no_token(self, client: httpx.AsyncClient) -> None:
         storage = _mock_storage(spotify_token=None)
         with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
@@ -58,9 +58,7 @@ class TestSpotifyStatus:
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["connected"] is False
 
-    async def test_connected_with_valid_token(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_connected_with_valid_token(self, client: httpx.AsyncClient) -> None:
         token = StoredToken(
             access_token="test_token",
             refresh_token="test_refresh",

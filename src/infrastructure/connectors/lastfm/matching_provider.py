@@ -15,6 +15,7 @@ raise ``NotImplementedError``).
 from typing import Any
 
 from src.config import get_logger
+from src.config.logging import logging_context
 from src.domain.entities import Track
 from src.domain.matching.types import (
     MatchFailure,
@@ -80,7 +81,7 @@ class LastFMProvider:
         if not tracks:
             return ProviderMatchResult()
 
-        with logger.contextualize(operation="match_lastfm", tracks_count=len(tracks)):
+        with logging_context(operation="match_lastfm", tracks_count=len(tracks)):
             logger.info(f"Matching {len(tracks)} tracks to LastFM")
 
             matches: dict[int, RawProviderMatch] = {}

@@ -64,9 +64,7 @@ class TestFileTokenStorage:
         assert loaded["session_key"] == "session-key-abc"
         assert loaded["account_name"] == "testuser"
 
-    async def test_delete_removes_file(
-        self, storage: FileTokenStorage, tmp_path: Path
-    ):
+    async def test_delete_removes_file(self, storage: FileTokenStorage, tmp_path: Path):
         await storage.save_token("spotify", StoredToken(access_token="test"))
         assert (tmp_path / ".spotify_cache").exists()
 

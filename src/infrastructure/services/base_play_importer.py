@@ -248,11 +248,12 @@ class BasePlayImporter[TRawData](ABC):
         except Exception as e:
             # Standardized error handling with full exception details
             error_msg = f"{self.operation_name} failed: {e}"
-            logger.opt(exception=True).error(
+            logger.error(
                 error_msg,
                 batch_id=batch_id,
                 error=str(e),
                 error_type=type(e).__name__,
+                exc_info=True,
             )
 
             await progress_emitter.complete_operation(

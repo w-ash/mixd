@@ -248,8 +248,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 log.info(f"Promoted {promoted_count} connector mapping(s) to primary")
 
         except Exception:
-            logger.opt(exception=True).error(
-                f"Connector mapping promotion failed for track {track_id}"
+            logger.error(
+                f"Connector mapping promotion failed for track {track_id}",
+                exc_info=True,
             )
             # Don't re-raise — promotion is best-effort and shouldn't interrupt the read path
 

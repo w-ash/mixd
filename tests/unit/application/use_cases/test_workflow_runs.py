@@ -51,10 +51,6 @@ def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
             new_callable=AsyncMock,
         ) as mock_run,
     ):
-        mock_ctx = MagicMock()
-        mock_ctx.__enter__ = MagicMock(return_value=None)
-        mock_ctx.__exit__ = MagicMock(return_value=False)
-        mock_logger.contextualize.return_value = mock_ctx
         mock_logger.bind.return_value = mock_logger
 
         if mock_run_return is not None:
@@ -456,22 +452,28 @@ class TestExecuteWorkflowRunUseCase:
         assert result.status == WorkflowConstants.RUN_STATUS_FAILED
         assert result.error_message == "API timeout"
 
-        # The failure to update status was logged
-        mock_logger.opt.return_value.error.assert_any_call(
-            "Failed to update run status to FAILED"
+        mock_logger.error.assert_any_call(
+            "Failed to update run status to FAILED", exc_info=True
         )
 
-    async def test_contextualize_binds_workflow_and_run_ids(self) -> None:
-        """logger.contextualize is called with workflow_id, workflow_name, run_id."""
+    async def test_logging_context_binds_workflow_and_run_ids(self) -> None:
+        """logging_context is called with workflow_id, workflow_name, run_id."""
         workflow_def = make_workflow_def(id="wf-ctx-test", name="Context Test")
         use_case = ExecuteWorkflowRunUseCase(
             update_run_status=AsyncMock(), update_node_status=AsyncMock()
         )
 
-        with _patch_execute_deps() as (mock_logger, _mock_run, _observer):
+        with (
+            _patch_execute_deps() as (_mock_logger, _mock_run, _observer),
+            patch(
+                "src.application.use_cases.workflow_runs.logging_context"
+            ) as mock_ctx,
+        ):
+            mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
+            mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
             await use_case.execute(workflow_def, run_id=99)
 
-        mock_logger.contextualize.assert_called_once_with(
+        mock_ctx.assert_called_once_with(
             workflow_id="wf-ctx-test",
             workflow_name="Context Test",
             run_id=99,

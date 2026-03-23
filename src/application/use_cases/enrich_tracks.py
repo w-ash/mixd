@@ -24,6 +24,7 @@ from src.application.services.metrics_application_service import (
 )
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
+from src.config.logging import logging_context
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -154,7 +155,7 @@ class EnrichTracksUseCase:
         timer = ExecutionTimer()
 
         async with uow:
-            with logger.contextualize(
+            with logging_context(
                 operation="enrich_tracks_use_case",
                 enrichment_type=command.enrichment_config.enrichment_type,
                 track_count=len(command.tracklist.tracks),

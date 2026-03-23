@@ -26,9 +26,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_index(
-        "ix_tracks_title_id", "tracks", ["title", "id"], if_not_exists=True
-    )
+    op.create_index("ix_tracks_title_id", "tracks", ["title", "id"], if_not_exists=True)
     op.create_index(
         "ix_tracks_created_at_id",
         "tracks",

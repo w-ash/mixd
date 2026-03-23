@@ -32,9 +32,7 @@ def upgrade() -> None:
         sa.Column("access_token", sa.String(), nullable=True),
         sa.Column("refresh_token", sa.String(), nullable=True),
         sa.Column("session_key", sa.String(), nullable=True),
-        sa.Column(
-            "expires_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("scope", sa.String(), nullable=True),
         sa.Column("account_name", sa.String(255), nullable=True),
         sa.Column("extra_data", JSONB, server_default="{}"),

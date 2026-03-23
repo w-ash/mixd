@@ -40,6 +40,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.7** | Security hardening | ✅ Completed | [details](v0.5.x.md#v057-security-hardening) |
 | **v0.5.8** | Playlist sync safety guards | ✅ Completed | [details](v0.5.x.md#v058-playlist-sync-safety-guards) |
 | **v0.5.9** | Project rename: narada → mixd | ✅ Completed | [details](v0.5.x.md#v059-project-rename--narada--mixd) |
+| **v0.5.10** | Polish, documentation & observability | 🔧 In Progress | [details](v0.5.x.md#v0510-polish-documentation--observability) |
 | **v0.6.0** | Multi-user: schema + user identity | 🔜 Not Started | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
 | **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
 | **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
@@ -96,7 +97,7 @@ Visual guide to infrastructure capabilities across version milestones:
 | **Testing** | ✅ pytest suite, <1min | ✅ + Vitest components | ✅ + E2E (Playwright) | ✅ + isolation tests |
 | **CI/CD** | ⚠️ Manual | ⚠️ Manual | ✅ GitHub Actions | ✅ Same |
 | **Deployment** | ✅ uv install | ✅ Local (SQLite) | ✅ Docker + Fly.io | ✅ Same |
-| **Observability** | ✅ Loguru JSON logs | ✅ Same | ✅ Same | ✅ Same |
+| **Observability** | ✅ structlog flat JSON | ✅ Same | ✅ + Fly.io stdout JSON | ✅ Same |
 | **Authentication** | ❌ Not needed | ❌ Env var tokens | ✅ Neon Auth + OAuth | ✅ + per-user OAuth |
 | **Database** | ✅ SQLite | ✅ PostgreSQL (Docker) | ✅ PostgreSQL | ✅ + user_id scoping |
 | **Caching** | ❌ Not needed | ✅ Tanstack Query | ✅ + lru_cache | ✅ Same |

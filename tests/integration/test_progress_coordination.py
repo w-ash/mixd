@@ -46,6 +46,11 @@ class TestProgressConsoleCoordination:
 
         test_progress_console = TestProgressConsole()
 
+        # Ensure logging is set up so there's a console handler to swap
+        from src.config import setup_logging
+
+        setup_logging()
+
         # Test the unified console output configuration
         try:
             enable_unified_console_output(test_progress_console)
@@ -55,7 +60,7 @@ class TestProgressConsoleCoordination:
 
             test_logger = get_logger("test_module")
 
-            # Test that Loguru logs go through Progress.console
+            # Test that structlog logs go through Progress.console
             test_logger.info("Test log message from Loguru")
 
             # Test that intercepted Python logging goes through Progress.console
@@ -242,11 +247,6 @@ class TestProgressConsoleCoordination:
 
     async def test_console_restoration_after_coordination(self):
         """Test that console behavior is properly restored after coordination ends."""
-        # Capture initial logging state
-        from loguru import logger as loguru_logger
-
-        list(loguru_logger._core.handlers.keys())  # type: ignore[attr-defined]
-
         # Use coordination context
         async with progress_coordination_context(show_live=True) as context:
             # Verify coordination is active

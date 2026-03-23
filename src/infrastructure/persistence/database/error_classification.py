@@ -12,6 +12,7 @@ import ssl
 from typing import Final, Literal
 
 from attrs import frozen
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 type DatabaseErrorCategory = Literal[
     "dns_failure",
@@ -23,7 +24,6 @@ type DatabaseErrorCategory = Literal[
     "cold_start",
     "unknown",
 ]
-from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 _AUTH_PGCODES: Final = frozenset({"28P01", "28000"})
 _STATEMENT_TIMEOUT_PGCODE: Final = "57014"
@@ -113,7 +113,11 @@ def classify_database_error(exc: Exception) -> DatabaseErrorInfo:
         cause_str = str(cause).lower()
         if any(
             s in cause_str
-            for s in ("endpoint is not active", "compute is waking", "compute is not running")
+            for s in (
+                "endpoint is not active",
+                "compute is waking",
+                "compute is not running",
+            )
         ):
             return DatabaseErrorInfo(
                 category="cold_start",

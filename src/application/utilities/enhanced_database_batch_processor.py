@@ -16,7 +16,7 @@ from attrs import define, field
 from src.config import get_logger
 
 if TYPE_CHECKING:
-    from loguru import Logger
+    from structlog.stdlib import BoundLogger
 
 from src.config.constants import BusinessLimits
 from src.domain.entities.progress import (
@@ -57,7 +57,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
     retry_count: int = field(default=3)
     retry_base_delay: float = field(default=1.0)
     progress_emitter: ProgressEmitter = field(factory=NullProgressEmitter)
-    logger_instance: Logger = field(factory=lambda: get_logger(__name__))
+    logger_instance: BoundLogger = field(factory=lambda: get_logger(__name__))
 
     def __attrs_post_init__(self):
         """Validate configuration."""

@@ -334,8 +334,9 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     f"similarity: {search_result.similarity:.2f}, confidence: {search_result.confidence})"
                 )
             except Exception as e:
-                logger.opt(exception=True).error(
-                    f"Fallback save failed for {dead_id}: {e}"
+                logger.error(
+                    f"Fallback save failed for {dead_id}: {e}",
+                    exc_info=True,
                 )
 
         resolved = len(result)
@@ -377,7 +378,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 hint=hint,
             )
         except Exception as e:
-            logger.opt(exception=True).error(
-                f"Fallback search failed for {dead_id} ({hint.artist_name} - {hint.track_name}): {e}"
+            logger.error(
+                f"Fallback search failed for {dead_id} ({hint.artist_name} - {hint.track_name}): {e}",
+                exc_info=True,
             )
             return None

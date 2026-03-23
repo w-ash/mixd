@@ -68,8 +68,8 @@ async def _run_operation(
     try:
         await coro
     except Exception:
-        logger.opt(exception=True).error(
-            "Import operation failed", operation_id=operation_id
+        logger.error(
+            "Import operation failed", operation_id=operation_id, exc_info=True
         )
         # If the use case failed before emitting any terminal event, push a
         # fallback error event + sentinel so the SSE generator closes cleanly

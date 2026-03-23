@@ -27,10 +27,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Self
 
 from attrs import define, field
-from loguru import logger as _loguru_logger
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
+from src.config.logging import logging_context
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import ConnectorTrack
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -68,10 +68,10 @@ class BaseAPIClient:
     ) -> T | None:
         """Execute API call with retry policy, context propagation, and error suppression.
 
-        Operation name propagates via loguru contextvars into ALL nested log calls
+        Operation name propagates via structlog contextvars into ALL nested log calls
         (httpx hooks, tenacity callbacks, _impl methods).
         """
-        with _loguru_logger.contextualize(operation=operation):
+        with logging_context(operation=operation):
             try:
                 return await self._retry_policy(impl, *args)
             except Exception as exc:

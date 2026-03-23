@@ -87,11 +87,11 @@ class TestOnTaskDone:
 
         with patch("src.interface.api.services.background.logger") as mock_logger:
             mock_logger.bind.return_value = mock_logger
-            mock_logger.opt.return_value = mock_logger
             _on_task_done(task)
 
-        mock_logger.opt.assert_called_once_with(exception=exc)
+        # structlog uses exc_info= kwarg instead of .opt(exception=)
         call_kwargs = mock_logger.error.call_args
+        assert call_kwargs.kwargs["exc_info"] == exc
         assert call_kwargs.kwargs["workflow_id"] == "wf-2"
 
     def test_metadata_cleaned_up_after_done(self) -> None:

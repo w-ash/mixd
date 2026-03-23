@@ -100,9 +100,7 @@ class TestClassifyDatabaseError:
         assert "timed out" in info.user_message
 
     def test_lock_timeout_pgcode(self) -> None:
-        psycopg_exc = PsycopgOperationalError(
-            "canceling statement due to lock timeout"
-        )
+        psycopg_exc = PsycopgOperationalError("canceling statement due to lock timeout")
         psycopg_exc.sqlstate = "55P03"
         exc = _make_sa_error(psycopg_exc)
 
@@ -144,7 +142,7 @@ class TestClassifyDatabaseError:
 
     def test_hostname_extraction_from_message(self) -> None:
         psycopg_exc = PsycopgOperationalError(
-            "connection to server at \"ep-super-glade.neon.tech\", port 5432 failed"
+            'connection to server at "ep-super-glade.neon.tech", port 5432 failed'
         )
         exc = _make_sa_error(ConnectionRefusedError("refused"))
         # Inject the psycopg error earlier in the chain so hostname is found

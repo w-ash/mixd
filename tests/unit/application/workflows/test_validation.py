@@ -32,8 +32,12 @@ class TestValidateWorkflowDef:
             id="test",
             name="test",
             tasks=[
-                WorkflowTaskDef(id="dup", type="source.playlist", config={"playlist_id": "1"}),
-                WorkflowTaskDef(id="dup", type="source.playlist", config={"playlist_id": "2"}),
+                WorkflowTaskDef(
+                    id="dup", type="source.playlist", config={"playlist_id": "1"}
+                ),
+                WorkflowTaskDef(
+                    id="dup", type="source.playlist", config={"playlist_id": "2"}
+                ),
             ],
         )
         with pytest.raises(ValueError, match="Duplicate task IDs"):

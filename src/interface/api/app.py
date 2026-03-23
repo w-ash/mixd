@@ -31,11 +31,9 @@ _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
-    from src.config import setup_loguru_logger
-    from src.config.logging import intercept_prefect_loggers
+    from src.config import setup_logging
 
-    setup_loguru_logger()
-    intercept_prefect_loggers()
+    setup_logging()
 
     from src.config import log_startup_warnings
 
