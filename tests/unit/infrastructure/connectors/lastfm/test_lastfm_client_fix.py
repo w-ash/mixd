@@ -148,7 +148,7 @@ class TestDoubleDecodeWorkaround:
     async def test_post_data_pre_encoded_for_special_chars(self):
         """POST data containing special chars is pre-encoded."""
         client = _make_client()
-        client.api_secret = "test_secret"  # noqa: S105
+        client.api_secret = "test_secret"
         # Pre-set session key to skip auth flow
         client._session_key = "fake_sk"
 
@@ -169,7 +169,7 @@ class TestDoubleDecodeWorkaround:
     async def test_signature_uses_original_values(self):
         """api_sig is computed from original (un-encoded) values, not pre-encoded."""
         client = _make_client()
-        client.api_secret = "test_secret"  # noqa: S105
+        client.api_secret = "test_secret"
         client._session_key = "fake_sk"
 
         mock_post = AsyncMock(return_value=_make_ok_response())

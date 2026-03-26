@@ -122,6 +122,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             # Create the track domain object
             domain_track = Track(
                 id=track.id,
+                user_id=track.user_id,
                 title=track.title,
                 artists=[Artist(name=name) for name in artist_names],
                 album=getattr(track, "album", None),
@@ -168,6 +169,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         return Playlist(
             id=db_model.id,
             name=db_model.name,
+            user_id=db_model.user_id,
             description=db_model.description,
             entries=playlist_entries,
             connector_playlist_identifiers=connector_playlist_identifiers,
@@ -180,6 +182,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
     def to_db(domain_model: Playlist) -> DBPlaylist:
         """Convert domain entity to persistence values."""
         playlist = DBPlaylist()
+        playlist.user_id = domain_model.user_id
         playlist.name = domain_model.name
         playlist.description = domain_model.description
         playlist.track_count = len(domain_model.tracks) if domain_model.tracks else 0

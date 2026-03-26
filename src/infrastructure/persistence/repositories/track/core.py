@@ -124,15 +124,24 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         # Handle lookups by ISRC, MBID, or Spotify ID
         # The upsert method uses a two-phase approach that avoids greenlet issues
+        uid = track.user_id
         if track.isrc:
-            return await self.upsert({"isrc": track.isrc}, values)
+            return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
         elif "musicbrainz" in track.connector_track_identifiers:
             return await self.upsert(
-                {"mbid": track.connector_track_identifiers["musicbrainz"]}, values
+                {
+                    "user_id": uid,
+                    "mbid": track.connector_track_identifiers["musicbrainz"],
+                },
+                values,
             )
         elif "spotify" in track.connector_track_identifiers:
             return await self.upsert(
-                {"spotify_id": track.connector_track_identifiers["spotify"]}, values
+                {
+                    "user_id": uid,
+                    "spotify_id": track.connector_track_identifiers["spotify"],
+                },
+                values,
             )
 
         # Create new track with explicit eager loading for relationships

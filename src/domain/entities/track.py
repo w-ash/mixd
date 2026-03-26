@@ -57,6 +57,8 @@ class Track:
     release_date: datetime | None = field(default=None)
     isrc: str | None = field(default=None)
 
+    user_id: str = "default"
+
     # Extended properties
     id: int | None = field(default=None)
     connector_track_identifiers: dict[str, str] = field(factory=dict)
@@ -139,6 +141,7 @@ class TrackLike:
 
     track_id: int
     service: str  # 'spotify', 'lastfm', 'mixd'
+    user_id: str = "default"
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None

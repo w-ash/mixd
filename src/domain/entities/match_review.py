@@ -24,6 +24,7 @@ class MatchReview:
     match_method: str
     confidence: int
     match_weight: float
+    user_id: str = "default"
     confidence_evidence: dict[str, object] | None = None
     status: str = "pending"
     id: int | None = None

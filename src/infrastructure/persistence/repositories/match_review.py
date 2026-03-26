@@ -150,6 +150,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
 
         entities = [
             {
+                "user_id": r.user_id,
                 "track_id": r.track_id,
                 "connector_name": r.connector_name,
                 "connector_track_id": r.connector_track_id,
@@ -164,7 +165,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
 
         return await self.bulk_upsert(
             entities=entities,
-            lookup_keys=["track_id", "connector_name", "connector_track_id"],
+            lookup_keys=["user_id", "track_id", "connector_name", "connector_track_id"],
             return_models=False,
         )
 

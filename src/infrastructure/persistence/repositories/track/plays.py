@@ -58,6 +58,7 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
             track_id=db_model.track_id,
             service=db_model.service,
             played_at=played_at,
+            user_id=db_model.user_id,
             ms_played=db_model.ms_played,
             context=db_model.context,
             id=db_model.id,
@@ -72,6 +73,7 @@ class TrackPlayMapper(BaseModelMapper[DBTrackPlay, TrackPlay]):
     def to_db(domain_model: TrackPlay) -> DBTrackPlay:
         """Convert domain play to database model."""
         return DBTrackPlay(
+            user_id=domain_model.user_id,
             track_id=domain_model.track_id,
             service=domain_model.service,
             played_at=domain_model.played_at,
@@ -125,6 +127,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         play_data = [
             {
+                "user_id": play.user_id,
                 "track_id": play.track_id,
                 "service": play.service,
                 "played_at": play.played_at,
@@ -138,7 +141,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             for play in valid_plays
         ]
 
-        conflict_keys = ["track_id", "service", "played_at", "ms_played"]
+        conflict_keys = ["user_id", "track_id", "service", "played_at", "ms_played"]
         inserted = await self.bulk_insert_ignore_conflicts(play_data, conflict_keys)
 
         duplicate_count = len(valid_plays) - inserted

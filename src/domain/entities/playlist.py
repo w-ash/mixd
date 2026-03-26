@@ -70,6 +70,7 @@ class Playlist:
     """
 
     name: str = field(validator=validators.instance_of(str))
+    user_id: str = "default"
     entries: list[PlaylistEntry] = field(factory=list)
     description: str | None = field(default=None)
     # The internal database ID - source of truth for our system

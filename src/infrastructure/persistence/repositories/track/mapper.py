@@ -186,6 +186,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         return Track(
             id=db_model.id,
+            user_id=db_model.user_id,
             title=db_model.title,
             artists=[Artist(name=name) for name in db_model.artists["names"]],
             album=db_model.album,
@@ -279,6 +280,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         """Convert domain track to database model."""
         # Create the main track entity
         return DBTrack(
+            user_id=domain_model.user_id,
             title=domain_model.title,
             artists={"names": [a.name for a in domain_model.artists]},
             album=domain_model.album,

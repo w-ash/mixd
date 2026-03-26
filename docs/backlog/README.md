@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.5.9
+**Current Version**: 0.5.10
 **Next**: v0.6.x Multi-User Data Isolation
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -30,17 +30,17 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
 | **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
 | **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
-| **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](v0.5.x.md#v050-cicd--environment-hardening) |
-| **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](v0.5.x.md#v051-postgresql-migration) |
-| **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](v0.5.x.md#v052-postgresql-native-feature-adoption) |
-| **v0.5.3** | Containerization & deployment | ✅ Completed | [details](v0.5.x.md#v053-containerization--deployment) |
-| **v0.5.4** | OAuth + integrations UX + WCAG AA + light/dark mode + settings persistence | ✅ Completed | [details](v0.5.x.md#v054-oauth--credentials) |
-| **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](v0.5.x.md#v055-parallel-execution--performance) |
-| **v0.5.6** | Auth gate, automated deploys & startup DX | ✅ Completed | [details](v0.5.x.md#v056-auth-gate-automated-deploys--startup-dx) |
-| **v0.5.7** | Security hardening | ✅ Completed | [details](v0.5.x.md#v057-security-hardening) |
-| **v0.5.8** | Playlist sync safety guards | ✅ Completed | [details](v0.5.x.md#v058-playlist-sync-safety-guards) |
-| **v0.5.9** | Project rename: narada → mixd | ✅ Completed | [details](v0.5.x.md#v059-project-rename--narada--mixd) |
-| **v0.5.10** | Polish, documentation & observability | 🔧 In Progress | [details](v0.5.x.md#v0510-polish-documentation--observability) |
+| **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](completed/v0.5.x.md#v050-cicd--environment-hardening) |
+| **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](completed/v0.5.x.md#v051-postgresql-migration) |
+| **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](completed/v0.5.x.md#v052-postgresql-native-feature-adoption) |
+| **v0.5.3** | Containerization & deployment | ✅ Completed | [details](completed/v0.5.x.md#v053-containerization--deployment) |
+| **v0.5.4** | OAuth + integrations UX + WCAG AA + light/dark mode + settings persistence | ✅ Completed | [details](completed/v0.5.x.md#v054-oauth--credentials) |
+| **v0.5.5** | Parallel execution & performance | ✅ Completed | [details](completed/v0.5.x.md#v055-parallel-execution--performance) |
+| **v0.5.6** | Auth gate, automated deploys & startup DX | ✅ Completed | [details](completed/v0.5.x.md#v056-auth-gate-automated-deploys--startup-dx) |
+| **v0.5.7** | Security hardening | ✅ Completed | [details](completed/v0.5.x.md#v057-security-hardening) |
+| **v0.5.8** | Playlist sync safety guards | ✅ Completed | [details](completed/v0.5.x.md#v058-playlist-sync-safety-guards) |
+| **v0.5.9** | Project rename: narada → mixd | ✅ Completed | [details](completed/v0.5.x.md#v059-project-rename--narada--mixd) |
+| **v0.5.10** | Polish, documentation & observability | ✅ Completed | [details](completed/v0.5.x.md#v0510-polish-documentation--observability) |
 | **v0.6.0** | Multi-user: schema + user identity | 🔜 Not Started | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
 | **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
 | **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |

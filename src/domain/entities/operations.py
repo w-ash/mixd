@@ -187,6 +187,7 @@ class ConnectorTrackPlay:
     track_name: str
     played_at: datetime = field(validator=_validate_timezone_aware_datetime)
     service: str  # "spotify", "lastfm"
+    user_id: str = "default"
     album_name: str | None = None
     ms_played: int | None = None
     service_metadata: dict[str, Any] = field(factory=dict)
@@ -305,6 +306,7 @@ class TrackPlay:
     track_id: int | None
     service: str
     played_at: datetime = field(validator=_validate_timezone_aware_datetime)
+    user_id: str = "default"
     ms_played: int | None = None
     context: dict[str, Any] | None = None
     id: int | None = None

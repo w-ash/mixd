@@ -16,6 +16,7 @@ class TrackMapping:
     the match was determined and its reliability.
     """
 
+    user_id: str = "default"
     track_id: int = 0
     connector_track_id: int = 0
     connector_name: str = ""

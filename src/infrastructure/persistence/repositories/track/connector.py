@@ -113,6 +113,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
         """
         return TrackMapping(
             id=db_model.id,
+            user_id=db_model.user_id,
             track_id=db_model.track_id,
             connector_track_id=db_model.connector_track_id,
             connector_name=db_model.connector_name,
@@ -135,6 +136,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             Database mapping instance ready for persistence.
         """
         return DBTrackMapping(
+            user_id=domain_model.user_id,
             track_id=domain_model.track_id,
             connector_track_id=domain_model.connector_track_id,
             connector_name=domain_model.connector_name,
@@ -430,6 +432,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
             connector_track_id = connector_id_map[connector, connector_id]
             mapping_data.append({
+                "user_id": track.user_id,
                 "track_id": track.id,
                 "connector_track_id": connector_track_id,
                 "connector_name": connector,
@@ -461,7 +464,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         if mapping_data:
             _ = await self.mapping_repo.bulk_upsert(
                 mapping_data,
-                lookup_keys=["connector_track_id", "connector_name"],
+                lookup_keys=["user_id", "connector_track_id", "connector_name"],
                 return_models=False,
             )
 
@@ -668,6 +671,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 # Prepare mapping data for bulk insert (only once per unique connector track)
                 if domain_track.id is not None:
                     track_mappings_data.append({
+                        "user_id": domain_track.user_id,
                         "track_id": domain_track.id,
                         "connector_track_id": connector_track_id,
                         "connector_name": connector,
@@ -687,7 +691,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         if track_mappings_data:
             _ = await self.mapping_repo.bulk_upsert(
                 track_mappings_data,
-                lookup_keys=["connector_track_id", "connector_name"],
+                lookup_keys=["user_id", "connector_track_id", "connector_name"],
                 return_models=False,
             )
 

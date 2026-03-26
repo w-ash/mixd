@@ -92,7 +92,7 @@ class DatabaseTokenStorage:
             pg_insert(DBOAuthToken)
             .values(**insert_values)
             .on_conflict_do_update(
-                index_elements=["service"],
+                index_elements=["user_id", "service"],
                 set_=update_cols,
             )
         )

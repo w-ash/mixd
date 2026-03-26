@@ -159,6 +159,7 @@ class Workflow:
     """
 
     id: int | None = None
+    user_id: str = "default"
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
     is_template: bool = False
     source_template: str | None = None

@@ -193,7 +193,11 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         # Use upsert to either create or update
         return await self.upsert(
-            lookup_attrs={"track_id": track_id, "service": service},
+            lookup_attrs={
+                "user_id": "default",
+                "track_id": track_id,
+                "service": service,
+            },
             create_attrs=update_values,
         )
 
@@ -215,6 +219,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         for track_id, service, is_liked, last_synced, liked_at in likes:
             entity: dict[str, object] = {
+                "user_id": "default",
                 "track_id": track_id,
                 "service": service,
                 "is_liked": is_liked,
@@ -230,5 +235,5 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         return await self.bulk_upsert(
             entities=entities,
-            lookup_keys=["track_id", "service"],
+            lookup_keys=["user_id", "track_id", "service"],
         )

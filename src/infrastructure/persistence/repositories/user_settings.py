@@ -61,7 +61,7 @@ class UserSettingsRepository:
                 updated_at=now,
             )
             .on_conflict_do_update(
-                index_elements=["key"],
+                index_elements=["user_id", "key"],
                 set_={"settings": merged, "updated_at": now},
             )
         )

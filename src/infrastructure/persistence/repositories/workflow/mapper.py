@@ -28,6 +28,7 @@ class WorkflowMapper(BaseModelMapper[DBWorkflow, Workflow]):
         definition = parse_workflow_def(db_model.definition)
         return Workflow(
             id=db_model.id,
+            user_id=db_model.user_id,
             definition=definition,
             is_template=db_model.is_template,
             source_template=db_model.source_template,
@@ -41,6 +42,7 @@ class WorkflowMapper(BaseModelMapper[DBWorkflow, Workflow]):
     def to_db(domain_model: Workflow) -> DBWorkflow:
         definition_dict = attrs.asdict(domain_model.definition)
         return DBWorkflow(
+            user_id=domain_model.user_id,
             name=domain_model.definition.name,
             description=domain_model.definition.description or None,
             definition=definition_dict,

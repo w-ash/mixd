@@ -86,6 +86,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
             })
 
         conflict_keys = [
+            "user_id",
             "connector_name",
             "connector_track_identifier",
             "played_at",

@@ -105,6 +105,9 @@ class DBTrack(BaseEntity):
 
     __tablename__: str = "tracks"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     title: Mapped[str] = mapped_column(String(), nullable=False)
     artists: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     album: Mapped[str | None] = mapped_column(String())
@@ -154,10 +157,10 @@ class DBTrack(BaseEntity):
     # require the pg_trgm extension and would fail with metadata.create_all()
     # in test fixtures.
     __table_args__: tuple[Any, ...] = (
-        # Standard unique constraints for external identifiers
-        UniqueConstraint("spotify_id", name="uq_tracks_spotify_id"),
-        UniqueConstraint("isrc", name="uq_tracks_isrc"),
-        UniqueConstraint("mbid", name="uq_tracks_mbid"),
+        # User-scoped unique constraints for external identifiers
+        UniqueConstraint("user_id", "spotify_id", name="uq_tracks_user_spotify_id"),
+        UniqueConstraint("user_id", "isrc", name="uq_tracks_user_isrc"),
+        UniqueConstraint("user_id", "mbid", name="uq_tracks_user_mbid"),
         # Regular index for title searches
         Index("ix_tracks_title", "title"),
         # Composite index for Canonical Reuse normalized fuzzy lookup
@@ -211,6 +214,9 @@ class DBTrackMapping(BaseEntity):
 
     __tablename__: str = "track_mappings"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
     connector_track_id: Mapped[int] = mapped_column(
         ForeignKey("connector_tracks.id", ondelete="CASCADE"),
@@ -235,15 +241,17 @@ class DBTrackMapping(BaseEntity):
     )
 
     __table_args__: tuple[Any, ...] = (
-        # CRITICAL: Prevent multiple canonical tracks mapping to same connector track
+        # User-scoped: prevent multiple canonical tracks mapping to same connector track per user
         UniqueConstraint(
+            "user_id",
             "connector_track_id",
             "connector_name",
-            name="uq_connector_track_canonical_mapping",
+            name="uq_track_mappings_user_connector",
         ),
-        # NEW: Partial unique constraint - only one primary per track-connector pair
+        # User-scoped partial unique: only one primary per user-track-connector triple
         Index(
             "uq_primary_mapping",
+            "user_id",
             "track_id",
             "connector_name",
             unique=True,
@@ -267,6 +275,9 @@ class DBMatchReview(BaseEntity):
 
     __tablename__: str = "match_reviews"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     connector_track_id: Mapped[int] = mapped_column(
@@ -287,10 +298,11 @@ class DBMatchReview(BaseEntity):
 
     __table_args__: tuple[Any, ...] = (
         UniqueConstraint(
+            "user_id",
             "track_id",
             "connector_name",
             "connector_track_id",
-            name="uq_match_reviews_track_connector",
+            name="uq_match_reviews_user_track_connector",
         ),
         Index("ix_match_reviews_status", "status"),
         Index("ix_match_reviews_track_id", "track_id"),
@@ -335,11 +347,13 @@ class DBTrackLike(BaseEntity):
 
     __tablename__: str = "track_likes"
     __table_args__: tuple[Any, ...] = (
-        UniqueConstraint("track_id", "service"),
+        UniqueConstraint("user_id", "track_id", "service"),
         Index(None, "service", "is_liked"),
     )
 
-    # Core fields
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     is_liked: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -363,6 +377,7 @@ class DBTrackPlay(BaseEntity):
     __table_args__: tuple[Any, ...] = (
         # Unique constraint to prevent duplicate plays (safety net for application-level deduplication)
         UniqueConstraint(
+            "user_id",
             "track_id",
             "service",
             "played_at",
@@ -385,7 +400,9 @@ class DBTrackPlay(BaseEntity):
         # NOTE: BRIN index on played_at created via Alembic migration 002_pg_opt
     )
 
-    # Core fields
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     played_at: Mapped[datetime] = mapped_column(
@@ -424,7 +441,9 @@ class DBConnectorPlay(BaseEntity):
 
     __tablename__: str = "connector_plays"
 
-    # Connector identification
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     connector_name: Mapped[str] = mapped_column(String(32))  # "lastfm", "spotify"
     connector_track_identifier: Mapped[str] = mapped_column(
         String()
@@ -464,6 +483,7 @@ class DBConnectorPlay(BaseEntity):
     __table_args__: tuple[Any, ...] = (
         # Prevent duplicate connector plays (same as track_plays deduplication pattern)
         UniqueConstraint(
+            "user_id",
             "connector_name",
             "connector_track_identifier",
             "played_at",
@@ -489,6 +509,9 @@ class DBPlaylist(BaseEntity):
 
     __tablename__: str = "playlists"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     name: Mapped[str] = mapped_column(String())
     description: Mapped[str | None] = mapped_column(String(1000))
     track_count: Mapped[int] = mapped_column(default=0)
@@ -664,6 +687,9 @@ class DBWorkflow(BaseEntity):
 
     __tablename__: str = "workflows"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
     definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -773,7 +799,7 @@ class DBWorkflowRunNode(DatabaseModel):
 class DBOAuthToken(BaseEntity):
     """Persisted OAuth tokens and session keys for external service authentication.
 
-    Single row per service (UNIQUE constraint on service). Supports both
+    One row per user per service (UNIQUE on user_id + service). Supports both
     OAuth 2.0 tokens (Spotify: access_token + refresh_token + expires_at) and
     session-based auth (Last.fm: session_key, infinite lifetime).
 
@@ -783,6 +809,9 @@ class DBOAuthToken(BaseEntity):
 
     __tablename__: str = "oauth_tokens"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     service: Mapped[str] = mapped_column(String(32), nullable=False)
     token_type: Mapped[str] = mapped_column(String(20), nullable=False)
     access_token: Mapped[str | None] = mapped_column(String())
@@ -794,27 +823,27 @@ class DBOAuthToken(BaseEntity):
     extra_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
     __table_args__: tuple[Any, ...] = (
-        UniqueConstraint("service", name="uq_oauth_tokens_service"),
+        UniqueConstraint("user_id", "service", name="uq_oauth_tokens_user_service"),
     )
 
 
 class DBUserSettings(BaseEntity):
     """User preferences and application settings.
 
-    Single-row JSONB store for all user settings. Extensible without
+    Per-user JSONB store keyed by (user_id, key). Extensible without
     migrations — new settings are just new keys in the JSONB column.
-
-    Currently single-user (key='default'). Multi-user support (v1.0.0)
-    would change `key` to a user ID.
     """
 
     __tablename__: str = "user_settings"
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     key: Mapped[str] = mapped_column(String(64), nullable=False)
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
     __table_args__: tuple[Any, ...] = (
-        UniqueConstraint("key", name="uq_user_settings_key"),
+        UniqueConstraint("user_id", "key", name="uq_user_settings_user_key"),
     )
 
 
@@ -829,7 +858,7 @@ class DBSyncCheckpoint(BaseEntity):
         UniqueConstraint("user_id", "service", "entity_type"),
     )
 
-    user_id: Mapped[str] = mapped_column(String())
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm'
     entity_type: Mapped[str] = mapped_column(String(32))  # 'likes', 'plays'
     last_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
