@@ -118,9 +118,7 @@ class SpotifyOperations:
         return {
             track.id: spotify_data[spotify_id].model_dump()
             for track, spotify_id in spotify_mapped
-            if spotify_id is not None
-            and track.id is not None
-            and spotify_id in spotify_data
+            if spotify_id is not None and spotify_id in spotify_data
         }
 
     # Advanced Playlist Operations

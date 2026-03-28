@@ -48,9 +48,7 @@ def sort_by_key_function(
 
         # Optionally track sort values in metadata
         if metric_name:
-            track_metrics = {
-                track.id: key_fn(track) for track in t.tracks if track.id is not None
-            }
+            track_metrics = {track.id: key_fn(track) for track in t.tracks}
             result = result.with_metadata(
                 "metrics",
                 {

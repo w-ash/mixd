@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { LastRunSchemaStatus } from './lastRunSchemaStatus';
 
@@ -11,7 +11,7 @@ import type { LastRunSchemaStatus } from './lastRunSchemaStatus';
  * Lightweight last-run summary for the workflow list page.
  */
 export interface LastRunSchema {
-  id: number;
+  id: string;
   status: LastRunSchemaStatus;
   definition_version?: number;
   completed_at?: string | null;

@@ -56,7 +56,9 @@ describe("EditorToolbar", () => {
 
   it("shows Run and History buttons for saved workflows", () => {
     // Set a workflow ID to simulate saved state
-    useEditorStore.setState({ workflowId: 42 });
+    useEditorStore.setState({
+      workflowId: "019d0000-0000-7000-8000-000000000042",
+    });
     renderWithProviders(<EditorToolbar />);
 
     expect(screen.getByText("Run")).toBeInTheDocument();

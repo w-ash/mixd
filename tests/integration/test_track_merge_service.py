@@ -1,6 +1,7 @@
 """Integration tests for TrackMergeService with real database operations."""
 
 from datetime import UTC
+from uuid import uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,9 +85,10 @@ class TestTrackMergeServiceIntegration:
         merge_service = TrackMergeService()
 
         # Test merging track with itself
+        same_id = uuid7()
         with pytest.raises(ValueError, match="Cannot merge track with itself"):
             async with uow:
-                await merge_service.merge_tracks(1, 1, uow)
+                await merge_service.merge_tracks(same_id, same_id, uow)
 
     async def test_merge_tracks_with_nonexistent_tracks(self, db_session: AsyncSession):
         """Test merge behavior with non-existent tracks."""
@@ -94,6 +96,8 @@ class TestTrackMergeServiceIntegration:
         merge_service = TrackMergeService()
 
         # Test with non-existent track IDs
-        with pytest.raises(NotFoundError, match="Entity with ID 999 not found"):
+        fake_id_1 = uuid7()
+        fake_id_2 = uuid7()
+        with pytest.raises(NotFoundError, match="not found"):
             async with uow:
-                await merge_service.merge_tracks(999, 1000, uow)
+                await merge_service.merge_tracks(fake_id_1, fake_id_2, uow)

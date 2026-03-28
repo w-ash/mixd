@@ -3,13 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Response after unlinking a mapping.
  */
 export interface UnlinkMappingResponse {
-  deleted_mapping_id: number;
-  orphan_track_id?: number | null;
+  deleted_mapping_id: string;
+  orphan_track_id?: string | null;
 }

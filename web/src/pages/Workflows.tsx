@@ -48,7 +48,7 @@ function WorkflowRunButton({
   workflowId,
   disabled,
 }: {
-  workflowId: number;
+  workflowId: string;
   disabled: boolean;
 }) {
   const { isExecuting, execute } = useWorkflowExecution(workflowId);
@@ -75,7 +75,7 @@ const WorkflowRow = memo(function WorkflowRow({
   runningWorkflowId,
 }: {
   wf: WorkflowSummarySchema;
-  runningWorkflowId: number | null;
+  runningWorkflowId: string | null;
 }) {
   const lastRun = wf.last_run;
   const runConf = lastRun ? getStatusConfig(lastRun.status) : null;

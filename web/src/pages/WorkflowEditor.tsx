@@ -13,17 +13,16 @@ import { useEditorStore } from "@/stores/editor-store";
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const workflowId = id ? Number(id) : null;
+  const workflowId = id ?? null;
   const templateSourceId = searchParams.get("from");
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);
   const setName = useEditorStore((s) => s.setName);
   const isDirty = useEditorStore((s) => s.isDirty);
 
   // Fetch workflow for edit mode OR template source for cloning
-  const fetchId =
-    workflowId ?? (templateSourceId ? Number(templateSourceId) : null);
+  const fetchId = workflowId ?? templateSourceId;
   const { data: workflowData } = useGetWorkflowApiV1WorkflowsWorkflowIdGet(
-    fetchId ?? 0,
+    fetchId ?? "",
     { query: { enabled: fetchId !== null } },
   );
 

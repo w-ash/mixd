@@ -62,6 +62,33 @@ async def _truncate_all_tables() -> None:
         await conn.execute(text(_TRUNCATE_ALL))
 
 
+def valid_workflow_definition() -> dict:
+    """Minimal valid workflow definition for API requests."""
+    return {
+        "id": "test-wf",
+        "name": "Test Workflow",
+        "description": "A test",
+        "version": "1.0",
+        "tasks": [
+            {
+                "id": "source",
+                "type": "source.liked_tracks",
+                "config": {"service": "spotify"},
+                "upstream": [],
+            }
+        ],
+    }
+
+
+async def create_workflow(client: httpx.AsyncClient) -> str:
+    """Create a workflow via POST and return its ID (string UUID)."""
+    resp = await client.post(
+        "/api/v1/workflows", json={"definition": valid_workflow_definition()}
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
 @pytest.fixture
 async def client(
     postgres_url: str,

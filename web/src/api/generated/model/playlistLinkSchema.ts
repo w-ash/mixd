@@ -3,14 +3,14 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Full link detail for playlist detail views.
  */
 export interface PlaylistLinkSchema {
-  id: number;
+  id: string;
   connector_name: string;
   connector_playlist_id: string;
   connector_playlist_name?: string | null;

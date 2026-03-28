@@ -8,6 +8,7 @@ review, including listing pending reviews and resolving (accept/reject).
 # Legitimate: SQLAlchemy JSON columns produce unknown types for artists field
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 import attrs
 from sqlalchemy import func, select
@@ -113,7 +114,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         return reviews, total
 
     @db_operation("get_review_by_id")
-    async def get_review_by_id(self, review_id: int) -> MatchReview | None:
+    async def get_review_by_id(self, review_id: UUID) -> MatchReview | None:
         """Get a single review by ID."""
         return await self.find_one_by({"id": review_id})
 
@@ -170,7 +171,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         )
 
     @db_operation("update_review_status")
-    async def update_review_status(self, review_id: int, status: str) -> MatchReview:
+    async def update_review_status(self, review_id: UUID, status: str) -> MatchReview:
         """Update a review's status (accept/reject)."""
         updates: dict[str, object] = {"status": status}
         if status in (ReviewStatus.ACCEPTED, ReviewStatus.REJECTED):

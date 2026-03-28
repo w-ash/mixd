@@ -4,6 +4,7 @@
 # Legitimate Any: JSON column produces heterogeneous dicts
 
 from typing import cast
+from uuid import UUID
 
 import attrs
 from attrs import define
@@ -44,7 +45,7 @@ class WorkflowRunMapper:
         )
 
     @staticmethod
-    def node_to_db(node: WorkflowRunNode, run_id: int) -> DBWorkflowRunNode:
+    def node_to_db(node: WorkflowRunNode, run_id: UUID) -> DBWorkflowRunNode:
         return DBWorkflowRunNode(
             node_id=node.node_id,
             node_type=node.node_type,

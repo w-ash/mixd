@@ -45,7 +45,7 @@ function RunHistoryTable({
   workflowId,
 }: {
   runs: WorkflowRunSummarySchema[];
-  workflowId: number;
+  workflowId: string;
 }) {
   if (runs.length === 0) return null;
 
@@ -99,7 +99,7 @@ function RunHistoryTable({
 
 export function WorkflowDetail() {
   const { id } = useParams<{ id: string }>();
-  const workflowId = Number(id);
+  const workflowId = id ?? "";
 
   const { data, isLoading, isError } =
     useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId, {

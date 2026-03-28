@@ -127,9 +127,9 @@ async def delete_specific_plays(
         if hard_delete:
             # Permanently delete records from database
             delete_query = text("""
-                DELETE FROM track_plays 
-                WHERE track_id = :track_id 
-                AND played_at > :start_time 
+                DELETE FROM track_plays
+                WHERE track_id = :track_id
+                AND played_at > :start_time
                 AND played_at < :end_time
                 AND is_deleted = FALSE
             """)
@@ -146,10 +146,10 @@ async def delete_specific_plays(
         else:
             # Use the model's soft delete pattern by setting is_deleted=True
             delete_query = text("""
-                UPDATE track_plays 
+                UPDATE track_plays
                 SET is_deleted = TRUE, updated_at = :updated_at
-                WHERE track_id = :track_id 
-                AND played_at > :start_time 
+                WHERE track_id = :track_id
+                AND played_at > :start_time
                 AND played_at < :end_time
                 AND is_deleted = FALSE
             """)

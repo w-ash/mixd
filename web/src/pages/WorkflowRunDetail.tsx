@@ -269,11 +269,11 @@ function OutputTracksTable({
 
 export function WorkflowRunDetail() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
-  const workflowId = Number(id);
-  const runIdNum = Number(runId);
+  const workflowId = id ?? "";
+  const runIdStr = runId ?? "";
 
   const { data, isLoading, isError } =
-    useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(workflowId, runIdNum);
+    useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(workflowId, runIdStr);
 
   const { data: workflowData } =
     useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId);

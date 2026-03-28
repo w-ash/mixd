@@ -37,7 +37,7 @@ interface EditorState {
   future: HistoryEntry[];
 
   // Metadata
-  workflowId: number | null;
+  workflowId: string | null;
   workflowName: string;
   workflowDescription: string;
   isDirty: boolean;
@@ -65,7 +65,7 @@ interface EditorState {
   pushHistory: () => void;
 
   // Actions - Persistence
-  loadWorkflow: (def: WorkflowDefSchema, workflowId?: number) => void;
+  loadWorkflow: (def: WorkflowDefSchema, workflowId?: string) => void;
   toWorkflowDef: () => WorkflowDefSchema;
   resetDirty: () => void;
   setName: (name: string) => void;
@@ -288,7 +288,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     }));
 
     return {
-      id: workflowId ? String(workflowId) : "new-workflow",
+      id: workflowId ?? "new-workflow",
       name: workflowName,
       description: workflowDescription,
       version: "1.0",

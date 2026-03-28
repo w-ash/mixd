@@ -53,7 +53,7 @@ class TestOperationResultWithSummaryMetrics:
 
     def test_operation_result_preserves_tracks_list(self):
         """Test that tracks list remains unchanged."""
-        track = Track(id=1, title="Test", artists=[Artist(name="Artist")])
+        track = Track(title="Test", artists=[Artist(name="Artist")])
         result = OperationResult(
             operation_name="Test",
             tracks=[track],

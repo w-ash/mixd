@@ -12,6 +12,7 @@ All combination functions follow functional programming principles:
 """
 
 from typing import cast
+from uuid import UUID
 
 from src.domain.entities.track import Track, TrackList
 
@@ -37,12 +38,12 @@ def concatenate(
 
     def transform(_: TrackList) -> TrackList:
         all_tracks: list[Track] = []
-        combined_track_sources: dict[int, dict[str, str]] = {}
+        combined_track_sources: dict[UUID, dict[str, str]] = {}
 
         for t in tracklists:
             all_tracks.extend(t.tracks)
             # Merge track source information from each tracklist
-            track_sources: dict[int, dict[str, str]] = t.metadata.get(
+            track_sources: dict[UUID, dict[str, str]] = t.metadata.get(
                 "track_sources", {}
             )
             combined_track_sources.update(track_sources)
@@ -131,9 +132,9 @@ def intersect(
             return TrackList()
 
         # Start with IDs from first tracklist, intersect with each subsequent
-        common_ids = {t.id for t in tracklists[0].tracks if t.id is not None}
+        common_ids = {t.id for t in tracklists[0].tracks}
         for tl in tracklists[1:]:
-            common_ids &= {t.id for t in tl.tracks if t.id is not None}
+            common_ids &= {t.id for t in tl.tracks}
 
         # Preserve track order and instances from first tracklist
         result_tracks = [t for t in tracklists[0].tracks if t.id in common_ids]

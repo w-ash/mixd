@@ -8,24 +8,8 @@ import httpx
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
-
-
-def _valid_definition() -> dict:
-    """Minimal valid workflow definition for API requests."""
-    return {
-        "id": "test-wf",
-        "name": "Test Workflow",
-        "description": "A test",
-        "version": "1.0",
-        "tasks": [
-            {
-                "id": "source",
-                "type": "source.liked_tracks",
-                "config": {"service": "spotify"},
-                "upstream": [],
-            }
-        ],
-    }
+from tests.fixtures.factories import nonexistent_id
+from tests.integration.api.conftest import create_workflow as _create_workflow
 
 
 @pytest.fixture(autouse=True)
@@ -36,15 +20,6 @@ def _stub_workflow_background(monkeypatch):
         pass
 
     monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
-
-
-async def _create_workflow(client: httpx.AsyncClient) -> int:
-    """Helper: create a workflow and return its ID."""
-    resp = await client.post(
-        "/api/v1/workflows", json={"definition": _valid_definition()}
-    )
-    assert resp.status_code == 201
-    return resp.json()["id"]
 
 
 class TestRunWorkflowEndpoint:
@@ -59,12 +34,12 @@ class TestRunWorkflowEndpoint:
         body = response.json()
         assert "operation_id" in body
         assert "run_id" in body
-        assert isinstance(body["run_id"], int)
+        assert isinstance(body["run_id"], str)
 
     async def test_run_nonexistent_workflow_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.post("/api/v1/workflows/99999/run")
+        response = await client.post(f"/api/v1/workflows/{nonexistent_id()}/run")
 
         assert response.status_code == 404
 
@@ -145,7 +120,7 @@ class TestListWorkflowRuns:
         assert len(body["data"]) == 2
 
     async def test_nonexistent_workflow_404(self, client: httpx.AsyncClient) -> None:
-        response = await client.get("/api/v1/workflows/99999/runs")
+        response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/runs")
 
         assert response.status_code == 404
 
@@ -174,7 +149,9 @@ class TestGetWorkflowRun:
     async def test_nonexistent_run_404(self, client: httpx.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
 
-        response = await client.get(f"/api/v1/workflows/{wf_id}/runs/99999")
+        response = await client.get(
+            f"/api/v1/workflows/{wf_id}/runs/{nonexistent_id()}"
+        )
 
         assert response.status_code == 404
 

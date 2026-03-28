@@ -5,6 +5,8 @@ creating the mapping. The external playlist is fetched and cached as a
 DBConnectorPlaylist for future sync operations.
 """
 
+from uuid import UUID
+
 from attrs import define, field
 
 from src.application.connector_protocols import PlaylistConnector
@@ -27,7 +29,7 @@ logger = get_logger(__name__)
 class CreatePlaylistLinkCommand:
     """Input for creating a playlist link."""
 
-    playlist_id: int
+    playlist_id: UUID
     connector: str = field(validator=non_empty_string)
     connector_playlist_id: str = field(validator=non_empty_string)
     sync_direction: SyncDirection = SyncDirection.PUSH

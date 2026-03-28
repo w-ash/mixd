@@ -128,10 +128,13 @@ class TestListTracksCursorPagination:
     """Cursor encoding/decoding through the use case."""
 
     async def test_valid_cursor_decoded_and_forwarded(self, mock_uow) -> None:
+        from uuid import uuid7
+
         from src.application.pagination import PageCursor, encode_cursor
 
+        test_id = uuid7()
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Radiohead", last_id=42)
+            PageCursor(sort_column="title", sort_value="Radiohead", last_id=test_id)
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
@@ -140,7 +143,7 @@ class TestListTracksCursorPagination:
 
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
         assert call_kwargs["after_value"] == "Radiohead"
-        assert call_kwargs["after_id"] == 42
+        assert call_kwargs["after_id"] == test_id
         assert call_kwargs["include_total"] is False
 
     async def test_invalid_cursor_falls_back_to_offset(self, mock_uow) -> None:
@@ -156,11 +159,13 @@ class TestListTracksCursorPagination:
         assert call_kwargs["include_total"] is True
 
     async def test_cursor_sort_mismatch_falls_back_to_offset(self, mock_uow) -> None:
+        from uuid import uuid7
+
         from src.application.pagination import PageCursor, encode_cursor
 
         # Cursor was built for title sort, but command uses duration sort
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Test", last_id=10)
+            PageCursor(sort_column="title", sort_value="Test", last_id=uuid7())
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
@@ -173,10 +178,12 @@ class TestListTracksCursorPagination:
 
     async def test_total_none_when_cursor_present(self, mock_uow) -> None:
         """When a cursor is used, include_total=False and total=None is propagated."""
+        from uuid import uuid7
+
         from src.application.pagination import PageCursor, encode_cursor
 
         cursor = encode_cursor(
-            PageCursor(sort_column="title", sort_value="Test", last_id=10)
+            PageCursor(sort_column="title", sort_value="Test", last_id=uuid7())
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page(
             total=None,  # Repository returns None when include_total=False

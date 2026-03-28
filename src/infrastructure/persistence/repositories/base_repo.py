@@ -10,6 +10,7 @@ import functools
 import inspect as pyinspect
 import operator
 from typing import Any, Literal, Never, Protocol, TypeIs, cast, overload, override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy import Select, delete, func, insert, inspect, select, update
@@ -355,11 +356,11 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         """Create select statement for records."""
         return select(*columns) if columns else select(self.model_class)
 
-    def select_by_id(self, id_: int) -> Select[tuple[TDBModel]]:
+    def select_by_id(self, id_: UUID) -> Select[tuple[TDBModel]]:
         """Create select statement for a record by ID."""
         return select(self.model_class).where(self.model_class.id == id_)
 
-    def select_by_ids(self, ids: list[int]) -> Select[tuple[TDBModel]]:
+    def select_by_ids(self, ids: list[UUID]) -> Select[tuple[TDBModel]]:
         """Create select statement for multiple records by ID."""
         if not ids:
             # Return empty result statement
@@ -477,7 +478,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("get_by_id")
     async def get_by_id(
         self,
-        id_: int,
+        id_: UUID,
         load_relationships: list[str] | None = None,
     ) -> TDomainModel:
         """Get entity by ID - degenerate case of batch operation."""
@@ -492,7 +493,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("get_by_ids")
     async def get_by_ids(
         self,
-        ids: list[int],
+        ids: list[UUID],
         load_relationships: list[str] | None = None,
     ) -> list[TDomainModel]:
         """Get multiple entities by IDs - batch-first primary implementation."""
@@ -648,7 +649,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("update")
     async def update(
         self,
-        id_: int,
+        id_: UUID,
         updates: dict[str, Any] | TDomainModel,
     ) -> TDomainModel:
         """Update entity using UPDATE ... RETURNING with optimized relationship loading.
@@ -703,7 +704,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return await self.mapper.to_domain(updated_entity)
 
     @db_operation("delete")
-    async def delete(self, id_: int) -> int:
+    async def delete(self, id_: UUID) -> int:
         """Delete entity with ORM-enabled DELETE."""
         stmt = (
             delete(self.model_class)

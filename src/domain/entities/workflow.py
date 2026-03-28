@@ -9,6 +9,7 @@ Used by validation, execution (Prefect), API schemas, and persistence layers.
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID, uuid7
 
 from attrs import define, field
 
@@ -141,8 +142,8 @@ class WorkflowVersion:
     and a human-readable change summary.
     """
 
-    id: int | None = None
-    workflow_id: int = 0
+    id: UUID = field(factory=uuid7)
+    workflow_id: UUID = field(factory=uuid7)
     version: int = 1
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
     created_at: datetime | None = None
@@ -158,7 +159,7 @@ class Workflow:
     to ``WorkflowDef`` via ``attrs.asdict()`` / reconstruction.
     """
 
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
     user_id: str = "default"
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
     is_template: bool = False
@@ -176,8 +177,8 @@ class WorkflowRunNode:
     through running to completed/failed. Maps to ``workflow_run_nodes`` rows.
     """
 
-    id: int | None = None
-    run_id: int | None = None
+    id: UUID = field(factory=uuid7)
+    run_id: UUID = field(factory=uuid7)
     node_id: str = ""
     node_type: str = ""
     status: RunStatus = "pending"
@@ -202,8 +203,8 @@ class WorkflowRun:
     don't affect an in-progress run.
     """
 
-    id: int | None = None
-    workflow_id: int = 0
+    id: UUID = field(factory=uuid7)
+    workflow_id: UUID = field(factory=uuid7)
     status: RunStatus = "pending"
     definition_snapshot: WorkflowDef = field(
         factory=lambda: WorkflowDef(id="", name="")
@@ -213,7 +214,7 @@ class WorkflowRun:
     completed_at: datetime | None = None
     duration_ms: int | None = None
     output_track_count: int | None = None
-    output_playlist_id: int | None = None
+    output_playlist_id: UUID | None = None
     output_tracks: list[dict[str, Any]] = field(factory=list)
     error_message: str | None = None
     nodes: list[WorkflowRunNode] = field(factory=list)

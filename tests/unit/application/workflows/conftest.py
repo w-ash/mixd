@@ -10,7 +10,7 @@ def sample_tracklist():
     """Create a sample tracklist for workflow testing."""
     return TrackList(
         tracks=[
-            Track(id=1, title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Track B", artists=[Artist(name="Artist 2")]),
+            Track(title="Track A", artists=[Artist(name="Artist 1")], version=1),
+            Track(title="Track B", artists=[Artist(name="Artist 2")], version=1),
         ]
     )

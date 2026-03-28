@@ -4,6 +4,7 @@ Tests CRUD, pagination, cascade delete, node status updates, and batch latest-ru
 """
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 import pytest
 
@@ -40,7 +41,7 @@ async def _create_workflow(db_session) -> Workflow:
     return await wf_repo.save_workflow(Workflow(definition=_make_def()))
 
 
-def _make_run(workflow_id: int, *, status: str = "pending") -> WorkflowRun:
+def _make_run(workflow_id: UUID, *, status: str = "pending") -> WorkflowRun:
     """Build a domain WorkflowRun with pre-created node records."""
     wf_def = _make_def()
     nodes = [
@@ -126,13 +127,13 @@ class TestWorkflowRunCRUD:
         repo = WorkflowRunRepository(db_session)
 
         with pytest.raises(NotFoundError):
-            await repo.update_run_status(99999, "running")
+            await repo.update_run_status(uuid7(), "running")
 
     async def test_get_nonexistent_run_raises(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)
 
         with pytest.raises(NotFoundError):
-            await repo.get_run_by_id(99999)
+            await repo.get_run_by_id(uuid7())
 
 
 class TestWorkflowRunNodeStatus:
@@ -296,7 +297,7 @@ class TestLatestRunQueries:
     async def test_batch_latest_runs_missing_workflow(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)
 
-        result = await repo.get_latest_runs_for_workflows([99999])
+        result = await repo.get_latest_runs_for_workflows([uuid7()])
         assert result == {}
 
 

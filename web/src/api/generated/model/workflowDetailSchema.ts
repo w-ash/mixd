@@ -3,13 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { LastRunSchema } from './lastRunSchema';
 import type { WorkflowDefSchema } from './workflowDefSchema';
 
 export interface WorkflowDetailSchema {
-  id: number;
+  id: string;
   name: string;
   description?: string | null;
   is_template: boolean;

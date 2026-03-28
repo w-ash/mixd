@@ -44,7 +44,7 @@ class TestSpotifyProviderMatchByISRC:
     async def test_successful_isrc_search_returns_match(self):
         """Successful ISRC search should produce a match."""
         provider, connector = _make_provider()
-        track = make_track(id=1, isrc="USRC11111111")
+        track = make_track(isrc="USRC11111111")
         spotify_result = _make_spotify_track_model(
             track_id="sp_abc", isrc="USRC11111111"
         )
@@ -52,16 +52,16 @@ class TestSpotifyProviderMatchByISRC:
 
         matches, failures = await provider._match_by_isrc([track])
 
-        assert 1 in matches
-        assert matches[1]["connector_id"] == "sp_abc"
-        assert matches[1]["match_method"] == "isrc"
+        assert track.id in matches
+        assert matches[track.id]["connector_id"] == "sp_abc"
+        assert matches[track.id]["match_method"] == "isrc"
         assert len(failures) == 0
         connector.search_by_isrc.assert_called_once_with("USRC11111111")
 
     async def test_no_results_returns_failure(self):
         """No Spotify results for ISRC should produce NO_RESULTS failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1, isrc="USRC00000000")
+        track = make_track(isrc="USRC00000000")
         connector.search_by_isrc.return_value = None
 
         matches, failures = await provider._match_by_isrc([track])
@@ -69,12 +69,12 @@ class TestSpotifyProviderMatchByISRC:
         assert len(matches) == 0
         assert len(failures) == 1
         assert failures[0].reason == MatchFailureReason.NO_RESULTS
-        assert failures[0].track_id == 1
+        assert failures[0].track_id == track.id
 
     async def test_api_error_returns_failure(self):
         """API exception during ISRC search should produce API_ERROR failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1, isrc="USRC11111111")
+        track = make_track(isrc="USRC11111111")
         connector.search_by_isrc.side_effect = RuntimeError("Connection timeout")
 
         matches, failures = await provider._match_by_isrc([track])
@@ -84,20 +84,10 @@ class TestSpotifyProviderMatchByISRC:
         assert failures[0].reason == MatchFailureReason.API_ERROR
         assert failures[0].exception_type == "RuntimeError"
 
-    async def test_track_without_id_skipped(self):
-        """Tracks without database ID should be silently skipped."""
-        provider, connector = _make_provider()
-        track = make_track(id=None, title="Song", artist="Artist", isrc="USRC11111111")
-
-        matches, failures = await provider._match_by_isrc([track])
-
-        assert len(matches) == 0
-        assert len(failures) == 0
-
     async def test_track_without_isrc_returns_no_isrc_failure(self):
         """Track missing ISRC should produce NO_ISRC failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1, isrc=None)
+        track = make_track(isrc=None)
 
         matches, failures = await provider._match_by_isrc([track])
 
@@ -112,7 +102,7 @@ class TestSpotifyProviderMatchByArtistTitle:
     async def test_successful_search_picks_best_candidate(self):
         """Should pick the candidate with highest title similarity."""
         provider, connector = _make_provider()
-        track = make_track(id=1, title="Karma Police", artist="Radiohead")
+        track = make_track(title="Karma Police", artist="Radiohead")
 
         # Return two candidates — exact match and a partial match
         exact = _make_spotify_track_model(
@@ -125,14 +115,14 @@ class TestSpotifyProviderMatchByArtistTitle:
 
         matches, failures = await provider._match_by_artist_title([track])
 
-        assert 1 in matches
-        assert matches[1]["connector_id"] == "sp_exact"
-        assert matches[1]["match_method"] == "artist_title"
+        assert track.id in matches
+        assert matches[track.id]["connector_id"] == "sp_exact"
+        assert matches[track.id]["match_method"] == "artist_title"
 
     async def test_no_results_returns_failure(self):
         """Empty search results should produce NO_RESULTS failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1, title="Obscure Song", artist="Unknown Artist")
+        track = make_track(title="Obscure Song", artist="Unknown Artist")
         connector.search_track.return_value = []
 
         matches, failures = await provider._match_by_artist_title([track])
@@ -144,7 +134,7 @@ class TestSpotifyProviderMatchByArtistTitle:
     async def test_api_error_handled_gracefully(self):
         """API exception during search should produce API_ERROR failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1)
+        track = make_track()
         connector.search_track.side_effect = RuntimeError("Rate limited")
 
         matches, failures = await provider._match_by_artist_title([track])
@@ -156,7 +146,7 @@ class TestSpotifyProviderMatchByArtistTitle:
     async def test_track_without_metadata_returns_failure(self):
         """Track without artist or title should produce NO_METADATA failure."""
         provider, connector = _make_provider()
-        track = make_track(id=1, title="", artist="Artist")
+        track = make_track(title="", artist="Artist")
 
         matches, failures = await provider._match_by_artist_title([track])
 
@@ -234,7 +224,7 @@ class TestSpotifyProviderISRCFallback:
 
         # Track has both ISRC and artist/title
         track = make_track(
-            id=1, title="Paranoid Android", artist="Radiohead", isrc="USRC11111111"
+            title="Paranoid Android", artist="Radiohead", isrc="USRC11111111"
         )
 
         # ISRC search returns nothing
@@ -249,15 +239,15 @@ class TestSpotifyProviderISRCFallback:
         result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert len(result.matches) == 1
-        assert 1 in result.matches
-        assert result.matches[1]["connector_id"] == "sp_fallback"
-        assert result.matches[1]["match_method"] == "artist_title"
+        assert track.id in result.matches
+        assert result.matches[track.id]["connector_id"] == "sp_fallback"
+        assert result.matches[track.id]["match_method"] == "artist_title"
 
     async def test_successful_isrc_tracks_not_retried(self):
         """Tracks that succeed via ISRC should NOT be sent to artist/title."""
         provider, connector = _make_provider()
 
-        track = make_track(id=1, title="Song", artist="Artist", isrc="USRC11111111")
+        track = make_track(title="Song", artist="Artist", isrc="USRC11111111")
 
         # ISRC search succeeds
         spotify_result = _make_spotify_track_model(track_id="sp_isrc")
@@ -266,16 +256,16 @@ class TestSpotifyProviderISRCFallback:
         result = await provider.fetch_raw_matches_for_tracks([track])
 
         assert len(result.matches) == 1
-        assert result.matches[1]["match_method"] == "isrc"
+        assert result.matches[track.id]["match_method"] == "isrc"
         connector.search_track.assert_not_called()
 
     async def test_mixed_isrc_and_non_isrc_tracks(self):
         """Mixed batch: ISRC success + ISRC failure (fallback) + non-ISRC."""
         provider, connector = _make_provider()
 
-        track_isrc_success = make_track(id=1, title="A", artist="X", isrc="ISRC_OK")
-        track_isrc_fail = make_track(id=2, title="B", artist="Y", isrc="ISRC_FAIL")
-        track_no_isrc = make_track(id=3, title="C", artist="Z")
+        track_isrc_success = make_track(title="A", artist="X", isrc="ISRC_OK")
+        track_isrc_fail = make_track(title="B", artist="Y", isrc="ISRC_FAIL")
+        track_no_isrc = make_track(title="C", artist="Z")
 
         # ISRC: track 1 succeeds, track 2 fails
         async def isrc_side_effect(isrc: str):
@@ -298,6 +288,6 @@ class TestSpotifyProviderISRCFallback:
         ])
 
         assert len(result.matches) == 3
-        assert result.matches[1]["match_method"] == "isrc"
-        assert result.matches[2]["match_method"] == "artist_title"
-        assert result.matches[3]["match_method"] == "artist_title"
+        assert result.matches[track_isrc_success.id]["match_method"] == "isrc"
+        assert result.matches[track_isrc_fail.id]["match_method"] == "artist_title"
+        assert result.matches[track_no_isrc.id]["match_method"] == "artist_title"

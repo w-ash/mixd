@@ -71,7 +71,6 @@ def _build_source_tracklist(
             "source_id": source_id,
         }
         for track in tracks
-        if track.id is not None
     }
     return TrackList(
         tracks=tracks,

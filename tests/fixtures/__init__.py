@@ -16,6 +16,7 @@ from tests.fixtures.factories import (
     make_tracks,
     make_workflow,
     make_workflow_def,
+    nonexistent_id,
 )
 from tests.fixtures.mocks import (
     make_mock_checkpoint_repo,
@@ -59,4 +60,5 @@ __all__ = [
     "make_tracks",
     "make_workflow",
     "make_workflow_def",
+    "nonexistent_id",
 ]

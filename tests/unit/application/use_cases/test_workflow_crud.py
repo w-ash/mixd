@@ -5,6 +5,7 @@ Also verifies that UpdateWorkflowUseCase creates version records.
 """
 
 from unittest.mock import AsyncMock
+from uuid import uuid7
 
 import pytest
 
@@ -32,7 +33,7 @@ from tests.fixtures import (
 
 class TestListWorkflows:
     async def test_returns_all_workflows(self) -> None:
-        workflows = [make_workflow(id=1), make_workflow(id=2)]
+        workflows = [make_workflow(), make_workflow()]
         repo = make_mock_workflow_repo(list_workflows=workflows)
         uow = make_mock_uow(workflow_repo=repo)
 
@@ -62,15 +63,15 @@ class TestListWorkflows:
 
 class TestGetWorkflow:
     async def test_returns_workflow(self) -> None:
-        workflow = make_workflow(id=42)
+        workflow = make_workflow()
         repo = make_mock_workflow_repo(get_workflow_by_id=workflow)
         uow = make_mock_uow(workflow_repo=repo)
 
         result = await GetWorkflowUseCase().execute(
-            GetWorkflowCommand(workflow_id=42), uow
+            GetWorkflowCommand(workflow_id=workflow.id), uow
         )
 
-        assert result.workflow.id == 42
+        assert result.workflow.id == workflow.id
 
     async def test_not_found_propagates(self) -> None:
         repo = make_mock_workflow_repo()
@@ -78,7 +79,9 @@ class TestGetWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         with pytest.raises(NotFoundError):
-            await GetWorkflowUseCase().execute(GetWorkflowCommand(workflow_id=999), uow)
+            await GetWorkflowUseCase().execute(
+                GetWorkflowCommand(workflow_id=uuid7()), uow
+            )
 
 
 class TestCreateWorkflow:
@@ -108,13 +111,13 @@ class TestCreateWorkflow:
 
 class TestUpdateWorkflow:
     async def test_updates_workflow(self) -> None:
-        existing = make_workflow(id=1, is_template=False)
+        existing = make_workflow(is_template=False)
         new_def = make_workflow_def(name="Updated")
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
         )
 
         repo.save_workflow.assert_called_once()
@@ -123,7 +126,7 @@ class TestUpdateWorkflow:
         """definition_version bumps when the task pipeline is modified."""
         from src.domain.entities.workflow import WorkflowTaskDef
 
-        existing = make_workflow(id=1, definition_version=3)
+        existing = make_workflow(definition_version=3)
         new_tasks = [
             WorkflowTaskDef(
                 id="source", type="source.liked_tracks", config={"service": "spotify"}
@@ -143,7 +146,7 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
         )
 
         saved = repo.save_workflow.call_args[0][0]
@@ -151,27 +154,29 @@ class TestUpdateWorkflow:
 
     async def test_version_preserved_when_only_name_changes(self) -> None:
         """definition_version stays the same when only name/description changes."""
-        existing = make_workflow(id=1, definition_version=5)
+        existing = make_workflow(definition_version=5)
         # Same tasks, different name
         new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
         )
 
         saved = repo.save_workflow.call_args[0][0]
         assert saved.definition_version == 5
 
     async def test_template_rejection(self) -> None:
-        template = make_workflow(id=1, is_template=True)
+        template = make_workflow(is_template=True)
         repo = make_mock_workflow_repo(get_workflow_by_id=template)
         uow = make_mock_uow(workflow_repo=repo)
 
         with pytest.raises(TemplateReadOnlyError):
             await UpdateWorkflowUseCase().execute(
-                UpdateWorkflowCommand(workflow_id=1, definition=make_workflow_def()),
+                UpdateWorkflowCommand(
+                    workflow_id=template.id, definition=make_workflow_def()
+                ),
                 uow,
             )
 
@@ -182,7 +187,9 @@ class TestUpdateWorkflow:
 
         with pytest.raises(NotFoundError):
             await UpdateWorkflowUseCase().execute(
-                UpdateWorkflowCommand(workflow_id=999, definition=make_workflow_def()),
+                UpdateWorkflowCommand(
+                    workflow_id=uuid7(), definition=make_workflow_def()
+                ),
                 uow,
             )
 
@@ -190,7 +197,7 @@ class TestUpdateWorkflow:
         """When tasks change, a version snapshot is created before saving."""
         from src.domain.entities.workflow import WorkflowTaskDef
 
-        existing = make_workflow(id=1, definition_version=3)
+        existing = make_workflow(definition_version=3)
         new_tasks = [
             WorkflowTaskDef(
                 id="source", type="source.liked_tracks", config={"service": "spotify"}
@@ -210,25 +217,25 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
         )
 
         version_repo.create_version.assert_called_once()
         snapshot = version_repo.create_version.call_args[0][0]
         assert snapshot.version == 1
-        assert snapshot.workflow_id == 1
+        assert snapshot.workflow_id == existing.id
         assert snapshot.definition == existing.definition
 
     async def test_no_version_on_name_only_change(self) -> None:
         """No version is created when only name/description changes."""
-        existing = make_workflow(id=1, definition_version=5)
+        existing = make_workflow(definition_version=5)
         new_def = make_workflow_def(name="New Name", tasks=existing.definition.tasks)
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         version_repo = AsyncMock()
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=1, definition=new_def), uow
+            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
         )
 
         version_repo.create_version.assert_not_called()
@@ -272,25 +279,25 @@ class TestGenerateChangeSummary:
 
 class TestDeleteWorkflow:
     async def test_deletes_workflow(self) -> None:
-        existing = make_workflow(id=1, is_template=False)
+        existing = make_workflow(is_template=False)
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
         result = await DeleteWorkflowUseCase().execute(
-            DeleteWorkflowCommand(workflow_id=1), uow
+            DeleteWorkflowCommand(workflow_id=existing.id), uow
         )
 
-        repo.delete_workflow.assert_called_once_with(1)
-        assert result.workflow_id == 1
+        repo.delete_workflow.assert_called_once_with(existing.id)
+        assert result.workflow_id == existing.id
 
     async def test_template_rejection(self) -> None:
-        template = make_workflow(id=1, is_template=True)
+        template = make_workflow(is_template=True)
         repo = make_mock_workflow_repo(get_workflow_by_id=template)
         uow = make_mock_uow(workflow_repo=repo)
 
         with pytest.raises(TemplateReadOnlyError):
             await DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(workflow_id=1), uow
+                DeleteWorkflowCommand(workflow_id=template.id), uow
             )
 
     async def test_not_found_propagates(self) -> None:
@@ -300,5 +307,5 @@ class TestDeleteWorkflow:
 
         with pytest.raises(NotFoundError):
             await DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(workflow_id=999), uow
+                DeleteWorkflowCommand(workflow_id=uuid7()), uow
             )

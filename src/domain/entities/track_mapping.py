@@ -4,7 +4,9 @@ Replaces dict[str, Any] with a typed frozen entity for track mapping data
 flowing between the persistence layer and domain/application layers.
 """
 
-from attrs import define
+from uuid import UUID, uuid7
+
+from attrs import define, field
 
 
 @define(frozen=True, slots=True)
@@ -17,12 +19,12 @@ class TrackMapping:
     """
 
     user_id: str = "default"
-    track_id: int = 0
-    connector_track_id: int = 0
+    track_id: UUID = field(factory=uuid7)
+    connector_track_id: UUID = field(factory=uuid7)
     connector_name: str = ""
     match_method: str = ""
     confidence: int = 0
     confidence_evidence: dict[str, object] | None = None
     origin: str = "automatic"
     is_primary: bool = False
-    id: int | None = None
+    id: UUID = field(factory=uuid7)

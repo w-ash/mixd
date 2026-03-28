@@ -3,6 +3,7 @@
 # pyright: reportExplicitAny=false
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 import attrs
 from sqlalchemy import delete, select
@@ -40,7 +41,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         return await self.mapper.map_collection(db_models)
 
     @db_operation("get_workflow_by_id")
-    async def get_workflow_by_id(self, workflow_id: int) -> Workflow:
+    async def get_workflow_by_id(self, workflow_id: UUID) -> Workflow:
         """Get workflow by ID. Raises NotFoundError if not found."""
         stmt = self.select_by_id(workflow_id)
         db_model = await self.execute_select_one(stmt)
@@ -51,19 +52,17 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
     @db_operation("save_workflow")
     async def save_workflow(self, workflow: Workflow) -> Workflow:
         """Create or update a workflow."""
-        if workflow.id is None:
+        # Check if workflow already exists in DB
+        stmt = self.select_by_id(workflow.id)
+        db_model = await self.execute_select_one(stmt)
+
+        if not db_model:
             # Create
             db_model = self.mapper.to_db(workflow)
             self.session.add(db_model)
             await self.session.flush()
             await self.session.refresh(db_model)
             return await self.mapper.to_domain(db_model)
-
-        # Update existing
-        stmt = self.select_by_id(workflow.id)
-        db_model = await self.execute_select_one(stmt)
-        if not db_model:
-            raise NotFoundError(f"Workflow with ID {workflow.id} not found")
 
         definition_dict = attrs.asdict(workflow.definition)
         db_model.name = workflow.definition.name
@@ -77,7 +76,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         return await self.mapper.to_domain(db_model)
 
     @db_operation("delete_workflow")
-    async def delete_workflow(self, workflow_id: int) -> bool:
+    async def delete_workflow(self, workflow_id: UUID) -> bool:
         """Delete workflow by ID. Returns True if deleted."""
         result = await self.session.execute(
             delete(DBWorkflow)

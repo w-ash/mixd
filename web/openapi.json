@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.5.8"
+    "version": "0.5.10"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -423,7 +423,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           }
@@ -464,7 +465,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           }
@@ -515,7 +517,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           }
@@ -551,7 +554,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           },
@@ -617,7 +621,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           }
@@ -662,7 +667,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           }
@@ -715,7 +721,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           },
@@ -724,7 +731,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Link Id"
             }
           }
@@ -758,7 +766,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           },
@@ -767,7 +776,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Link Id"
             }
           }
@@ -820,7 +830,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           },
@@ -829,7 +840,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Link Id"
             }
           },
@@ -888,7 +900,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Playlist Id"
             }
           },
@@ -897,7 +910,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Link Id"
             }
           }
@@ -1100,7 +1114,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           }
@@ -1143,7 +1158,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           }
@@ -1196,7 +1212,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           },
@@ -1205,7 +1222,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Mapping Id"
             }
           }
@@ -1256,7 +1274,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           },
@@ -1265,7 +1284,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Mapping Id"
             }
           }
@@ -1308,7 +1328,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           },
@@ -1317,7 +1338,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Mapping Id"
             }
           }
@@ -1360,7 +1382,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Track Id"
             }
           }
@@ -1624,7 +1647,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -1667,7 +1691,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -1708,7 +1733,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -1759,7 +1785,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -1795,7 +1822,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -1838,7 +1866,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           },
@@ -1904,7 +1933,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           },
@@ -1913,7 +1943,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Run Id"
             }
           }
@@ -1956,7 +1987,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           }
@@ -2003,7 +2035,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           },
@@ -2055,7 +2088,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Workflow Id"
             }
           },
@@ -2500,7 +2534,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Review Id"
             }
           }
@@ -2839,7 +2874,8 @@
       "ConnectorMappingSchema": {
         "properties": {
           "mapping_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Mapping Id"
           },
           "connector_name": {
@@ -3251,7 +3287,8 @@
       "LastRunSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "status": {
@@ -3305,7 +3342,8 @@
       "LibraryTrackSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "title": {
@@ -3465,7 +3503,8 @@
           "id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
@@ -3474,7 +3513,8 @@
             "title": "Id"
           },
           "track_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Track Id"
           },
           "connector_name": {
@@ -3482,7 +3522,8 @@
             "title": "Connector Name"
           },
           "connector_track_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Connector Track Id"
           },
           "match_method": {
@@ -3584,7 +3625,8 @@
       "MergeTrackRequest": {
         "properties": {
           "loser_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Loser Id"
           }
         },
@@ -3991,7 +4033,8 @@
       "PlaylistBriefSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "name": {
@@ -4021,7 +4064,8 @@
       "PlaylistDetailSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "name": {
@@ -4114,7 +4158,8 @@
       "PlaylistLinkSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "connector_name": {
@@ -4204,7 +4249,8 @@
       "PlaylistSummarySchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "name": {
@@ -4272,7 +4318,8 @@
       "RelinkMappingRequest": {
         "properties": {
           "new_track_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "New Track Id"
           }
         },
@@ -4419,7 +4466,8 @@
       "TrackDetailSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "title": {
@@ -4521,7 +4569,8 @@
           "id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
@@ -4574,13 +4623,15 @@
       "UnlinkMappingResponse": {
         "properties": {
           "deleted_mapping_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Deleted Mapping Id"
           },
           "orphan_track_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
@@ -4762,7 +4813,8 @@
       "WorkflowDetailSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "name": {
@@ -4863,11 +4915,13 @@
       "WorkflowRunDetailSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "workflow_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Workflow Id"
           },
           "status": {
@@ -4935,7 +4989,8 @@
           "output_playlist_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
@@ -5007,7 +5062,8 @@
       "WorkflowRunNodeSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "node_id": {
@@ -5125,7 +5181,8 @@
             "title": "Operation Id"
           },
           "run_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Run Id"
           }
         },
@@ -5139,11 +5196,13 @@
       "WorkflowRunSummarySchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "workflow_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Workflow Id"
           },
           "status": {
@@ -5211,7 +5270,8 @@
           "output_playlist_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
@@ -5254,7 +5314,8 @@
       "WorkflowSummarySchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "name": {
@@ -5461,11 +5522,13 @@
       "WorkflowVersionSchema": {
         "properties": {
           "id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Id"
           },
           "workflow_id": {
-            "type": "integer",
+            "type": "string",
+            "format": "uuid",
             "title": "Workflow Id"
           },
           "version": {

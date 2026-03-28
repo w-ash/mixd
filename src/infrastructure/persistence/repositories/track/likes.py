@@ -1,6 +1,7 @@
 """Track repository for like operations."""
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +37,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     @db_operation("get_track_likes")
     async def get_track_likes(
         self,
-        track_id: int,
+        track_id: UUID,
         services: list[str] | None = None,
     ) -> list[TrackLike]:
         """Get likes for a track across services."""
@@ -50,9 +51,9 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     @db_operation("get_liked_status_batch")
     async def get_liked_status_batch(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         services: list[str],
-    ) -> dict[int, dict[str, bool]]:
+    ) -> dict[UUID, dict[str, bool]]:
         """Check like status for multiple tracks across services in 1 query."""
         if not track_ids:
             return {}
@@ -60,7 +61,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
             self.model_class.track_id.in_(track_ids),
             self.model_class.service.in_(services),
         ])
-        result: dict[int, dict[str, bool]] = {}
+        result: dict[UUID, dict[str, bool]] = {}
         for like in likes:
             result.setdefault(like.track_id, {})[like.service] = like.is_liked
         return result
@@ -168,7 +169,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     @db_operation("save_track_like")
     async def save_track_like(
         self,
-        track_id: int,
+        track_id: UUID,
         service: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
@@ -204,7 +205,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     @db_operation("save_track_likes_batch")
     async def save_track_likes_batch(
         self,
-        likes: list[tuple[int, str, bool, datetime | None, datetime | None]],
+        likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
     ) -> list[TrackLike]:
         """Save multiple track likes in bulk.
 

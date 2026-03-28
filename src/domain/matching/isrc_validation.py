@@ -52,7 +52,8 @@ def validate_isrc_structure(isrc: str) -> ISRCValidationResult:
     if not isrc:
         return ISRCValidationResult(valid=False, error="empty ISRC")
 
-    if len(isrc) != 12:
+    expected_length = 12
+    if len(isrc) != expected_length:
         return ISRCValidationResult(
             valid=False, error=f"expected 12 characters, got {len(isrc)}"
         )

@@ -265,8 +265,7 @@ class EnrichTracksUseCase:
             logger.warning("No metrics specified for enrichment")
             return tracklist, {}
 
-        # Type-narrowing only — node factory already validated all tracks have IDs
-        track_ids = [t.id for t in tracklist.tracks if t.id is not None]
+        track_ids = [t.id for t in tracklist.tracks]
 
         logger.info(
             f"Fetching {len(metric_names)} metrics for {len(track_ids)} tracks from {config.connector}"
@@ -334,8 +333,7 @@ class EnrichTracksUseCase:
             logger.info("No tracks to enrich")
             return tracklist, {}
 
-        # Type-narrowing only — node factory already validated all tracks have IDs
-        track_ids = [t.id for t in tracklist.tracks if t.id is not None]
+        track_ids = [t.id for t in tracklist.tracks]
 
         # Calculate period boundaries if needed
         period_start, period_end = None, None

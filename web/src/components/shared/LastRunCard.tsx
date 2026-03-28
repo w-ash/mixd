@@ -16,7 +16,7 @@ import { formatDate } from "@/lib/format";
 interface LastRunCardProps {
   run: LastRunSchema | null;
   currentDefinitionVersion: number;
-  workflowId: number;
+  workflowId: string;
 }
 
 export function LastRunCard({

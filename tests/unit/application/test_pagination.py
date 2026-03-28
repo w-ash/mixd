@@ -5,6 +5,7 @@ type coercion for different sort column types (strings, ints, datetimes).
 """
 
 from datetime import UTC, datetime
+from uuid import uuid7
 
 import pytest
 
@@ -21,28 +22,34 @@ class TestCursorRoundTrip:
     """Encode → decode produces the same PageCursor."""
 
     def test_string_sort_value(self) -> None:
-        original = PageCursor(sort_column="title", sort_value="Radiohead", last_id=42)
+        original = PageCursor(
+            sort_column="title", sort_value="Radiohead", last_id=uuid7()
+        )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
         assert decoded == original
 
     def test_integer_sort_value(self) -> None:
-        original = PageCursor(sort_column="duration_ms", sort_value=240000, last_id=7)
+        original = PageCursor(
+            sort_column="duration_ms", sort_value=240000, last_id=uuid7()
+        )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
         assert decoded == original
 
     def test_none_sort_value(self) -> None:
-        original = PageCursor(sort_column="duration_ms", sort_value=None, last_id=99)
+        original = PageCursor(
+            sort_column="duration_ms", sort_value=None, last_id=uuid7()
+        )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
         assert decoded == original
 
     def test_float_sort_value(self) -> None:
-        original = PageCursor(sort_column="score", sort_value=0.95, last_id=1)
+        original = PageCursor(sort_column="score", sort_value=0.95, last_id=uuid7())
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
 
@@ -52,7 +59,7 @@ class TestCursorRoundTrip:
         """Datetimes are stored as ISO strings in the cursor."""
         dt = datetime(2025, 6, 15, 12, 30, 0, tzinfo=UTC)
         original = PageCursor(
-            sort_column="created_at", sort_value=dt.isoformat(), last_id=5
+            sort_column="created_at", sort_value=dt.isoformat(), last_id=uuid7()
         )
         encoded = encode_cursor(original)
         decoded = decode_cursor(encoded)
@@ -87,7 +94,7 @@ class TestDecodeCursorErrors:
         import base64
         import json
 
-        payload = json.dumps({"c": 123, "v": "x", "id": 1}).encode()
+        payload = json.dumps({"c": 123, "v": "x", "id": str(uuid7())}).encode()
         encoded = base64.urlsafe_b64encode(payload).decode()
         with pytest.raises(TypeError, match="sort_column must be a string"):
             decode_cursor(encoded)
@@ -96,9 +103,18 @@ class TestDecodeCursorErrors:
         import base64
         import json
 
-        payload = json.dumps({"c": "title", "v": "x", "id": "not_int"}).encode()
+        payload = json.dumps({"c": "title", "v": "x", "id": 12345}).encode()
         encoded = base64.urlsafe_b64encode(payload).decode()
-        with pytest.raises(TypeError, match="last_id must be an integer"):
+        with pytest.raises(TypeError, match="last_id must be a UUID string"):
+            decode_cursor(encoded)
+
+    def test_invalid_uuid_last_id(self) -> None:
+        import base64
+        import json
+
+        payload = json.dumps({"c": "title", "v": "x", "id": "not-a-uuid"}).encode()
+        encoded = base64.urlsafe_b64encode(payload).decode()
+        with pytest.raises(TypeError, match="not a valid UUID"):
             decode_cursor(encoded)
 
     def test_empty_string(self) -> None:

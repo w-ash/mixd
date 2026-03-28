@@ -31,7 +31,7 @@ import { WorkflowDiff } from "@/components/workflow/WorkflowDiff";
 import { formatDateTime } from "@/lib/format";
 import { useEditorStore } from "@/stores/editor-store";
 
-export function VersionHistory({ workflowId }: { workflowId: number }) {
+export function VersionHistory({ workflowId }: { workflowId: string }) {
   const [diffVersion, setDiffVersion] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);

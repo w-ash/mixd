@@ -3,12 +3,12 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Request body for merging a duplicate track into a winner.
  */
 export interface MergeTrackRequest {
-  loser_id: number;
+  loser_id: string;
 }

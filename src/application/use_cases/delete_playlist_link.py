@@ -4,6 +4,8 @@ Removes the mapping row. The cached DBConnectorPlaylist is kept for potential
 re-linking without re-fetching.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.config import get_logger
@@ -17,7 +19,7 @@ logger = get_logger(__name__)
 class DeletePlaylistLinkCommand:
     """Input for deleting a playlist link."""
 
-    link_id: int
+    link_id: UUID
 
 
 @define(frozen=True, slots=True)

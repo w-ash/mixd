@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -15,10 +16,10 @@ class MatchReviewSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int | None
-    track_id: int
+    id: UUID | None
+    track_id: UUID
     connector_name: str
-    connector_track_id: int
+    connector_track_id: UUID
     match_method: str
     confidence: int
     match_weight: float

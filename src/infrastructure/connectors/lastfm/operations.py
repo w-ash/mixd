@@ -281,7 +281,7 @@ class LastFMOperations:
         )
 
         async def process_track(track: Track) -> TrackProcessingResult:
-            if track.id is None:
+            if track.id is None:  # pragma: no cover - UUIDv7 tracks always have IDs
                 raise ValueError(
                     f"Track must have an ID for batch processing: {track.title}"
                 )

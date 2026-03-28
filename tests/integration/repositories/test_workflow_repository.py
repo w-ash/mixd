@@ -3,6 +3,8 @@
 Tests CRUD, template filtering, and source_template upsert behavior.
 """
 
+from uuid import uuid7
+
 import pytest
 
 from src.domain.entities.workflow import Workflow
@@ -48,14 +50,14 @@ class TestWorkflowRepositoryCRUD:
     async def test_delete_nonexistent_returns_false(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
 
-        deleted = await repo.delete_workflow(99999)
+        deleted = await repo.delete_workflow(uuid7())
         assert deleted is False
 
     async def test_get_nonexistent_raises(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
 
         with pytest.raises(NotFoundError):
-            await repo.get_workflow_by_id(99999)
+            await repo.get_workflow_by_id(uuid7())
 
 
 class TestWorkflowRepositoryTemplates:

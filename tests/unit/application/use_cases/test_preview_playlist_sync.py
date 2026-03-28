@@ -4,6 +4,8 @@ Tests both the diff-engine path (locally-cached external exists) and the
 fallback path (never-synced link with no comparison data).
 """
 
+from uuid import uuid7
+
 import pytest
 
 from src.application.use_cases.preview_playlist_sync import (
@@ -14,14 +16,18 @@ from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncS
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_mock_uow, make_playlist, make_tracks
 
+# Stable UUIDs for consistent cross-reference in test helpers
+_CANONICAL_PLAYLIST_ID = uuid7()
+_LINK_ID = uuid7()
+
 
 def _make_link(
     *,
     direction: SyncDirection = SyncDirection.PUSH,
 ) -> PlaylistLink:
     return PlaylistLink(
-        id=1,
-        playlist_id=42,
+        id=_LINK_ID,
+        playlist_id=_CANONICAL_PLAYLIST_ID,
         connector_name="spotify",
         connector_playlist_identifier="ext123",
         connector_playlist_name="External Playlist",
@@ -38,26 +44,31 @@ def _make_uow_with_playlists(
 ) -> object:
     """Set up UoW with canonical and (optionally) cached external playlist.
 
-    Track IDs are sequential starting at 1, so the first min(canonical, external)
-    tracks overlap — the diff engine will match them by ID.
+    Tracks get unique UUIDs from the factory. The diff engine matches by track ID,
+    so we build shared tracks for overlap by passing the same list to both playlists.
     """
     link = link or _make_link()
     uow = make_mock_uow()
 
     uow.get_playlist_link_repository().get_link.return_value = link
 
+    # Build a shared pool: the first min(canonical, external) tracks are shared
+    overlap = min(canonical_track_count, external_track_count)
+    shared_tracks = make_tracks(count=overlap)
+
+    canonical_extra = make_tracks(count=canonical_track_count - overlap)
     canonical = make_playlist(
-        id=42,
+        id=_CANONICAL_PLAYLIST_ID,
         name="My Playlist",
-        tracks=make_tracks(count=canonical_track_count),
+        tracks=shared_tracks + canonical_extra,
     )
     uow.get_playlist_repository().get_playlist_by_id.return_value = canonical
 
     if external_exists:
+        external_extra = make_tracks(count=external_track_count - overlap)
         external = make_playlist(
-            id=99,
             name="External Playlist",
-            tracks=make_tracks(count=external_track_count),
+            tracks=shared_tracks + external_extra,
         )
         uow.get_playlist_repository().get_playlist_by_connector.return_value = external
     else:
@@ -75,7 +86,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=10, external_track_count=7)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 3
@@ -92,7 +103,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=5, external_track_count=8)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 0
@@ -106,7 +117,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=5, external_track_count=5)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 0
@@ -126,7 +137,7 @@ class TestPreviewPlaylistSyncPull:
         )
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 3
@@ -144,7 +155,7 @@ class TestPreviewPlaylistSyncPull:
 
         result = await PreviewPlaylistSyncUseCase().execute(
             PreviewPlaylistSyncCommand(
-                link_id=1,
+                link_id=_LINK_ID,
                 direction_override=SyncDirection.PULL,
             ),
             uow,
@@ -165,7 +176,7 @@ class TestPreviewNeverSynced:
         uow = _make_uow_with_playlists(external_exists=False)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.has_comparison_data is False
@@ -185,7 +196,7 @@ class TestPreviewSafetyCheck:
         )
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is True
@@ -198,7 +209,7 @@ class TestPreviewSafetyCheck:
         uow = _make_uow_with_playlists(canonical_track_count=7, external_track_count=10)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is False
@@ -210,7 +221,7 @@ class TestPreviewSafetyCheck:
         uow = _make_uow_with_playlists(external_exists=False)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=1), uow
+            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is False
@@ -227,5 +238,5 @@ class TestPreviewPlaylistSyncErrors:
 
         with pytest.raises(NotFoundError, match="not found"):
             await PreviewPlaylistSyncUseCase().execute(
-                PreviewPlaylistSyncCommand(link_id=999), uow
+                PreviewPlaylistSyncCommand(link_id=uuid7()), uow
             )

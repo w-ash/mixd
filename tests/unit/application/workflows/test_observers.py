@@ -31,7 +31,7 @@ def task_def():
 
 @pytest.fixture
 def sample_result():
-    tracklist = TrackList(tracks=[Track(id=1, title="A", artists=[Artist(name="X")])])
+    tracklist = TrackList(tracks=[Track(title="A", artists=[Artist(name="X")])])
     return {"tracklist": tracklist}
 
 

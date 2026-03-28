@@ -7,6 +7,7 @@ Tests that manual_override mappings are protected during:
 """
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,7 @@ async def _create_track_with_mapping(
     connector_id: str = "sp_001",
     origin: str = "automatic",
     confidence: int = 50,
-) -> tuple[int, int]:
+) -> tuple[UUID, UUID]:
     """Create a track with a connector mapping. Returns (track_id, mapping_id)."""
     uow = get_unit_of_work(db_session)
 

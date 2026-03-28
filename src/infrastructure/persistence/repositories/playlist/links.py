@@ -8,6 +8,7 @@ Joins through DBConnectorPlaylist to denormalize the external playlist identifie
 # Legitimate Any: SQLAlchemy column expressions
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +53,7 @@ class PlaylistLinkRepository:
         self._session = session
 
     @db_operation("get_links_for_playlist")
-    async def get_links_for_playlist(self, playlist_id: int) -> list[PlaylistLink]:
+    async def get_links_for_playlist(self, playlist_id: UUID) -> list[PlaylistLink]:
         """Get all connector links for a canonical playlist."""
         stmt = (
             select(DBPlaylistMapping)
@@ -67,7 +68,7 @@ class PlaylistLinkRepository:
         ]
 
     @db_operation("get_link")
-    async def get_link(self, link_id: int) -> PlaylistLink | None:
+    async def get_link(self, link_id: UUID) -> PlaylistLink | None:
         """Get a single playlist link by ID."""
         stmt = (
             select(DBPlaylistMapping)
@@ -118,7 +119,7 @@ class PlaylistLinkRepository:
     @db_operation("update_sync_status")
     async def update_sync_status(
         self,
-        link_id: int,
+        link_id: UUID,
         status: SyncStatus,
         *,
         error: str | None = None,
@@ -152,7 +153,7 @@ class PlaylistLinkRepository:
 
     @db_operation("update_link_direction")
     async def update_link_direction(
-        self, link_id: int, direction: SyncDirection
+        self, link_id: UUID, direction: SyncDirection
     ) -> PlaylistLink | None:
         """Update the sync direction for a link. Returns the updated link."""
         stmt = (
@@ -166,7 +167,7 @@ class PlaylistLinkRepository:
         return await self.get_link(link_id)
 
     @db_operation("delete_link")
-    async def delete_link(self, link_id: int) -> bool:
+    async def delete_link(self, link_id: UUID) -> bool:
         """Delete a playlist link. Returns True if deleted."""
         stmt = select(DBPlaylistMapping).where(DBPlaylistMapping.id == link_id)
         result = await self._session.execute(stmt)

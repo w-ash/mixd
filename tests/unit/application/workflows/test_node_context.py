@@ -66,9 +66,7 @@ class TestCollectTracklists:
 
     def test_collects_from_multiple_tasks(self, sample_tracklist):
         """Collect tracklists from multiple task IDs."""
-        tl2 = TrackList(
-            tracks=[Track(id=3, title="Song C", artists=[Artist(name="A3")])]
-        )
+        tl2 = TrackList(tracks=[Track(title="Song C", artists=[Artist(name="A3")])])
         context = {
             "task_a": {"tracklist": sample_tracklist},
             "task_b": {"tracklist": tl2},

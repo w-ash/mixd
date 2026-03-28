@@ -1,38 +1,32 @@
-"""Tests for filter_duplicates invariant enforcement.
+"""Tests for filter_duplicates deduplication behavior.
 
-Verifies that filter_duplicates raises TracklistInvariantError when
-tracks without database IDs are passed, instead of silently passing them through.
+Verifies that filter_duplicates correctly deduplicates tracks by UUID.
 """
 
-import pytest
+from uuid import uuid7
 
 from src.domain.entities.track import TrackList
-from src.domain.exceptions import TracklistInvariantError
 from src.domain.transforms.filtering import filter_duplicates
 from tests.fixtures import make_track
 
 
 class TestFilterDuplicatesInvariant:
-    """filter_duplicates now requires all tracks to have database IDs."""
-
-    def test_raises_on_id_none_track(self):
-        tracks = [make_track(id=1), make_track(id=None, title="Ghost")]
-        tracklist = TrackList(tracks=tracks)
-        with pytest.raises(TracklistInvariantError, match="1 tracks lack database IDs"):
-            filter_duplicates(tracklist=tracklist)
+    """filter_duplicates deduplicates tracks by UUID."""
 
     def test_deduplicates_by_id(self):
-        tracks = [make_track(id=1), make_track(id=2), make_track(id=1)]
+        shared_id = uuid7()
+        tracks = [make_track(id=shared_id), make_track(), make_track(id=shared_id)]
         tracklist = TrackList(tracks=tracks)
         result = filter_duplicates(tracklist=tracklist)
-        assert [t.id for t in result.tracks] == [1, 2]
+        assert len(result.tracks) == 2
+        assert result.tracks[0].id == shared_id
 
     def test_empty_tracklist_passes(self):
         result = filter_duplicates(tracklist=TrackList())
         assert result.tracks == []
 
     def test_no_duplicates(self):
-        tracks = [make_track(id=i) for i in range(1, 4)]
+        tracks = [make_track() for _ in range(3)]
         tracklist = TrackList(tracks=tracks)
         result = filter_duplicates(tracklist=tracklist)
         assert len(result.tracks) == 3

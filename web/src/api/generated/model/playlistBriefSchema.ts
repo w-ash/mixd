@@ -3,14 +3,14 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Minimal playlist reference in track detail views.
  */
 export interface PlaylistBriefSchema {
-  id: number;
+  id: string;
   name: string;
   description?: string | null;
 }

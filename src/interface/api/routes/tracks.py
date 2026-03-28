@@ -4,6 +4,8 @@ Merged search+list on GET /tracks (query param `q` triggers search).
 All filtering, sorting, and pagination is server-side.
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Query
 
 from src.application.runner import execute_use_case
@@ -100,7 +102,7 @@ async def list_tracks(
 
 
 @router.get("/{track_id}")
-async def get_track_detail(track_id: int) -> TrackDetailSchema:
+async def get_track_detail(track_id: UUID) -> TrackDetailSchema:
     """Get full track details with metadata, likes, plays, and playlist memberships."""
     command = GetTrackDetailsCommand(track_id=track_id)
     result = await execute_use_case(
@@ -110,7 +112,7 @@ async def get_track_detail(track_id: int) -> TrackDetailSchema:
 
 
 @router.post("/{track_id}/merge")
-async def merge_track(track_id: int, body: MergeTrackRequest) -> TrackDetailSchema:
+async def merge_track(track_id: UUID, body: MergeTrackRequest) -> TrackDetailSchema:
     """Merge a duplicate track into this track (winner)."""
     command = MergeTracksCommand(winner_id=track_id, loser_id=body.loser_id)
     await execute_use_case(lambda uow: MergeTracksUseCase().execute(command, uow))
@@ -124,7 +126,7 @@ async def merge_track(track_id: int, body: MergeTrackRequest) -> TrackDetailSche
 
 @router.patch("/{track_id}/mappings/{mapping_id}")
 async def relink_mapping(
-    track_id: int, mapping_id: int, body: RelinkMappingRequest
+    track_id: UUID, mapping_id: UUID, body: RelinkMappingRequest
 ) -> TrackDetailSchema:
     """Relink a connector mapping to a different canonical track."""
     command = RelinkConnectorTrackCommand(
@@ -144,7 +146,7 @@ async def relink_mapping(
 
 
 @router.delete("/{track_id}/mappings/{mapping_id}")
-async def unlink_mapping(track_id: int, mapping_id: int) -> UnlinkMappingResponse:
+async def unlink_mapping(track_id: UUID, mapping_id: UUID) -> UnlinkMappingResponse:
     """Unlink a connector mapping from this track."""
     command = UnlinkConnectorTrackCommand(
         mapping_id=mapping_id, current_track_id=track_id
@@ -159,7 +161,7 @@ async def unlink_mapping(track_id: int, mapping_id: int) -> UnlinkMappingRespons
 
 
 @router.patch("/{track_id}/mappings/{mapping_id}/primary")
-async def set_primary_mapping(track_id: int, mapping_id: int) -> TrackDetailSchema:
+async def set_primary_mapping(track_id: UUID, mapping_id: UUID) -> TrackDetailSchema:
     """Set a mapping as the primary for its connector on this track."""
     command = SetPrimaryMappingCommand(mapping_id=mapping_id, track_id=track_id)
     await execute_use_case(lambda uow: SetPrimaryMappingUseCase().execute(command, uow))
@@ -172,7 +174,7 @@ async def set_primary_mapping(track_id: int, mapping_id: int) -> TrackDetailSche
 
 
 @router.get("/{track_id}/playlists")
-async def get_track_playlists(track_id: int) -> list[PlaylistBriefSchema]:
+async def get_track_playlists(track_id: UUID) -> list[PlaylistBriefSchema]:
     """Get playlists containing a specific track."""
     command = GetTrackPlaylistsCommand(track_id=track_id)
     result = await execute_use_case(

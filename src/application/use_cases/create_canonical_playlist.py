@@ -20,7 +20,6 @@ from src.application.services.metrics_application_service import (
 if TYPE_CHECKING:
     from src.application.workflows.protocols import MetricConfigProvider
 from src.application.use_cases._shared.command_validators import non_empty_string
-from src.application.use_cases._shared.track_persistence import persist_unsaved_tracks
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
@@ -164,17 +163,13 @@ class CreateCanonicalPlaylistUseCase:
                 if isinstance(source_data, Playlist):
                     # Processing service returned a Playlist with entries - use it directly
                     # Persist unsaved tracks and rebuild entries with saved references
-                    entry_tracks = [e.track for e in source_data.entries]
-                    persisted_tracks = await persist_unsaved_tracks(entry_tracks, uow)
                     persisted_entries = [
                         PlaylistEntry(
-                            track=track,
+                            track=entry.track,
                             added_at=entry.added_at,
                             added_by=entry.added_by,
                         )
-                        for track, entry in zip(
-                            persisted_tracks, source_data.entries, strict=True
-                        )
+                        for entry in source_data.entries
                     ]
 
                     # Build final playlist with persisted entries
@@ -192,19 +187,13 @@ class CreateCanonicalPlaylistUseCase:
                     )
                 else:
                     # TrackList input - convert to Playlist with uniform added_at
-                    persisted_tracks = await persist_unsaved_tracks(
-                        source_data.tracks, uow
-                    )
-
-                    # Create playlist using from_tracklist() helper
                     connector_playlist_identifiers = self._build_connector_identifiers(
                         command
                     )
 
-                    tracklist_with_persisted = TrackList(tracks=persisted_tracks)
                     playlist = Playlist.from_tracklist(
                         name=command.name,
-                        tracklist=tracklist_with_persisted,
+                        tracklist=source_data,
                         added_at=command.timestamp,
                         description=command.description,
                         connector_playlist_identifiers=connector_playlist_identifiers

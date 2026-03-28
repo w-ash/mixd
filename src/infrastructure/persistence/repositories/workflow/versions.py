@@ -3,6 +3,8 @@
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: JSON column produces heterogeneous dicts
 
+from uuid import UUID
+
 import attrs
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +40,7 @@ class WorkflowVersionRepository:
             change_summary=db_version.change_summary,
         )
 
-    async def list_versions(self, workflow_id: int) -> list[WorkflowVersion]:
+    async def list_versions(self, workflow_id: UUID) -> list[WorkflowVersion]:
         """List all versions for a workflow, ordered by version desc."""
         stmt = (
             select(DBWorkflowVersion)
@@ -50,7 +52,7 @@ class WorkflowVersionRepository:
 
         return [_to_domain(row) for row in rows]
 
-    async def get_version(self, workflow_id: int, version: int) -> WorkflowVersion:
+    async def get_version(self, workflow_id: UUID, version: int) -> WorkflowVersion:
         """Get a specific version. Raises NotFoundError if not found."""
         stmt = select(DBWorkflowVersion).where(
             DBWorkflowVersion.workflow_id == workflow_id,
@@ -66,7 +68,7 @@ class WorkflowVersionRepository:
 
         return _to_domain(row)
 
-    async def get_max_version_number(self, workflow_id: int) -> int:
+    async def get_max_version_number(self, workflow_id: UUID) -> int:
         """Return the highest version number for a workflow, or 0 if none exist."""
         stmt = select(func.max(DBWorkflowVersion.version)).where(
             DBWorkflowVersion.workflow_id == workflow_id
@@ -74,7 +76,7 @@ class WorkflowVersionRepository:
         result = await self._session.execute(stmt)
         return result.scalar() or 0
 
-    async def delete_versions_for_workflow(self, workflow_id: int) -> None:
+    async def delete_versions_for_workflow(self, workflow_id: UUID) -> None:
         """Delete all versions for a workflow."""
         stmt = delete(DBWorkflowVersion).where(
             DBWorkflowVersion.workflow_id == workflow_id

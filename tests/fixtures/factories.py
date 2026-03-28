@@ -8,13 +8,16 @@ Usage::
 
     from tests.fixtures.factories import make_track, make_connector_track
 
-    track = make_track(id=1, title="Creep", artist="Radiohead")
+    track = make_track(title="Creep", artist="Radiohead")
     ct = make_connector_track("sp_123")
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
+
+import attrs
 
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
@@ -35,8 +38,13 @@ from src.infrastructure.connectors.spotify.models import (
 # ---------------------------------------------------------------------------
 
 
+def nonexistent_id() -> str:
+    """Random UUID string for not-found test cases."""
+    return str(uuid7())
+
+
 def make_track(
-    id: int | None = 1,
+    id: UUID | None = None,
     title: str = "Test Track",
     artist: str = "Test Artist",
     **kwargs,
@@ -46,14 +54,17 @@ def make_track(
     Any extra ``kwargs`` are forwarded to the ``Track`` constructor, so you can
     set ``duration_ms``, ``isrc``, ``connector_track_identifiers``, etc.
     """
+    if id is None:
+        id = uuid7()
     kwargs.setdefault("artists", [Artist(name=artist)])
+    kwargs.setdefault("version", 1)
     return Track(id=id, title=title, **kwargs)
 
 
 def make_tracks(count: int = 3, **kwargs) -> list[Track]:
-    """Build *count* tracks numbered 1..count."""
+    """Build *count* tracks with unique UUIDs."""
     return [
-        make_track(id=i, title=f"Track {i}", artist=f"Artist {i}", **kwargs)
+        make_track(title=f"Track {i}", artist=f"Artist {i}", **kwargs)
         for i in range(1, count + 1)
     ]
 
@@ -109,7 +120,7 @@ def make_connector_track(
 
 
 def make_playlist(
-    id: int = 1,
+    id: UUID | None = None,
     name: str = "Test Playlist",
     tracks: list[Track] | None = None,
     **kwargs,
@@ -118,20 +129,25 @@ def make_playlist(
 
     *tracks* defaults to a single track so the playlist is non-empty.
     """
-    tracks = tracks if tracks is not None else [make_track(id=1)]
-    return Playlist.from_tracklist(name=name, tracklist=tracks, **kwargs).with_id(id)
+    if id is None:
+        id = uuid7()
+    tracks = tracks if tracks is not None else [make_track()]
+    playlist = Playlist.from_tracklist(name=name, tracklist=tracks, **kwargs)
+    return attrs.evolve(playlist, id=id)
 
 
 def make_playlist_with_entries(
-    id: int = 1,
-    track_ids: list[int] | None = None,
+    id: UUID | None = None,
+    track_ids: list[UUID] | None = None,
     name: str = "Test Playlist",
 ) -> Playlist:
     """Build a :class:`Playlist` with explicit :class:`PlaylistEntry` objects."""
-    ids = track_ids or [1, 2, 3]
+    if id is None:
+        id = uuid7()
+    ids = track_ids or [uuid7(), uuid7(), uuid7()]
     entries = [
         PlaylistEntry(
-            track=make_track(tid),
+            track=make_track(id=tid),
             added_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
         for tid in ids
@@ -181,13 +197,15 @@ def make_workflow_def(
 
 
 def make_workflow(
-    id: int | None = 1,
+    id: UUID | None = None,
     definition: WorkflowDef | None = None,
     is_template: bool = False,
     source_template: str | None = None,
     **kwargs,
 ) -> Workflow:
     """Build a :class:`Workflow` with sensible defaults."""
+    if id is None:
+        id = uuid7()
     return Workflow(
         id=id,
         definition=definition or make_workflow_def(),

@@ -17,14 +17,14 @@ const EMPTY_MAP: Map<string, NodeStatus> = new Map();
 export interface UseWorkflowExecutionReturn {
   isExecuting: boolean;
   operationId: string | null;
-  runId: number | null;
+  runId: string | null;
   nodeStatuses: Map<string, NodeStatus>;
   error: Error | null;
   execute: () => void;
 }
 
 export function useWorkflowExecution(
-  workflowId: number,
+  workflowId: string,
 ): UseWorkflowExecutionReturn {
   const ctx = useWorkflowExecutionContext();
   const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost();
@@ -42,7 +42,7 @@ export function useWorkflowExecution(
           if (res.status === 202) {
             const data = res.data as {
               operation_id: string;
-              run_id: number;
+              run_id: string;
             };
             ctx.startExecution(workflowId, data.operation_id, data.run_id);
           } else {

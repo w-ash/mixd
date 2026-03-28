@@ -5,6 +5,7 @@
 
 from collections.abc import Awaitable, Callable
 from typing import Any, cast, override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,7 @@ logger = get_logger(__name__)
 
 # Callback type: promotes a connector mapping to primary status
 # Args: (track_id, connector_name, connector_track_db_id) -> success
-PromotePrimaryMappingFn = Callable[[int, str, int], Awaitable[bool]]
+PromotePrimaryMappingFn = Callable[[UUID, str, UUID], Awaitable[bool]]
 
 
 def _get_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
@@ -186,6 +187,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         return Track(
             id=db_model.id,
+            version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
             artists=[Artist(name=name) for name in db_model.artists["names"]],
@@ -199,7 +201,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     async def _promote_fallback_to_primary(
-        track_id: int,
+        track_id: UUID,
         fallback_mappings: dict[str, DBTrackMapping],
         promote_primary_fn: PromotePrimaryMappingFn,
     ) -> None:

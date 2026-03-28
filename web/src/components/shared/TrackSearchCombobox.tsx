@@ -9,7 +9,7 @@ import { formatArtists } from "@/lib/format";
 
 interface TrackSearchComboboxProps {
   onSelect: (track: LibraryTrackSchema) => void;
-  excludeTrackId?: number;
+  excludeTrackId?: string;
   placeholder?: string;
 }
 

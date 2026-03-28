@@ -9,8 +9,8 @@ import { SyncConfirmationDialog } from "./SyncConfirmationDialog";
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
-  playlistId: 1,
-  linkId: 10,
+  playlistId: "019d0000-0000-7000-8000-000000000001",
+  linkId: "019d0000-0000-7000-8000-000000000010",
   connectorName: "spotify",
   playlistName: "Test Playlist",
   currentDirection: "push",

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { MatchReviewSchemaConfidenceEvidence } from './matchReviewSchemaConfidenceEvidence';
 
@@ -11,10 +11,10 @@ import type { MatchReviewSchemaConfidenceEvidence } from './matchReviewSchemaCon
  * Single match review item for API responses.
  */
 export interface MatchReviewSchema {
-  id: number | null;
-  track_id: number;
+  id: string | null;
+  track_id: string;
   connector_name: string;
-  connector_track_id: number;
+  connector_track_id: string;
   match_method: string;
   confidence: number;
   match_weight: number;

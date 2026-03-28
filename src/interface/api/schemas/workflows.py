@@ -9,6 +9,7 @@ Pydantic models for JSON serialization.
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -51,7 +52,7 @@ class WorkflowDefSchema(BaseModel):
 class LastRunSchema(BaseModel):
     """Lightweight last-run summary for the workflow list page."""
 
-    id: int
+    id: UUID
     status: RunStatus
     definition_version: int = 1
     completed_at: datetime | None = None
@@ -61,7 +62,7 @@ class LastRunSchema(BaseModel):
 class WorkflowSummarySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     description: str | None = None
     is_template: bool
@@ -168,7 +169,7 @@ def config_field_to_schema(field_def: ConfigFieldDef) -> ConfigFieldSchema:
 class WorkflowRunNodeSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     node_id: str
     node_type: str
     status: RunStatus
@@ -185,15 +186,15 @@ class WorkflowRunNodeSchema(BaseModel):
 class WorkflowRunSummarySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    workflow_id: int
+    id: UUID
+    workflow_id: UUID
     status: RunStatus
     definition_version: int = 1
     started_at: datetime | None = None
     completed_at: datetime | None = None
     duration_ms: int | None = None
     output_track_count: int | None = None
-    output_playlist_id: int | None = None
+    output_playlist_id: UUID | None = None
     error_message: str | None = None
     created_at: datetime | None = None
 
@@ -207,7 +208,7 @@ class WorkflowRunDetailSchema(WorkflowRunSummarySchema):
 
 class WorkflowRunStartedResponse(BaseModel):
     operation_id: str
-    run_id: int
+    run_id: UUID
 
 
 # --- Version schemas ---
@@ -216,8 +217,8 @@ class WorkflowRunStartedResponse(BaseModel):
 class WorkflowVersionSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    workflow_id: int
+    id: UUID
+    workflow_id: UUID
     version: int
     definition: WorkflowDefSchema
     created_at: datetime | None = None
@@ -267,7 +268,7 @@ def to_workflow_summary(
     last_run: WorkflowRun | None = None,
 ) -> WorkflowSummarySchema:
     last_run_schema: LastRunSchema | None = None
-    if last_run is not None and last_run.id is not None:
+    if last_run is not None:
         last_run_schema = LastRunSchema(
             id=last_run.id,
             status=last_run.status,
@@ -276,7 +277,7 @@ def to_workflow_summary(
             output_track_count=last_run.output_track_count,
         )
     return WorkflowSummarySchema(
-        id=workflow.id or 0,
+        id=workflow.id,
         name=workflow.definition.name,
         description=workflow.definition.description or None,
         is_template=workflow.is_template,
@@ -323,7 +324,7 @@ def schema_to_workflow_def(schema: WorkflowDefSchema) -> WorkflowDef:
 def to_version_schema(v: WorkflowVersion) -> WorkflowVersionSchema:
     """Convert a domain WorkflowVersion to its API schema."""
     return WorkflowVersionSchema(
-        id=v.id or 0,
+        id=v.id,
         workflow_id=v.workflow_id,
         version=v.version,
         definition=_def_to_schema(v.definition),
@@ -334,7 +335,7 @@ def to_version_schema(v: WorkflowVersion) -> WorkflowVersionSchema:
 
 def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
     return WorkflowRunSummarySchema(
-        id=run.id or 0,
+        id=run.id,
         workflow_id=run.workflow_id,
         status=run.status,
         definition_version=run.definition_version,
@@ -364,7 +365,7 @@ def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
         metric_columns=_extract_metric_columns(run.output_tracks),
         nodes=[
             WorkflowRunNodeSchema(
-                id=n.id or 0,
+                id=n.id,
                 node_id=n.node_id,
                 node_type=n.node_type,
                 status=n.status,

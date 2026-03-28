@@ -18,7 +18,7 @@ import { diffWorkflowDefs } from "@/lib/workflow-diff";
 import { useEditorStore } from "@/stores/editor-store";
 
 interface WorkflowDiffProps {
-  workflowId: number;
+  workflowId: string;
   version: number;
 }
 

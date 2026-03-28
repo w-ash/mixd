@@ -70,11 +70,11 @@ class TestLISReorderOperations:
     def sample_tracks(self):
         """Create sample tracks for testing."""
         return [
-            Track(id=1, title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Track B", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Track C", artists=[Artist(name="Artist 3")]),
-            Track(id=4, title="Track D", artists=[Artist(name="Artist 4")]),
-            Track(id=5, title="Track E", artists=[Artist(name="Artist 5")]),
+            Track(title="Track A", artists=[Artist(name="Artist 1")]),
+            Track(title="Track B", artists=[Artist(name="Artist 2")]),
+            Track(title="Track C", artists=[Artist(name="Artist 3")]),
+            Track(title="Track D", artists=[Artist(name="Artist 4")]),
+            Track(title="Track E", artists=[Artist(name="Artist 5")]),
         ]
 
     def test_identical_order_no_operations(self, sample_tracks):
@@ -119,8 +119,8 @@ class TestLISReorderOperations:
     def test_duplicate_tracks_handling(self):
         """Duplicate tracks should be handled correctly with greedy matching."""
         # Create tracks with duplicates
-        track_a = Track(id=1, title="Track A", artists=[Artist(name="Artist 1")])
-        track_b = Track(id=2, title="Track B", artists=[Artist(name="Artist 2")])
+        track_a = Track(title="Track A", artists=[Artist(name="Artist 1")])
+        track_b = Track(title="Track B", artists=[Artist(name="Artist 2")])
 
         current = [track_a, track_b, track_a, track_b]  # [A, B, A, B]
         target = [track_b, track_a, track_b, track_a]  # [B, A, B, A]
@@ -146,10 +146,10 @@ class TestLISReorderOperations:
 
         operations = calculate_lis_reorder_operations(current, target)
 
-        # With LIS optimization, tracks [1, 3, 4, 5] should stay in place
-        # Only track 2 should need to move
+        # With LIS optimization, tracks [A, C, D, E] should stay in place
+        # Only track B should need to move
         assert len(operations) == 1
-        assert operations[0].track.id == 2
+        assert operations[0].track.id == sample_tracks[1].id
         assert operations[0].position == 4  # Moving to end
 
 
@@ -160,10 +160,10 @@ class TestPlaylistDiffIntegration:
     def sample_playlist(self):
         """Create sample playlist for testing."""
         tracks = [
-            Track(id=1, title="Track A", artists=[Artist(name="Artist 1")]),
-            Track(id=2, title="Track B", artists=[Artist(name="Artist 2")]),
-            Track(id=3, title="Track C", artists=[Artist(name="Artist 3")]),
-            Track(id=4, title="Track D", artists=[Artist(name="Artist 4")]),
+            Track(title="Track A", artists=[Artist(name="Artist 1")]),
+            Track(title="Track B", artists=[Artist(name="Artist 2")]),
+            Track(title="Track C", artists=[Artist(name="Artist 3")]),
+            Track(title="Track D", artists=[Artist(name="Artist 4")]),
         ]
         return Playlist.from_tracklist(name="Test Playlist", tracklist=tracks)
 
@@ -179,7 +179,7 @@ class TestPlaylistDiffIntegration:
 
     def test_add_operations_only(self, sample_playlist):
         """Adding tracks should generate only ADD operations."""
-        new_track = Track(id=5, title="Track E", artists=[Artist(name="Artist 5")])
+        new_track = Track(title="Track E", artists=[Artist(name="Artist 5")])
         target_tracks = [*sample_playlist.tracks, new_track]
         target_tracklist = TrackList(tracks=target_tracks)
 
@@ -199,7 +199,7 @@ class TestPlaylistDiffIntegration:
 
         assert len(add_ops) == 1
         assert len(move_ops) == 0  # No moves needed when just adding
-        assert add_ops[0].track.id == 5
+        assert add_ops[0].track.id == new_track.id
 
     def test_remove_operations_only(self, sample_playlist):
         """Removing tracks should generate only REMOVE operations."""
@@ -222,7 +222,7 @@ class TestPlaylistDiffIntegration:
 
         assert len(remove_ops) == 1
         assert len(move_ops) == 0  # No moves needed when just removing
-        assert remove_ops[0].track.id == 4
+        assert remove_ops[0].track.id == sample_playlist.tracks[-1].id
 
     def test_move_operations_with_lis_optimization(self, sample_playlist):
         """Reordering should use LIS optimization for minimal moves."""
@@ -259,12 +259,11 @@ class TestPlaylistDiffIntegration:
 
     def test_complex_mixed_operations(self, sample_playlist):
         """Complex changes should generate correct mix of operations."""
-        # Remove track 2, add new track, reorder remaining
-        remaining_tracks = [
-            t for t in sample_playlist.tracks if t.id != 2
-        ]  # Remove track 2
-        new_track = Track(id=5, title="Track E", artists=[Artist(name="Artist 5")])
-        # Reorder: [new_track, track_4, track_1, track_3]
+        track_b = sample_playlist.tracks[1]
+        # Remove track B, add new track, reorder remaining
+        remaining_tracks = [t for t in sample_playlist.tracks if t.id != track_b.id]
+        new_track = Track(title="Track E", artists=[Artist(name="Artist 5")])
+        # Reorder: [new_track, track_D, track_A, track_C]
         target_tracks = [
             new_track,
             remaining_tracks[2],
@@ -295,12 +294,12 @@ class TestPlaylistDiffIntegration:
         ]
 
         assert len(add_ops) == 1  # Adding new track
-        assert len(remove_ops) == 1  # Removing track 2
+        assert len(remove_ops) == 1  # Removing track B
         assert len(move_ops) >= 0  # May need moves depending on LIS optimization
 
         # Verify correct tracks in operations
-        assert add_ops[0].track.id == 5
-        assert remove_ops[0].track.id == 2
+        assert add_ops[0].track.id == new_track.id
+        assert remove_ops[0].track.id == track_b.id
 
     def test_confidence_score_calculation(self, sample_playlist):
         """Confidence score should reflect match quality."""
@@ -319,7 +318,7 @@ class TestPlaylistDiffIntegration:
         """Large playlist should process efficiently with LIS optimization."""
         # Create large playlist (100 tracks)
         tracks = [
-            Track(id=i, title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
+            Track(title=f"Track {i}", artists=[Artist(name=f"Artist {i}")])
             for i in range(100)
         ]
         playlist = Playlist.from_tracklist(name="Large Playlist", tracklist=tracks)

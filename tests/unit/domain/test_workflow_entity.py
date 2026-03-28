@@ -3,6 +3,8 @@
 Tests construction, defaults, and embedding of WorkflowDef.
 """
 
+from uuid import UUID, uuid7
+
 from src.domain.entities.workflow import (
     Workflow,
     WorkflowDef,
@@ -18,7 +20,7 @@ class TestWorkflowConstruction:
     def test_defaults(self) -> None:
         workflow = Workflow()
 
-        assert workflow.id is None
+        assert isinstance(workflow.id, UUID)
         assert workflow.definition.id == ""
         assert workflow.definition.name == ""
         assert workflow.definition.tasks == []
@@ -28,6 +30,7 @@ class TestWorkflowConstruction:
         assert workflow.updated_at is None
 
     def test_with_definition(self) -> None:
+        wf_id = uuid7()
         wf_def = WorkflowDef(
             id="test",
             name="Test Workflow",
@@ -37,10 +40,10 @@ class TestWorkflowConstruction:
             ],
         )
         workflow = Workflow(
-            id=1, definition=wf_def, is_template=True, source_template="test"
+            id=wf_id, definition=wf_def, is_template=True, source_template="test"
         )
 
-        assert workflow.id == 1
+        assert workflow.id == wf_id
         assert workflow.definition.name == "Test Workflow"
         assert workflow.definition.description == "A test"
         assert len(workflow.definition.tasks) == 1
@@ -62,8 +65,8 @@ class TestWorkflowRunConstruction:
 
     def test_run_defaults(self) -> None:
         run = WorkflowRun()
-        assert run.id is None
-        assert run.workflow_id == 0
+        assert isinstance(run.id, UUID)
+        assert isinstance(run.workflow_id, UUID)
         assert run.status == "pending"
         assert run.definition_snapshot.id == ""
         assert run.nodes == []
@@ -73,6 +76,8 @@ class TestWorkflowRunConstruction:
         assert run.error_message is None
 
     def test_run_with_nodes(self) -> None:
+        run_id = uuid7()
+        wf_id = uuid7()
         nodes = [
             WorkflowRunNode(
                 node_id="step1", node_type="source.liked_tracks", execution_order=1
@@ -82,13 +87,13 @@ class TestWorkflowRunConstruction:
             ),
         ]
         run = WorkflowRun(
-            id=1,
-            workflow_id=42,
+            id=run_id,
+            workflow_id=wf_id,
             status="running",
             nodes=nodes,
         )
-        assert run.id == 1
-        assert run.workflow_id == 42
+        assert run.id == run_id
+        assert run.workflow_id == wf_id
         assert run.status == "running"
         assert len(run.nodes) == 2
         assert run.nodes[0].node_id == "step1"
@@ -96,8 +101,8 @@ class TestWorkflowRunConstruction:
 
     def test_run_node_defaults(self) -> None:
         node = WorkflowRunNode()
-        assert node.id is None
-        assert node.run_id is None
+        assert isinstance(node.id, UUID)
+        assert isinstance(node.run_id, UUID)
         assert node.status == "pending"
         assert node.duration_ms == 0
         assert node.input_track_count is None

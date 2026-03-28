@@ -22,6 +22,10 @@ import jwt
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from src.config import get_logger
+
+logger = get_logger(__name__)
+
 _EXEMPT_PREFIXES = ("/api/v1/health", "/auth/", "/login", "/assets/")
 
 # JWKS cache: (parsed key set, fetched_at)
@@ -47,10 +51,26 @@ async def _get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
 
 
 def _decode_jwt(token: str, jwk_set: jwt.PyJWKSet) -> dict[str, Any]:
-    """Validate and decode a JWT using a cached JWKS key set."""
+    """Validate and decode a JWT using a cached JWKS key set.
+
+    Extracts the signing key from the JWKS by matching the ``kid`` header
+    claim. Falls back to the sole key when only one is present.
+    """
+    header = jwt.get_unverified_header(token)
+    kid = header.get("kid")
+    if kid:
+        try:
+            signing_key = jwk_set[kid]
+        except KeyError as err:
+            raise jwt.InvalidTokenError(f"No key found for kid: {kid}") from err
+    elif len(jwk_set.keys) == 1:
+        signing_key = jwk_set.keys[0]
+    else:
+        raise jwt.InvalidTokenError("No kid in JWT header and multiple keys in JWKS")
+
     return jwt.decode(
         token,
-        jwk_set,  # type: ignore[arg-type]  # PyJWT accepts PyJWKSet at runtime; stubs lag
+        signing_key,
         algorithms=["RS256"],
         options={"require": ["exp", "sub"]},
     )
@@ -152,7 +172,8 @@ class NeonAuthMiddleware:
             try:
                 jwk_set = await _get_jwk_set(self.jwks_url)
                 claims = _decode_jwt(token, jwk_set)
-            except jwt.InvalidTokenError, httpx.HTTPError:
+            except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
+                logger.warning("jwt_validation_failed", error=str(exc))
                 await _send_401(send)
                 return
             else:

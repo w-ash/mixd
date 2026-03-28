@@ -5,6 +5,8 @@ would otherwise be unmapped. The orphan's mapping gets origin=manual_override
 so automated re-ingestion won't silently re-attach it.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.config.constants import MappingOrigin
@@ -21,16 +23,16 @@ from src.domain.repositories.interfaces import (
 class UnlinkConnectorTrackCommand:
     """Parameters for unlinking a mapping from a track."""
 
-    mapping_id: int
-    current_track_id: int
+    mapping_id: UUID
+    current_track_id: UUID
 
 
 @define(frozen=True, slots=True)
 class UnlinkConnectorTrackResult:
     """Result of a successful unlink operation."""
 
-    deleted_mapping_id: int
-    orphan_track_id: int | None
+    deleted_mapping_id: UUID
+    orphan_track_id: UUID | None
 
 
 @define(slots=True)
@@ -74,7 +76,7 @@ class UnlinkConnectorTrackUseCase:
             remaining_count = await connector_repo.count_mappings_for_connector_track(
                 connector_track_id
             )
-            orphan_track_id: int | None = None
+            orphan_track_id: UUID | None = None
 
             if remaining_count == 0:
                 orphan_track_id = await self._create_orphan_track(
@@ -91,9 +93,9 @@ class UnlinkConnectorTrackUseCase:
     async def _create_orphan_track(
         connector_repo: ConnectorRepositoryProtocol,
         track_repo: TrackRepositoryProtocol,
-        connector_track_id: int,
+        connector_track_id: UUID,
         connector_name: str,
-    ) -> int:
+    ) -> UUID:
         """Create a new canonical track from an orphaned connector track's metadata.
 
         The new mapping gets origin=manual_override — the "negative constraint"
@@ -128,6 +130,4 @@ class UnlinkConnectorTrackUseCase:
             origin=MappingOrigin.MANUAL_OVERRIDE,
         )
 
-        if saved_track.id is None:  # pragma: no cover - save_track always assigns an ID
-            raise RuntimeError("save_track did not assign an ID")
         return saved_track.id

@@ -16,6 +16,7 @@ Data recovery relies on external API re-import and database backups.
 
 from datetime import UTC, datetime
 from typing import Any, ClassVar
+import uuid as uuid_mod
 
 from sqlalchemy import (
     Boolean,
@@ -27,7 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects import postgresql as pg_dialect
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -38,7 +39,12 @@ from sqlalchemy.orm import (
 
 from src.config import get_logger
 
-# Create module logger
+# Type aliases to avoid import name conflicts between stdlib uuid and SQLAlchemy UUID
+UuidType = uuid_mod.UUID
+PgUuidCol = pg_dialect.UUID
+PgJsonb = pg_dialect.JSONB
+PgArray = pg_dialect.ARRAY
+
 logger = get_logger(__name__)
 
 # Define naming convention for constraints (SQLAlchemy 2.0 best practice)
@@ -63,7 +69,9 @@ class DatabaseModel(AsyncAttrs, DeclarativeBase):
 
     metadata: ClassVar[MetaData] = metadata
 
-    id: Mapped[int] = mapped_column(primary_key=True, sort_order=-1)
+    id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), primary_key=True, default=uuid_mod.uuid7, sort_order=-1
+    )
 
 
 class TimestampMixin:
@@ -108,8 +116,9 @@ class DBTrack(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
+    version: Mapped[int] = mapped_column(default=1, server_default="1")
     title: Mapped[str] = mapped_column(String(), nullable=False)
-    artists: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    artists: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
     album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     release_date: Mapped[datetime | None]
@@ -182,12 +191,12 @@ class DBConnectorTrack(BaseEntity):
     connector_name: Mapped[str] = mapped_column(String(32))
     connector_track_identifier: Mapped[str] = mapped_column(String())
     title: Mapped[str] = mapped_column(String())
-    artists: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    artists: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
     album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     isrc: Mapped[str | None] = mapped_column(String(32), index=True)
     release_date: Mapped[datetime | None]
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -217,14 +226,17 @@ class DBTrackMapping(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
-    connector_track_id: Mapped[int] = mapped_column(
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    connector_track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("connector_tracks.id", ondelete="CASCADE"),
     )
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     match_method: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[int]
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
     origin: Mapped[str] = mapped_column(
         String(20), nullable=False, default="automatic", server_default="automatic"
     )
@@ -278,15 +290,18 @@ class DBMatchReview(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
-    connector_track_id: Mapped[int] = mapped_column(
+    connector_track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("connector_tracks.id", ondelete="CASCADE"),
     )
     match_method: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[int] = mapped_column(nullable=False)
     match_weight: Mapped[float] = mapped_column(nullable=False)
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )
@@ -323,7 +338,9 @@ class DBTrackMetric(BaseEntity):
         Index(None, "track_id", "connector_name", "metric_type"),
     )
 
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
     connector_name: Mapped[str] = mapped_column(String(32))
     metric_type: Mapped[str] = mapped_column(String(32))
     value: Mapped[float]
@@ -354,7 +371,9 @@ class DBTrackLike(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     is_liked: Mapped[bool] = mapped_column(Boolean, default=True)
     liked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -403,18 +422,20 @@ class DBTrackPlay(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
     service: Mapped[str] = mapped_column(String(32))  # 'spotify', 'lastfm', 'mixd'
     played_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
     ms_played: Mapped[int | None]
-    context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    context: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
 
     # Cross-source deduplication: which services contributed to this play record
     source_services: Mapped[list[str] | None] = mapped_column(
-        ARRAY(String()), nullable=True
+        PgArray(String()), nullable=True
     )
 
     # Import tracking (service-agnostic)
@@ -457,10 +478,11 @@ class DBConnectorPlay(BaseEntity):
     ms_played: Mapped[int | None]
 
     # Raw API data preservation
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
 
     # Resolution tracking (nullable until resolved)
-    resolved_track_id: Mapped[int | None] = mapped_column(
+    resolved_track_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("tracks.id", ondelete="CASCADE"),
     )
     resolved_at: Mapped[datetime | None] = mapped_column(
@@ -545,8 +567,8 @@ class DBConnectorPlaylist(BaseEntity):
     is_public: Mapped[bool]
     collaborative: Mapped[bool] = mapped_column(default=False)
     follower_count: Mapped[int | None]
-    items: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    items: Mapped[list[dict[str, Any]]] = mapped_column(PgJsonb, default=list)
+    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
     # Add JSON field to store track positional information
     last_updated: Mapped[datetime]
 
@@ -577,12 +599,14 @@ class DBPlaylistMapping(BaseEntity):
         Index("ix_playlist_mappings_sync_status", "sync_status"),
     )
 
-    playlist_id: Mapped[int] = mapped_column(
+    playlist_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("playlists.id", ondelete="CASCADE"),
     )
     connector_name: Mapped[str] = mapped_column(String(32))
-    connector_playlist_id: Mapped[int] = mapped_column(
-        ForeignKey("connector_playlists.id", ondelete="CASCADE")
+    connector_playlist_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_playlists.id", ondelete="CASCADE"),
     )
     last_synced: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -655,10 +679,13 @@ class DBPlaylistTrack(BaseEntity):
     __tablename__: str = "playlist_tracks"
     __table_args__: tuple[Any, ...] = (Index(None, "playlist_id", "sort_key"),)
 
-    playlist_id: Mapped[int] = mapped_column(
+    playlist_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("playlists.id", ondelete="CASCADE"),
     )
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
     sort_key: Mapped[str] = mapped_column(String(32))
     added_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -692,7 +719,7 @@ class DBWorkflow(BaseEntity):
     )
     name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
-    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
     source_template: Mapped[str | None] = mapped_column(String(100))
     definition_version: Mapped[int] = mapped_column(default=1)
@@ -712,11 +739,12 @@ class DBWorkflowVersion(DatabaseModel, TimestampMixin):
 
     __tablename__: str = "workflow_versions"
 
-    workflow_id: Mapped[int] = mapped_column(
+    workflow_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     version: Mapped[int] = mapped_column(nullable=False)
-    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
     change_summary: Mapped[str | None] = mapped_column(String(1000))
 
     # Relationships
@@ -739,19 +767,22 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
 
     __tablename__: str = "workflow_runs"
 
-    workflow_id: Mapped[int] = mapped_column(
+    workflow_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
-    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
     definition_version: Mapped[int] = mapped_column(default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None]
     output_track_count: Mapped[int | None]
-    output_playlist_id: Mapped[int | None]
+    output_playlist_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True), nullable=True
+    )
     error_message: Mapped[str | None] = mapped_column(String(2000))
-    output_tracks: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    output_tracks: Mapped[Any] = mapped_column(PgJsonb, nullable=True)
 
     # Relationships
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
@@ -772,7 +803,8 @@ class DBWorkflowRunNode(DatabaseModel):
 
     __tablename__: str = "workflow_run_nodes"
 
-    run_id: Mapped[int] = mapped_column(
+    run_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
         ForeignKey("workflow_runs.id", ondelete="CASCADE"),
     )
     node_id: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -785,7 +817,7 @@ class DBWorkflowRunNode(DatabaseModel):
     output_track_count: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
-    node_details: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    node_details: Mapped[Any] = mapped_column(PgJsonb, nullable=True)
 
     # Relationships
     run: Mapped[DBWorkflowRun] = relationship(
@@ -820,7 +852,7 @@ class DBOAuthToken(BaseEntity):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scope: Mapped[str | None] = mapped_column(String())
     account_name: Mapped[str | None] = mapped_column(String(255))
-    extra_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    extra_data: Mapped[dict[str, Any]] = mapped_column(PgJsonb, default=dict)
 
     __table_args__: tuple[Any, ...] = (
         UniqueConstraint("user_id", "service", name="uq_oauth_tokens_user_service"),
@@ -840,7 +872,7 @@ class DBUserSettings(BaseEntity):
         String(), nullable=False, default="default", server_default="default"
     )
     key: Mapped[str] = mapped_column(String(64), nullable=False)
-    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(PgJsonb, default=dict)
 
     __table_args__: tuple[Any, ...] = (
         UniqueConstraint("user_id", "key", name="uq_user_settings_user_key"),

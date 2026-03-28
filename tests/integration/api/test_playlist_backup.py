@@ -12,7 +12,7 @@ from tests.fixtures import make_playlist
 
 class TestPlaylistBackupEndpoint:
     async def test_backup_returns_201_with_playlist(self, client: httpx.AsyncClient):
-        playlist = make_playlist(id=1, name="Test Playlist")
+        playlist = make_playlist(name="Test Playlist")
         mock_result = CreateCanonicalPlaylistResult(playlist=playlist, tracks_created=5)
 
         with patch(

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema';
 import type { PlaylistEntrySchema } from './playlistEntrySchema';
@@ -12,7 +12,7 @@ import type { PlaylistEntrySchema } from './playlistEntrySchema';
  * Full playlist with entries for detail views.
  */
 export interface PlaylistDetailSchema {
-  id: number;
+  id: string;
   name: string;
   description?: string | null;
   track_count: number;

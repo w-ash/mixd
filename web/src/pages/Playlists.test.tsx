@@ -19,13 +19,13 @@ describe("Playlists", () => {
   it("renders playlist table when API returns data", async () => {
     const playlists = [
       makePlaylistSummary({
-        id: 1,
+        id: "019d0000-0000-7000-8000-000000000001",
         name: "Chill Vibes",
         description: "Relaxing tracks",
         track_count: 42,
       }),
       makePlaylistSummary({
-        id: 2,
+        id: "019d0000-0000-7000-8000-000000000002",
         name: "Workout Mix",
         description: null,
         track_count: 18,
@@ -101,7 +101,10 @@ describe("Playlists", () => {
 
   it("shows pagination controls when total exceeds page size", async () => {
     const playlists = Array.from({ length: 50 }, (_, i) =>
-      makePlaylistSummary({ id: i + 1, name: `Playlist ${i + 1}` }),
+      makePlaylistSummary({
+        id: `019d0000-0000-7000-8000-${String(i + 1).padStart(12, "0")}`,
+        name: `Playlist ${i + 1}`,
+      }),
     );
 
     server.use(
@@ -132,7 +135,7 @@ describe("Playlists", () => {
           {
             data: [
               makePlaylistSummary({
-                id: 1,
+                id: "019d0000-0000-7000-8000-000000000001",
                 name: "Only Playlist",
                 description: null,
                 track_count: 5,

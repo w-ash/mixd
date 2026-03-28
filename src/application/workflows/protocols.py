@@ -17,6 +17,7 @@ into WorkflowContext, which provides unified access to all workflow dependencies
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, NotRequired, Protocol, TypedDict
+from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
@@ -209,7 +210,9 @@ class RunStatusUpdater(Protocol):
     Concrete impls live in the interface layer, injected at the call site.
     """
 
-    async def __call__(self, run_id: int, status: RunStatus, **kwargs: Any) -> None: ...
+    async def __call__(
+        self, run_id: UUID, status: RunStatus, **kwargs: Any
+    ) -> None: ...
 
 
 class NodeStatusUpdater(Protocol):
@@ -220,7 +223,7 @@ class NodeStatusUpdater(Protocol):
 
     async def __call__(
         self,
-        run_id: int,
+        run_id: UUID,
         node_id: str,
         status: RunStatus,
         *,

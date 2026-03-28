@@ -3,13 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { WorkflowRunNodeSchemaNodeDetails } from './workflowRunNodeSchemaNodeDetails';
 import type { WorkflowRunNodeSchemaStatus } from './workflowRunNodeSchemaStatus';
 
 export interface WorkflowRunNodeSchema {
-  id: number;
+  id: string;
   node_id: string;
   node_type: string;
   status: WorkflowRunNodeSchemaStatus;

@@ -24,7 +24,7 @@ import {
 import { formatArtists } from "@/lib/format";
 
 interface RelinkMappingDialogProps {
-  trackId: number;
+  trackId: string;
   mapping: ConnectorMappingSchema;
   open: boolean;
   onOpenChange: (open: boolean) => void;

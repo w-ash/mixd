@@ -6,6 +6,7 @@ use case result objects into Pydantic models for JSON serialization.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -27,7 +28,7 @@ class LibraryTrackSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     title: str
     artists: list[ArtistSchema]
     album: str | None = None
@@ -42,7 +43,7 @@ class ConnectorMappingSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    mapping_id: int
+    mapping_id: UUID
     connector_name: str
     connector_track_id: str
     match_method: str
@@ -77,7 +78,7 @@ class PlaylistBriefSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     description: str | None = None
 
@@ -87,7 +88,7 @@ class TrackDetailSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     title: str
     artists: list[ArtistSchema]
     album: str | None = None
@@ -103,20 +104,20 @@ class TrackDetailSchema(BaseModel):
 class MergeTrackRequest(BaseModel):
     """Request body for merging a duplicate track into a winner."""
 
-    loser_id: int
+    loser_id: UUID
 
 
 class RelinkMappingRequest(BaseModel):
     """Request body for relinking a mapping to a different track."""
 
-    new_track_id: int
+    new_track_id: UUID
 
 
 class UnlinkMappingResponse(BaseModel):
     """Response after unlinking a mapping."""
 
-    deleted_mapping_id: int
-    orphan_track_id: int | None = None
+    deleted_mapping_id: UUID
+    orphan_track_id: UUID | None = None
 
 
 # --- Domain-to-schema converters ---
@@ -127,7 +128,7 @@ def _get_connector_names(track: Track) -> list[str]:
     return [c for c in track.connector_track_identifiers if c != DB_PSEUDO_CONNECTOR]
 
 
-def to_library_track(track: Track, *, liked_track_ids: set[int]) -> LibraryTrackSchema:
+def to_library_track(track: Track, *, liked_track_ids: set[UUID]) -> LibraryTrackSchema:
     """Convert domain Track to library list schema.
 
     Args:
@@ -135,14 +136,14 @@ def to_library_track(track: Track, *, liked_track_ids: set[int]) -> LibraryTrack
         liked_track_ids: Set of track IDs liked on any service (from track_likes table).
     """
     return LibraryTrackSchema(
-        id=track.id or 0,
+        id=track.id,
         title=track.title,
         artists=[to_artist_schema(a) for a in track.artists],
         album=track.album,
         duration_ms=track.duration_ms,
         isrc=track.isrc,
         connector_names=_get_connector_names(track),
-        is_liked=(track.id or 0) in liked_track_ids,
+        is_liked=track.id in liked_track_ids,
     )
 
 
@@ -181,7 +182,7 @@ def _to_playlist_brief_schema(summary: PlaylistSummary) -> PlaylistBriefSchema:
 def playlist_to_brief_schema(playlist: Playlist) -> PlaylistBriefSchema:
     """Convert a domain Playlist entity to PlaylistBriefSchema."""
     return PlaylistBriefSchema(
-        id=playlist.id or 0, name=playlist.name, description=playlist.description
+        id=playlist.id, name=playlist.name, description=playlist.description
     )
 
 
@@ -189,7 +190,7 @@ def to_track_detail(result: TrackDetailsResult) -> TrackDetailSchema:
     """Convert use case result to track detail schema."""
     track = result.track
     return TrackDetailSchema(
-        id=track.id or 0,
+        id=track.id,
         title=track.title,
         artists=[to_artist_schema(a) for a in track.artists],
         album=track.album,

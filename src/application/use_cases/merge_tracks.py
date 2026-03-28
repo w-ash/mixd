@@ -5,6 +5,8 @@ to the winner track, then soft-deletes the loser. Replaces the thin
 track_service.merge_tracks() function with proper Command/Result pattern.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities.track import Track
@@ -15,8 +17,8 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class MergeTracksCommand:
     """Parameters for merging two duplicate tracks."""
 
-    winner_id: int
-    loser_id: int
+    winner_id: UUID
+    loser_id: UUID
 
 
 @define(frozen=True, slots=True)

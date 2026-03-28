@@ -35,12 +35,12 @@ async def check_orphaned_track_mappings() -> list[dict]:
     logger.info("🔍 Checking orphaned track_mappings...")
 
     query = text("""
-        SELECT 
+        SELECT
             tm.id,
             tm.track_id,
             tm.connector_track_id,
             tm.connector_name,
-            CASE 
+            CASE
                 WHEN t.id IS NULL THEN 'missing_track'
                 WHEN ct.id IS NULL THEN 'missing_connector_track'
                 ELSE 'valid'
@@ -76,7 +76,7 @@ async def check_orphaned_track_metrics() -> list[dict]:
     logger.info("🔍 Checking orphaned track_metrics...")
 
     query = text("""
-        SELECT 
+        SELECT
             tm.id,
             tm.track_id,
             tm.connector_name,
@@ -113,7 +113,7 @@ async def check_orphaned_track_likes() -> list[dict]:
     logger.info("🔍 Checking orphaned track_likes...")
 
     query = text("""
-        SELECT 
+        SELECT
             tl.id,
             tl.track_id,
             tl.service,
@@ -154,15 +154,15 @@ async def check_orphaned_track_plays() -> list[dict]:
         FROM track_plays tp
         WHERE tp.is_deleted = false
           AND NOT EXISTS (
-              SELECT 1 FROM tracks t 
-              WHERE t.id = tp.track_id 
+              SELECT 1 FROM tracks t
+              WHERE t.id = tp.track_id
                 AND t.is_deleted = false
           )
     """)
 
     # Then get sample records
     query = text("""
-        SELECT 
+        SELECT
             tp.id,
             tp.track_id,
             tp.service,
@@ -171,8 +171,8 @@ async def check_orphaned_track_plays() -> list[dict]:
         FROM track_plays tp
         WHERE tp.is_deleted = false
           AND NOT EXISTS (
-              SELECT 1 FROM tracks t 
-              WHERE t.id = tp.track_id 
+              SELECT 1 FROM tracks t
+              WHERE t.id = tp.track_id
                 AND t.is_deleted = false
           )
         ORDER BY tp.id
@@ -225,13 +225,13 @@ async def check_orphaned_playlist_tracks() -> list[dict]:
 
     # Then get sample records with issue type
     query = text("""
-        SELECT 
+        SELECT
             pt.id,
             pt.playlist_id,
             pt.track_id,
             pt.sort_key,
             pt.added_at,
-            CASE 
+            CASE
                 WHEN NOT EXISTS (SELECT 1 FROM playlists p WHERE p.id = pt.playlist_id AND p.is_deleted = false) THEN 'missing_playlist'
                 WHEN NOT EXISTS (SELECT 1 FROM tracks t WHERE t.id = pt.track_id AND t.is_deleted = false) THEN 'missing_track'
                 ELSE 'valid'
@@ -281,7 +281,7 @@ async def check_orphaned_connector_tracks() -> list[dict]:
 
     # Quick existence check - just see if ANY orphans exist
     exists_query = text("""
-        SELECT 
+        SELECT
             ct.id,
             ct.connector_name,
             ct.connector_track_id,
@@ -291,8 +291,8 @@ async def check_orphaned_connector_tracks() -> list[dict]:
         FROM connector_tracks ct
         WHERE ct.is_deleted = false
           AND NOT EXISTS (
-              SELECT 1 FROM track_mappings tm 
-              WHERE tm.connector_track_id = ct.id 
+              SELECT 1 FROM track_mappings tm
+              WHERE tm.connector_track_id = ct.id
                 AND tm.is_deleted = false
           )
         ORDER BY ct.id
@@ -346,7 +346,7 @@ async def fix_orphaned_records(
             if not dry_run:
                 await session.execute(
                     text("""
-                    UPDATE track_mappings 
+                    UPDATE track_mappings
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),
@@ -365,7 +365,7 @@ async def fix_orphaned_records(
             if not dry_run:
                 await session.execute(
                     text("""
-                    UPDATE track_metrics 
+                    UPDATE track_metrics
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),
@@ -384,7 +384,7 @@ async def fix_orphaned_records(
             if not dry_run:
                 await session.execute(
                     text("""
-                    UPDATE track_likes 
+                    UPDATE track_likes
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),
@@ -403,7 +403,7 @@ async def fix_orphaned_records(
             if not dry_run and len(play_ids) <= 10000:  # Safety limit
                 await session.execute(
                     text("""
-                    UPDATE track_plays 
+                    UPDATE track_plays
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),
@@ -427,7 +427,7 @@ async def fix_orphaned_records(
             if not dry_run:
                 await session.execute(
                     text("""
-                    UPDATE playlist_tracks 
+                    UPDATE playlist_tracks
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),
@@ -446,7 +446,7 @@ async def fix_orphaned_records(
             if not dry_run:
                 await session.execute(
                     text("""
-                    UPDATE connector_tracks 
+                    UPDATE connector_tracks
                     SET is_deleted = true, deleted_at = :now, updated_at = :now
                     WHERE id IN :ids
                 """),

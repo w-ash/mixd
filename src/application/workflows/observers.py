@@ -21,6 +21,7 @@ orchestration loop when no observer is provided.
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from attrs import define
 
@@ -50,7 +51,7 @@ def _build_sse_node_event(
     event: NodeExecutionEvent,
     status: RunStatus,
     *,
-    run_id: int | None = None,
+    run_id: UUID | None = None,
     error_message: str | None = None,
 ) -> dict[str, Any]:
     """Build an SSE node_status event dict, shared by all observer types."""
@@ -81,7 +82,7 @@ async def _push_sse_node_event(
     event: NodeExecutionEvent,
     status: RunStatus,
     *,
-    run_id: int | None = None,
+    run_id: UUID | None = None,
     error_message: str | None = None,
 ) -> int:
     """Push an SSE node_status event to the queue. Returns updated counter."""
@@ -266,7 +267,7 @@ class RunHistoryObserver:
     so node status updates survive workflow failures.
     """
 
-    _run_id: int
+    _run_id: UUID
     _update_node_status_fn: NodeStatusUpdater
     _sse_queue: asyncio.Queue[Any] | None
     _event_counter: int
@@ -274,7 +275,7 @@ class RunHistoryObserver:
 
     def __init__(
         self,
-        run_id: int,
+        run_id: UUID,
         update_node_status: NodeStatusUpdater,
         sse_queue: asyncio.Queue[Any] | None = None,
     ) -> None:

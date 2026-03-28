@@ -4,6 +4,8 @@ Lists, retrieves, and reverts workflow versions. Version records are created
 automatically by ``UpdateWorkflowUseCase`` — see ``workflow_crud.py``.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities.workflow import Workflow, WorkflowVersion
@@ -16,7 +18,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class ListWorkflowVersionsCommand:
-    workflow_id: int
+    workflow_id: UUID
 
 
 @define(frozen=True, slots=True)
@@ -45,7 +47,7 @@ class ListWorkflowVersionsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowVersionCommand:
-    workflow_id: int
+    workflow_id: UUID
     version: int
 
 
@@ -77,7 +79,7 @@ class GetWorkflowVersionUseCase:
 
 @define(frozen=True, slots=True)
 class RevertWorkflowVersionCommand:
-    workflow_id: int
+    workflow_id: UUID
     version: int
 
 

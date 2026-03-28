@@ -14,7 +14,6 @@ from attrs import define, field
 
 from src.application.use_cases._shared import (
     create_connector_playlist_items_from_tracks,
-    persist_unsaved_tracks,
     resolve_playlist_connector,
 )
 from src.application.use_cases._shared.command_validators import (
@@ -312,17 +311,8 @@ class CreateConnectorPlaylistUseCase:
         """
         async with uow:
             try:
-                # Step 1: Ensure all tracks have database IDs via upsert
-                try:
-                    persisted_tracks = await persist_unsaved_tracks(
-                        command.tracklist.tracks, uow
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to persist some tracks: {e}")
-                    persisted_tracks = list(command.tracklist.tracks)
-
-                # Step 2: Create internal playlist with connector mapping
-                tracklist = TrackList(tracks=persisted_tracks)
+                # Step 1: Create internal playlist with connector mapping
+                tracklist = TrackList(tracks=list(command.tracklist.tracks))
                 playlist = Playlist.from_tracklist(
                     name=command.playlist_name,
                     tracklist=tracklist,
@@ -354,7 +344,7 @@ class CreateConnectorPlaylistUseCase:
                     playlist_id=saved_playlist.id,
                     connector=command.connector,
                     external_playlist_id=external_playlist_id,
-                    tracks_persisted=len(persisted_tracks),
+                    tracks_persisted=len(tracklist.tracks),
                 )
 
             except Exception as e:

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { ArtistSchema } from './artistSchema';
 import type { ConnectorMappingSchema } from './connectorMappingSchema';
@@ -15,7 +15,7 @@ import type { TrackDetailSchemaLikeStatus } from './trackDetailSchemaLikeStatus'
  * Full track detail with assembled metadata from multiple repositories.
  */
 export interface TrackDetailSchema {
-  id: number;
+  id: string;
   title: string;
   artists: ArtistSchema[];
   album?: string | null;

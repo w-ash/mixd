@@ -295,7 +295,7 @@ class UpdateConnectorPlaylistUseCase:
                 connector=command.connector,
                 playlist_id=command.playlist_id,
                 items_count=updated_items_count,
-                existing_record_updated=playlist_entity.id is not None,
+                existing_record_updated=True,
             )
 
             # Post-update verification

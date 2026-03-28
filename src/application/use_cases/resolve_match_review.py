@@ -6,6 +6,7 @@ On reject: marks the review as rejected to prevent re-queuing.
 """
 
 from typing import Literal
+from uuid import UUID
 
 from attrs import define
 
@@ -22,7 +23,7 @@ logger = get_logger(__name__)
 class ResolveMatchReviewCommand:
     """Input parameters for resolving a single match review."""
 
-    review_id: int
+    review_id: UUID
     action: Literal["accept", "reject"]
 
 

@@ -12,6 +12,7 @@ from asyncio import CancelledError
 import contextlib
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
@@ -118,8 +119,8 @@ async def list_workflows(
         workflows = result.workflows[offset : offset + limit]
 
         # Batch-fetch latest runs for all workflows on this page
-        workflow_ids = [w.id for w in workflows if w.id is not None]
-        latest_runs: dict[int, WorkflowRun] = {}
+        workflow_ids = [w.id for w in workflows]
+        latest_runs: dict[UUID, WorkflowRun] = {}
         if workflow_ids:
             latest_result = await GetLatestWorkflowRunsUseCase().execute(
                 GetLatestWorkflowRunsCommand(workflow_ids=workflow_ids), uow
@@ -128,7 +129,7 @@ async def list_workflows(
 
         return PaginatedResponse(
             data=[
-                to_workflow_summary(w, last_run=latest_runs.get(w.id or 0))
+                to_workflow_summary(w, last_run=latest_runs.get(w.id))
                 for w in workflows
             ],
             total=result.total_count,
@@ -200,7 +201,7 @@ async def preview_unsaved_workflow(
 
 @router.post("/{workflow_id}/preview", status_code=202)
 async def preview_saved_workflow(
-    workflow_id: int,
+    workflow_id: UUID,
 ) -> PreviewStartedResponse:
     """Preview a saved workflow (dry-run). Returns operation_id for SSE."""
     command = GetWorkflowCommand(workflow_id=workflow_id)
@@ -223,7 +224,7 @@ async def _start_preview(workflow_def: WorkflowDef) -> PreviewStartedResponse:
 
 
 @router.get("/{workflow_id}")
-async def get_workflow(workflow_id: int) -> WorkflowDetailSchema:
+async def get_workflow(workflow_id: UUID) -> WorkflowDetailSchema:
     """Get a workflow by ID with full definition."""
 
     async def _fetch(uow: UnitOfWorkProtocol) -> WorkflowDetailSchema:
@@ -232,9 +233,9 @@ async def get_workflow(workflow_id: int) -> WorkflowDetailSchema:
         )
         workflow = result.workflow
         latest_result = await GetLatestWorkflowRunsUseCase().execute(
-            GetLatestWorkflowRunsCommand(workflow_ids=[workflow.id or 0]), uow
+            GetLatestWorkflowRunsCommand(workflow_ids=[workflow.id]), uow
         )
-        last_run = latest_result.latest_runs.get(workflow.id or 0)
+        last_run = latest_result.latest_runs.get(workflow.id)
         return to_workflow_detail(workflow, last_run=last_run)
 
     return await execute_use_case(_fetch)
@@ -242,7 +243,7 @@ async def get_workflow(workflow_id: int) -> WorkflowDetailSchema:
 
 @router.patch("/{workflow_id}")
 async def update_workflow(
-    workflow_id: int, body: UpdateWorkflowRequest
+    workflow_id: UUID, body: UpdateWorkflowRequest
 ) -> WorkflowDetailSchema:
     """Update a user workflow's definition. Template workflows cannot be modified."""
     definition = schema_to_workflow_def(body.definition)
@@ -254,7 +255,7 @@ async def update_workflow(
 
 
 @router.delete("/{workflow_id}", status_code=204)
-async def delete_workflow(workflow_id: int) -> Response:
+async def delete_workflow(workflow_id: UUID) -> Response:
     """Delete a user workflow. Template workflows cannot be deleted."""
     command = DeleteWorkflowCommand(workflow_id=workflow_id)
     await execute_use_case(lambda uow: DeleteWorkflowUseCase().execute(command, uow))
@@ -268,7 +269,7 @@ async def delete_workflow(workflow_id: int) -> Response:
 
 @router.post("/{workflow_id}/run", status_code=202)
 async def run_workflow_endpoint(
-    workflow_id: int,
+    workflow_id: UUID,
 ) -> WorkflowRunStartedResponse:
     """Start a workflow execution. Returns immediately with operation_id + run_id."""
     # 1. Create run record (PENDING) + check execution guard
@@ -297,7 +298,7 @@ async def run_workflow_endpoint(
 
 @router.get("/{workflow_id}/runs")
 async def list_workflow_runs(
-    workflow_id: int,
+    workflow_id: UUID,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[WorkflowRunSummarySchema]:
@@ -317,7 +318,7 @@ async def list_workflow_runs(
 
 
 @router.get("/{workflow_id}/runs/{run_id}")
-async def get_workflow_run(workflow_id: int, run_id: int) -> WorkflowRunDetailSchema:
+async def get_workflow_run(workflow_id: UUID, run_id: UUID) -> WorkflowRunDetailSchema:
     """Get a single run with node execution details."""
     command = GetWorkflowRunCommand(workflow_id=workflow_id, run_id=run_id)
     result = await execute_use_case(
@@ -333,7 +334,7 @@ async def get_workflow_run(workflow_id: int, run_id: int) -> WorkflowRunDetailSc
 
 @router.get("/{workflow_id}/versions")
 async def list_workflow_versions(
-    workflow_id: int,
+    workflow_id: UUID,
 ) -> list[WorkflowVersionSchema]:
     """List version history for a workflow."""
     command = ListWorkflowVersionsCommand(workflow_id=workflow_id)
@@ -344,7 +345,9 @@ async def list_workflow_versions(
 
 
 @router.get("/{workflow_id}/versions/{version}")
-async def get_workflow_version(workflow_id: int, version: int) -> WorkflowVersionSchema:
+async def get_workflow_version(
+    workflow_id: UUID, version: int
+) -> WorkflowVersionSchema:
     """Get a specific version with full definition."""
     command = GetWorkflowVersionCommand(workflow_id=workflow_id, version=version)
     result = await execute_use_case(
@@ -355,7 +358,7 @@ async def get_workflow_version(workflow_id: int, version: int) -> WorkflowVersio
 
 @router.post("/{workflow_id}/versions/{version}/revert")
 async def revert_workflow_version(
-    workflow_id: int, version: int
+    workflow_id: UUID, version: int
 ) -> WorkflowDetailSchema:
     """Revert a workflow to a previous version. Creates a new version record."""
     command = RevertWorkflowVersionCommand(workflow_id=workflow_id, version=version)
@@ -388,7 +391,7 @@ async def _run_repo_session():
 
 
 async def _update_run_status(
-    run_id: int,
+    run_id: UUID,
     status: RunStatus,
     **kwargs: Any,
 ) -> None:
@@ -398,7 +401,7 @@ async def _update_run_status(
 
 
 async def _update_node_status(
-    run_id: int,
+    run_id: UUID,
     node_id: str,
     status: RunStatus,
     *,
@@ -429,7 +432,7 @@ async def _update_node_status(
 async def _execute_workflow_background(
     operation_id: str,
     workflow_def: WorkflowDef,
-    run_id: int,
+    run_id: UUID,
     sse_queue: asyncio.Queue[Any],
 ) -> None:
     """Execute workflow in background, pushing SSE events for the run lifecycle.

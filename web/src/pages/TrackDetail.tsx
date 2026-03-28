@@ -160,7 +160,7 @@ function MappingList({
   mappings,
   trackTitle,
 }: {
-  trackId: number;
+  trackId: string;
   mappings: ConnectorMappingSchema[];
   trackTitle: string;
 }) {
@@ -328,7 +328,7 @@ function MappingList({
 
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
-  const trackId = Number(id);
+  const trackId = id ?? "";
 
   const { data, isLoading, isError, error } =
     useGetTrackDetailApiV1TracksTrackIdGet(trackId, {

@@ -7,6 +7,7 @@ ensure_primary_for_connector, get_connector_track_by_id.
 """
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +37,7 @@ async def _setup_track_with_mapping(
     is_primary: bool = True,
     confidence: int = 95,
     origin: str = "automatic",
-) -> tuple[int, int, int]:
+) -> tuple[UUID, UUID, UUID]:
     """Create a track, connector track, and mapping. Returns (track_id, ct_id, mapping_id)."""
     import uuid
 
@@ -93,7 +94,7 @@ class TestGetMappingById:
     async def test_returns_none_when_missing(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        result = await connector_repo.get_mapping_by_id(99999)
+        result = await connector_repo.get_mapping_by_id(uuid7())
         assert result is None
 
 
@@ -116,7 +117,7 @@ class TestDeleteMapping:
         self, db_session: AsyncSession, connector_repo
     ) -> None:
         with pytest.raises(NotFoundError):
-            await connector_repo.delete_mapping(99999)
+            await connector_repo.delete_mapping(uuid7())
 
 
 class TestUpdateMappingTrack:
@@ -144,7 +145,9 @@ class TestUpdateMappingTrack:
         self, db_session: AsyncSession, connector_repo
     ) -> None:
         with pytest.raises(NotFoundError):
-            await connector_repo.update_mapping_track(99999, 1, "manual_override")
+            await connector_repo.update_mapping_track(
+                uuid7(), uuid7(), "manual_override"
+            )
 
 
 class TestCountMappingsForConnectorTrack:
@@ -162,7 +165,7 @@ class TestCountMappingsForConnectorTrack:
     async def test_zero_when_no_mappings(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        count = await connector_repo.count_mappings_for_connector_track(99999)
+        count = await connector_repo.count_mappings_for_connector_track(uuid7())
         assert count == 0
 
 
@@ -289,5 +292,5 @@ class TestGetConnectorTrackById:
     async def test_returns_none_when_missing(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        result = await connector_repo.get_connector_track_by_id(99999)
+        result = await connector_repo.get_connector_track_by_id(uuid7())
         assert result is None

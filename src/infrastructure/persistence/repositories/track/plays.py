@@ -6,6 +6,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy import func, select
@@ -162,7 +163,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
     @db_operation("get_play_aggregations")
     async def get_play_aggregations(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         metrics: list[str],
         period_start: datetime | None = None,
         period_end: datetime | None = None,
@@ -385,7 +386,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
     @db_operation("find_plays_in_time_range")
     async def find_plays_in_time_range(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         start: datetime,
         end: datetime,
     ) -> list[TrackPlay]:
@@ -415,7 +416,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
     @db_operation("bulk_update_play_source_services")
     async def bulk_update_play_source_services(
         self,
-        updates: list[tuple[int, dict[str, Any]]],
+        updates: list[tuple[UUID, dict[str, Any]]],
     ) -> None:
         """Batch-update cross-source dedup metadata for multiple plays.
 

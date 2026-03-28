@@ -5,6 +5,7 @@ All business logic lives in the use cases — this is pure HTTP translation.
 """
 
 import asyncio
+from uuid import UUID
 
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
@@ -143,7 +144,7 @@ async def backup_playlist(body: BackupPlaylistRequest) -> PlaylistDetailSchema:
 
 
 @router.get("/{playlist_id}")
-async def get_playlist(playlist_id: int) -> PlaylistDetailSchema:
+async def get_playlist(playlist_id: UUID) -> PlaylistDetailSchema:
     """Get a playlist by ID with all entries."""
     command = ReadCanonicalPlaylistCommand(playlist_id=str(playlist_id))
     result = await execute_use_case(
@@ -163,7 +164,7 @@ async def get_playlist(playlist_id: int) -> PlaylistDetailSchema:
 
 @router.patch("/{playlist_id}")
 async def update_playlist(
-    playlist_id: int, body: UpdatePlaylistRequest
+    playlist_id: UUID, body: UpdatePlaylistRequest
 ) -> PlaylistDetailSchema:
     """Update playlist metadata (name and/or description)."""
     command = UpdateCanonicalPlaylistCommand(
@@ -181,7 +182,7 @@ async def update_playlist(
 
 
 @router.delete("/{playlist_id}", status_code=204)
-async def delete_playlist(playlist_id: int) -> Response:
+async def delete_playlist(playlist_id: UUID) -> Response:
     """Delete a playlist by ID."""
     command = DeleteCanonicalPlaylistCommand(
         playlist_id=str(playlist_id), force_delete=True
@@ -194,7 +195,7 @@ async def delete_playlist(playlist_id: int) -> Response:
 
 @router.get("/{playlist_id}/tracks")
 async def get_playlist_tracks(
-    playlist_id: int,
+    playlist_id: UUID,
     limit: int = Query(default=10000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistEntrySchema]:
@@ -222,7 +223,7 @@ async def get_playlist_tracks(
 
 
 @router.get("/{playlist_id}/links")
-async def list_playlist_links(playlist_id: int) -> list[PlaylistLinkSchema]:
+async def list_playlist_links(playlist_id: UUID) -> list[PlaylistLinkSchema]:
     """List all connector links for a playlist."""
     result = await execute_use_case(
         lambda uow: ListPlaylistLinksUseCase().execute(
@@ -234,7 +235,7 @@ async def list_playlist_links(playlist_id: int) -> list[PlaylistLinkSchema]:
 
 @router.post("/{playlist_id}/links", status_code=201)
 async def create_playlist_link(
-    playlist_id: int, body: CreateLinkRequest
+    playlist_id: UUID, body: CreateLinkRequest
 ) -> PlaylistLinkSchema:
     """Link a playlist to an external service playlist.
 
@@ -254,7 +255,7 @@ async def create_playlist_link(
 
 
 @router.delete("/{playlist_id}/links/{link_id}", status_code=204)
-async def delete_playlist_link(playlist_id: int, link_id: int) -> Response:  # noqa: ARG001
+async def delete_playlist_link(playlist_id: UUID, link_id: UUID) -> Response:  # noqa: ARG001
     """Unlink a playlist from an external service."""
     await execute_use_case(
         lambda uow: DeletePlaylistLinkUseCase().execute(
@@ -266,8 +267,8 @@ async def delete_playlist_link(playlist_id: int, link_id: int) -> Response:  # n
 
 @router.patch("/{playlist_id}/links/{link_id}")
 async def update_playlist_link(
-    playlist_id: int,  # noqa: ARG001
-    link_id: int,
+    playlist_id: UUID,  # noqa: ARG001
+    link_id: UUID,
     body: UpdateLinkRequest,
 ) -> PlaylistLinkSchema:
     """Update a playlist link's sync direction."""
@@ -283,8 +284,8 @@ async def update_playlist_link(
 
 @router.get("/{playlist_id}/links/{link_id}/sync/preview")
 async def preview_playlist_sync(
-    playlist_id: int,  # noqa: ARG001
-    link_id: int,
+    playlist_id: UUID,  # noqa: ARG001
+    link_id: UUID,
     direction_override: str | None = Query(default=None),
 ) -> SyncPreviewResponse:
     """Preview what a sync would change without executing it."""
@@ -311,8 +312,8 @@ async def preview_playlist_sync(
 
 @router.post("/{playlist_id}/links/{link_id}/sync", status_code=202)
 async def sync_playlist_link(
-    playlist_id: int,  # noqa: ARG001
-    link_id: int,
+    playlist_id: UUID,  # noqa: ARG001
+    link_id: UUID,
     body: SyncLinkRequest | None = None,
 ) -> SyncStartedResponse:
     """Start a sync operation for a playlist link.
@@ -341,7 +342,7 @@ async def sync_playlist_link(
 
 async def _execute_sync_background(
     operation_id: str,
-    link_id: int,
+    link_id: UUID,
     direction_override: SyncDirection | None,
     sse_queue: asyncio.Queue[object],
     *,

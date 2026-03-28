@@ -66,10 +66,9 @@ class TestEnrichSpotifyLikedStatusHappyPath:
 
     async def test_persists_liked_status_to_database(self):
         """execute_service is called with a function that writes to like_repo."""
-        tracks = [
-            make_track(id=1, connector_track_identifiers={"spotify": "aaa"}),
-            make_track(id=2, connector_track_identifiers={"spotify": "bbb"}),
-        ]
+        t1 = make_track(connector_track_identifiers={"spotify": "aaa"})
+        t2 = make_track(connector_track_identifiers={"spotify": "bbb"})
+        tracks = [t1, t2]
         saved = {"spotify:track:aaa": True, "spotify:track:bbb": False}
         connector = _make_mock_connector(saved)
 
@@ -101,13 +100,13 @@ class TestEnrichSpotifyLikedStatusHappyPath:
 
         # Check (track_id, service, is_liked, ...) structure
         ids_and_status = {(t[0], t[2]) for t in likes_arg}
-        assert (1, True) in ids_and_status
-        assert (2, False) in ids_and_status
+        assert (t1.id, True) in ids_and_status
+        assert (t2.id, False) in ids_and_status
 
     async def test_preserves_tracklist_metadata(self):
         """Original tracklist metadata is preserved in the output."""
         tracks = [
-            make_track(id=1, connector_track_identifiers={"spotify": "aaa"}),
+            make_track(connector_track_identifiers={"spotify": "aaa"}),
         ]
         connector = _make_mock_connector({"spotify:track:aaa": True})
         context = _make_context(tracks, connector)
@@ -122,8 +121,8 @@ class TestEnrichSpotifyLikedStatusHappyPath:
     async def test_calls_connector_with_correct_uris(self):
         """check_library_contains receives properly formatted Spotify URIs."""
         tracks = [
-            make_track(id=1, connector_track_identifiers={"spotify": "abc123"}),
-            make_track(id=2, connector_track_identifiers={"spotify": "def456"}),
+            make_track(connector_track_identifiers={"spotify": "abc123"}),
+            make_track(connector_track_identifiers={"spotify": "def456"}),
         ]
         connector = _make_mock_connector({
             "spotify:track:abc123": False,
@@ -144,8 +143,8 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
     async def test_no_spotify_ids_skips_api_call(self):
         """Tracks without Spotify identifiers skip the API call entirely."""
         tracks = [
-            make_track(id=1, connector_track_identifiers={}),
-            make_track(id=2, connector_track_identifiers={"lastfm": "xyz"}),
+            make_track(connector_track_identifiers={}),
+            make_track(connector_track_identifiers={"lastfm": "xyz"}),
         ]
         connector = _make_mock_connector({})
         context = _make_context(tracks, connector)
@@ -165,12 +164,11 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         connector.check_library_contains.assert_not_awaited()
         assert len(result["tracklist"].tracks) == 0
 
-    async def test_tracks_without_db_id_skipped_in_persistence(self):
-        """Tracks with id=None get metadata updated but are excluded from DB persistence."""
-        tracks = [
-            make_track(id=None, connector_track_identifiers={"spotify": "aaa"}),
-            make_track(id=1, connector_track_identifiers={"spotify": "bbb"}),
-        ]
+    async def test_all_tracks_persisted_with_uuid_ids(self):
+        """All tracks have UUIDs, so all are persisted to the database."""
+        t1 = make_track(connector_track_identifiers={"spotify": "aaa"})
+        t2 = make_track(connector_track_identifiers={"spotify": "bbb"})
+        tracks = [t1, t2]
         saved = {"spotify:track:aaa": True, "spotify:track:bbb": False}
         connector = _make_mock_connector(saved)
 
@@ -185,11 +183,11 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         )
         result = await enrich_spotify_liked_status(context, {})
 
-        # In-memory metadata is still updated for both
+        # In-memory metadata is updated for both
         assert result["tracklist"].tracks[0].is_liked_on("spotify") is True
         assert result["tracklist"].tracks[1].is_liked_on("spotify") is False
 
-        # Only track with id=1 should be in the persisted batch
+        # Both tracks should be in the persisted batch
         assert captured_fn is not None
         mock_uow = AsyncMock()
         mock_like_repo = AsyncMock()
@@ -197,15 +195,14 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         await captured_fn(mock_uow)
 
         likes_arg = mock_like_repo.save_track_likes_batch.call_args[0][0]
-        assert len(likes_arg) == 1
-        assert likes_arg[0][0] == 1  # only track.id=1
+        assert len(likes_arg) == 2
 
     async def test_mixed_tracks_some_with_spotify_ids(self):
         """Only tracks with Spotify IDs are checked; others pass through unchanged."""
         tracks = [
-            make_track(id=1, connector_track_identifiers={"spotify": "aaa"}),
-            make_track(id=2, connector_track_identifiers={}),  # no Spotify ID
-            make_track(id=3, connector_track_identifiers={"spotify": "ccc"}),
+            make_track(connector_track_identifiers={"spotify": "aaa"}),
+            make_track(connector_track_identifiers={}),  # no Spotify ID
+            make_track(connector_track_identifiers={"spotify": "ccc"}),
         ]
         saved = {"spotify:track:aaa": True, "spotify:track:ccc": False}
         connector = _make_mock_connector(saved)

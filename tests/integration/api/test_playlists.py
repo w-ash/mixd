@@ -7,6 +7,8 @@ via the db_session fixture.
 
 import httpx
 
+from tests.fixtures.factories import nonexistent_id
+
 
 class TestListPlaylists:
     """GET /api/v1/playlists returns paginated playlist summaries."""
@@ -102,7 +104,7 @@ class TestGetPlaylist:
         assert "entries" in body
 
     async def test_get_nonexistent_returns_404(self, client: httpx.AsyncClient) -> None:
-        response = await client.get("/api/v1/playlists/99999")
+        response = await client.get(f"/api/v1/playlists/{nonexistent_id()}")
 
         assert response.status_code == 404
         body = response.json()
@@ -138,7 +140,9 @@ class TestUpdatePlaylist:
     async def test_update_nonexistent_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.patch("/api/v1/playlists/99999", json={"name": "Nope"})
+        response = await client.patch(
+            f"/api/v1/playlists/{nonexistent_id()}", json={"name": "Nope"}
+        )
 
         assert response.status_code == 404
 
@@ -161,7 +165,7 @@ class TestDeletePlaylist:
     async def test_delete_nonexistent_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.delete("/api/v1/playlists/99999")
+        response = await client.delete(f"/api/v1/playlists/{nonexistent_id()}")
 
         assert response.status_code == 404
 
@@ -183,6 +187,6 @@ class TestGetPlaylistTracks:
     async def test_nonexistent_playlist_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.get("/api/v1/playlists/99999/tracks")
+        response = await client.get(f"/api/v1/playlists/{nonexistent_id()}/tracks")
 
         assert response.status_code == 404

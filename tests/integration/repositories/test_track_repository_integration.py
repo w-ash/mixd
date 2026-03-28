@@ -87,10 +87,14 @@ class TestTrackRepositoryIntegration:
         assert saved_track2.id in multi_result
 
         # Test missing track IDs (should not include non-existent IDs in result)
-        missing_result = await track_repo.find_tracks_by_ids([saved_track1.id, 99999])
+        nonexistent_id = uuid4()
+        missing_result = await track_repo.find_tracks_by_ids([
+            saved_track1.id,
+            nonexistent_id,
+        ])
         assert len(missing_result) == 1  # Only the existing track
         assert saved_track1.id in missing_result
-        assert 99999 not in missing_result
+        assert nonexistent_id not in missing_result
 
     async def test_track_with_connector_identifiers(
         self, db_session, test_data_tracker
@@ -175,7 +179,6 @@ class TestTrackRepositoryIntegration:
 
         # Create and save initial track
         original_track = Track(
-            id=None,
             title=f"TEST_Original_{uuid4()}",
             artists=[Artist(name=f"TEST_Artist_{uuid4()}")],
             album=f"TEST_Album_{uuid4()}",
@@ -185,12 +188,11 @@ class TestTrackRepositoryIntegration:
         saved_track = await track_repo.save_track(original_track)
         test_data_tracker.add_track(saved_track.id)
 
-        # Update track with new connector identifier (using musicbrainz which is supported)
-        updated_track = Track(
-            id=saved_track.id,
-            title=saved_track.title,
-            artists=saved_track.artists,
-            album=saved_track.album,
+        # Update track with new connector identifier (evolve preserves version)
+        from attrs import evolve
+
+        updated_track = evolve(
+            saved_track,
             connector_track_identifiers={
                 **saved_track.connector_track_identifiers,
                 "musicbrainz": str(uuid4()),

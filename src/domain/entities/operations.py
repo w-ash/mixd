@@ -9,6 +9,7 @@ from music services like Spotify and Last.fm.
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Self
+from uuid import UUID, uuid7
 
 from attrs import Attribute, define, field
 
@@ -47,7 +48,7 @@ class SyncCheckpoint:
     entity_type: str  # 'likes', 'plays'
     last_timestamp: datetime | None = None
     cursor: str | None = None  # For pagination/continuation
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
     def with_update(
         self,
@@ -206,13 +207,13 @@ class ConnectorTrackPlay:
     connector_track_identifier: str = field(init=False)
 
     # Resolution tracking (nullable until resolved)
-    resolved_track_id: int | None = None
+    resolved_track_id: UUID | None = None
     resolved_at: datetime | None = field(
         default=None, validator=_validate_timezone_aware_datetime
     )
 
     # Database persistence
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
     def __attrs_post_init__(self) -> None:
         """Auto-derive connector fields based on service type."""
@@ -303,13 +304,13 @@ class TrackPlay:
         import_batch_id: Batch identifier for bulk imports
     """
 
-    track_id: int | None
+    track_id: UUID | None
     service: str
     played_at: datetime = field(validator=_validate_timezone_aware_datetime)
     user_id: str = "default"
     ms_played: int | None = None
     context: dict[str, Any] | None = None
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
     # Cross-source deduplication: which services contributed to this play record
     source_services: list[str] | None = None
@@ -343,7 +344,7 @@ class OperationResult:
     tracks: list[Track] = field(factory=list)
     execution_time: float = field(default=0.0)
     metadata: dict[str, Any] = field(factory=dict)
-    metrics: dict[str, dict[int, MetricValue]] = field(
+    metrics: dict[str, dict[UUID, MetricValue]] = field(
         factory=dict,
     )  # Per-track operational metrics: metric_name -> {track_id -> value}
     tracklist: TrackList | None = field(
@@ -352,7 +353,7 @@ class OperationResult:
 
     def get_metric(
         self,
-        track_id: int | None,
+        track_id: UUID | None,
         metric_name: str,
         default: MetricValue = None,
     ) -> MetricValue:
@@ -402,13 +403,13 @@ class OperationResult:
         if self.tracks:
             result["tracks"] = [
                 {
-                    "id": t.id,
+                    "id": str(t.id),
                     "title": t.title,
                     "artists": [a.name for a in t.artists],
                     "metrics": {
                         name: values.get(t.id)
                         for name, values in self.metrics.items()
-                        if t.id and t.id in values
+                        if t.id in values
                     },
                 }
                 for t in self.tracks

@@ -23,15 +23,13 @@ def mock_uow():
     """Mock UnitOfWork with required repositories."""
     uow = make_mock_uow()
 
-    # Track repo — assign IDs to unsaved tracks
+    # Track repo — return track as-is (already has UUID)
     track_repo = uow.get_track_repository()
-    track_repo.save_track.side_effect = lambda t: t.with_id(100) if t.id is None else t
+    track_repo.save_track.side_effect = lambda t: t
 
-    # Playlist repo — assign IDs to unsaved playlists
+    # Playlist repo — return playlist as-is (already has UUID)
     playlist_repo = uow.get_playlist_repository()
-    playlist_repo.save_playlist.side_effect = lambda p: (
-        p.with_id(1) if p.id is None else p
-    )
+    playlist_repo.save_playlist.side_effect = lambda p: p
 
     return uow
 
@@ -41,7 +39,7 @@ class TestCreateCanonicalPlaylistCommand:
 
     def test_valid_command(self):
         """Test creating a valid command."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         cmd = CreateCanonicalPlaylistCommand(
             name="My Playlist",
             tracklist=tracklist,
@@ -51,13 +49,13 @@ class TestCreateCanonicalPlaylistCommand:
 
     def test_empty_name_rejected(self):
         """Test that empty playlist name is rejected."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError):
             CreateCanonicalPlaylistCommand(name="", tracklist=tracklist)
 
     def test_command_with_connector_mapping(self):
         """Test command with connector name and ID for external mapping."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         cmd = CreateCanonicalPlaylistCommand(
             name="Discover Weekly",
             tracklist=tracklist,
@@ -69,7 +67,7 @@ class TestCreateCanonicalPlaylistCommand:
 
     def test_command_is_frozen(self):
         """Test command immutability."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         cmd = CreateCanonicalPlaylistCommand(name="Test", tracklist=tracklist)
         with pytest.raises(AttributeError):
             cmd.name = "Modified"
@@ -80,7 +78,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_happy_path_creates_playlist_with_tracklist(self, mock_uow):
         """Test creating a playlist from a TrackList input."""
-        tracks = [make_track(1, "Song A"), make_track(2, "Song B")]
+        tracks = [make_track(title="Song A"), make_track(title="Song B")]
         tracklist = TrackList(tracks=tracks)
 
         command = CreateCanonicalPlaylistCommand(
@@ -97,27 +95,10 @@ class TestCreateCanonicalPlaylistUseCase:
         assert not result.errors
         mock_uow.commit.assert_called_once()
 
-    async def test_unpersisted_tracks_get_saved(self, mock_uow):
-        """Test that tracks without IDs are persisted first."""
-        unsaved_track = make_track(None, "New Song")
-        tracklist = TrackList(tracks=[unsaved_track])
-
-        command = CreateCanonicalPlaylistCommand(
-            name="Playlist With New Tracks",
-            tracklist=tracklist,
-        )
-        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
-
-        await use_case.execute(command, mock_uow)
-
-        # Track repo should have been called to save the unsaved track
-        track_repo = mock_uow.get_track_repository()
-        track_repo.save_track.assert_called_once()
-
-    async def test_already_persisted_tracks_not_resaved(self, mock_uow):
-        """Test that tracks with IDs are not re-saved."""
-        saved_track = make_track(42, "Existing Song")
-        tracklist = TrackList(tracks=[saved_track])
+    async def test_tracks_with_uuids_not_resaved(self, mock_uow):
+        """Test that tracks with UUIDs are not re-saved (all tracks have UUIDs now)."""
+        track = make_track(title="Existing Song")
+        tracklist = TrackList(tracks=[track])
 
         command = CreateCanonicalPlaylistCommand(
             name="Playlist With Existing Tracks",
@@ -127,13 +108,13 @@ class TestCreateCanonicalPlaylistUseCase:
 
         await use_case.execute(command, mock_uow)
 
-        # Track repo should NOT have been called
+        # Track repo should NOT have been called — tracks already have UUIDs
         track_repo = mock_uow.get_track_repository()
         track_repo.save_track.assert_not_called()
 
     async def test_connector_identifier_mapping(self, mock_uow):
         """Test that connector name/ID creates playlist-level mapping."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
 
         command = CreateCanonicalPlaylistCommand(
             name="Spotify Playlist",
@@ -155,7 +136,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_metadata_passed_through(self, mock_uow):
         """Test that custom metadata is preserved on the playlist."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
 
         command = CreateCanonicalPlaylistCommand(
             name="Metadata Test",
@@ -172,7 +153,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_exception_triggers_rollback(self, mock_uow):
         """Test that exceptions cause transaction rollback."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
 
         # Make playlist save fail
         mock_uow.get_playlist_repository().save_playlist.side_effect = RuntimeError(
@@ -192,7 +173,7 @@ class TestCreateCanonicalPlaylistUseCase:
 
     async def test_result_includes_execution_time(self, mock_uow):
         """Test that result includes non-negative execution time."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         command = CreateCanonicalPlaylistCommand(name="Timed", tracklist=tracklist)
         use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 

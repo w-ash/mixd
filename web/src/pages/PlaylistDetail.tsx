@@ -111,7 +111,7 @@ function DetailSkeleton() {
 
 // ─── Delete Playlist Dialog ──────────────────────────────────────────────────
 
-function DeletePlaylistDialog({ playlistId }: { playlistId: number }) {
+function DeletePlaylistDialog({ playlistId }: { playlistId: string }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -160,7 +160,7 @@ function EditPlaylistDialog({
   currentName,
   currentDescription,
 }: {
-  playlistId: number;
+  playlistId: string;
   currentName: string;
   currentDescription: string | null | undefined;
 }) {
@@ -301,7 +301,7 @@ function EditPlaylistDialog({
 
 function invalidateLinkQueries(
   queryClient: ReturnType<typeof useQueryClient>,
-  playlistId: number,
+  playlistId: string,
 ) {
   queryClient.invalidateQueries({
     queryKey:
@@ -317,7 +317,7 @@ function invalidateLinkQueries(
 
 // ─── Link Playlist Dialog ────────────────────────────────────────────────────
 
-function LinkPlaylistDialog({ playlistId }: { playlistId: number }) {
+function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [open, setOpen] = useState(false);
   const [connector, setConnector] = useState("spotify");
   const [playlistInput, setPlaylistInput] = useState("");
@@ -478,7 +478,7 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: number }) {
 
 // ─── Linked Services Section ─────────────────────────────────────────────────
 
-function LinkedServicesSection({ playlistId }: { playlistId: number }) {
+function LinkedServicesSection({ playlistId }: { playlistId: string }) {
   const queryClient = useQueryClient();
   const [syncOperationId, setSyncOperationId] = useState<string | null>(null);
   const [syncDialogLink, setSyncDialogLink] =
@@ -722,7 +722,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: number }) {
 
 export function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
-  const playlistId = Number(id);
+  const playlistId = id ?? "";
 
   const {
     data: playlistData,

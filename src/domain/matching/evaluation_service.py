@@ -9,6 +9,7 @@ This replaces the business logic previously scattered across:
 """
 
 from typing import cast
+from uuid import UUID
 
 from attrs import define
 import structlog
@@ -140,7 +141,7 @@ class TrackMatchEvaluationService:
     def evaluate_raw_matches(
         self,
         tracks: list[Track],
-        raw_matches: dict[int, RawProviderMatch],
+        raw_matches: dict[UUID, RawProviderMatch],
         connector: str,
     ) -> EvaluationResult:
         """Evaluate raw provider matches using three-zone classification.
@@ -162,7 +163,7 @@ class TrackMatchEvaluationService:
         review_candidates: MatchResultsById = {}
 
         for track in tracks:
-            if track.id is None or track.id not in raw_matches:
+            if track.id not in raw_matches:
                 continue
 
             raw_match = raw_matches[track.id]

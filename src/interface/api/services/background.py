@@ -13,6 +13,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 import time
 from typing import Any
+from uuid import UUID
 
 from attrs import define
 
@@ -28,7 +29,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 @define(frozen=True, slots=True)
 class _TaskMeta:
     workflow_id: str
-    run_id: int
+    run_id: UUID
     started_at_ns: int
 
 
@@ -64,7 +65,7 @@ def launch_background(
     coro_factory: Callable[[], Coroutine[Any, Any, None]],
     *,
     workflow_id: str | None = None,
-    run_id: int | None = None,
+    run_id: UUID | None = None,
 ) -> None:
     """Launch a background coroutine and prevent GC of the task handle.
 

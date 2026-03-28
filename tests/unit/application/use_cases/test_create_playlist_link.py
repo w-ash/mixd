@@ -1,6 +1,7 @@
 """Unit tests for CreatePlaylistLinkUseCase."""
 
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid7
 
 import pytest
 
@@ -13,10 +14,13 @@ from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncS
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import make_connector_playlist, make_mock_uow, make_playlist
 
+# Stable UUID for the default playlist used across tests
+_DEFAULT_PLAYLIST_ID = uuid7()
+
 
 def _make_uow_with_playlist(playlist: Playlist | None = None) -> MagicMock:
     """Create a mock UoW pre-configured with a playlist and connector."""
-    playlist = playlist or make_playlist(id=42, name="My Playlist")
+    playlist = playlist or make_playlist(id=_DEFAULT_PLAYLIST_ID, name="My Playlist")
     uow = make_mock_uow()
 
     # Playlist repo returns the playlist
@@ -39,7 +43,7 @@ def _make_uow_with_playlist(playlist: Playlist | None = None) -> MagicMock:
     def create_link(link: PlaylistLink) -> PlaylistLink:
         from attrs import evolve
 
-        return evolve(link, id=1)
+        return evolve(link, id=uuid7())
 
     uow.get_playlist_link_repository().create_link.side_effect = create_link
 
@@ -51,11 +55,12 @@ class TestCreatePlaylistLinkHappyPath:
 
     @pytest.mark.asyncio
     async def test_creates_link_with_push_direction(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
 
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
-                playlist_id=42,
+                playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
                 sync_direction=SyncDirection.PUSH,
@@ -70,11 +75,12 @@ class TestCreatePlaylistLinkHappyPath:
 
     @pytest.mark.asyncio
     async def test_creates_link_with_pull_direction(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
 
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
-                playlist_id=42,
+                playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
                 sync_direction=SyncDirection.PULL,
@@ -86,12 +92,13 @@ class TestCreatePlaylistLinkHappyPath:
 
     @pytest.mark.asyncio
     async def test_parses_spotify_url(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
 
         # The connector will be called with the raw ID after URL parsing
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
-                playlist_id=42,
+                playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="https://open.spotify.com/playlist/37i9dQZF1DZ06evO05tE88",
             ),
@@ -104,11 +111,12 @@ class TestCreatePlaylistLinkHappyPath:
 
     @pytest.mark.asyncio
     async def test_upserts_connector_playlist(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
 
         await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
-                playlist_id=42,
+                playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
             ),
@@ -132,7 +140,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(NotFoundError):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
-                    playlist_id=999,
+                    playlist_id=uuid7(),
                     connector="spotify",
                     connector_playlist_id="ext123",
                 ),
@@ -141,7 +149,8 @@ class TestCreatePlaylistLinkErrors:
 
     @pytest.mark.asyncio
     async def test_unknown_connector_raises(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
         uow.get_service_connector_provider().get_connector.side_effect = ValueError(
             "Unknown connector: badservice"
         )
@@ -149,7 +158,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(ValueError, match="Unknown connector"):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
-                    playlist_id=42,
+                    playlist_id=playlist.id,
                     connector="badservice",
                     connector_playlist_id="ext123",
                 ),
@@ -158,7 +167,8 @@ class TestCreatePlaylistLinkErrors:
 
     @pytest.mark.asyncio
     async def test_external_playlist_not_found_raises(self):
-        uow = _make_uow_with_playlist()
+        playlist = make_playlist(name="My Playlist")
+        uow = _make_uow_with_playlist(playlist)
         mock_connector = uow.get_service_connector_provider().get_connector()
         mock_connector.get_playlist.side_effect = ValueError(
             "Playlist not found on Spotify"
@@ -167,7 +177,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(ValueError, match="Playlist not found"):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
-                    playlist_id=42,
+                    playlist_id=playlist.id,
                     connector="spotify",
                     connector_playlist_id="nonexistent",
                 ),

@@ -3,14 +3,14 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Connector mapping for track detail views with full provenance.
  */
 export interface ConnectorMappingSchema {
-  mapping_id: number;
+  mapping_id: string;
   connector_name: string;
   connector_track_id: string;
   match_method: string;

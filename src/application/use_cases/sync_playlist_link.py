@@ -12,6 +12,7 @@ optional one-time override.
 # Legitimate Any: use case result union types
 
 from typing import Never
+from uuid import UUID
 
 from attrs import define, field
 
@@ -33,7 +34,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
-def _raise_disappeared(link_id: int) -> Never:
+def _raise_disappeared(link_id: UUID) -> Never:
     raise NotFoundError(f"Playlist link {link_id} disappeared during sync")
 
 
@@ -41,7 +42,7 @@ def _raise_disappeared(link_id: int) -> Never:
 class SyncPlaylistLinkCommand:
     """Input for syncing a playlist link."""
 
-    link_id: int
+    link_id: UUID
     direction_override: SyncDirection | None = None
     confirmed: bool = False
 
@@ -78,7 +79,7 @@ class SyncPlaylistLinkUseCase:
             if link is None:
                 raise NotFoundError(f"Playlist link {command.link_id} not found")
 
-            link_id: int = link.id  # type: ignore[assignment]  # guaranteed non-None by database fetch
+            link_id: UUID = link.id
             direction = command.direction_override or link.sync_direction
 
             # Mark as syncing

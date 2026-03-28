@@ -158,8 +158,7 @@ class MatchAndIdentifyTracksUseCase:
                     errors=[],
                 )
 
-            # Business rule: only process tracks with database IDs
-            valid_tracks = [t for t in command.tracklist.tracks if t.id is not None]
+            valid_tracks = list(command.tracklist.tracks)
             if not valid_tracks:
                 logger.warning(
                     "No tracks with database IDs - unable to perform identity resolution"
@@ -182,7 +181,7 @@ class MatchAndIdentifyTracksUseCase:
             try:
                 # STEP 1: Get existing identity mappings from database
                 track_identity_service = uow.get_track_identity_service()
-                track_ids = [t.id for t in valid_tracks if t.id is not None]
+                track_ids = [t.id for t in valid_tracks]
 
                 existing_mappings = (
                     await track_identity_service.get_existing_identity_mappings(

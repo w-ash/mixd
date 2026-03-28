@@ -5,6 +5,8 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 `GET /tracks?q=...`.
 """
 
+from uuid import UUID
+
 from attrs import define, field
 
 from src.application.pagination import (
@@ -45,7 +47,7 @@ class ListTracksResult:
     total: int | None
     limit: int
     offset: int
-    liked_track_ids: set[int]
+    liked_track_ids: set[UUID]
     next_cursor: str | None = None
 
 

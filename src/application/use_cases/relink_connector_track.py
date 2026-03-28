@@ -5,6 +5,8 @@ origin to manual_override so automated re-ingestion won't undo the change.
 Handles primary mapping reassignment on both old and new tracks.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.config.constants import MappingOrigin
@@ -16,17 +18,17 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class RelinkConnectorTrackCommand:
     """Parameters for relinking a mapping to a different track."""
 
-    mapping_id: int
-    new_track_id: int
-    current_track_id: int
+    mapping_id: UUID
+    new_track_id: UUID
+    current_track_id: UUID
 
 
 @define(frozen=True, slots=True)
 class RelinkConnectorTrackResult:
     """Result of a successful relink operation."""
 
-    old_track_id: int
-    new_track_id: int
+    old_track_id: UUID
+    new_track_id: UUID
 
 
 @define(slots=True)

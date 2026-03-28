@@ -25,16 +25,16 @@ import { useWorkflowSSE } from "@/hooks/useWorkflowSSE";
 import type { NodeStatus } from "@/lib/sse-types";
 
 export interface WorkflowExecutionState {
-  workflowId: number | null;
+  workflowId: string | null;
   operationId: string | null;
-  runId: number | null;
+  runId: string | null;
   isExecuting: boolean;
   error: Error | null;
   nodeStatuses: Map<string, NodeStatus>;
   startExecution: (
-    workflowId: number,
+    workflowId: string,
     operationId: string,
-    runId: number,
+    runId: string,
   ) => void;
 }
 
@@ -47,8 +47,8 @@ export function WorkflowExecutionProvider({
 }: {
   children: ReactNode;
 }) {
-  const [workflowId, setWorkflowId] = useState<number | null>(null);
-  const [runId, setRunId] = useState<number | null>(null);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -79,7 +79,7 @@ export function WorkflowExecutionProvider({
   });
 
   const startExecution = useCallback(
-    (wfId: number, opId: string, rId: number) => {
+    (wfId: string, opId: string, rId: string) => {
       setWorkflowId(wfId);
       setRunId(rId);
       sse.start(opId);

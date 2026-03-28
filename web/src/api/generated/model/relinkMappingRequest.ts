@@ -3,12 +3,12 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 
 /**
  * Request body for relinking a mapping to a different track.
  */
 export interface RelinkMappingRequest {
-  new_track_id: number;
+  new_track_id: string;
 }

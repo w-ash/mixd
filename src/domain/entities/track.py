@@ -8,6 +8,7 @@ Pure track representations and related value objects with zero external dependen
 
 from datetime import datetime
 from typing import Any, Literal, Self, TypedDict, cast
+from uuid import UUID, uuid7
 
 import attrs
 from attrs import define, field, validators
@@ -60,7 +61,8 @@ class Track:
     user_id: str = "default"
 
     # Extended properties
-    id: int | None = field(default=None)
+    id: UUID = field(factory=uuid7)
+    version: int = 0  # 0 = unpersisted, ≥1 = persisted (set by repository on load/save)
     connector_track_identifiers: dict[str, str] = field(factory=dict)
     connector_metadata: dict[str, dict[str, Any]] = field(factory=dict)
 
@@ -74,14 +76,6 @@ class Track:
         new_ids = self.connector_track_identifiers.copy()
         new_ids[connector] = sid
         return attrs.evolve(self, connector_track_identifiers=new_ids)
-
-    def with_id(self, db_id: int) -> Self:
-        """Set the internal database ID for this track."""
-        if db_id <= 0:
-            raise ValueError(
-                f"Invalid database ID: {db_id}. Must be a positive integer.",
-            )
-        return attrs.evolve(self, id=db_id)
 
     def with_connector_metadata(
         self,
@@ -139,25 +133,25 @@ class Track:
 class TrackLike:
     """Immutable representation of a track like/love interaction."""
 
-    track_id: int
+    track_id: UUID
     service: str  # 'spotify', 'lastfm', 'mixd'
     user_id: str = "default"
     is_liked: bool = True  # Default to liked since most cases create likes
     liked_at: datetime | None = None
     last_synced: datetime | None = None
-    id: int | None = None  # Database ID if available
+    id: UUID = field(factory=uuid7)
 
 
 @define(frozen=True, slots=True)
 class TrackMetric:
     """Time-series metrics for tracks from external services."""
 
-    track_id: int
+    track_id: UUID
     connector_name: str
     metric_type: str
     value: float
     collected_at: datetime = field(factory=utc_now_factory)
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
 
 @define(frozen=True, slots=True)
@@ -174,7 +168,7 @@ class ConnectorTrack:
     release_date: datetime | None = None
     raw_metadata: dict[str, Any] = field(factory=dict)
     last_updated: datetime = field(factory=utc_now_factory)
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
 
 @define(frozen=True, slots=True)
@@ -209,17 +203,17 @@ class TrackListMetadata(TypedDict, total=False):
     """
 
     # Enrichment data (written by enrichers, read by transforms)
-    metrics: dict[str, dict[int, MetricValue]]  # metric_name → track_id → value
-    fresh_metric_ids: dict[str, list[int]]  # metric_name → freshly-fetched track IDs
+    metrics: dict[str, dict[UUID, MetricValue]]  # metric_name → track_id → value
+    fresh_metric_ids: dict[str, list[UUID]]  # metric_name → freshly-fetched track IDs
 
     # Source tracking (written by source nodes & combiners)
     track_sources: dict[
-        int, dict[str, str]
+        UUID, dict[str, str]
     ]  # track_id → {playlist_name, source, source_id}
     operation: str  # "concatenate", "alternate", "get_played_tracks", etc.
     source_count: int  # number of tracklists combined
     source_playlist_name: str  # from Playlist → TrackList conversion
-    added_at_dates: dict[int, str]  # track_id → ISO date (from PlaylistEntry.added_at)
+    added_at_dates: dict[UUID, str]  # track_id → ISO date (from PlaylistEntry.added_at)
 
 
 # Valid keys for TrackList.metadata — used to constrain with_metadata/get_metadata

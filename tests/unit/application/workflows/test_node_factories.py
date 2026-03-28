@@ -77,7 +77,9 @@ class TestCombinerNodeFactory:
         from src.application.workflows.node_factories import make_combiner_node
 
         tl2 = TrackList(
-            tracks=[Track(id=3, title="Track C", artists=[Artist(name="Artist 3")])]
+            tracks=[
+                Track(title="Track C", artists=[Artist(name="Artist 3")], version=1)
+            ]
         )
 
         context = {

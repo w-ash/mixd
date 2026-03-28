@@ -5,6 +5,8 @@ external playlist exists. Falls back to a clear "no comparison data" result for
 never-synced links. Never calls external APIs or writes to the database.
 """
 
+from uuid import UUID
+
 from attrs import define, field
 
 from src.config import get_logger
@@ -22,7 +24,7 @@ logger = get_logger(__name__)
 class PreviewPlaylistSyncCommand:
     """Input: which link to preview sync for, with optional direction override."""
 
-    link_id: int
+    link_id: UUID
     direction_override: SyncDirection | None = None
 
 

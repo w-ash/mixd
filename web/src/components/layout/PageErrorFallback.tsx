@@ -1,5 +1,7 @@
 import type { FallbackProps } from "react-error-boundary";
 
+import { Button } from "@/components/ui/button";
+
 export function PageErrorFallback({
   error,
   resetErrorBoundary,
@@ -16,15 +18,7 @@ export function PageErrorFallback({
         Something went wrong
       </h2>
       <p className="max-w-sm text-sm text-text-muted">{message}</p>
-      <div className="mt-2">
-        <button
-          type="button"
-          onClick={resetErrorBoundary}
-          className="rounded-md bg-primary px-4 py-2 font-display text-sm leading-none font-medium text-surface [text-box:trim-both_cap_alphabetic] transition-colors hover:bg-primary/80"
-        >
-          Try again
-        </button>
-      </div>
+      <Button onClick={resetErrorBoundary}>Try again</Button>
     </div>
   );
 }

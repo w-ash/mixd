@@ -4,6 +4,8 @@ Encapsulates the existence check + playlist lookup that was previously
 inlined in the tracks route handler.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities import Playlist
@@ -12,7 +14,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class GetTrackPlaylistsCommand:
-    track_id: int
+    track_id: UUID
 
 
 @define(frozen=True, slots=True)

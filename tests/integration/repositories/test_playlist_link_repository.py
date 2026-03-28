@@ -5,7 +5,7 @@ including relationship loading via selectinload to DBConnectorPlaylist.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -20,7 +20,7 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 
 async def _setup_playlist_with_link(
     db_session,
-) -> tuple[int, int, int]:
+) -> tuple[UUID, UUID, UUID]:
     """Create a playlist + connector playlist + mapping, return (playlist_id, cp_id, mapping_id)."""
     uid = uuid4().hex[:8]
 
@@ -71,7 +71,7 @@ class TestGetLinksForPlaylist:
         uow = get_unit_of_work(db_session)
         link_repo = uow.get_playlist_link_repository()
 
-        links = await link_repo.get_links_for_playlist(99999)
+        links = await link_repo.get_links_for_playlist(uuid4())
 
         assert links == []
 
@@ -101,7 +101,7 @@ class TestGetLink:
         uow = get_unit_of_work(db_session)
         link_repo = uow.get_playlist_link_repository()
 
-        result = await link_repo.get_link(99999)
+        result = await link_repo.get_link(uuid4())
 
         assert result is None
 
@@ -172,7 +172,7 @@ class TestCreateLink:
         link_repo = uow.get_playlist_link_repository()
 
         link = PlaylistLink(
-            playlist_id=1,
+            playlist_id=uuid4(),
             connector_name="spotify",
             connector_playlist_identifier="nonexistent_id",
         )
@@ -254,6 +254,6 @@ class TestDeleteLink:
         uow = get_unit_of_work(db_session)
         link_repo = uow.get_playlist_link_repository()
 
-        result = await link_repo.delete_link(99999)
+        result = await link_repo.delete_link(uuid4())
 
         assert result is False

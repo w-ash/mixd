@@ -1,5 +1,7 @@
 """Update a playlist link's sync direction."""
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
@@ -11,7 +13,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class UpdatePlaylistLinkCommand:
     """Input: which link to update and the new direction."""
 
-    link_id: int
+    link_id: UUID
     sync_direction: SyncDirection
 
 

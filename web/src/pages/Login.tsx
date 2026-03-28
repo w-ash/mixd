@@ -1,7 +1,23 @@
 import { AuthView } from "@neondatabase/auth/react/ui";
+import { ErrorBoundary, type FallbackProps } from "react-error-boundary";
 import { useParams } from "react-router";
 
 import { MixdLogo } from "@/components/shared/MixdLogo";
+import { Button } from "@/components/ui/button";
+
+function AuthErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Authentication service unavailable";
+
+  return (
+    <div role="alert" className="space-y-3 text-center">
+      <p className="text-sm text-destructive">{message}</p>
+      <Button onClick={resetErrorBoundary}>Try again</Button>
+    </div>
+  );
+}
 
 export function Login() {
   const { pathname } = useParams();
@@ -17,7 +33,12 @@ export function Login() {
               : "Sign in to continue"}
           </p>
         </div>
-        <AuthView pathname={pathname} />
+        <ErrorBoundary
+          FallbackComponent={AuthErrorFallback}
+          resetKeys={[pathname]}
+        >
+          <AuthView pathname={pathname} />
+        </ErrorBoundary>
       </div>
     </div>
   );

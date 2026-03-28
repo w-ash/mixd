@@ -5,6 +5,7 @@
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -78,11 +79,11 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
     @db_operation("get_track_metrics")
     async def get_track_metrics(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         metric_type: str = "play_count",
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
-    ) -> dict[int, float]:
+    ) -> dict[UUID, float]:
         """Get cached metrics with TTL awareness."""
         if not track_ids:
             return {}
@@ -102,7 +103,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         )
 
         # Process results - only keep most recent value per track
-        metrics_dict: dict[int, float] = {}
+        metrics_dict: dict[UUID, float] = {}
         for metric in result:
             track_id = metric["track_id"]
             if track_id not in metrics_dict:
@@ -119,7 +120,7 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
     @db_operation("save_track_metrics")
     async def save_track_metrics(
         self,
-        metrics: list[tuple[int, str, str, float]],
+        metrics: list[tuple[UUID, str, str, float]],
     ) -> int:
         """Save metrics for multiple tracks efficiently with PostgreSQL upsert.
 

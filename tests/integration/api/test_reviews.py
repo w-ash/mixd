@@ -5,46 +5,52 @@ for the review queue endpoints.
 """
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 import httpx
 from sqlalchemy import text
 
+from tests.fixtures.factories import nonexistent_id
 
-async def _seed_review(client: httpx.AsyncClient) -> int:
+
+async def _seed_review(client: httpx.AsyncClient) -> UUID:
     """Seed a match review by inserting raw data into the test database.
 
-    Returns the review ID.
+    Returns the review ID (UUID).
     """
     # Access the app's database directly for seeding
     from src.infrastructure.persistence.database.db_connection import get_session
 
     async with get_session() as session:
         now = datetime.now(UTC)
+        track_id = uuid7()
+        ct_id = uuid7()
+        review_id = uuid7()
 
         # Create a track
-        result = await session.execute(
+        await session.execute(
             text(
-                "INSERT INTO tracks (title, artists, created_at, updated_at) "
-                "VALUES (:title, :artists, :now, :now) RETURNING id"
+                "INSERT INTO tracks (id, title, artists, created_at, updated_at) "
+                "VALUES (:id, :title, :artists, :now, :now)"
             ),
             {
+                "id": track_id,
                 "title": "Test Track",
                 "artists": '{"names": ["Test Artist"]}',
                 "now": now,
             },
         )
-        track_id = result.scalar_one()
 
         # Create a connector track
-        result = await session.execute(
+        await session.execute(
             text(
                 "INSERT INTO connector_tracks "
-                "(connector_name, connector_track_identifier, title, artists, "
+                "(id, connector_name, connector_track_identifier, title, artists, "
                 "raw_metadata, last_updated, created_at, updated_at) "
-                "VALUES (:cn, :cti, :title, :artists, :rm, :now, :now, :now) "
-                "RETURNING id"
+                "VALUES (:id, :cn, :cti, :title, :artists, :rm, :now, :now, :now)"
             ),
             {
+                "id": ct_id,
                 "cn": "spotify",
                 "cti": "sp_ct_test",
                 "title": "Spotify Test Track",
@@ -53,18 +59,17 @@ async def _seed_review(client: httpx.AsyncClient) -> int:
                 "now": now,
             },
         )
-        ct_id = result.scalar_one()
 
         # Create a match review
-        result = await session.execute(
+        await session.execute(
             text(
                 "INSERT INTO match_reviews "
-                "(track_id, connector_name, connector_track_id, match_method, "
+                "(id, track_id, connector_name, connector_track_id, match_method, "
                 "confidence, match_weight, status, created_at, updated_at) "
-                "VALUES (:tid, :cn, :ctid, :mm, :conf, :mw, :status, :now, :now) "
-                "RETURNING id"
+                "VALUES (:id, :tid, :cn, :ctid, :mm, :conf, :mw, :status, :now, :now)"
             ),
             {
+                "id": review_id,
                 "tid": track_id,
                 "cn": "spotify",
                 "ctid": ct_id,
@@ -75,7 +80,6 @@ async def _seed_review(client: httpx.AsyncClient) -> int:
                 "now": now,
             },
         )
-        review_id = result.scalar_one()
         await session.commit()
         return review_id
 
@@ -138,7 +142,7 @@ class TestResolveReview:
 
     async def test_resolve_nonexistent_returns_404(self, client: httpx.AsyncClient):
         response = await client.post(
-            "/api/v1/reviews/99999/resolve",
+            f"/api/v1/reviews/{nonexistent_id()}/resolve",
             json={"action": "reject"},
         )
         assert response.status_code == 404

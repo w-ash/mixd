@@ -182,6 +182,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
     def to_db(domain_model: Playlist) -> DBPlaylist:
         """Convert domain entity to persistence values."""
         playlist = DBPlaylist()
+        playlist.id = domain_model.id
         playlist.user_id = domain_model.user_id
         playlist.name = domain_model.name
         playlist.description = domain_model.description

@@ -14,6 +14,7 @@ All filters follow functional programming principles:
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
+from uuid import UUID
 
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import (
@@ -53,12 +54,12 @@ def filter_duplicates() -> Transform:
 
     def transform(t: TrackList) -> TrackList:
         require_database_tracks(t)
-        seen_ids: set[int] = set()
+        seen_ids: set[UUID] = set()
         unique_tracks: list[Track] = []
 
         for track in t.tracks:
             if track.id not in seen_ids:
-                seen_ids.add(track.id)  # type: ignore[arg-type]  # guaranteed non-None by require_database_tracks
+                seen_ids.add(track.id)
                 unique_tracks.append(track)
 
         return t.with_tracks(unique_tracks)

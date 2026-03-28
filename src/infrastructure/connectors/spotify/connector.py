@@ -106,7 +106,7 @@ class SpotifyConnector(BaseAPIConnector):
         spotify_mapped = [
             (track, track.connector_track_identifiers.get("spotify"))
             for track in tracks
-            if track.id is not None and track.connector_track_identifiers.get("spotify")
+            if track.connector_track_identifiers.get("spotify")
         ]
 
         if not spotify_mapped:
@@ -120,7 +120,7 @@ class SpotifyConnector(BaseAPIConnector):
         return {
             track.id: raw_metadata[spotify_id].model_dump()
             for track, spotify_id in spotify_mapped
-            if spotify_id in raw_metadata and track.id is not None
+            if spotify_id in raw_metadata
         }
 
     async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:

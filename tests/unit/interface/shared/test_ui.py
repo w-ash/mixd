@@ -77,7 +77,7 @@ class TestOperationResultDisplay:
 
     def test_result_preserves_tracks_list(self):
         """Test that tracks list remains unchanged."""
-        track = Track(id=1, title="Test Track", artists=[Artist(name="Artist")])
+        track = Track(title="Test Track", artists=[Artist(name="Artist")])
         result = OperationResult(operation_name="Track Operation", tracks=[track])
 
         assert len(result.tracks) == 1

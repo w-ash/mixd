@@ -36,9 +36,12 @@ describe("useWorkflowExecution", () => {
   });
 
   it("starts with idle state", () => {
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     expect(result.current.isExecuting).toBe(false);
     expect(result.current.operationId).toBeNull();
@@ -51,9 +54,12 @@ describe("useWorkflowExecution", () => {
     // The default MSW handler returns 202 with { operation_id, run_id }
     mockSSEWithEvents([]);
 
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     act(() => {
       result.current.execute();
@@ -62,7 +68,7 @@ describe("useWorkflowExecution", () => {
     await waitFor(() => {
       expect(result.current.isExecuting).toBe(true);
       expect(result.current.operationId).toBeTruthy();
-      expect(result.current.runId).toEqual(expect.any(Number));
+      expect(result.current.runId).toEqual(expect.any(String));
     });
   });
 
@@ -97,9 +103,12 @@ describe("useWorkflowExecution", () => {
       },
     ]);
 
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     act(() => {
       result.current.execute();
@@ -123,9 +132,12 @@ describe("useWorkflowExecution", () => {
       },
     ]);
 
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     act(() => {
       result.current.execute();
@@ -160,9 +172,12 @@ describe("useWorkflowExecution", () => {
     const queryClient = createTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(queryClient),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(queryClient),
+      },
+    );
 
     act(() => {
       result.current.execute();
@@ -182,9 +197,12 @@ describe("useWorkflowExecution", () => {
       },
     ]);
 
-    const { result } = renderHook(() => useWorkflowExecution(1), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
+      {
+        wrapper: createWrapper(),
+      },
+    );
 
     act(() => {
       result.current.execute();

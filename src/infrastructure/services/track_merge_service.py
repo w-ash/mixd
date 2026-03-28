@@ -4,6 +4,8 @@ Service that delegates reference migration and deletion to TrackRepository,
 keeping merge orchestration logic separate from SQL-level operations.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.config import get_logger
@@ -18,7 +20,7 @@ class TrackMergeService:
     """Merge duplicate canonical tracks by moving all references to winner track."""
 
     async def merge_tracks(
-        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
+        self, winner_id: UUID, loser_id: UUID, uow: UnitOfWorkProtocol
     ) -> Track:
         """Move all foreign key references from loser to winner, then hard-delete loser.
 

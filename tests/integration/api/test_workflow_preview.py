@@ -9,24 +9,11 @@ import httpx
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
-
-
-def _valid_definition() -> dict:
-    """Minimal valid workflow definition for API requests."""
-    return {
-        "id": "test-wf",
-        "name": "Test Workflow",
-        "description": "A test",
-        "version": "1.0",
-        "tasks": [
-            {
-                "id": "source",
-                "type": "source.liked_tracks",
-                "config": {"service": "spotify"},
-                "upstream": [],
-            }
-        ],
-    }
+from tests.fixtures.factories import nonexistent_id
+from tests.integration.api.conftest import (
+    create_workflow as _create_workflow,
+    valid_workflow_definition as _valid_definition,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -37,15 +24,6 @@ def _stub_workflow_background(monkeypatch):
         pass
 
     monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
-
-
-async def _create_workflow(client: httpx.AsyncClient) -> int:
-    """Helper: create a workflow and return its ID."""
-    resp = await client.post(
-        "/api/v1/workflows", json={"definition": _valid_definition()}
-    )
-    assert resp.status_code == 201
-    return resp.json()["id"]
 
 
 class TestPreviewUnsavedWorkflow:
@@ -126,7 +104,7 @@ class TestPreviewSavedWorkflow:
     async def test_nonexistent_workflow_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.post("/api/v1/workflows/99999/preview")
+        response = await client.post(f"/api/v1/workflows/{nonexistent_id()}/preview")
 
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "NOT_FOUND"

@@ -26,7 +26,6 @@ from src.application.use_cases._shared.playlist_validator import (
     classify_connector_api_error,
     classify_db_error_for_logging,
 )
-from src.application.use_cases._shared.track_persistence import persist_unsaved_tracks
 
 __all__ = [
     "ApiMetadata",
@@ -38,7 +37,6 @@ __all__ = [
     "classify_db_error_for_logging",
     "count_operation_types",
     "create_connector_playlist_items_from_tracks",
-    "persist_unsaved_tracks",
     "resolve_connector",
     "resolve_liked_track_connector",
     "resolve_love_track_connector",

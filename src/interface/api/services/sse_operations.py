@@ -10,7 +10,7 @@ provides the common setup (uuid + queue registration) and terminal event format.
 
 import asyncio
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from src.interface.api.services.progress import get_operation_registry
 
@@ -33,7 +33,7 @@ def build_terminal_event(
     operation_id: str,
     status: Any,
     *,
-    run_id: int | None = None,
+    run_id: UUID | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build a terminal SSE event dict with shared structure.

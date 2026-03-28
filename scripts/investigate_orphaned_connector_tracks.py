@@ -30,7 +30,7 @@ async def get_orphaned_connector_tracks() -> list[dict]:
     logger.info("🔍 Finding orphaned connector_tracks...")
 
     query = text("""
-        SELECT 
+        SELECT
             ct.id,
             ct.connector_name,
             ct.connector_track_id,
@@ -44,8 +44,8 @@ async def get_orphaned_connector_tracks() -> list[dict]:
         FROM connector_tracks ct
         WHERE ct.is_deleted = false
           AND NOT EXISTS (
-              SELECT 1 FROM track_mappings tm 
-              WHERE tm.connector_track_id = ct.id 
+              SELECT 1 FROM track_mappings tm
+              WHERE tm.connector_track_id = ct.id
                 AND tm.is_deleted = false
           )
         ORDER BY ct.created_at DESC
@@ -68,7 +68,7 @@ async def check_connector_playlist_references(
 
     # Get connector playlists (limit for performance)
     query = text("""
-        SELECT 
+        SELECT
             id,
             connector_name,
             connector_playlist_id,
@@ -183,7 +183,7 @@ async def find_potential_canonical_matches(
         for orphan in recoverable_orphans[:10]:  # Limit to first 10 for performance
             # Try to find canonical tracks with similar metadata
             search_query = text("""
-                SELECT 
+                SELECT
                     t.id,
                     t.title,
                     t.artists,

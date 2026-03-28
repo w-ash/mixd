@@ -7,24 +7,10 @@ import httpx
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
-
-
-def _valid_definition() -> dict:
-    """Minimal valid workflow definition for API requests."""
-    return {
-        "id": "test-wf",
-        "name": "Test Workflow",
-        "description": "A test",
-        "version": "1.0",
-        "tasks": [
-            {
-                "id": "source",
-                "type": "source.liked_tracks",
-                "config": {"service": "spotify"},
-                "upstream": [],
-            }
-        ],
-    }
+from tests.fixtures.factories import nonexistent_id
+from tests.integration.api.conftest import (
+    valid_workflow_definition as _valid_definition,
+)
 
 
 class TestListWorkflows:
@@ -90,7 +76,7 @@ class TestGetWorkflow:
         assert "definition" in body
 
     async def test_get_nonexistent(self, client: httpx.AsyncClient) -> None:
-        response = await client.get("/api/v1/workflows/99999")
+        response = await client.get(f"/api/v1/workflows/{nonexistent_id()}")
 
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "NOT_FOUND"
@@ -139,7 +125,7 @@ class TestUpdateWorkflow:
 
     async def test_update_nonexistent(self, client: httpx.AsyncClient) -> None:
         response = await client.patch(
-            "/api/v1/workflows/99999",
+            f"/api/v1/workflows/{nonexistent_id()}",
             json={"definition": _valid_definition()},
         )
 
@@ -161,7 +147,7 @@ class TestDeleteWorkflow:
         assert get_resp.status_code == 404
 
     async def test_delete_nonexistent(self, client: httpx.AsyncClient) -> None:
-        response = await client.delete("/api/v1/workflows/99999")
+        response = await client.delete(f"/api/v1/workflows/{nonexistent_id()}")
 
         assert response.status_code == 404
 

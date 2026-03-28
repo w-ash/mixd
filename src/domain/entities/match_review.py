@@ -5,6 +5,7 @@ between auto-accept and auto-reject, queued for human review.
 """
 
 from datetime import datetime
+from uuid import UUID, uuid7
 
 from attrs import define, field
 
@@ -18,16 +19,16 @@ class MatchReview:
     prevent re-queuing the same pair.
     """
 
-    track_id: int
+    track_id: UUID
     connector_name: str
-    connector_track_id: int
+    connector_track_id: UUID
     match_method: str
     confidence: int
     match_weight: float
     user_id: str = "default"
     confidence_evidence: dict[str, object] | None = None
     status: str = "pending"
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
     reviewed_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

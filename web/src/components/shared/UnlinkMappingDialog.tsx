@@ -11,7 +11,7 @@ import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
 import { MappingInfoCard } from "@/components/shared/MappingInfoCard";
 
 interface UnlinkMappingDialogProps {
-  trackId: number;
+  trackId: string;
   mapping: ConnectorMappingSchema;
   open: boolean;
   onOpenChange: (open: boolean) => void;

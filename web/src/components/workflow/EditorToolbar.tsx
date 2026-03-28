@@ -75,7 +75,7 @@ export function EditorToolbar() {
         {
           onSuccess: (res) => {
             if (res.status === 201) {
-              const newId = (res.data as { id: number }).id;
+              const newId = (res.data as { id: string }).id;
               resetDirty();
               toast.success("Workflow created");
               navigate(`/workflows/${newId}/edit`, { replace: true });

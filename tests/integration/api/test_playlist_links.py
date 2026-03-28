@@ -6,7 +6,7 @@ so they're tested at the unit level with mocks.
 """
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -15,18 +15,20 @@ from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
     DBPlaylistMapping,
 )
+from tests.fixtures.factories import nonexistent_id
 
 
-async def _seed_link(client: httpx.AsyncClient) -> tuple[int, int]:
+async def _seed_link(client: httpx.AsyncClient) -> tuple[str, str]:
     """Create a playlist via API, then seed a link directly in the DB.
 
-    Returns (playlist_id, link_id).
+    Returns (playlist_id, link_id) as string UUIDs.
     """
     # Create playlist via API (exercises the full stack)
     resp = await client.post(
         "/api/v1/playlists", json={"name": f"Linked {uuid4().hex[:6]}"}
     )
-    playlist_id = resp.json()["id"]
+    playlist_id_str: str = resp.json()["id"]
+    playlist_id = UUID(playlist_id_str)
 
     # Seed connector playlist + mapping directly (no real Spotify needed)
     uid = uuid4().hex[:8]
@@ -60,10 +62,10 @@ async def _seed_link(client: httpx.AsyncClient) -> tuple[int, int]:
         )
         session.add(db_mapping)
         await session.flush()
-        link_id = db_mapping.id
+        link_id = str(db_mapping.id)
         await session.commit()
 
-    return playlist_id, link_id
+    return playlist_id_str, link_id
 
 
 class TestListPlaylistLinks:
@@ -119,7 +121,9 @@ class TestDeletePlaylistLink:
         resp = await client.post("/api/v1/playlists", json={"name": "Del Test"})
         playlist_id = resp.json()["id"]
 
-        response = await client.delete(f"/api/v1/playlists/{playlist_id}/links/99999")
+        response = await client.delete(
+            f"/api/v1/playlists/{playlist_id}/links/{nonexistent_id()}"
+        )
 
         assert response.status_code == 404
 

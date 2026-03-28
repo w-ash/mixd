@@ -11,7 +11,7 @@
     },
     {
       "id": "enrich_plays",
-      "type": "enricher.play_history", 
+      "type": "enricher.play_history",
       "upstream": ["get_likes"],
       "config": {}
     },
@@ -28,7 +28,7 @@
     {
       "id": "sort_by_age",
       "type": "sorter.by_play_history",
-      "upstream": ["find_gems"], 
+      "upstream": ["find_gems"],
       "config": {
         "reverse": false
       }

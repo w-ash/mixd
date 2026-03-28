@@ -5,6 +5,7 @@ Following TDD principles - write tests first, then implement domain services.
 """
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 import pytest
 
@@ -44,7 +45,7 @@ class TestTrackEntity:
         assert track.album == "OK Computer"
         assert track.duration_ms == 383000
         assert track.isrc == "GBUM71505078"
-        assert track.id is None
+        assert isinstance(track.id, UUID)
         assert track.connector_track_identifiers == {}
         assert track.connector_metadata == {}
 
@@ -77,21 +78,6 @@ class TestTrackEntity:
 
         assert track.connector_track_identifiers["spotify"] == "spotify_id"
         assert track.connector_track_identifiers["lastfm"] == "lastfm_id"
-
-    def test_track_with_id_validation(self):
-        """Test database ID validation."""
-        track = Track(title="Test Song", artists=[Artist(name="Test Artist")])
-
-        # Valid ID
-        updated_track = track.with_id(123)
-        assert updated_track.id == 123
-
-        # Invalid IDs
-        with pytest.raises(ValueError, match="Invalid database ID"):
-            track.with_id(0)
-
-        with pytest.raises(ValueError, match="Invalid database ID"):
-            track.with_id(-1)
 
     def test_track_connector_metadata_operations(self):
         """Test connector metadata business logic."""
@@ -169,21 +155,23 @@ class TestTrackLikeEntity:
     def test_track_like_creation(self):
         """Test creating a track like."""
         timestamp = datetime.now(UTC)
+        track_uuid = uuid7()
 
         like = TrackLike(
-            track_id=123, service="spotify", is_liked=True, liked_at=timestamp
+            track_id=track_uuid, service="spotify", is_liked=True, liked_at=timestamp
         )
 
-        assert like.track_id == 123
+        assert like.track_id == track_uuid
         assert like.service == "spotify"
         assert like.is_liked is True
         assert like.liked_at == timestamp
         assert like.last_synced is None
-        assert like.id is None
+        assert isinstance(like.id, UUID)
 
     def test_track_like_defaults(self):
         """Test track like default values."""
-        like = TrackLike(track_id=123, service="spotify")
+        track_uuid = uuid7()
+        like = TrackLike(track_id=track_uuid, service="spotify")
 
         assert like.is_liked is True  # Default to liked
         assert like.liked_at is None
@@ -353,18 +341,21 @@ class TestOperationResultEntity:
     def test_operation_result_per_track_metrics(self):
         """Test OperationResult per-track metric access."""
         artist = Artist(name="Artist")
-        tracks = [
-            Track(title="Song 1", artists=[artist]).with_id(1),
-            Track(title="Song 2", artists=[artist]).with_id(2),
-        ]
+        track1 = Track(title="Song 1", artists=[artist])
+        track2 = Track(title="Song 2", artists=[artist])
+        tracks = [track1, track2]
 
         result = OperationResult(
             tracks=tracks, operation_name="test_operation", execution_time=1.5
         )
 
-        result.metrics["status"] = {1: "processed", 2: "processed"}
-        assert result.get_metric(1, "status") == "processed"
-        assert result.get_metric(3, "status", "not_found") == "not_found"
+        missing_id = uuid7()
+        result.metrics["status"] = {
+            track1.id: "processed",
+            track2.id: "processed",
+        }
+        assert result.get_metric(track1.id, "status") == "processed"
+        assert result.get_metric(missing_id, "status", "not_found") == "not_found"
 
 
 class TestEnsureUtc:

@@ -5,6 +5,8 @@ frozen Command/Result objects, slots=True UseCase classes, async with uow
 transaction boundaries.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowVersion
@@ -82,7 +84,7 @@ class ListWorkflowsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowCommand:
-    workflow_id: int
+    workflow_id: UUID
 
 
 @define(frozen=True, slots=True)
@@ -145,7 +147,7 @@ class CreateWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class UpdateWorkflowCommand:
-    workflow_id: int
+    workflow_id: UUID
     definition: WorkflowDef
 
 
@@ -179,7 +181,7 @@ class UpdateWorkflowUseCase:
                 new_version = existing.definition_version + 1
 
             # Snapshot the current definition as a version record before overwriting
-            if tasks_differ and existing.id is not None:
+            if tasks_differ:
                 version_repo = uow.get_workflow_version_repository()
                 next_ver = await version_repo.get_max_version_number(existing.id) + 1
                 change_summary = _generate_change_summary(
@@ -212,12 +214,12 @@ class UpdateWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class DeleteWorkflowCommand:
-    workflow_id: int
+    workflow_id: UUID
 
 
 @define(frozen=True, slots=True)
 class DeleteWorkflowResult:
-    workflow_id: int
+    workflow_id: UUID
 
 
 @define(slots=True)

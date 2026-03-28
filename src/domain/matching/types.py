@@ -9,14 +9,14 @@ These types represent the core concepts in our matching domain with zero externa
 from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any, TypedDict
+from uuid import UUID
 
 from attrs import define, field
 
 from src.domain.entities.track import Track
 
-# Async progress callback signature used across matching layers.
-# Parameters: (completed_count, total, description)
 type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
+"""Async progress callback: (completed_count, total, description)."""
 
 
 class MatchFailureReason(Enum):
@@ -43,7 +43,7 @@ class MatchFailure:
     enabling intelligent handling and comprehensive logging.
     """
 
-    track_id: int  # ID of the track that failed to match
+    track_id: UUID  # ID of the track that failed to match
     reason: MatchFailureReason  # Structured failure reason
     service: str  # Name of the external service ("spotify", "musicbrainz", "lastfm")
     method: str  # Match method attempted ("isrc", "artist_title", "mbid")
@@ -99,7 +99,7 @@ class ConfidenceEvidence:
         }
         if self.isrc_suspect:
             result["isrc_suspect"] = True
-        if self.match_weight != 0.0:
+        if self.match_weight:
             result["match_weight"] = round(self.match_weight, 4)
         return result
 
@@ -131,7 +131,7 @@ class MatchResult:
 
 
 # Type alias for match results by ID (defined after MatchResult class)
-MatchResultsById = dict[int, MatchResult]
+MatchResultsById = dict[UUID, MatchResult]
 
 
 @define(frozen=True, slots=True)
@@ -150,7 +150,7 @@ class ProviderMatchResult:
     successful matches and structured failure information.
     """
 
-    matches: dict[int, RawProviderMatch] = field(factory=dict)  # Successful matches
+    matches: dict[UUID, RawProviderMatch] = field(factory=dict)  # Successful matches
     failures: list[MatchFailure] = field(factory=list)  # Failed match attempts
 
     @property

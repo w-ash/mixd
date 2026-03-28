@@ -6,6 +6,7 @@ answering "which playlists contain this track?".
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from attrs import Factory, define
 
@@ -20,7 +21,7 @@ from src.domain.repositories.interfaces import (
 
 @define(frozen=True, slots=True)
 class GetTrackDetailsCommand:
-    track_id: int
+    track_id: UUID
 
 
 @define(frozen=True, slots=True)
@@ -29,7 +30,7 @@ class ConnectorMappingInfo:
 
     connector_name: str
     connector_track_id: str
-    mapping_id: int = 0
+    mapping_id: UUID
     match_method: str = ""
     confidence: int = 0
     origin: str = MappingOrigin.AUTOMATIC
@@ -59,7 +60,7 @@ class PlaySummary:
 class PlaylistSummary:
     """Lightweight playlist reference for track detail views."""
 
-    id: int
+    id: UUID
     name: str
     description: str | None
 
@@ -103,7 +104,7 @@ def _build_like_status(likes: list[TrackLike]) -> dict[str, LikeInfo]:
     }
 
 
-def _build_play_summary(play_agg: PlayAggregationResult, track_id: int) -> PlaySummary:
+def _build_play_summary(play_agg: PlayAggregationResult, track_id: UUID) -> PlaySummary:
     """Build play summary from aggregation data."""
     return PlaySummary(
         total_plays=play_agg.get("total_plays", {}).get(track_id, 0),
@@ -115,7 +116,7 @@ def _build_play_summary(play_agg: PlayAggregationResult, track_id: int) -> PlayS
 def _build_playlist_summaries(playlists: list[Playlist]) -> list[PlaylistSummary]:
     """Build lightweight playlist references."""
     return [
-        PlaylistSummary(id=p.id or 0, name=p.name, description=p.description)
+        PlaylistSummary(id=p.id, name=p.name, description=p.description)
         for p in playlists
     ]
 

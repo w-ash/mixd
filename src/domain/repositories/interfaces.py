@@ -11,6 +11,7 @@ Repository interfaces belong in the domain layer according to Clean Architecture
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self, TypedDict
+from uuid import UUID
 
 from src.domain.entities import (
     ConnectorPlaylist,
@@ -46,8 +47,8 @@ class TrackListingPage(TypedDict):
 
     tracks: list[Track]
     total: int | None  # None when count was skipped (cursor-paginated pages)
-    liked_track_ids: set[int]
-    next_page_key: tuple[Any, int] | None
+    liked_track_ids: set[UUID]
+    next_page_key: tuple[Any, UUID] | None
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -58,12 +59,12 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def get_by_id(
-        self, id_: int, load_relationships: list[str] | None = None
+        self, id_: UUID, load_relationships: list[str] | None = None
     ) -> Awaitable[Track]:
         """Get track by ID."""
         ...
 
-    def find_tracks_by_ids(self, track_ids: list[int]) -> Awaitable[dict[int, Track]]:
+    def find_tracks_by_ids(self, track_ids: list[UUID]) -> Awaitable[dict[UUID, Track]]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
         Args:
@@ -74,7 +75,7 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def move_references_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+    def move_references_to_track(self, from_id: UUID, to_id: UUID) -> Awaitable[None]:
         """Move all foreign key references (playlist tracks, plays, likes) from one track to another.
 
         Handles conflict resolution for likes where both tracks have entries
@@ -86,7 +87,7 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def merge_mappings_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+    def merge_mappings_to_track(self, from_id: UUID, to_id: UUID) -> Awaitable[None]:
         """Merge connector mappings from one track to another with conflict resolution.
 
         Handles two cases:
@@ -99,7 +100,7 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def merge_metrics_to_track(self, from_id: int, to_id: int) -> Awaitable[None]:
+    def merge_metrics_to_track(self, from_id: UUID, to_id: UUID) -> Awaitable[None]:
         """Merge track metrics from one track to another with conflict resolution.
 
         For duplicate (connector_name, metric_type) pairs, keeps the most
@@ -111,7 +112,7 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def hard_delete_track(self, track_id: int) -> Awaitable[None]:
+    def hard_delete_track(self, track_id: UUID) -> Awaitable[None]:
         """Permanently delete a track record from the database.
 
         This bypasses soft-delete and removes the row entirely. Should only be
@@ -132,7 +133,7 @@ class TrackRepositoryProtocol(Protocol):
         limit: int = 50,
         offset: int = 0,
         after_value: Any = None,
-        after_id: int | None = None,
+        after_id: UUID | None = None,
         include_total: bool = True,
     ) -> Awaitable[TrackListingPage]:
         """List tracks with optional search, filters, sorting, and pagination.
@@ -208,7 +209,7 @@ class TrackRepositoryProtocol(Protocol):
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
 
-    def get_playlist_by_id(self, playlist_id: int) -> Awaitable[Playlist]:
+    def get_playlist_by_id(self, playlist_id: UUID) -> Awaitable[Playlist]:
         """Get playlist by ID."""
         ...
 
@@ -223,12 +224,12 @@ class PlaylistRepositoryProtocol(Protocol):
         ...
 
     def update_playlist(
-        self, playlist_id: int, playlist: Playlist
+        self, playlist_id: UUID, playlist: Playlist
     ) -> Awaitable[Playlist]:
         """Update existing playlist."""
         ...
 
-    def delete_playlist(self, playlist_id: int) -> Awaitable[bool]:
+    def delete_playlist(self, playlist_id: UUID) -> Awaitable[bool]:
         """Delete playlist by ID.
 
         Args:
@@ -250,7 +251,7 @@ class PlaylistRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_playlists_for_track(self, track_id: int) -> Awaitable[list[Playlist]]:
+    def get_playlists_for_track(self, track_id: UUID) -> Awaitable[list[Playlist]]:
         """Get all playlists containing a specific track.
 
         Args:
@@ -266,14 +267,14 @@ class LikeRepositoryProtocol(Protocol):
     """Repository interface for like persistence operations."""
 
     def get_track_likes(
-        self, track_id: int, services: list[str] | None = None
+        self, track_id: UUID, services: list[str] | None = None
     ) -> Awaitable[list[TrackLike]]:
         """Get likes for a track across services."""
         ...
 
     def save_track_like(
         self,
-        track_id: int,
+        track_id: UUID,
         service: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
@@ -292,7 +293,7 @@ class LikeRepositoryProtocol(Protocol):
 
     def save_track_likes_batch(
         self,
-        likes: list[tuple[int, str, bool, datetime | None, datetime | None]],
+        likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
     ) -> Awaitable[list[TrackLike]]:
         """Save multiple track likes in bulk.
 
@@ -318,9 +319,9 @@ class LikeRepositoryProtocol(Protocol):
 
     def get_liked_status_batch(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         services: list[str],
-    ) -> Awaitable[dict[int, dict[str, bool]]]:
+    ) -> Awaitable[dict[UUID, dict[str, bool]]]:
         """Check like status for multiple tracks across services.
 
         Returns:
@@ -383,7 +384,7 @@ class MatchMethodStatRow(TypedDict):
 class FullMappingInfo(TypedDict):
     """Complete mapping data for track detail views including connector track metadata."""
 
-    mapping_id: int
+    mapping_id: UUID
     connector_name: str
     connector_track_id: str
     match_method: str
@@ -398,7 +399,7 @@ class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
 
     def get_full_mappings_for_track(
-        self, track_id: int
+        self, track_id: UUID
     ) -> Awaitable[list[FullMappingInfo]]:
         """Get all mappings for a track with full connector track metadata.
 
@@ -444,8 +445,8 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def get_connector_mappings(
-        self, track_ids: list[int], connector: str | None = None
-    ) -> Awaitable[dict[int, dict[str, str]]]:
+        self, track_ids: list[UUID], connector: str | None = None
+    ) -> Awaitable[dict[UUID, dict[str, str]]]:
         """Get primary mappings between tracks and external connectors.
 
         Returns only primary mappings — for tracks with multiple connector IDs
@@ -461,8 +462,8 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def get_connector_metadata(
-        self, track_ids: list[int], connector: str, metadata_field: str | None = None
-    ) -> Awaitable[dict[int, Any]]:
+        self, track_ids: list[UUID], connector: str, metadata_field: str | None = None
+    ) -> Awaitable[dict[UUID, Any]]:
         """Get connector metadata for tracks from primary mappings only.
 
         Returns metadata from the primary mapping for each track-connector pair.
@@ -512,7 +513,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def ensure_primary_mapping(
-        self, track_id: int, connector: str, connector_id: str
+        self, track_id: UUID, connector: str, connector_id: str
     ) -> Awaitable[bool]:
         """Ensure a mapping exists and is set as primary for the given track-connector pair.
 
@@ -530,7 +531,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def batch_ensure_primary_mappings(
-        self, primaries: list[tuple[int, str, str]]
+        self, primaries: list[tuple[UUID, str, str]]
     ) -> Awaitable[int]:
         """Set primary mappings for multiple track-connector pairs in bulk.
 
@@ -545,7 +546,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def set_primary_mapping(
-        self, track_id: int, connector_name: str, connector_track_id: int
+        self, track_id: UUID, connector_name: str, connector_track_id: UUID
     ) -> Awaitable[bool]:
         """Set the primary mapping for a track-connector pair.
 
@@ -563,7 +564,7 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_mapping_by_id(self, mapping_id: int) -> Awaitable[TrackMapping | None]:
+    def get_mapping_by_id(self, mapping_id: UUID) -> Awaitable[TrackMapping | None]:
         """Get a single track mapping by its database ID.
 
         Args:
@@ -574,7 +575,7 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def delete_mapping(self, mapping_id: int) -> Awaitable[TrackMapping]:
+    def delete_mapping(self, mapping_id: UUID) -> Awaitable[TrackMapping]:
         """Delete a track mapping and return the pre-deletion entity.
 
         Args:
@@ -589,7 +590,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def update_mapping_track(
-        self, mapping_id: int, new_track_id: int, origin: str
+        self, mapping_id: UUID, new_track_id: UUID, origin: str
     ) -> Awaitable[TrackMapping]:
         """Move a mapping to a different canonical track.
 
@@ -610,7 +611,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def count_mappings_for_connector_track(
-        self, connector_track_id: int
+        self, connector_track_id: UUID
     ) -> Awaitable[int]:
         """Count remaining mappings for a given connector track.
 
@@ -625,7 +626,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def get_remaining_mappings(
-        self, track_id: int, connector_name: str
+        self, track_id: UUID, connector_name: str
     ) -> Awaitable[list[TrackMapping]]:
         """Get all mappings for a (track, connector) pair, ordered by confidence desc.
 
@@ -641,7 +642,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def get_connector_track_by_id(
-        self, connector_track_id: int
+        self, connector_track_id: UUID
     ) -> Awaitable[ConnectorTrack | None]:
         """Get a connector track entity by its database ID.
 
@@ -654,7 +655,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def ensure_primary_for_connector(
-        self, track_id: int, connector_name: str
+        self, track_id: UUID, connector_name: str
     ) -> Awaitable[None]:
         """Ensure a primary mapping exists for a (track, connector) pair.
 
@@ -737,11 +738,13 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
 class PlaylistLinkRepositoryProtocol(Protocol):
     """Repository interface for playlist link (mapping) operations."""
 
-    def get_links_for_playlist(self, playlist_id: int) -> Awaitable[list[PlaylistLink]]:
+    def get_links_for_playlist(
+        self, playlist_id: UUID
+    ) -> Awaitable[list[PlaylistLink]]:
         """Get all connector links for a canonical playlist."""
         ...
 
-    def get_link(self, link_id: int) -> Awaitable[PlaylistLink | None]:
+    def get_link(self, link_id: UUID) -> Awaitable[PlaylistLink | None]:
         """Get a single playlist link by ID."""
         ...
 
@@ -751,7 +754,7 @@ class PlaylistLinkRepositoryProtocol(Protocol):
 
     def update_sync_status(
         self,
-        link_id: int,
+        link_id: UUID,
         status: SyncStatus,
         *,
         error: str | None = None,
@@ -762,12 +765,12 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         ...
 
     def update_link_direction(
-        self, link_id: int, direction: SyncDirection
+        self, link_id: UUID, direction: SyncDirection
     ) -> Awaitable[PlaylistLink | None]:
         """Update the sync direction for a link. Returns the updated link, or None if not found."""
         ...
 
-    def delete_link(self, link_id: int) -> Awaitable[bool]:
+    def delete_link(self, link_id: UUID) -> Awaitable[bool]:
         """Delete a playlist link. Returns True if deleted."""
         ...
 
@@ -777,7 +780,7 @@ class MetricsRepositoryProtocol(Protocol):
 
     def save_track_metrics(
         self,
-        metrics: list[tuple[int, str, str, float]],
+        metrics: list[tuple[UUID, str, str, float]],
     ) -> Awaitable[int]:
         """Save metrics for multiple tracks efficiently.
 
@@ -791,11 +794,11 @@ class MetricsRepositoryProtocol(Protocol):
 
     def get_track_metrics(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         metric_type: str = "play_count",
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
-    ) -> Awaitable[dict[int, float]]:
+    ) -> Awaitable[dict[UUID, float]]:
         """Get cached metrics with TTL awareness.
 
         Args:
@@ -817,10 +820,10 @@ class PlayAggregationResult(TypedDict, total=False):
     (total=False) because callers request specific metric subsets.
     """
 
-    total_plays: dict[int, int]
-    first_played_dates: dict[int, datetime | None]
-    last_played_dates: dict[int, datetime | None]
-    period_plays: dict[int, int]
+    total_plays: dict[UUID, int]
+    first_played_dates: dict[UUID, datetime | None]
+    last_played_dates: dict[UUID, datetime | None]
+    period_plays: dict[UUID, int]
 
 
 class PlaysRepositoryProtocol(Protocol):
@@ -847,7 +850,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def get_play_aggregations(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         metrics: list[str],
         period_start: datetime | None = None,
         period_end: datetime | None = None,
@@ -867,7 +870,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def find_plays_in_time_range(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         start: datetime,
         end: datetime,
     ) -> Awaitable[list[TrackPlay]]:
@@ -879,7 +882,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def bulk_update_play_source_services(
         self,
-        updates: list[tuple[int, dict[str, Any]]],
+        updates: list[tuple[UUID, dict[str, Any]]],
     ) -> Awaitable[None]:
         """Batch-update cross-source dedup metadata for multiple plays."""
         ...
@@ -921,7 +924,7 @@ class TrackIdentityServiceProtocol(Protocol):
         connector_instance: object,
         progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
-    ) -> Awaitable[dict[int, RawProviderMatch]]:
+    ) -> Awaitable[dict[UUID, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
 
         Args:
@@ -938,7 +941,7 @@ class TrackIdentityServiceProtocol(Protocol):
         ...
 
     def get_existing_identity_mappings(
-        self, track_ids: list[int], connector: str
+        self, track_ids: list[UUID], connector: str
     ) -> Awaitable[MatchResultsById]:
         """Retrieve existing identity mappings from database.
 
@@ -993,7 +996,7 @@ class WorkflowRepositoryProtocol(Protocol):
         """List all workflows, optionally filtering out templates."""
         ...
 
-    def get_workflow_by_id(self, workflow_id: int) -> Awaitable[Workflow]:
+    def get_workflow_by_id(self, workflow_id: UUID) -> Awaitable[Workflow]:
         """Get workflow by ID. Raises NotFoundError if not found."""
         ...
 
@@ -1001,7 +1004,7 @@ class WorkflowRepositoryProtocol(Protocol):
         """Create or update a workflow."""
         ...
 
-    def delete_workflow(self, workflow_id: int) -> Awaitable[bool]:
+    def delete_workflow(self, workflow_id: UUID) -> Awaitable[bool]:
         """Delete workflow by ID. Returns True if deleted."""
         ...
 
@@ -1021,14 +1024,14 @@ class WorkflowRunRepositoryProtocol(Protocol):
 
     def update_run_status(
         self,
-        run_id: int,
+        run_id: UUID,
         status: RunStatus,
         *,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
         duration_ms: int | None = None,
         output_track_count: int | None = None,
-        output_playlist_id: int | None = None,
+        output_playlist_id: UUID | None = None,
         error_message: str | None = None,
     ) -> Awaitable[None]:
         """Update run status and optional completion fields."""
@@ -1040,7 +1043,7 @@ class WorkflowRunRepositoryProtocol(Protocol):
 
     def update_node_status(
         self,
-        run_id: int,
+        run_id: UUID,
         node_id: str,
         status: RunStatus,
         *,
@@ -1055,24 +1058,24 @@ class WorkflowRunRepositoryProtocol(Protocol):
         ...
 
     def get_runs_for_workflow(
-        self, workflow_id: int, limit: int = 20, offset: int = 0
+        self, workflow_id: UUID, limit: int = 20, offset: int = 0
     ) -> Awaitable[tuple[list[WorkflowRun], int]]:
         """List runs for a workflow (without nodes loaded) with total count."""
         ...
 
-    def get_run_by_id(self, run_id: int) -> Awaitable[WorkflowRun]:
+    def get_run_by_id(self, run_id: UUID) -> Awaitable[WorkflowRun]:
         """Get a single run with all node records loaded."""
         ...
 
     def get_latest_run_for_workflow(
-        self, workflow_id: int
+        self, workflow_id: UUID
     ) -> Awaitable[WorkflowRun | None]:
         """Get the most recent run for a workflow, or None."""
         ...
 
     def get_latest_runs_for_workflows(
-        self, workflow_ids: list[int]
-    ) -> Awaitable[dict[int, WorkflowRun]]:
+        self, workflow_ids: list[UUID]
+    ) -> Awaitable[dict[UUID, WorkflowRun]]:
         """Batch-fetch the latest run for each workflow ID."""
         ...
 
@@ -1084,19 +1087,21 @@ class WorkflowVersionRepositoryProtocol(Protocol):
         """Persist a new version snapshot."""
         ...
 
-    def list_versions(self, workflow_id: int) -> Awaitable[list[WorkflowVersion]]:
+    def list_versions(self, workflow_id: UUID) -> Awaitable[list[WorkflowVersion]]:
         """List all versions for a workflow, ordered by version desc."""
         ...
 
-    def get_version(self, workflow_id: int, version: int) -> Awaitable[WorkflowVersion]:
+    def get_version(
+        self, workflow_id: UUID, version: int
+    ) -> Awaitable[WorkflowVersion]:
         """Get a specific version. Raises NotFoundError if not found."""
         ...
 
-    def get_max_version_number(self, workflow_id: int) -> Awaitable[int]:
+    def get_max_version_number(self, workflow_id: UUID) -> Awaitable[int]:
         """Return the highest version number for a workflow, or 0 if none exist."""
         ...
 
-    def delete_versions_for_workflow(self, workflow_id: int) -> Awaitable[None]:
+    def delete_versions_for_workflow(self, workflow_id: UUID) -> Awaitable[None]:
         """Delete all versions for a workflow (cascade cleanup)."""
         ...
 
@@ -1114,7 +1119,7 @@ class MatchReviewRepositoryProtocol(Protocol):
         """List pending reviews with pagination and sorting."""
         ...
 
-    def get_review_by_id(self, review_id: int) -> Awaitable[MatchReview | None]:
+    def get_review_by_id(self, review_id: UUID) -> Awaitable[MatchReview | None]:
         """Get a single review by ID."""
         ...
 
@@ -1127,7 +1132,7 @@ class MatchReviewRepositoryProtocol(Protocol):
         ...
 
     def update_review_status(
-        self, review_id: int, status: str
+        self, review_id: UUID, status: str
     ) -> Awaitable[MatchReview]:
         """Update a review's status (accept/reject)."""
         ...
@@ -1271,7 +1276,7 @@ class TrackMergeServiceProtocol(Protocol):
     """Service interface for track merging operations."""
 
     def merge_tracks(
-        self, winner_id: int, loser_id: int, uow: UnitOfWorkProtocol
+        self, winner_id: UUID, loser_id: UUID, uow: UnitOfWorkProtocol
     ) -> Awaitable[Track]:
         """Merge two canonical tracks by moving references and soft-deleting loser.
 

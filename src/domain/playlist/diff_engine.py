@@ -8,6 +8,7 @@ re-identification of tracks that already have known Spotify mappings.
 
 from enum import Enum
 from typing import Final
+from uuid import UUID
 
 from attrs import define, field
 import structlog
@@ -80,11 +81,10 @@ class PlaylistDiff:
 def match_tracks_with_db_lookup(
     current_tracks: list[Track], target_tracks: list[Track]
 ) -> tuple[list[Track], list[Track], list[Track]]:
-    """Find matching tracks between playlists using canonical track identity.
+    """Find matching tracks between playlists using canonical track ID.
 
-    Matches tracks by their canonical track.id first, then falls back to content-based
-    matching for tracks without canonical IDs. This keeps the domain layer
-    infrastructure-agnostic.
+    Matches tracks by their canonical track.id (UUIDv7). Every track has a
+    non-None UUID, so matching is a single-pass hash lookup — O(n).
 
     Args:
         current_tracks: Tracks in current playlist state.
@@ -94,86 +94,33 @@ def match_tracks_with_db_lookup(
         Tuple of (matched_tracks, unmatched_current, unmatched_target).
     """
 
-    # Match tracks using canonical identity (infrastructure-agnostic)
     matched: list[Track] = []
-    unmatched_current: list[Track] = []
     consumed_target_indices: set[int] = set()
 
-    def tracks_are_equivalent(track1: Track, track2: Track) -> bool:
-        """Check if two tracks represent the same musical work."""
-        # Primary: Canonical ID matching
-        if track1.id and track2.id:
-            return track1.id == track2.id
-
-        # Fallback: Content-based matching
-        if (
-            not track1.title
-            or not track2.title
-            or not track1.artists
-            or not track2.artists
-        ):
-            return False
-
-        title_match = track1.title.lower().strip() == track2.title.lower().strip()
-
-        # Artist matching - at least one artist must match
-        track1_artists = {artist.name.lower().strip() for artist in track1.artists}
-        track2_artists = {artist.name.lower().strip() for artist in track2.artists}
-        artist_match = bool(track1_artists & track2_artists)
-
-        # Album matching (optional - tracks can be same without same album)
-        album_match = True  # Default to True if either has no album
-        if track1.album and track2.album:
-            album_match = track1.album.lower().strip() == track2.album.lower().strip()
-
-        return title_match and artist_match and album_match
-
-    # Phase 1: Hash-based canonical ID matching — O(n)
-    target_id_index: dict[int, list[int]] = {}
+    # Hash-based canonical ID matching — O(n)
+    target_id_index: dict[UUID, list[int]] = {}
     for idx, t in enumerate(target_tracks):
-        if t.id is not None:
-            target_id_index.setdefault(t.id, []).append(idx)
+        target_id_index.setdefault(t.id, []).append(idx)
 
-    id_unmatched_current: list[Track] = []
+    unmatched_current: list[Track] = []
     for current_track in current_tracks:
-        if current_track.id is not None and current_track.id in target_id_index:
-            available = target_id_index[current_track.id]
-            if available:
-                target_idx = available.pop(0)
-                matched.append(current_track)
-                consumed_target_indices.add(target_idx)
-                continue
-        id_unmatched_current.append(current_track)
-
-    # Phase 2: Content-based matching for remaining tracks — O(m²) where m ≪ n
-    for current_track in id_unmatched_current:
-        match_found = False
-        for target_idx, target_track in enumerate(target_tracks):
-            if target_idx in consumed_target_indices:
-                continue
-            if tracks_are_equivalent(current_track, target_track):
-                matched.append(current_track)
-                consumed_target_indices.add(target_idx)
-                match_found = True
-                break
-        if not match_found:
+        available = target_id_index.get(current_track.id)
+        if available:
+            target_idx = available.pop(0)
+            matched.append(current_track)
+            consumed_target_indices.add(target_idx)
+        else:
             unmatched_current.append(current_track)
 
-    # Remaining target tracks are unmatched
     unmatched_target = [
         target_track
         for target_idx, target_track in enumerate(target_tracks)
         if target_idx not in consumed_target_indices
     ]
 
-    # Count tracks with canonical IDs vs content-based matching
-    canonical_matches = sum(1 for track in matched if track.id is not None)
-    content_matches = len(matched) - canonical_matches
-
     logger.debug(
-        f"Track matching results: {len(matched)} matched, "
-        + f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target. "
-        + f"Canonical ID matches: {canonical_matches}, content-based matches: {content_matches}."
+        f"Track matching: {len(matched)} matched, "
+        f"{len(unmatched_current)} unmatched current, {len(unmatched_target)} unmatched target"
     )
 
     return matched, unmatched_current, unmatched_target
@@ -331,9 +278,6 @@ def calculate_lis_reorder_operations(
     first_mismatch = None
 
     for target_pos, target_track in enumerate(target_tracks):
-        if target_track.id is None:
-            continue
-
         # Check if current playlist has a track at this same position
         if target_pos < len(current_tracks):
             current_track = current_tracks[target_pos]
@@ -364,13 +308,13 @@ def calculate_lis_reorder_operations(
     }  # current positions already used
 
     # Build index: track.id -> [current positions] for unmatched tracks — O(n)
-    current_id_index: dict[int, list[int]] = {}
+    current_id_index: dict[UUID, list[int]] = {}
     for pos, t in enumerate(current_tracks):
-        if t.id is not None and pos not in matched_current_positions:
+        if pos not in matched_current_positions:
             current_id_index.setdefault(t.id, []).append(pos)
 
     for target_pos, target_track in enumerate(target_tracks):
-        if target_track.id is None or target_pos in matched_positions:
+        if target_pos in matched_positions:
             continue
         available = current_id_index.get(target_track.id, [])
         if available:
@@ -493,7 +437,7 @@ def calculate_playlist_diff(
     # Fast path: identical ID sequences means no changes
     current_ids = [t.id for t in current_tracks]
     target_ids = [t.id for t in target_tracks]
-    if current_ids == target_ids and all(tid is not None for tid in current_ids):
+    if current_ids == target_ids:
         return PlaylistDiff()
 
     logger.debug(

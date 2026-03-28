@@ -4,12 +4,14 @@ Tests the full request → route → use case → DB → response cycle.
 Each test gets a fresh database via the client fixture.
 """
 
+from uuid import UUID, uuid7
+
 import httpx
 
 
 async def _create_track(
     client: httpx.AsyncClient, title: str, artist: str = "Artist"
-) -> int:
+) -> UUID:
     """Create a track via playlist creation (tracks need to exist in DB).
 
     Since there's no direct track creation API, we insert tracks via
@@ -21,12 +23,12 @@ async def _create_track(
     from src.application.runner import execute_use_case
     from src.domain.entities.track import Artist, Track
 
-    track = Track(title=title, artists=[Artist(name=artist)])
+    track = Track(id=None, title=title, artists=[Artist(name=artist)])
     result = await execute_use_case(lambda uow: _save_track(uow, track))
     return result
 
 
-async def _save_track(uow, track) -> int:
+async def _save_track(uow, track) -> UUID:
     """Save a track via UoW and return its ID."""
     async with uow:
         repo = uow.get_track_repository()
@@ -149,7 +151,7 @@ class TestGetTrackDetailEndpoint:
     async def test_nonexistent_track_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.get("/api/v1/tracks/99999")
+        response = await client.get(f"/api/v1/tracks/{uuid7()}")
 
         assert response.status_code == 404
 
@@ -168,7 +170,7 @@ class TestGetTrackPlaylistsEndpoint:
     async def test_nonexistent_track_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.get("/api/v1/tracks/99999/playlists")
+        response = await client.get(f"/api/v1/tracks/{uuid7()}/playlists")
 
         assert response.status_code == 404
 
@@ -182,12 +184,12 @@ class TestMergeTrackEndpoint:
 
         response = await client.post(
             f"/api/v1/tracks/{winner_id}/merge",
-            json={"loser_id": loser_id},
+            json={"loser_id": str(loser_id)},
         )
 
         assert response.status_code == 200
         body = response.json()
-        assert body["id"] == winner_id
+        assert body["id"] == str(winner_id)
         assert body["title"] == "Creep"
 
     async def test_loser_is_deleted_after_merge(
@@ -198,7 +200,7 @@ class TestMergeTrackEndpoint:
 
         await client.post(
             f"/api/v1/tracks/{winner_id}/merge",
-            json={"loser_id": loser_id},
+            json={"loser_id": str(loser_id)},
         )
 
         response = await client.get(f"/api/v1/tracks/{loser_id}")
@@ -209,7 +211,7 @@ class TestMergeTrackEndpoint:
 
         response = await client.post(
             f"/api/v1/tracks/{track_id}/merge",
-            json={"loser_id": track_id},
+            json={"loser_id": str(track_id)},
         )
 
         assert response.status_code == 400
@@ -221,7 +223,7 @@ class TestMergeTrackEndpoint:
 
         response = await client.post(
             f"/api/v1/tracks/{winner_id}/merge",
-            json={"loser_id": 99999},
+            json={"loser_id": str(uuid7())},
         )
 
         assert response.status_code == 404

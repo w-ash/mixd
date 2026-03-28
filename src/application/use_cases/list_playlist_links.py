@@ -1,5 +1,7 @@
 """List all connector links for a canonical playlist."""
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.entities.playlist_link import PlaylistLink
@@ -10,7 +12,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class ListPlaylistLinksCommand:
     """Input: which playlist to list links for."""
 
-    playlist_id: int
+    playlist_id: UUID
 
 
 @define(frozen=True, slots=True)

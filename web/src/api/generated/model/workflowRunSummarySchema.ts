@@ -3,20 +3,20 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { WorkflowRunSummarySchemaStatus } from './workflowRunSummarySchemaStatus';
 
 export interface WorkflowRunSummarySchema {
-  id: number;
-  workflow_id: number;
+  id: string;
+  workflow_id: string;
   status: WorkflowRunSummarySchemaStatus;
   definition_version?: number;
   started_at?: string | null;
   completed_at?: string | null;
   duration_ms?: number | null;
   output_track_count?: number | null;
-  output_playlist_id?: number | null;
+  output_playlist_id?: string | null;
   error_message?: string | null;
   created_at?: string | null;
 }

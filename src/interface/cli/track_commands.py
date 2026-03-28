@@ -150,9 +150,12 @@ def merge_tracks(
 
 @track_app.command("show")
 def show_track(
-    track_id: Annotated[int, typer.Argument(help="Track ID to display")],
+    track_id: Annotated[str, typer.Argument(help="Track UUID to display")],
 ) -> None:
     """Show detailed information about a track including likes, plays, and playlists."""
+    from uuid import UUID
+
+    parsed_id = UUID(track_id)
 
     async def _show_track_async():
         from src.application.runner import execute_use_case
@@ -164,7 +167,7 @@ def show_track(
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(track_id=track_id), uow
+                    GetTrackDetailsCommand(track_id=parsed_id), uow
                 )
             )
         except NotFoundError as e:
@@ -342,9 +345,12 @@ def list_tracks(
 
 @track_app.command("playlists")
 def track_playlists(
-    track_id: Annotated[int, typer.Argument(help="Track ID to look up")],
+    track_id: Annotated[str, typer.Argument(help="Track UUID to look up")],
 ) -> None:
     """Show which playlists contain a given track."""
+    from uuid import UUID
+
+    parsed_id = UUID(track_id)
 
     async def _track_playlists_async():
         from src.application.runner import execute_use_case
@@ -356,7 +362,7 @@ def track_playlists(
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackPlaylistsUseCase().execute(
-                    GetTrackPlaylistsCommand(track_id=track_id), uow
+                    GetTrackPlaylistsCommand(track_id=parsed_id), uow
                 )
             )
         except NotFoundError as e:

@@ -1,8 +1,10 @@
 """Shared playlist resolution logic for use cases.
 
-Resolves a playlist ID (internal database integer or external connector string)
+Resolves a playlist ID (internal database UUID or external connector string)
 into a Playlist entity. Used by read, delete, and update use cases.
 """
+
+from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist
@@ -21,11 +23,11 @@ async def resolve_playlist(
 ) -> Playlist | None:
     """Resolve a playlist by internal ID or external connector ID.
 
-    Tries to parse ``playlist_id`` as an integer for direct database lookup.
-    If it isn't numeric, falls back to searching by connector ID.
+    Tries to parse ``playlist_id`` as a UUID for direct database lookup.
+    If it isn't a valid UUID, falls back to searching by connector ID.
 
     Args:
-        playlist_id: Internal database ID (numeric string) or external service ID.
+        playlist_id: Internal database ID (UUID string) or external service ID.
         uow: Unit of work for repository access.
         connector: External service name for fallback lookup (default: ``"spotify"``).
         raise_if_not_found: If ``True``, raise ``NotFoundError`` when the playlist
@@ -41,10 +43,10 @@ async def resolve_playlist(
     playlist_repo = uow.get_playlist_repository()
 
     try:
-        return await playlist_repo.get_playlist_by_id(int(playlist_id))
+        return await playlist_repo.get_playlist_by_id(UUID(playlist_id))
     except ValueError, NotFoundError:
-        # ValueError: not an integer — treat as external connector ID
-        # NotFoundError: integer ID but no matching playlist
+        # ValueError: not a valid UUID — treat as external connector ID
+        # NotFoundError: valid UUID but no matching playlist
         playlist = await playlist_repo.get_playlist_by_connector(
             connector, playlist_id, raise_if_not_found=raise_if_not_found
         )

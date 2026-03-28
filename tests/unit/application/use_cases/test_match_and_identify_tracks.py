@@ -43,7 +43,7 @@ class TestMatchAndIdentifyTracksCommand:
 
     def test_valid_command(self, mock_connector):
         """Test creating a valid command."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         cmd = MatchAndIdentifyTracksCommand(
             tracklist=tracklist,
             connector="spotify",
@@ -54,7 +54,7 @@ class TestMatchAndIdentifyTracksCommand:
 
     def test_empty_connector_name_rejected(self, mock_connector):
         """Test that empty connector name is rejected."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError, match="Connector name must be specified"):
             MatchAndIdentifyTracksCommand(
                 tracklist=tracklist,
@@ -64,7 +64,7 @@ class TestMatchAndIdentifyTracksCommand:
 
     def test_none_connector_instance_rejected(self):
         """Test that None connector instance is rejected."""
-        tracklist = TrackList(tracks=[make_track(1)])
+        tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError, match="Connector instance must be provided"):
             MatchAndIdentifyTracksCommand(
                 tracklist=tracklist,
@@ -94,33 +94,16 @@ class TestMatchAndIdentifyTracksUseCase:
         assert result.identity_mappings == {}
         assert not result.errors
 
-    async def test_tracks_without_ids_filtered_out(self, mock_uow, mock_connector):
-        """Test that tracks without database IDs are filtered."""
-        tracks = [make_track(None, "No ID"), make_track(None, "Also No ID")]
-        tracklist = TrackList(tracks=tracks)
-        command = MatchAndIdentifyTracksCommand(
-            tracklist=tracklist,
-            connector="spotify",
-            connector_instance=mock_connector,
-        )
-        use_case = MatchAndIdentifyTracksUseCase()
-
-        result = await use_case.execute(command, mock_uow)
-
-        assert result.track_count == 2
-        assert result.resolved_count == 0
-        assert "No tracks with database IDs" in result.errors[0]
-
     async def test_all_tracks_already_have_mappings(self, mock_uow, mock_connector):
         """Test that existing mappings are returned without re-resolution."""
-        tracks = [make_track(1), make_track(2)]
+        tracks = [make_track(), make_track()]
         tracklist = TrackList(tracks=tracks)
 
         # All tracks already have mappings
         identity_service = mock_uow.get_track_identity_service()
         existing = {
-            1: MagicMock(),  # Already resolved
-            2: MagicMock(),
+            tracks[0].id: MagicMock(),  # Already resolved
+            tracks[1].id: MagicMock(),
         }
         identity_service.get_existing_identity_mappings.return_value = existing
 
@@ -140,17 +123,17 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_new_tracks_resolved_and_persisted(self, mock_uow, mock_connector):
         """Test full resolution pipeline for unresolved tracks."""
-        tracks = [make_track(1), make_track(2)]
+        tracks = [make_track(), make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
-        # Track 1 already mapped, track 2 needs resolution
+        # Track 0 already mapped, track 1 needs resolution
         identity_service.get_existing_identity_mappings.return_value = {
-            1: MagicMock(),
+            tracks[0].id: MagicMock(),
         }
 
         # Raw matches from infrastructure
-        raw_matches = {2: {"connector_id": "spotify_2", "confidence": 90}}
+        raw_matches = {tracks[1].id: {"connector_id": "spotify_2", "confidence": 90}}
         identity_service.get_raw_external_matches.return_value = raw_matches
 
         command = MatchAndIdentifyTracksCommand(
@@ -166,7 +149,7 @@ class TestMatchAndIdentifyTracksUseCase:
         from src.domain.matching.types import EvaluationResult
 
         evaluation = EvaluationResult(
-            accepted={2: MagicMock()},
+            accepted={tracks[1].id: MagicMock()},
             review_candidates={},
         )
         with patch.object(
@@ -182,7 +165,7 @@ class TestMatchAndIdentifyTracksUseCase:
 
     async def test_resolution_error_captured_in_result(self, mock_uow, mock_connector):
         """Test that exceptions during resolution are captured, not propagated."""
-        tracks = [make_track(1)]
+        tracks = [make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -218,15 +201,16 @@ class TestMatchAndIdentifyTracksUseCase:
 
         assert result.execution_time_ms >= 0
 
-    async def test_mixed_valid_and_no_id_tracks(self, mock_uow, mock_connector):
-        """Test that only tracks with IDs are processed, but count includes all."""
-        tracks = [make_track(1), make_track(None), make_track(2)]
+    async def test_all_tracks_have_ids_and_resolve(self, mock_uow, mock_connector):
+        """Test that all tracks with UUIDs are processed and resolved."""
+        tracks = [make_track(), make_track(), make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
         identity_service.get_existing_identity_mappings.return_value = {
-            1: MagicMock(),
-            2: MagicMock(),
+            tracks[0].id: MagicMock(),
+            tracks[1].id: MagicMock(),
+            tracks[2].id: MagicMock(),
         }
 
         command = MatchAndIdentifyTracksCommand(
@@ -239,7 +223,7 @@ class TestMatchAndIdentifyTracksUseCase:
         result = await use_case.execute(command, mock_uow)
 
         assert result.track_count == 3  # All tracks counted
-        assert result.resolved_count == 2  # Only valid tracks resolved
+        assert result.resolved_count == 3  # All tracks resolved (all have UUIDs)
 
 
 class TestMatchAndIdentifyTracksProgress:
@@ -249,7 +233,7 @@ class TestMatchAndIdentifyTracksProgress:
         self, mock_uow, mock_connector
     ):
         """Use case creates a matching sub-operation and completes it on success."""
-        tracks = [make_track(1), make_track(2)]
+        tracks = [make_track(), make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -301,7 +285,7 @@ class TestMatchAndIdentifyTracksProgress:
         self, mock_uow, mock_connector
     ):
         """Use case does not create sub-operations when progress_manager is None."""
-        tracks = [make_track(1)]
+        tracks = [make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -338,7 +322,7 @@ class TestMatchAndIdentifyTracksProgress:
         self, mock_uow, mock_connector
     ):
         """Sub-operation is marked as failed when matching raises an exception."""
-        tracks = [make_track(1)]
+        tracks = [make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
@@ -382,12 +366,12 @@ class TestMatchAndIdentifyTracksProgress:
         self, mock_uow, mock_connector
     ):
         """No sub-operation is created when all tracks already have mappings."""
-        tracks = [make_track(1)]
+        tracks = [make_track()]
         tracklist = TrackList(tracks=tracks)
 
         identity_service = mock_uow.get_track_identity_service()
         identity_service.get_existing_identity_mappings.return_value = {
-            1: MagicMock(),
+            tracks[0].id: MagicMock(),
         }
 
         mock_progress = AsyncMock()

@@ -75,8 +75,7 @@ async def enrich_spotify_liked_status(
             "spotify", {"is_liked": is_saved}
         )
         track = updated_tracks[idx]
-        if track.id is not None:
-            likes_to_save.append((track.id, "spotify", is_saved, now, None))
+        likes_to_save.append((track.id, "spotify", is_saved, now, None))
 
     if likes_to_save:
 

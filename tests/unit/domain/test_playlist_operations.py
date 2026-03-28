@@ -5,6 +5,7 @@ Following TDD principles - write tests first, then implement domain services.
 """
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 
@@ -34,7 +35,7 @@ class TestPlaylistEntity:
         assert playlist.name == "My Playlist"
         assert playlist.tracks == tracks
         assert playlist.description == "A great playlist"
-        assert playlist.id is None
+        assert isinstance(playlist.id, UUID)
         assert playlist.connector_playlist_identifiers == {}
 
     def test_playlist_creation_with_minimal_data(self):
@@ -44,7 +45,7 @@ class TestPlaylistEntity:
         assert playlist.name == "Minimal Playlist"
         assert playlist.tracks == []
         assert playlist.description is None
-        assert playlist.id is None
+        assert isinstance(playlist.id, UUID)
         assert playlist.connector_playlist_identifiers == {}
 
     def test_from_tracklist_with_connector_identifiers(self):
@@ -127,21 +128,6 @@ class TestPlaylistEntity:
         with pytest.raises(ValueError, match="Cannot use 'internal' as connector name"):
             playlist.with_connector_playlist_id("internal", "123")
 
-    def test_playlist_with_id_validation(self):
-        """Test database ID validation."""
-        playlist = Playlist(name="Test Playlist")
-
-        # Valid ID
-        updated_playlist = playlist.with_id(123)
-        assert updated_playlist.id == 123
-
-        # Invalid IDs
-        with pytest.raises(ValueError, match="Invalid database ID"):
-            playlist.with_id(0)
-
-        with pytest.raises(ValueError, match="Invalid database ID"):
-            playlist.with_id(-1)
-
 
 class TestConnectorPlaylistEntity:
     """Test connector playlist entity behavior."""
@@ -218,7 +204,7 @@ class TestConnectorPlaylistEntity:
         assert playlist.collaborative is False
         assert playlist.follower_count is None
         assert playlist.raw_metadata == {}
-        assert playlist.id is None
+        assert isinstance(playlist.id, UUID)
         assert isinstance(playlist.last_updated, datetime)
 
 
@@ -256,18 +242,18 @@ class TestPlaylistEntryEntity:
 
     def test_playlist_entry_creation(self):
         """Test creating a playlist entry."""
-        test_track = Track(id=123, title="Test", artists=[Artist(name="Test Artist")])
+        test_track = Track(title="Test", artists=[Artist(name="Test Artist")])
         entry = PlaylistEntry(
             track=test_track, added_at=datetime.now(UTC), added_by="user123"
         )
 
-        assert entry.track.id == 123
+        assert isinstance(entry.track.id, UUID)
         assert entry.added_at is not None
         assert entry.added_by == "user123"
 
     def test_playlist_entry_defaults(self):
         """Test playlist entry default values."""
-        test_track = Track(id=123, title="Test", artists=[Artist(name="Test Artist")])
+        test_track = Track(title="Test", artists=[Artist(name="Test Artist")])
         entry = PlaylistEntry(track=test_track)
 
         assert entry.added_at is None

@@ -72,7 +72,7 @@ class LastfmConnectorPlayResolver:
         for connector_play, resolved_track in zip(
             connector_plays, resolved_tracks, strict=False
         ):
-            if resolved_track is None or resolved_track.id is None:
+            if resolved_track is None:
                 filtering_stats["error_count"] += 1
                 failure_info = {
                     "track": f"{connector_play.artist_name} - {connector_play.track_name}",

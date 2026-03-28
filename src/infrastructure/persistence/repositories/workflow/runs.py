@@ -4,6 +4,7 @@
 # Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,14 +51,14 @@ class WorkflowRunRepository:
     @db_operation("update_run_status")
     async def update_run_status(
         self,
-        run_id: int,
+        run_id: UUID,
         status: RunStatus,
         *,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
         duration_ms: int | None = None,
         output_track_count: int | None = None,
-        output_playlist_id: int | None = None,
+        output_playlist_id: UUID | None = None,
         output_tracks: list[dict[str, object]] | None = None,
         error_message: str | None = None,
     ) -> None:
@@ -101,7 +102,7 @@ class WorkflowRunRepository:
     @db_operation("update_node_status")
     async def update_node_status(
         self,
-        run_id: int,
+        run_id: UUID,
         node_id: str,
         status: RunStatus,
         *,
@@ -143,7 +144,7 @@ class WorkflowRunRepository:
 
     @db_operation("get_runs_for_workflow")
     async def get_runs_for_workflow(
-        self, workflow_id: int, limit: int = 20, offset: int = 0
+        self, workflow_id: UUID, limit: int = 20, offset: int = 0
     ) -> tuple[list[WorkflowRun], int]:
         """List runs for a workflow (without nodes) with total count."""
         # Count
@@ -171,7 +172,7 @@ class WorkflowRunRepository:
         return runs, total
 
     @db_operation("get_run_by_id")
-    async def get_run_by_id(self, run_id: int) -> WorkflowRun:
+    async def get_run_by_id(self, run_id: UUID) -> WorkflowRun:
         """Get a single run with all node records loaded."""
         stmt = (
             select(DBWorkflowRun)
@@ -185,7 +186,9 @@ class WorkflowRunRepository:
         return self.mapper.to_domain(db_run, include_nodes=True)
 
     @db_operation("get_latest_run_for_workflow")
-    async def get_latest_run_for_workflow(self, workflow_id: int) -> WorkflowRun | None:
+    async def get_latest_run_for_workflow(
+        self, workflow_id: UUID
+    ) -> WorkflowRun | None:
         """Get the most recent run for a workflow, or None."""
         stmt = (
             select(DBWorkflowRun)
@@ -203,8 +206,8 @@ class WorkflowRunRepository:
 
     @db_operation("get_latest_runs_for_workflows")
     async def get_latest_runs_for_workflows(
-        self, workflow_ids: list[int]
-    ) -> dict[int, WorkflowRun]:
+        self, workflow_ids: list[UUID]
+    ) -> dict[UUID, WorkflowRun]:
         """Batch-fetch the latest run for each workflow ID using a window function."""
         if not workflow_ids:
             return {}

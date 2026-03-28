@@ -8,6 +8,7 @@ Pure playlist representations and related value objects with zero external depen
 
 from datetime import UTC, datetime
 from typing import Any, Final, Self
+from uuid import UUID, uuid7
 
 from attrs import define, evolve, field, validators
 
@@ -74,7 +75,7 @@ class Playlist:
     entries: list[PlaylistEntry] = field(factory=list)
     description: str | None = field(default=None)
     # The internal database ID - source of truth for our system
-    id: int | None = field(default=None)
+    id: UUID = field(factory=uuid7)
     # External service IDs (spotify, apple_music, etc) - NOT for internal DB ID
     connector_playlist_identifiers: dict[str, str] = field(factory=dict)
     # Additional metadata for playlist management (snapshot IDs, sync state, etc.)
@@ -98,7 +99,7 @@ class Playlist:
         added_at_dates = {
             entry.track.id: entry.added_at.isoformat()
             for entry in self.entries
-            if entry.track.id is not None and entry.added_at is not None
+            if entry.added_at is not None
         }
         return TrackList(
             tracks=self.tracks,
@@ -170,18 +171,6 @@ class Playlist:
         new_ids = self.connector_playlist_identifiers | {connector: external_id}
         return evolve(self, connector_playlist_identifiers=new_ids)
 
-    def with_id(self, db_id: int) -> Self:
-        """Set the internal database ID for this playlist.
-
-        This is the source of truth for playlist identity in our system.
-        """
-        if db_id <= 0:
-            raise ValueError(
-                f"Invalid database ID: {db_id}. Must be a positive integer.",
-            )
-
-        return evolve(self, id=db_id)
-
     def with_metadata(self, metadata: dict[str, Any]) -> Self:
         """Create new playlist with updated metadata.
 
@@ -212,7 +201,7 @@ class ConnectorPlaylist:
     follower_count: int | None = None
     raw_metadata: dict[str, Any] = field(factory=dict)
     last_updated: datetime = field(factory=utc_now_factory)
-    id: int | None = None
+    id: UUID = field(factory=uuid7)
 
     @property
     def track_ids(self) -> list[str]:

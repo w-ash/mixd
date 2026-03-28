@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { ArtistSchema } from './artistSchema';
 
@@ -11,7 +11,7 @@ import type { ArtistSchema } from './artistSchema';
  * Minimal track data for playlist entry listings.
  */
 export interface TrackSummarySchema {
-  id?: number | null;
+  id?: string | null;
   title: string;
   artists: ArtistSchema[];
   album?: string | null;

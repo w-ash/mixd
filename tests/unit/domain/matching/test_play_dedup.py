@@ -6,6 +6,7 @@ and matching within a tolerance window.
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid7
 
 from src.domain.entities import TrackPlay
 from src.domain.matching.play_dedup import (
@@ -16,15 +17,17 @@ from src.domain.matching.play_dedup import (
 
 
 def _make_play(
-    track_id: int = 1,
+    track_id: UUID | None = None,
     service: str = "spotify",
     played_at: datetime | None = None,
     ms_played: int | None = 240000,
     context: dict | None = None,
-    id: int | None = None,
+    id: UUID | None = None,
     source_services: list[str] | None = None,
 ) -> TrackPlay:
     """Factory for test TrackPlay instances."""
+    if track_id is None:
+        track_id = uuid7()
     if played_at is None:
         played_at = datetime(2024, 10, 1, 21, 0, 0, tzinfo=UTC)
     return TrackPlay(
@@ -72,8 +75,10 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_matching_spotify_and_lastfm_same_event(self):
         """Spotify end-time + Last.fm start-time for same play → match."""
+        shared_tid = uuid7()
         # Spotify: ended at 21:04:00 after playing 4 min → started at 21:00:00
         spotify_play = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
@@ -81,11 +86,11 @@ class TestDeduplicateCrossSourcePlays:
         )
         # Last.fm: started at 21:00:05 (5 seconds clock skew)
         lastfm_existing = _make_play(
+            track_id=shared_tid,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 0, 5, tzinfo=UTC),
             ms_played=None,
             context={"mbid": "abc-123", "loved": True},
-            id=42,
         )
 
         result = deduplicate_cross_source_plays(
@@ -104,16 +109,18 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_same_service_plays_not_matched(self):
         """Two Spotify plays should never be cross-source matched."""
+        shared_tid = uuid7()
         play1 = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
         )
         existing = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 5, tzinfo=UTC),
             ms_played=240000,
-            id=10,
         )
 
         result = deduplicate_cross_source_plays(
@@ -126,17 +133,19 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_time_outside_tolerance_no_match(self):
         """Plays from different services but too far apart → no match."""
+        shared_tid = uuid7()
         # Spotify started at 21:00:00, Last.fm started at 21:01:00 (60s apart)
         spotify_play = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
         )
         lastfm_existing = _make_play(
+            track_id=shared_tid,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 1, 0, tzinfo=UTC),
             ms_played=None,
-            id=42,
         )
 
         result = deduplicate_cross_source_plays(
@@ -149,15 +158,19 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_existing_wins_when_higher_priority(self):
         """When existing Spotify play matches new Last.fm → existing wins."""
+        shared_tid = uuid7()
+        existing_id = uuid7()
         spotify_existing = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
             context={"platform": "osx"},
-            id=42,
+            id=existing_id,
         )
         # Last.fm started at same time as Spotify start
         lastfm_new = _make_play(
+            track_id=shared_tid,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 0, 0, tzinfo=UTC),
             ms_played=None,
@@ -174,24 +187,26 @@ class TestDeduplicateCrossSourcePlays:
         assert len(result.suppressed_plays) == 1
         assert len(result.plays_to_update) == 1
         play_id, update_fields = result.plays_to_update[0]
-        assert play_id == 42
+        assert play_id == existing_id
         assert "spotify" in update_fields["source_services"]
         assert "lastfm" in update_fields["source_services"]
 
     def test_lastfm_context_merged_into_winner(self):
         """Loser's context should be merged under a namespaced key."""
+        shared_tid = uuid7()
         spotify_play = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
             context={"platform": "osx"},
         )
         lastfm_existing = _make_play(
+            track_id=shared_tid,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 0, 0, tzinfo=UTC),
             ms_played=None,
             context={"mbid": "abc-123", "loved": True},
-            id=42,
         )
 
         result = deduplicate_cross_source_plays(
@@ -206,8 +221,10 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_fallback_tolerance_when_ms_played_missing(self):
         """When Spotify ms_played is None, use wider fallback tolerance."""
+        shared_tid = uuid7()
         # Without ms_played, Spotify can't normalize — uses raw played_at
         spotify_play = _make_play(
+            track_id=shared_tid,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=None,  # missing!
@@ -215,10 +232,10 @@ class TestDeduplicateCrossSourcePlays:
         # Last.fm 100 seconds before Spotify's raw timestamp
         # Within fallback 180s but outside normal 30s
         lastfm_existing = _make_play(
+            track_id=shared_tid,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 2, 20, tzinfo=UTC),
             ms_played=None,
-            id=42,
         )
 
         result = deduplicate_cross_source_plays(
@@ -230,24 +247,24 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_multiple_tracks_independent_dedup(self):
         """Plays for different tracks should be deduped independently."""
+        tid1, tid2 = uuid7(), uuid7()
         spotify_track1 = _make_play(
-            track_id=1,
+            track_id=tid1,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
         )
         spotify_track2 = _make_play(
-            track_id=2,
+            track_id=tid2,
             service="spotify",
             played_at=datetime(2024, 10, 1, 21, 4, 0, tzinfo=UTC),
             ms_played=240000,
         )
         lastfm_track1 = _make_play(
-            track_id=1,
+            track_id=tid1,
             service="lastfm",
             played_at=datetime(2024, 10, 1, 21, 0, 0, tzinfo=UTC),
             ms_played=None,
-            id=100,
         )
         # No existing Last.fm for track 2
 
@@ -278,7 +295,11 @@ class TestDeduplicateCrossSourcePlays:
 
     def test_null_track_id_passes_through(self):
         """Plays with no track_id should pass through to insert."""
-        play = _make_play(track_id=None, service="spotify")  # type: ignore[arg-type]
+        play = TrackPlay(
+            track_id=None,
+            service="spotify",
+            played_at=datetime(2024, 10, 1, 21, 0, 0, tzinfo=UTC),
+        )
         result = deduplicate_cross_source_plays(new_plays=[play], existing_plays=[])
         assert len(result.plays_to_insert) == 1
         assert result.stats.get("no_track_id", 0) == 1

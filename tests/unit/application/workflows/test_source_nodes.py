@@ -29,8 +29,8 @@ from tests.fixtures import make_connector_playlist, make_connector_playlist_item
 def sample_tracks():
     """Tracks with IDs for source mapping."""
     return [
-        Track(id=1, title="Song A", artists=[Artist(name="Artist 1")]),
-        Track(id=2, title="Song B", artists=[Artist(name="Artist 2")]),
+        Track(title="Song A", artists=[Artist(name="Artist 1")]),
+        Track(title="Song B", artists=[Artist(name="Artist 2")]),
     ]
 
 
@@ -66,21 +66,23 @@ class TestBuildSourceTracklist:
         assert isinstance(result, TrackList)
         assert len(result.tracks) == 2
         assert result.metadata["operation"] == "playlist_source"
-        assert 1 in result.metadata["track_sources"]
-        assert result.metadata["track_sources"][1]["source"] == "spotify"
-        assert result.metadata["track_sources"][1]["source_id"] == "sp-123"
-        assert result.metadata["track_sources"][1]["playlist_name"] == "My Playlist"
+        tid = sample_tracks[0].id
+        assert tid in result.metadata["track_sources"]
+        assert result.metadata["track_sources"][tid]["source"] == "spotify"
+        assert result.metadata["track_sources"][tid]["source_id"] == "sp-123"
+        assert result.metadata["track_sources"][tid]["playlist_name"] == "My Playlist"
 
-    def test_skips_tracks_without_id(self):
-        """Tracks with id=None are excluded from source map."""
+    def test_all_tracks_have_ids_in_source_map(self):
+        """All tracks have UUIDs, so all appear in source map."""
         tracks = [
-            Track(id=None, title="No ID", artists=[Artist(name="A1")]),
-            Track(id=5, title="Has ID", artists=[Artist(name="A2")]),
+            Track(title="Track A", artists=[Artist(name="A1")]),
+            Track(title="Track B", artists=[Artist(name="A2")]),
         ]
         result = _build_source_tracklist(tracks, "PL", "canonical", "id-1")
 
-        assert len(result.metadata["track_sources"]) == 1
-        assert 5 in result.metadata["track_sources"]
+        assert len(result.metadata["track_sources"]) == 2
+        assert tracks[0].id in result.metadata["track_sources"]
+        assert tracks[1].id in result.metadata["track_sources"]
 
 
 class TestPlaylistSource:
@@ -189,8 +191,8 @@ class TestPlaylistSourceConnector:
     def connector_tracks(self):
         """Tracks returned by the canonical playlist after upsert."""
         return [
-            Track(id=10, title="Connector Song A", artists=[Artist(name="Art 1")]),
-            Track(id=11, title="Connector Song B", artists=[Artist(name="Art 2")]),
+            Track(title="Connector Song A", artists=[Artist(name="Art 1")]),
+            Track(title="Connector Song B", artists=[Artist(name="Art 2")]),
         ]
 
     @pytest.fixture

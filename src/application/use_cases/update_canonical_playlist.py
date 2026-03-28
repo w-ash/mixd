@@ -367,8 +367,6 @@ class UpdateCanonicalPlaylistUseCase:
         })
 
         # Persist updated playlist using update_playlist for existing playlists
-        if current_playlist.id is None:
-            raise ValueError("Cannot update playlist without an ID")
 
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(updated_playlist)
@@ -476,8 +474,6 @@ class UpdateCanonicalPlaylistUseCase:
         })
 
         # Persist updated playlist using update_playlist for existing playlists
-        if current_playlist.id is None:
-            raise ValueError("Cannot update playlist without an ID")
 
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(updated_playlist)

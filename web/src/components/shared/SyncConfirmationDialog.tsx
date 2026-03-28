@@ -13,8 +13,8 @@ import { Button } from "@/components/ui/button";
 interface SyncConfirmationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  playlistId: number;
-  linkId: number;
+  playlistId: string;
+  linkId: string;
   connectorName: string;
   playlistName: string;
   currentDirection: string;

@@ -8,7 +8,9 @@ MusicBrainz), maintaining track ordering and synchronizing external IDs.
 
 from collections import defaultdict
 from datetime import UTC, datetime
+from uuid import UUID
 
+import attrs
 from sqlalchemy import Select, delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -150,8 +152,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         direct_track_positions: dict[int, int] = {}
 
         for idx, track in enumerate(tracks):
-            if track.id:
-                # Track already has ID, no processing needed
+            if track.version > 0:
+                # Track already persisted (version > 0), no processing needed
                 existing_track_positions[idx] = track
             elif connector and connector in track.connector_track_identifiers:
                 # Track needs connector ingestion
@@ -226,7 +228,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     async def _create_playlist_tracks(
         self,
-        playlist_id: int,
+        playlist_id: UUID,
         entries: list[PlaylistEntry],
     ) -> None:
         """Create initial playlist-track associations for a new playlist.
@@ -245,9 +247,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
         values: list[dict[str, object]] = []
         for idx, entry in enumerate(entries):
-            if entry.track.id is None:
-                continue
-
             # Direct access to added_at from PlaylistEntry - clean architecture!
             added_at = entry.added_at
             if added_at:
@@ -272,7 +271,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     async def _update_playlist_tracks(
         self,
-        playlist_id: int,
+        playlist_id: UUID,
         entries: list[PlaylistEntry],
     ) -> None:
         """Update existing playlist-track associations preserving metadata.
@@ -308,7 +307,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Build consumption pool: track_id → list of available records
         # This allows handling duplicate tracks (same track_id, multiple records)
-        available_records: defaultdict[int, list[DBPlaylistTrack]] = defaultdict(list)
+        available_records: defaultdict[UUID, list[DBPlaylistTrack]] = defaultdict(list)
         for record in existing_records:
             available_records[record.track_id].append(record)
 
@@ -323,10 +322,6 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Consume records for each target position
         for idx, entry in enumerate(entries):
-            if entry.track.id is None:
-                logger.warning(f"Skipping entry without track ID at position {idx}")
-                continue
-
             sort_key = self._generate_sort_key(idx)
 
             if available_records[entry.track.id]:
@@ -379,7 +374,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     async def _manage_playlist_tracks(
         self,
-        playlist_id: int,
+        playlist_id: UUID,
         entries: list[PlaylistEntry],
         is_update: bool,
     ) -> None:
@@ -450,7 +445,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return connector_playlist_db_ids
 
     async def _create_connector_mappings(
-        self, playlist_id: int, connector_ids: dict[str, str]
+        self, playlist_id: UUID, connector_ids: dict[str, str]
     ) -> None:
         """Create initial connector mappings for a new playlist.
 
@@ -492,7 +487,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             await self.session.flush()
 
     async def _update_connector_mappings(
-        self, playlist_id: int, connector_ids: dict[str, str]
+        self, playlist_id: UUID, connector_ids: dict[str, str]
     ) -> None:
         """Update connector mappings for an existing playlist.
 
@@ -565,7 +560,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     async def _manage_connector_mappings(
         self,
-        playlist_id: int,
+        playlist_id: UUID,
         connector_ids: dict[str, str],
         is_update: bool,
     ) -> None:
@@ -612,7 +607,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     @db_operation("get_playlist_by_id")
     async def get_playlist_by_id(
         self,
-        playlist_id: int,
+        playlist_id: UUID,
     ) -> Playlist:
         """Retrieve playlist with all tracks and external service mappings.
 
@@ -714,8 +709,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         based on playlist.id existence. All shared logic (track persistence,
         entry rebuilding, relationship management) is consolidated here.
         """
-        # Detect create vs update based on playlist.id
-        is_update = playlist.id is not None
+        # Detect create vs update by checking if entity exists in DB
+        existing = await self.execute_select_one(self.select_by_id(playlist.id))
+        is_update = existing is not None
 
         # Determine source connector if available
         source_connector = self._determine_source_connector(
@@ -741,15 +737,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         ]
 
         # Create or update the playlist DB entity
-        playlist_id: int
+        playlist_id: UUID
         if is_update:
             # Update existing playlist
-            if playlist.id is None:
-                raise ValueError("Cannot update playlist without an ID")
-
-            actual_track_count = len([
-                entry.track for entry in updated_entries if entry.track.id is not None
-            ])
+            actual_track_count = len(updated_entries)
 
             updates = {
                 "name": playlist.name,
@@ -794,7 +785,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return await self.get_playlist_by_id(playlist_id)
 
     @db_operation("playlist delete")
-    async def delete_playlist(self, playlist_id: int) -> bool:
+    async def delete_playlist(self, playlist_id: UUID) -> bool:
         """Soft delete playlist and all related tracks/mappings.
 
         Args:
@@ -855,7 +846,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return playlists
 
     @db_operation("get_playlists_for_track")
-    async def get_playlists_for_track(self, track_id: int) -> list[Playlist]:
+    async def get_playlists_for_track(self, track_id: UUID) -> list[Playlist]:
         """Get all playlists containing a specific track.
 
         Returns lightweight Playlist objects (no track loading) for display
@@ -880,7 +871,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return [self._build_lightweight_playlist(p) for p in db_playlists]
 
     @db_operation("update_playlist")
-    async def update_playlist(self, playlist_id: int, playlist: Playlist) -> Playlist:
+    async def update_playlist(self, playlist_id: UUID, playlist: Playlist) -> Playlist:
         """Update an existing playlist by ID.
 
         Args:
@@ -890,7 +881,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Returns:
             Updated playlist with all relationships loaded.
         """
-        return await self.save_playlist(playlist.with_id(playlist_id))
+        return await self.save_playlist(attrs.evolve(playlist, id=playlist_id))
 
     @staticmethod
     def _build_lightweight_playlist(db_playlist: DBPlaylist) -> Playlist:

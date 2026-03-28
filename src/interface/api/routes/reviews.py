@@ -4,6 +4,8 @@ Exposes pending match reviews for human disambiguation and accept/reject actions
 Zero business logic — delegates to use cases via execute_use_case().
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Query
 
 from src.application.runner import execute_use_case
@@ -43,7 +45,7 @@ async def list_reviews(
 
 @router.post("/{review_id}/resolve")
 async def resolve_review(
-    review_id: int, body: ResolveReviewRequest
+    review_id: UUID, body: ResolveReviewRequest
 ) -> ResolveReviewResponse:
     """Accept or reject a match review."""
     result = await execute_use_case(

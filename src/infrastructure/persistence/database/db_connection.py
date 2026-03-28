@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 def _set_connection_timeouts(
     dbapi_connection: object,
-    connection_record: ConnectionPoolEntry,
+    _connection_record: ConnectionPoolEntry,
 ) -> None:
     """Set statement and lock timeouts on each new connection.
 

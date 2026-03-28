@@ -6,6 +6,7 @@ Supports incremental syncing with checkpoints to resume interrupted operations.
 
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 
 from attrs import define
 
@@ -67,7 +68,7 @@ async def update_checkpoint(
 
 
 async def save_likes(
-    track_id: int,
+    track_id: UUID,
     uow: UnitOfWorkProtocol,
     services: list[str] | None = None,
     timestamp: datetime | None = None,
@@ -234,7 +235,7 @@ class ImportSpotifyLikesUseCase:
 
             # 2. Partition into existing vs new
             new_tracks: list[ConnectorTrack] = []
-            existing_ids: list[int] = []
+            existing_ids: list[UUID] = []
             # Map connector_track_identifier → ConnectorTrack for liked_at extraction
             ct_by_id: dict[str, ConnectorTrack] = {
                 ct.connector_track_identifier: ct for ct in tracks
@@ -250,7 +251,7 @@ class ImportSpotifyLikesUseCase:
 
             # 3. Bulk-check like status for existing tracks (1 query)
             batch_already_synced = 0
-            needs_likes: list[int] = []
+            needs_likes: list[UUID] = []
             if existing_ids:
                 like_repo = uow.get_like_repository()
                 like_status = await like_repo.get_liked_status_batch(
@@ -280,7 +281,7 @@ class ImportSpotifyLikesUseCase:
                     logger.exception("Error bulk-ingesting tracks")
 
             # 5. Build track_id → liked_at mapping from ConnectorTrack metadata
-            liked_at_map: dict[int, datetime | None] = {}
+            liked_at_map: dict[UUID, datetime | None] = {}
             # Existing tracks: reverse-lookup via existing_map
             for (_conn, ct_identifier), track in existing_map.items():
                 if track.id and track.id in needs_likes:

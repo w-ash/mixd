@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import {
   useMutation,
@@ -578,7 +578,7 @@ export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseError
 
 export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse = (previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseSuccess | previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponseError)
 
-export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (workflowId: number,) => {
+export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (workflowId: string,) => {
 
 
 
@@ -586,7 +586,7 @@ export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (wo
   return `/api/v1/workflows/${workflowId}/preview`
 }
 
-export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (workflowId: number, options?: RequestInit): Promise<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse> => {
+export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (workflowId: string, options?: RequestInit): Promise<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse> => {
 
   return customFetch<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse>(getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl(workflowId),
   {
@@ -601,8 +601,8 @@ export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (wo
 
 
 export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext> => {
 
 const mutationKey = ['previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -614,7 +614,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, {workflowId: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, {workflowId: string}> = (props) => {
           const {workflowId} = props ?? {};
 
           return  previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost(workflowId,requestOptions)
@@ -635,11 +635,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Preview Saved Workflow
  */
 export const usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>,
         TError,
-        {workflowId: number},
+        {workflowId: string},
         TContext
       > => {
       return useMutation(getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationOptions(options), queryClient);
@@ -667,7 +667,7 @@ export type getWorkflowApiV1WorkflowsWorkflowIdGetResponseError = (getWorkflowAp
 
 export type getWorkflowApiV1WorkflowsWorkflowIdGetResponse = (getWorkflowApiV1WorkflowsWorkflowIdGetResponseSuccess | getWorkflowApiV1WorkflowsWorkflowIdGetResponseError)
 
-export const getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl = (workflowId: number,) => {
+export const getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl = (workflowId: string,) => {
 
 
 
@@ -675,7 +675,7 @@ export const getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl = (workflowId: number,
   return `/api/v1/workflows/${workflowId}`
 }
 
-export const getWorkflowApiV1WorkflowsWorkflowIdGet = async (workflowId: number, options?: RequestInit): Promise<getWorkflowApiV1WorkflowsWorkflowIdGetResponse> => {
+export const getWorkflowApiV1WorkflowsWorkflowIdGet = async (workflowId: string, options?: RequestInit): Promise<getWorkflowApiV1WorkflowsWorkflowIdGetResponse> => {
 
   return customFetch<getWorkflowApiV1WorkflowsWorkflowIdGetResponse>(getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl(workflowId),
   {
@@ -690,14 +690,14 @@ export const getWorkflowApiV1WorkflowsWorkflowIdGet = async (workflowId: number,
 
 
 
-export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey = (workflowId: number,) => {
+export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey = (workflowId: string,) => {
     return [
     `/api/v1/workflows/${workflowId}`
     ] as const;
     }
 
 
-export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -720,7 +720,7 @@ export type GetWorkflowApiV1WorkflowsWorkflowIdGetQueryError = HTTPValidationErr
 
 
 export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(
- workflowId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>> & Pick<
+ workflowId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>,
           TError,
@@ -730,7 +730,7 @@ export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<Return
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>> & Pick<
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>,
           TError,
@@ -740,7 +740,7 @@ export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<Return
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -748,7 +748,7 @@ export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<Return
  */
 
 export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
@@ -785,7 +785,7 @@ export type updateWorkflowApiV1WorkflowsWorkflowIdPatchResponseError = (updateWo
 
 export type updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse = (updateWorkflowApiV1WorkflowsWorkflowIdPatchResponseSuccess | updateWorkflowApiV1WorkflowsWorkflowIdPatchResponseError)
 
-export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl = (workflowId: number,) => {
+export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl = (workflowId: string,) => {
 
 
 
@@ -793,7 +793,7 @@ export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl = (workflowId: nu
   return `/api/v1/workflows/${workflowId}`
 }
 
-export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: number,
+export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: string,
     updateWorkflowRequest: UpdateWorkflowRequest, options?: RequestInit): Promise<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse> => {
 
   return customFetch<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse>(getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl(workflowId),
@@ -810,8 +810,8 @@ export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: nu
 
 
 export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: number;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: number;data: UpdateWorkflowRequest}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext> => {
 
 const mutationKey = ['updateWorkflowApiV1WorkflowsWorkflowIdPatch'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -823,7 +823,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, {workflowId: number;data: UpdateWorkflowRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, {workflowId: string;data: UpdateWorkflowRequest}> = (props) => {
           const {workflowId,data} = props ?? {};
 
           return  updateWorkflowApiV1WorkflowsWorkflowIdPatch(workflowId,data,requestOptions)
@@ -844,11 +844,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Update Workflow
  */
 export const useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: number;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, TError,{workflowId: string;data: UpdateWorkflowRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>,
         TError,
-        {workflowId: number;data: UpdateWorkflowRequest},
+        {workflowId: string;data: UpdateWorkflowRequest},
         TContext
       > => {
       return useMutation(getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMutationOptions(options), queryClient);
@@ -876,7 +876,7 @@ export type deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponseError = (deleteW
 
 export type deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse = (deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponseSuccess | deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponseError)
 
-export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl = (workflowId: number,) => {
+export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl = (workflowId: string,) => {
 
 
 
@@ -884,7 +884,7 @@ export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl = (workflowId: n
   return `/api/v1/workflows/${workflowId}`
 }
 
-export const deleteWorkflowApiV1WorkflowsWorkflowIdDelete = async (workflowId: number, options?: RequestInit): Promise<deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse> => {
+export const deleteWorkflowApiV1WorkflowsWorkflowIdDelete = async (workflowId: string, options?: RequestInit): Promise<deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse> => {
 
   return customFetch<deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse>(getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl(workflowId),
   {
@@ -899,8 +899,8 @@ export const deleteWorkflowApiV1WorkflowsWorkflowIdDelete = async (workflowId: n
 
 
 export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: string}, TContext> => {
 
 const mutationKey = ['deleteWorkflowApiV1WorkflowsWorkflowIdDelete'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -912,7 +912,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, {workflowId: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, {workflowId: string}> = (props) => {
           const {workflowId} = props ?? {};
 
           return  deleteWorkflowApiV1WorkflowsWorkflowIdDelete(workflowId,requestOptions)
@@ -933,11 +933,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Delete Workflow
  */
 export const useDeleteWorkflowApiV1WorkflowsWorkflowIdDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>,
         TError,
-        {workflowId: number},
+        {workflowId: string},
         TContext
       > => {
       return useMutation(getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMutationOptions(options), queryClient);
@@ -965,7 +965,7 @@ export type runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponseError = (r
 
 export type runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse = (runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponseSuccess | runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponseError)
 
-export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl = (workflowId: number,) => {
+export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl = (workflowId: string,) => {
 
 
 
@@ -973,7 +973,7 @@ export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl = (workflo
   return `/api/v1/workflows/${workflowId}/run`
 }
 
-export const runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = async (workflowId: number, options?: RequestInit): Promise<runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse> => {
+export const runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = async (workflowId: string, options?: RequestInit): Promise<runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse> => {
 
   return customFetch<runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse>(getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl(workflowId),
   {
@@ -988,8 +988,8 @@ export const runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = async (workflo
 
 
 export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext> => {
 
 const mutationKey = ['runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1001,7 +1001,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, {workflowId: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, {workflowId: string}> = (props) => {
           const {workflowId} = props ?? {};
 
           return  runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost(workflowId,requestOptions)
@@ -1022,11 +1022,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Run Workflow Endpoint
  */
 export const useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>,
         TError,
-        {workflowId: number},
+        {workflowId: string},
         TContext
       > => {
       return useMutation(getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationOptions(options), queryClient);
@@ -1054,7 +1054,7 @@ export type listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponseError = (list
 
 export type listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponse = (listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponseSuccess | listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponseError)
 
-export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl = (workflowId: number,
+export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl = (workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1070,7 +1070,7 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl = (workflowId
   return stringifiedParams.length > 0 ? `/api/v1/workflows/${workflowId}/runs?${stringifiedParams}` : `/api/v1/workflows/${workflowId}/runs`
 }
 
-export const listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet = async (workflowId: number,
+export const listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet = async (workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: RequestInit): Promise<listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponse> => {
 
   return customFetch<listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponse>(getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl(workflowId,params),
@@ -1086,7 +1086,7 @@ export const listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet = async (workflowId
 
 
 
-export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey = (workflowId: number,
+export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey = (workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams,) => {
     return [
     `/api/v1/workflows/${workflowId}/runs`, ...(params ? [params] : [])
@@ -1094,7 +1094,7 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey = (workf
     }
 
 
-export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(workflowId: number,
+export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -1118,7 +1118,7 @@ export type ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryError = HTTPVali
 
 
 export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     params: undefined |  ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>,
@@ -1129,7 +1129,7 @@ export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Await
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>,
@@ -1140,7 +1140,7 @@ export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Await
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
@@ -1149,7 +1149,7 @@ export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Await
  */
 
 export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
@@ -1187,8 +1187,8 @@ export type getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponseError = (g
 
 export type getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse = (getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponseSuccess | getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponseError)
 
-export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl = (workflowId: number,
-    runId: number,) => {
+export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl = (workflowId: string,
+    runId: string,) => {
 
 
 
@@ -1196,8 +1196,8 @@ export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl = (workflo
   return `/api/v1/workflows/${workflowId}/runs/${runId}`
 }
 
-export const getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet = async (workflowId: number,
-    runId: number, options?: RequestInit): Promise<getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse> => {
+export const getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet = async (workflowId: string,
+    runId: string, options?: RequestInit): Promise<getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse> => {
 
   return customFetch<getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse>(getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl(workflowId,runId),
   {
@@ -1212,16 +1212,16 @@ export const getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet = async (workflo
 
 
 
-export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryKey = (workflowId: number,
-    runId: number,) => {
+export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryKey = (workflowId: string,
+    runId: string,) => {
     return [
     `/api/v1/workflows/${workflowId}/runs/${runId}`
     ] as const;
     }
 
 
-export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(workflowId: number,
-    runId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(workflowId: string,
+    runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1244,8 +1244,8 @@ export type GetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryError = HTTPV
 
 
 export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(
- workflowId: number,
-    runId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>> & Pick<
+ workflowId: string,
+    runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>,
           TError,
@@ -1255,8 +1255,8 @@ export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Aw
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(
- workflowId: number,
-    runId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>> & Pick<
+ workflowId: string,
+    runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>,
           TError,
@@ -1266,8 +1266,8 @@ export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Aw
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(
- workflowId: number,
-    runId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string,
+    runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -1275,8 +1275,8 @@ export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Aw
  */
 
 export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(
- workflowId: number,
-    runId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string,
+    runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
@@ -1313,7 +1313,7 @@ export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseError
 
 export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse = (listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseSuccess | listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponseError)
 
-export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl = (workflowId: number,) => {
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl = (workflowId: string,) => {
 
 
 
@@ -1321,7 +1321,7 @@ export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl = (wo
   return `/api/v1/workflows/${workflowId}/versions`
 }
 
-export const listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet = async (workflowId: number, options?: RequestInit): Promise<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse> => {
+export const listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet = async (workflowId: string, options?: RequestInit): Promise<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse> => {
 
   return customFetch<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse>(getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl(workflowId),
   {
@@ -1336,14 +1336,14 @@ export const listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet = async (wo
 
 
 
-export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey = (workflowId: number,) => {
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey = (workflowId: string,) => {
     return [
     `/api/v1/workflows/${workflowId}/versions`
     ] as const;
     }
 
 
-export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1366,7 +1366,7 @@ export type ListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryError = 
 
 
 export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
- workflowId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
+ workflowId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>,
           TError,
@@ -1376,7 +1376,7 @@ export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>,
           TError,
@@ -1386,7 +1386,7 @@ export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -1394,7 +1394,7 @@ export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData
  */
 
 export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
- workflowId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
@@ -1431,7 +1431,7 @@ export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse
 
 export type getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse = (getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseSuccess | getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponseError)
 
-export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl = (workflowId: number,
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl = (workflowId: string,
     version: number,) => {
 
 
@@ -1440,7 +1440,7 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl 
   return `/api/v1/workflows/${workflowId}/versions/${version}`
 }
 
-export const getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet = async (workflowId: number,
+export const getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet = async (workflowId: string,
     version: number, options?: RequestInit): Promise<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse> => {
 
   return customFetch<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse>(getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl(workflowId,version),
@@ -1456,7 +1456,7 @@ export const getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet = asyn
 
 
 
-export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryKey = (workflowId: number,
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryKey = (workflowId: string,
     version: number,) => {
     return [
     `/api/v1/workflows/${workflowId}/versions/${version}`
@@ -1464,7 +1464,7 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQuer
     }
 
 
-export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(workflowId: number,
+export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -1488,7 +1488,7 @@ export type GetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryErr
 
 
 export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     version: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>,
@@ -1499,7 +1499,7 @@ export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>,
@@ -1510,7 +1510,7 @@ export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
@@ -1519,7 +1519,7 @@ export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<
  */
 
 export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
- workflowId: number,
+ workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
@@ -1557,7 +1557,7 @@ export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPo
 
 export type revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse = (revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseSuccess | revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseError)
 
-export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl = (workflowId: number,
+export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl = (workflowId: string,
     version: number,) => {
 
 
@@ -1566,7 +1566,7 @@ export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
   return `/api/v1/workflows/${workflowId}/versions/${version}/revert`
 }
 
-export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = async (workflowId: number,
+export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = async (workflowId: string,
     version: number, options?: RequestInit): Promise<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse> => {
 
   return customFetch<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse>(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl(workflowId,version),
@@ -1582,8 +1582,8 @@ export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertP
 
 
 export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext> => {
 
 const mutationKey = ['revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1595,7 +1595,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, {workflowId: number;version: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, {workflowId: string;version: number}> = (props) => {
           const {workflowId,version} = props ?? {};
 
           return  revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost(workflowId,version,requestOptions)
@@ -1616,11 +1616,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Revert Workflow Version
  */
 export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: number;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, TError,{workflowId: string;version: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>,
         TError,
-        {workflowId: number;version: number},
+        {workflowId: string;version: number},
         TContext
       > => {
       return useMutation(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions(options), queryClient);

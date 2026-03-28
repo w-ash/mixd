@@ -4,6 +4,8 @@ Promotes a specific mapping to primary status on a track, updating the
 denormalized ID column for fast lookups.
 """
 
+from uuid import UUID
+
 from attrs import define
 
 from src.domain.exceptions import NotFoundError
@@ -14,8 +16,8 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class SetPrimaryMappingCommand:
     """Parameters for setting a mapping as primary."""
 
-    mapping_id: int
-    track_id: int
+    mapping_id: UUID
+    track_id: UUID
 
 
 @define(slots=True)

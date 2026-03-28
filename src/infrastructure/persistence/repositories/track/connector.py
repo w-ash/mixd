@@ -9,6 +9,7 @@ tracks to canonical internal tracks, and stores service-specific metadata and ID
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast, override
+from uuid import UUID
 
 from attrs import define
 from sqlalchemy import Integer, case, delete, func, select, update
@@ -229,7 +230,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
         }
 
     @db_operation("get_full_mappings_for_track")
-    async def get_full_mappings_for_track(self, track_id: int) -> list[FullMappingInfo]:
+    async def get_full_mappings_for_track(
+        self, track_id: UUID
+    ) -> list[FullMappingInfo]:
         """Get all mappings for a track with joined connector track metadata."""
         stmt = (
             select(
@@ -304,11 +307,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
             # Create useful lookups
             ct_id_to_external_id = {
-                ct.id: ct.connector_track_identifier
-                for ct in connector_tracks
-                if ct.id is not None
+                ct.id: ct.connector_track_identifier for ct in connector_tracks
             }
-            ct_ids = [ct.id for ct in connector_tracks if ct.id is not None]
+            ct_ids = [ct.id for ct in connector_tracks]
 
             # Find mappings
             mappings = await self.mapping_repo.find_by([
@@ -360,7 +361,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         connector_track_keys: set[tuple[str, str]] = set()
         mapping_data: list[dict[str, Any]] = []
         updated_tracks: list[Track] = []
-        track_metadata_map: dict[int, dict[str, Any]] = {}
+        track_metadata_map: dict[UUID, dict[str, Any]] = {}
 
         # Prepare all necessary data
         for (
@@ -372,9 +373,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
             metadata,
             _,
         ) in mappings:
-            if track.id is None:
-                continue
-
             # Prepare connector track data
             connector_track_key = (connector, connector_id)
             if connector_track_key not in connector_track_keys:
@@ -411,10 +409,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
         )
 
         # Create connector ID to DB ID mapping
-        connector_id_map: dict[tuple[str, str], int] = {
+        connector_id_map: dict[tuple[str, str], UUID] = {
             (ct.connector_name, ct.connector_track_identifier): ct.id
             for ct in connector_tracks
-            if ct.id is not None
         }
 
         # Prepare mapping data
@@ -427,7 +424,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
             _,
             confidence_evidence,
         ) in mappings:
-            if track.id is None or (connector, connector_id) not in connector_id_map:
+            if (connector, connector_id) not in connector_id_map:
                 continue
 
             connector_track_id = connector_id_map[connector, connector_id]
@@ -488,8 +485,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
         origin: str = "automatic",
     ) -> Track:
         """Link an existing internal track to an external service ID."""
-        if track.id is None:
-            raise ValueError("Cannot map track with no ID")
 
         # Ensure the track exists (raises NotFoundError if missing)
         await self.track_repo.get_by_id(track.id)
@@ -588,20 +583,18 @@ class TrackConnectorRepository:  # noqa: PLR0904
         }
 
         # 3. Bulk-fetch all existing mappings for these connector tracks (N queries → 1)
-        all_ct_db_ids = [
-            ct.id for ct in connector_track_lookup.values() if ct.id is not None
-        ]
+        all_ct_db_ids = [ct.id for ct in connector_track_lookup.values()]
         existing_mappings_list = await self.mapping_repo.find_by([
             self.mapping_repo.model_class.connector_track_id.in_(all_ct_db_ids),
         ])
-        existing_mapping_by_ct_id: dict[int, TrackMapping] = {
+        existing_mapping_by_ct_id: dict[UUID, TrackMapping] = {
             m.connector_track_id: m for m in existing_mappings_list
         }
 
         # 4. Create or find domain tracks
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, Any]] = []
-        metrics_data: list[tuple[int | None, dict[str, Any]]] = []
+        metrics_data: list[tuple[UUID | None, dict[str, Any]]] = []
 
         # Process each unique connector track identifier
         for connector_track_identifier, track_group in tracks_by_identifier.items():
@@ -631,7 +624,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 # Update mapping confidence if needed (skip manual overrides)
                 if (
                     mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
-                    and mapping.id is not None
                     and mapping.origin != MappingOrigin.MANUAL_OVERRIDE
                 ):
                     _ = await self.mapping_repo.update(
@@ -669,23 +661,22 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 domain_tracks.extend(domain_track for _ in track_group)
 
                 # Prepare mapping data for bulk insert (only once per unique connector track)
-                if domain_track.id is not None:
-                    track_mappings_data.append({
-                        "user_id": domain_track.user_id,
-                        "track_id": domain_track.id,
-                        "connector_track_id": connector_track_id,
-                        "connector_name": connector,
-                        "match_method": "direct",
-                        "confidence": 100,
-                        "is_primary": False,  # Will be set properly via ensure_primary_mapping post-processing
-                    })
+                track_mappings_data.append({
+                    "user_id": domain_track.user_id,
+                    "track_id": domain_track.id,
+                    "connector_track_id": connector_track_id,
+                    "connector_name": connector,
+                    "match_method": "direct",
+                    "confidence": 100,
+                    "is_primary": False,  # Will be set properly via ensure_primary_mapping post-processing
+                })
 
-                    # Prepare metrics data (only once per unique connector track)
-                    if representative_track.raw_metadata:
-                        metrics_data.append((
-                            domain_track.id,
-                            representative_track.raw_metadata,
-                        ))
+                # Prepare metrics data (only once per unique connector track)
+                if representative_track.raw_metadata:
+                    metrics_data.append((
+                        domain_track.id,
+                        representative_track.raw_metadata,
+                    ))
 
         # 5. Bulk create mappings if any
         if track_mappings_data:
@@ -696,9 +687,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
             )
 
             # 6. Set primary mappings in bulk (one per track-connector pair)
-            primaries_set: dict[int, str] = {}
+            primaries_set: dict[UUID, str] = {}
             for track in domain_tracks:
-                if track.id is not None and track.id not in primaries_set:
+                if track.id not in primaries_set:
                     cid = track.connector_track_identifiers.get(connector)
                     if cid:
                         primaries_set[track.id] = cid
@@ -710,7 +701,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return domain_tracks
 
     async def _sync_denormalized_id(
-        self, track_id: int, connector: str, connector_id: str
+        self, track_id: UUID, connector: str, connector_id: str
     ) -> None:
         """Sync denormalized ID column on DBTrack after a mapping is created.
 
@@ -726,7 +717,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 .values(**{column_name: connector_id})
             )
 
-    async def _clear_denormalized_id(self, track_id: int, connector: str) -> None:
+    async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
         """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
         column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector)
         if column_name:
@@ -737,7 +728,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
             )
 
     @db_operation("get_mapping_by_id")
-    async def get_mapping_by_id(self, mapping_id: int) -> TrackMapping | None:
+    async def get_mapping_by_id(self, mapping_id: UUID) -> TrackMapping | None:
         """Get a single track mapping by its database ID."""
         result = await self.session.execute(
             select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
@@ -748,7 +739,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return await TrackMappingMapper.to_domain(row)
 
     @db_operation("delete_mapping")
-    async def delete_mapping(self, mapping_id: int) -> TrackMapping:
+    async def delete_mapping(self, mapping_id: UUID) -> TrackMapping:
         """Delete a track mapping and return the pre-deletion entity."""
         result = await self.session.execute(
             select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
@@ -764,7 +755,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("update_mapping_track")
     async def update_mapping_track(
-        self, mapping_id: int, new_track_id: int, origin: str
+        self, mapping_id: UUID, new_track_id: UUID, origin: str
     ) -> TrackMapping:
         """Move a mapping to a different canonical track."""
         result = cast(
@@ -785,7 +776,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return await TrackMappingMapper.to_domain(row)
 
     @db_operation("count_mappings_for_connector_track")
-    async def count_mappings_for_connector_track(self, connector_track_id: int) -> int:
+    async def count_mappings_for_connector_track(self, connector_track_id: UUID) -> int:
         """Count remaining mappings for a given connector track."""
         result = await self.session.execute(
             select(func.count())
@@ -796,7 +787,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("get_remaining_mappings")
     async def get_remaining_mappings(
-        self, track_id: int, connector_name: str
+        self, track_id: UUID, connector_name: str
     ) -> list[TrackMapping]:
         """Get all mappings for a (track, connector) pair, ordered by confidence desc."""
         result = await self.session.execute(
@@ -813,7 +804,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("get_connector_track_by_id")
     async def get_connector_track_by_id(
-        self, connector_track_id: int
+        self, connector_track_id: UUID
     ) -> ConnectorTrack | None:
         """Get a connector track entity by its database ID."""
         result = await self.session.execute(
@@ -826,7 +817,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("ensure_primary_for_connector")
     async def ensure_primary_for_connector(
-        self, track_id: int, connector_name: str
+        self, track_id: UUID, connector_name: str
     ) -> None:
         """Ensure a primary mapping exists for a (track, connector) pair.
 
@@ -857,9 +848,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
     @db_operation("get_connector_mappings")
     async def get_connector_mappings(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         connector: str | None = None,
-    ) -> dict[int, dict[str, str]]:
+    ) -> dict[UUID, dict[str, str]]:
         """Get external service IDs for internal tracks.
 
         Args:
@@ -898,7 +889,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         # Execute and build response
         result = await self.session.execute(stmt)
 
-        mappings_dict: dict[int, dict[str, str]] = {}
+        mappings_dict: dict[UUID, dict[str, str]] = {}
         for track_id, conn_name, conn_id in result:
             mappings_dict.setdefault(track_id, {})[conn_name] = conn_id
 
@@ -907,10 +898,10 @@ class TrackConnectorRepository:  # noqa: PLR0904
     @db_operation("get_connector_metadata")
     async def get_connector_metadata(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         connector: str,
         metadata_field: str | None = None,
-    ) -> dict[int, dict[str, Any] | Any]:
+    ) -> dict[UUID, dict[str, Any] | Any]:
         """Get service-specific metadata for tracks.
 
         Args:
@@ -957,7 +948,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("ensure_primary_mapping")
     async def ensure_primary_mapping(
-        self, track_id: int, connector: str, connector_id: str
+        self, track_id: UUID, connector: str, connector_id: str
     ) -> bool:
         """Ensure a mapping exists and is set as primary for the given track-connector pair.
 
@@ -978,7 +969,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
             "connector_track_identifier": connector_id,
         })
 
-        if not connector_track or connector_track.id is None:
+        if not connector_track:
             logger.warning(f"Connector track not found: {connector}:{connector_id}")
             return False
 
@@ -986,7 +977,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("set_primary_mapping")
     async def set_primary_mapping(
-        self, track_id: int, connector_name: str, connector_track_id: int
+        self, track_id: UUID, connector_name: str, connector_track_id: UUID
     ) -> bool:
         """Mark one external track as the primary mapping for a service.
 
@@ -1046,7 +1037,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
     @db_operation("batch_ensure_primary_mappings")
     async def batch_ensure_primary_mappings(
         self,
-        primaries: list[tuple[int, str, str]],
+        primaries: list[tuple[UUID, str, str]],
     ) -> int:
         """Set primary mappings for multiple track-connector pairs in bulk.
 
@@ -1072,10 +1063,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 connector_ids
             ),
         ])
-        ct_id_map: dict[tuple[str, str], int] = {
+        ct_id_map: dict[tuple[str, str], UUID] = {
             (ct.connector_name, ct.connector_track_identifier): ct.id
             for ct in ct_records
-            if ct.id is not None
         }
 
         # Step 1: Bulk reset all primaries for affected track-connector pairs

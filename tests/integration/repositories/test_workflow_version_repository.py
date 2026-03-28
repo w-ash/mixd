@@ -3,6 +3,8 @@
 Tests CRUD operations: create, list, get, and delete workflow versions.
 """
 
+from uuid import uuid7
+
 import pytest
 
 from src.domain.entities.workflow import Workflow, WorkflowVersion
@@ -173,7 +175,7 @@ class TestGetVersion:
         repo = WorkflowVersionRepository(db_session)
 
         with pytest.raises(NotFoundError):
-            await repo.get_version(99999, 1)
+            await repo.get_version(uuid7(), 1)
 
 
 class TestDeleteVersionsForWorkflow:

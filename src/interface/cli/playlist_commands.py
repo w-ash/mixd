@@ -82,7 +82,7 @@ def create(
 
 @app.command()
 def update(
-    playlist_id: Annotated[int, typer.Argument(help="Playlist ID to update")],
+    playlist_id: Annotated[str, typer.Argument(help="Playlist UUID to update")],
     name: Annotated[
         str | None,
         typer.Option("--name", "-n", help="New playlist name"),
@@ -108,7 +108,7 @@ def update(
 
 @app.command()
 def delete(
-    playlist_id: Annotated[int, typer.Argument(help="Playlist ID to delete")],
+    playlist_id: Annotated[str, typer.Argument(help="Playlist UUID to delete")],
     force: Annotated[bool, typer.Option("--force", "-f")] = False,
 ) -> None:
     """Delete a playlist from your local database.
@@ -189,7 +189,7 @@ def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
     console.print(table)
 
 
-async def _delete_playlist_async(playlist_id: int, force: bool) -> None:
+async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
     """Delete a playlist with confirmation unless forced."""
     try:
         from src.application.runner import execute_use_case
@@ -359,7 +359,7 @@ async def _create_playlist_async(name: str, description: str | None) -> None:
 
 
 async def _update_playlist_async(
-    playlist_id: int, name: str | None, description: str | None
+    playlist_id: str, name: str | None, description: str | None
 ) -> None:
     """Update playlist metadata via use case."""
     try:

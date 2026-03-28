@@ -10,6 +10,7 @@ import base64
 from datetime import datetime
 import json
 from typing import Final, Literal
+from uuid import UUID
 
 from attrs import define
 
@@ -51,12 +52,12 @@ class PageCursor:
     Attributes:
         sort_column: The DB column name used for ordering (e.g., "title").
         sort_value: The last row's value for that column. Datetimes stored as ISO strings.
-        last_id: The last row's primary key, used as tiebreaker for stable ordering.
+        last_id: The last row's primary key (UUID), used as tiebreaker for stable ordering.
     """
 
     sort_column: str
     sort_value: str | int | float | None
-    last_id: int
+    last_id: UUID
 
 
 def encode_cursor(cursor: PageCursor) -> str:
@@ -65,7 +66,11 @@ def encode_cursor(cursor: PageCursor) -> str:
     Format: base64(json({"c": column, "v": value, "id": id}))
     Compact keys minimize URL length.
     """
-    payload = {"c": cursor.sort_column, "v": cursor.sort_value, "id": cursor.last_id}
+    payload = {
+        "c": cursor.sort_column,
+        "v": cursor.sort_value,
+        "id": str(cursor.last_id),
+    }
     json_bytes = json.dumps(payload, separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(json_bytes).decode()
 
@@ -88,14 +93,18 @@ def decode_cursor(encoded: str) -> PageCursor:
     try:
         sort_column = payload["c"]
         sort_value = payload["v"]
-        last_id = payload["id"]
+        last_id_raw = payload["id"]
     except KeyError as exc:
         raise ValueError(f"Cursor missing required key: {exc}") from exc
 
     if not isinstance(sort_column, str):
         raise TypeError("Cursor sort_column must be a string")
-    if not isinstance(last_id, int):
-        raise TypeError("Cursor last_id must be an integer")
+    if not isinstance(last_id_raw, str):
+        raise TypeError("Cursor last_id must be a UUID string")
+    try:
+        last_id = UUID(last_id_raw)
+    except ValueError as exc:
+        raise TypeError(f"Cursor last_id is not a valid UUID: {exc}") from exc
     if sort_value is not None and not isinstance(sort_value, str | int | float):
         raise TypeError("Cursor sort_value must be str, int, float, or None")
 

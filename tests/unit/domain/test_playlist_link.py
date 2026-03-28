@@ -1,6 +1,7 @@
 """Unit tests for PlaylistLink entity, SyncDirection, and SyncStatus enums."""
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
 
@@ -37,12 +38,13 @@ class TestPlaylistLink:
     """PlaylistLink entity creation and defaults."""
 
     def test_minimal_creation(self):
+        pid = uuid7()
         link = PlaylistLink(
-            playlist_id=1,
+            playlist_id=pid,
             connector_name="spotify",
             connector_playlist_identifier="abc123",
         )
-        assert link.playlist_id == 1
+        assert link.playlist_id == pid
         assert link.connector_name == "spotify"
         assert link.connector_playlist_identifier == "abc123"
         assert link.sync_direction == SyncDirection.PUSH
@@ -51,12 +53,14 @@ class TestPlaylistLink:
         assert link.last_sync_error is None
         assert link.last_sync_tracks_added is None
         assert link.last_sync_tracks_removed is None
-        assert link.id is None
+        assert isinstance(link.id, UUID)
 
     def test_full_creation(self):
         now = datetime.now(UTC)
+        pid = uuid7()
+        lid = uuid7()
         link = PlaylistLink(
-            playlist_id=42,
+            playlist_id=pid,
             connector_name="spotify",
             connector_playlist_identifier="37i9dQZF1DZ06evO05tE88",
             connector_playlist_name="My Playlist",
@@ -66,20 +70,20 @@ class TestPlaylistLink:
             last_sync_error=None,
             last_sync_tracks_added=5,
             last_sync_tracks_removed=2,
-            id=99,
+            id=lid,
         )
-        assert link.playlist_id == 42
+        assert link.playlist_id == pid
         assert link.connector_playlist_name == "My Playlist"
         assert link.sync_direction == SyncDirection.PULL
         assert link.sync_status == SyncStatus.SYNCED
         assert link.last_synced == now
         assert link.last_sync_tracks_added == 5
         assert link.last_sync_tracks_removed == 2
-        assert link.id == 99
+        assert link.id == lid
 
     def test_created_at_auto_populated(self):
         link = PlaylistLink(
-            playlist_id=1,
+            playlist_id=uuid7(),
             connector_name="spotify",
             connector_playlist_identifier="abc",
         )

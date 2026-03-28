@@ -6,13 +6,13 @@ import { renderWithProviders, screen, userEvent } from "@/test/test-utils";
 import { MergeTrackDialog } from "./MergeTrackDialog";
 
 const mockWinner: TrackDetailSchema = {
-  id: 1,
+  id: "019d0000-0000-7000-8000-000000000001",
   title: "Test Track",
   artists: [{ name: "Artist One" }, { name: "Artist Two" }],
   album: "Test Album",
   connector_mappings: [
     {
-      mapping_id: 10,
+      mapping_id: "019d0000-0000-7000-8000-000000000010",
       connector_name: "spotify",
       connector_track_id: "sp-1",
       is_primary: true,

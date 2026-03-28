@@ -14,7 +14,7 @@
     },
     {
       "id": "get_recent_plays",
-      "type": "source.played_tracks", 
+      "type": "source.played_tracks",
       "config": {
         "limit": 3000,
         "days_back": 90
@@ -76,7 +76,7 @@
     },
     {
       "id": "create_discovery_playlist",
-      "type": "destination.create_playlist", 
+      "type": "destination.create_playlist",
       "upstream": ["select_mix"],
       "config": {
         "name": "Discovery Mix {date}",

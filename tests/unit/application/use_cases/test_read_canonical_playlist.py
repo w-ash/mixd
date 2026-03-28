@@ -54,11 +54,11 @@ class TestReadCanonicalPlaylistUseCase:
     """Test use case execution paths."""
 
     async def test_lookup_by_internal_id(self, mock_uow):
-        """Test successful lookup using integer database ID."""
-        playlist = make_playlist(42, "Found Playlist")
+        """Test successful lookup using UUID database ID."""
+        playlist = make_playlist(name="Found Playlist")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
-        command = ReadCanonicalPlaylistCommand(playlist_id="42")
+        command = ReadCanonicalPlaylistCommand(playlist_id=str(playlist.id))
         use_case = ReadCanonicalPlaylistUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -70,10 +70,10 @@ class TestReadCanonicalPlaylistUseCase:
 
     async def test_lookup_by_connector_id(self, mock_uow):
         """Test lookup using external connector ID string."""
-        playlist = make_playlist(1, "Spotify Playlist")
+        playlist = make_playlist(name="Spotify Playlist")
         playlist_repo = mock_uow.get_playlist_repository()
-        # Non-numeric ID triggers ValueError on int(), falls through to connector lookup
-        playlist_repo.get_playlist_by_id.side_effect = ValueError("not an int")
+        # Non-UUID ID triggers ValueError on UUID(), falls through to connector lookup
+        playlist_repo.get_playlist_by_id.side_effect = ValueError("not a UUID")
         playlist_repo.get_playlist_by_connector.return_value = playlist
 
         command = ReadCanonicalPlaylistCommand(

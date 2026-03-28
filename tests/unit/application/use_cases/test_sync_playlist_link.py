@@ -1,6 +1,7 @@
 """Unit tests for SyncPlaylistLinkUseCase."""
 
 from unittest.mock import AsyncMock, patch
+from uuid import uuid7
 
 import pytest
 
@@ -15,6 +16,10 @@ from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncS
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from tests.fixtures import make_mock_uow, make_playlist, make_tracks
 
+# Stable UUIDs for consistent cross-reference in test helpers
+_PLAYLIST_ID = uuid7()
+_LINK_ID = uuid7()
+
 
 def _make_link(
     *,
@@ -22,8 +27,8 @@ def _make_link(
     status: SyncStatus = SyncStatus.NEVER_SYNCED,
 ) -> PlaylistLink:
     return PlaylistLink(
-        id=1,
-        playlist_id=42,
+        id=_LINK_ID,
+        playlist_id=_PLAYLIST_ID,
         connector_name="spotify",
         connector_playlist_identifier="ext123",
         connector_playlist_name="External Playlist",
@@ -40,7 +45,7 @@ def _make_uow_with_link(link: PlaylistLink | None = None) -> AsyncMock:
     link_repo.get_link.return_value = link
     link_repo.update_sync_status.return_value = None
 
-    playlist = make_playlist(id=42, name="My Playlist")
+    playlist = make_playlist(id=_PLAYLIST_ID, name="My Playlist")
     uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
     return uow
@@ -81,7 +86,7 @@ class TestSyncPlaylistLinkPush:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=1), uow
+                SyncPlaylistLinkCommand(link_id=_LINK_ID), uow
             )
 
             assert result.tracks_added == 3
@@ -117,7 +122,7 @@ class TestSyncPlaylistLinkPull:
 
             result = await SyncPlaylistLinkUseCase().execute(
                 SyncPlaylistLinkCommand(
-                    link_id=1,
+                    link_id=_LINK_ID,
                     direction_override=SyncDirection.PULL,
                 ),
                 uow,
@@ -137,7 +142,7 @@ class TestSyncPlaylistLinkErrors:
 
         with pytest.raises(NotFoundError, match="not found"):
             await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=999), uow
+                SyncPlaylistLinkCommand(link_id=uuid7()), uow
             )
 
     @pytest.mark.asyncio
@@ -155,15 +160,15 @@ class TestSyncPlaylistLinkErrors:
 
             with pytest.raises(RuntimeError, match="Spotify API error"):
                 await SyncPlaylistLinkUseCase().execute(
-                    SyncPlaylistLinkCommand(link_id=1), uow
+                    SyncPlaylistLinkCommand(link_id=_LINK_ID), uow
                 )
 
             # Verify error status was set
             link_repo = uow.get_playlist_link_repository()
             # First call: SYNCING, last call: ERROR
             calls = link_repo.update_sync_status.call_args_list
-            assert calls[0].args == (1, SyncStatus.SYNCING)
-            assert calls[-1].args == (1, SyncStatus.ERROR)
+            assert calls[0].args == (_LINK_ID, SyncStatus.SYNCING)
+            assert calls[-1].args == (_LINK_ID, SyncStatus.ERROR)
             assert "Spotify API error" in str(calls[-1].kwargs.get("error", ""))
 
 
@@ -182,19 +187,24 @@ def _make_uow_with_safety_setup(
     link_repo.get_link.side_effect = [link, updated_link]
     link_repo.update_sync_status.return_value = None
 
+    # Build shared tracks for overlap so the diff engine can match by track ID
+    overlap = min(canonical_track_count, external_track_count)
+    shared_tracks = make_tracks(count=overlap)
+
+    canonical_extra = make_tracks(count=canonical_track_count - overlap)
     canonical = make_playlist(
-        id=42,
+        id=_PLAYLIST_ID,
         name="My Playlist",
-        tracks=make_tracks(count=canonical_track_count),
+        tracks=shared_tracks + canonical_extra,
     )
     playlist_repo = uow.get_playlist_repository()
     playlist_repo.get_playlist_by_id.return_value = canonical
 
     if external_cached:
+        external_extra = make_tracks(count=external_track_count - overlap)
         external = make_playlist(
-            id=99,
             name="External Playlist",
-            tracks=make_tracks(count=external_track_count),
+            tracks=shared_tracks + external_extra,
         )
         playlist_repo.get_playlist_by_connector.return_value = external
     else:
@@ -215,7 +225,7 @@ class TestSyncPlaylistLinkSafetyCheck:
 
         with pytest.raises(ConfirmationRequiredError) as exc_info:
             await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
             )
 
         assert exc_info.value.removals == 145
@@ -241,7 +251,7 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=1, confirmed=True), uow
+                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=True), uow
             )
 
             assert result.tracks_removed == 145
@@ -264,7 +274,7 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
             )
 
             assert result.tracks_added == 5
@@ -293,7 +303,7 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=1, confirmed=False), uow
+                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
             )
 
             assert result.tracks_added == 100

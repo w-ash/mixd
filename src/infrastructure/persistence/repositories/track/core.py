@@ -5,6 +5,7 @@
 
 from datetime import UTC, datetime
 from typing import Any, ClassVar
+from uuid import UUID
 
 from sqlalchemy import (
     String,
@@ -60,7 +61,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # -------------------------------------------------------------------------
 
     @db_operation("find_tracks_by_ids")
-    async def find_tracks_by_ids(self, track_ids: list[int]) -> dict[int, Track]:
+    async def find_tracks_by_ids(self, track_ids: list[UUID]) -> dict[UUID, Track]:
         """Find multiple tracks by their internal IDs in a single batch operation.
 
         Args:
@@ -76,7 +77,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         tracks = await self.get_by_ids(track_ids)
 
         # Map results by ID for easier lookup
-        return {track.id: track for track in tracks if track.id is not None}
+        return {track.id: track for track in tracks}
 
     @db_operation("save_track")
     async def save_track(self, track: Track) -> Track:
@@ -91,8 +92,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not track.title or not track.artists:
             raise ValueError("Track must have title and artists")
 
-        # Handle update case with explicit eager loading
-        if track.id:
+        # version > 0 means the track was loaded from DB — update path
+        if track.version > 0:
             return await self.update(track.id, track)
 
         # Create direct column-to-value mappings for insert/update
@@ -183,7 +184,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         offset: int = 0,
         # Keyset pagination: seek after this (sort_value, id) pair
         after_value: Any = None,
-        after_id: int | None = None,
+        after_id: UUID | None = None,
         include_total: bool = True,
     ) -> TrackListingPage:
         """List tracks with search, filters, sorting, and pagination.
@@ -276,14 +277,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
 
         # Build next-page keyset from the last row
-        next_page_key: tuple[Any, int] | None = None
+        next_page_key: tuple[Any, UUID] | None = None
         if db_tracks and len(db_tracks) == limit:
             last_db = db_tracks[-1]
             next_page_key = (getattr(last_db, sort_field), last_db.id)
 
         # Get authoritative liked status from track_likes table for returned tracks
-        track_ids = [t.id for t in tracks if t.id is not None]
-        liked_ids: set[int] = set()
+        track_ids = [t.id for t in tracks]
+        liked_ids: set[UUID] = set()
         if track_ids:
             liked_stmt = (
                 select(DBTrackLike.track_id)
@@ -307,7 +308,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # -------------------------------------------------------------------------
 
     @db_operation("move_references_to_track")
-    async def move_references_to_track(self, from_id: int, to_id: int) -> None:
+    async def move_references_to_track(self, from_id: UUID, to_id: UUID) -> None:
         """Move all foreign key references from one track to another.
 
         Single CTE chain: moves playlist tracks, plays, and likes (with
@@ -388,7 +389,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     @db_operation("merge_mappings_to_track")
-    async def merge_mappings_to_track(self, from_id: int, to_id: int) -> None:
+    async def merge_mappings_to_track(self, from_id: UUID, to_id: UUID) -> None:
         """Merge connector mappings from one track to another with conflict resolution.
 
         Single CTE chain handling two conflict branches:
@@ -499,7 +500,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     @db_operation("merge_metrics_to_track")
-    async def merge_metrics_to_track(self, from_id: int, to_id: int) -> None:
+    async def merge_metrics_to_track(self, from_id: UUID, to_id: UUID) -> None:
         """Merge track metrics from one track to another with conflict resolution.
 
         Single CTE chain: for conflicts (same connector_name + metric_type),
@@ -560,7 +561,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     @db_operation("hard_delete_track")
-    async def hard_delete_track(self, track_id: int) -> None:
+    async def hard_delete_track(self, track_id: UUID) -> None:
         """Permanently delete a track record from the database."""
         await self.session.execute(delete(DBTrack).where(DBTrack.id == track_id))
         logger.debug(f"Hard deleted track: {track_id}")
@@ -679,7 +680,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 "artist": row.first_artist,
                 "album": row.album,
                 "count": row.count,
-                "track_ids": [int(x) for x in str(row.track_ids).split(",")],
+                "track_ids": [UUID(x) for x in str(row.track_ids).split(",")],
             }
             for row in result.all()
         ]

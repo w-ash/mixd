@@ -16,6 +16,7 @@ import asyncio
 from asyncio import CancelledError
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from attrs import define
 
@@ -44,7 +45,7 @@ logger = get_logger(__name__).bind(service="workflow_runs")
 def serialize_output_tracks(
     tracks: list[Track],
     limit: int | None = None,
-    metrics: dict[str, dict[int, Any]] | None = None,
+    metrics: dict[str, dict[UUID, Any]] | None = None,
 ) -> tuple[list[dict[str, object]], list[str]]:
     """Serialize result tracks into lightweight dicts for the run record.
 
@@ -65,14 +66,14 @@ def serialize_output_tracks(
     result: list[dict[str, object]] = []
     for rank, track in enumerate(subset, 1):
         entry: dict[str, object] = {
-            "track_id": track.id or 0,
+            "track_id": track.id,
             "title": track.title or "Unknown",
             "artists": track.artists_display or "Unknown",
             "rank": rank,
         }
         if metrics and metric_columns:
             entry["metrics"] = {
-                col: metrics[col].get(track.id or 0) for col in metric_columns
+                col: metrics[col].get(track.id) for col in metric_columns
             }
         result.append(entry)
     return result, metric_columns
@@ -85,12 +86,12 @@ def serialize_output_tracks(
 
 @define(frozen=True, slots=True)
 class RunWorkflowCommand:
-    workflow_id: int
+    workflow_id: UUID
 
 
 @define(frozen=True, slots=True)
 class RunWorkflowResult:
-    run_id: int
+    run_id: UUID
     workflow: Workflow
 
 
@@ -126,7 +127,7 @@ class RunWorkflowUseCase:
             ]
 
             run = WorkflowRun(
-                workflow_id=workflow.id or 0,
+                workflow_id=workflow.id,
                 status=WorkflowConstants.RUN_STATUS_PENDING,
                 definition_snapshot=definition_snapshot,
                 definition_version=workflow.definition_version,
@@ -137,7 +138,7 @@ class RunWorkflowUseCase:
             saved_run = await run_repo.create_run(run)
 
             return RunWorkflowResult(
-                run_id=saved_run.id or 0,
+                run_id=saved_run.id,
                 workflow=workflow,
             )
 
@@ -149,7 +150,7 @@ class RunWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class ListWorkflowRunsCommand:
-    workflow_id: int
+    workflow_id: UUID
     limit: int = 20
     offset: int = 0
 
@@ -186,8 +187,8 @@ class ListWorkflowRunsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowRunCommand:
-    workflow_id: int
-    run_id: int
+    workflow_id: UUID
+    run_id: UUID
 
 
 @define(frozen=True, slots=True)
@@ -224,12 +225,12 @@ class GetWorkflowRunUseCase:
 
 @define(frozen=True, slots=True)
 class GetLatestWorkflowRunsCommand:
-    workflow_ids: list[int]
+    workflow_ids: list[UUID]
 
 
 @define(frozen=True, slots=True)
 class GetLatestWorkflowRunsResult:
-    latest_runs: dict[int, WorkflowRun]
+    latest_runs: dict[UUID, WorkflowRun]
 
 
 @define(slots=True)
@@ -255,7 +256,7 @@ class ExecuteWorkflowRunResult:
     """Result of a workflow run execution."""
 
     status: RunStatus
-    run_id: int
+    run_id: UUID
     duration_ms: int
     output_track_count: int | None = None
     error_message: str | None = None
@@ -276,7 +277,7 @@ class ExecuteWorkflowRunUseCase:
     async def execute(
         self,
         workflow_def: WorkflowDef,
-        run_id: int,
+        run_id: UUID,
         sse_queue: asyncio.Queue[Any] | None = None,
     ) -> ExecuteWorkflowRunResult:
         from src.application.services.progress_manager import get_progress_manager

@@ -6,6 +6,7 @@ Each PlaylistLink captures the connector relationship plus sync direction and st
 
 from datetime import datetime
 from enum import Enum
+from uuid import UUID, uuid7
 
 from attrs import define, field
 
@@ -39,7 +40,7 @@ class PlaylistLink:
     No bidirectional sync — direction is explicitly chosen by the user.
     """
 
-    playlist_id: int
+    playlist_id: UUID
     connector_name: str
     connector_playlist_identifier: str  # External service's playlist ID
     connector_playlist_name: str | None = None  # Denormalized for display
@@ -50,4 +51,4 @@ class PlaylistLink:
     last_sync_tracks_added: int | None = None
     last_sync_tracks_removed: int | None = None
     created_at: datetime = field(factory=utc_now_factory)
-    id: int | None = None
+    id: UUID = field(factory=uuid7)

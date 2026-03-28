@@ -141,8 +141,8 @@ class TestPlaylistTrackListConversion:
         tl = playlist.to_tracklist()
 
         assert "added_at_dates" in tl.metadata
-        assert tl.metadata["added_at_dates"][1] == now.isoformat()
-        assert tl.metadata["added_at_dates"][2] == now.isoformat()
+        assert tl.metadata["added_at_dates"][tracks[0].id] == now.isoformat()
+        assert tl.metadata["added_at_dates"][tracks[1].id] == now.isoformat()
 
     def test_to_tracklist_carries_source_playlist_name(self):
         """to_tracklist should include source_playlist_name in metadata."""
@@ -163,21 +163,22 @@ class TestPlaylistTrackListConversion:
 
         tl = playlist.to_tracklist()
 
-        assert 1 in tl.metadata["added_at_dates"]
-        assert 2 not in tl.metadata["added_at_dates"]
+        assert tracks[0].id in tl.metadata["added_at_dates"]
+        assert tracks[1].id not in tl.metadata["added_at_dates"]
 
-    def test_to_tracklist_skips_entries_without_track_id(self):
-        """Entries with tracks that have no ID should not appear in added_at_dates."""
+    def test_to_tracklist_all_tracks_have_ids(self):
+        """All tracks have UUIDs, so all entries with added_at should appear in added_at_dates."""
         now = datetime(2025, 1, 1, tzinfo=UTC)
-        track_with_id = Track(id=1, title="With ID", artists=[Artist(name="A")])
-        track_no_id = Track(title="No ID", artists=[Artist(name="B")])
+        track_a = Track(title="Track A", artists=[Artist(name="A")])
+        track_b = Track(title="Track B", artists=[Artist(name="B")])
         entries = [
-            PlaylistEntry(track=track_with_id, added_at=now),
-            PlaylistEntry(track=track_no_id, added_at=now),
+            PlaylistEntry(track=track_a, added_at=now),
+            PlaylistEntry(track=track_b, added_at=now),
         ]
         playlist = Playlist(name="Mixed", entries=entries)
 
         tl = playlist.to_tracklist()
 
-        assert 1 in tl.metadata["added_at_dates"]
-        assert len(tl.metadata["added_at_dates"]) == 1
+        assert track_a.id in tl.metadata["added_at_dates"]
+        assert track_b.id in tl.metadata["added_at_dates"]
+        assert len(tl.metadata["added_at_dates"]) == 2

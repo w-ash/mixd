@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.5.8
+ * OpenAPI spec version: 0.5.10
  */
 import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema';
 
@@ -14,7 +14,7 @@ Breaking change from v0.4.3: connector_links changed from list[str]
 to list[ConnectorLinkBriefSchema] with sync direction and status.
  */
 export interface PlaylistSummarySchema {
-  id: number;
+  id: string;
   name: string;
   description?: string | null;
   track_count: number;

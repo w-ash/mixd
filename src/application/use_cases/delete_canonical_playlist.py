@@ -10,6 +10,7 @@ and atomic transaction management to ensure data consistency.
 
 from datetime import datetime
 from typing import Any, Never
+from uuid import UUID
 
 from attrs import define, field
 
@@ -53,7 +54,7 @@ class DeleteCanonicalPlaylistResult:
         errors: List of error messages if deletion failed.
     """
 
-    deleted_playlist_id: int
+    deleted_playlist_id: UUID
     deleted_playlist_name: str
     tracks_count: int
     execution_time_ms: int = 0
@@ -106,7 +107,7 @@ class DeleteCanonicalPlaylistUseCase:
         def _raise_no_id_error() -> Never:
             raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
 
-        def _raise_deletion_failed_error(playlist_id: int) -> Never:
+        def _raise_deletion_failed_error(playlist_id: UUID) -> Never:
             raise ValueError(
                 f"Failed to delete playlist {playlist_id} - it may not exist"
             )

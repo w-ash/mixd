@@ -28,19 +28,18 @@ Transform = Callable[[TrackList], TrackList]
 
 
 def require_database_tracks(tracklist: TrackList) -> None:
-    """Assert all tracks have database IDs. Raises TracklistInvariantError if not.
+    """Assert all tracks have been persisted (version > 0).
 
-    Workflow pipelines operate on persisted tracks — a track without an ID
+    Workflow pipelines operate on persisted tracks — a track with version=0
     means the upstream source node failed to persist it. Detecting this
     immediately prevents silent data loss in downstream transforms/enrichers.
     """
-    if not any(t.id is None for t in tracklist.tracks):
-        return
-    id_none_tracks = [t for t in tracklist.tracks if t.id is None]
-    titles = [t.title for t in id_none_tracks[:5]]
-    raise TracklistInvariantError(
-        f"{len(id_none_tracks)} tracks lack database IDs: {titles}"
-    )
+    unpersisted = [t for t in tracklist.tracks if t.version == 0]
+    if unpersisted:
+        titles = [t.title for t in unpersisted[:5]]
+        raise TracklistInvariantError(
+            f"{len(unpersisted)} tracks are not persisted (version=0): {titles}"
+        )
 
 
 # === Transform Decorators ===

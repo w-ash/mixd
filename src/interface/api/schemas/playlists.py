@@ -6,6 +6,7 @@ visible in the OpenAPI spec.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -27,7 +28,7 @@ class TrackSummarySchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int | None = None
+    id: UUID | None = None
     title: str
     artists: list[ArtistSchema]
     album: str | None = None
@@ -58,7 +59,7 @@ class ConnectorLinkBriefSchema(BaseModel):
 class PlaylistLinkSchema(BaseModel):
     """Full link detail for playlist detail views."""
 
-    id: int
+    id: UUID
     connector_name: str
     connector_playlist_id: str
     connector_playlist_name: str | None = None
@@ -127,7 +128,7 @@ class PlaylistSummarySchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     description: str | None = None
     track_count: int
@@ -199,7 +200,7 @@ def to_link_brief(link: PlaylistLink) -> ConnectorLinkBriefSchema:
 def to_link_schema(link: PlaylistLink) -> PlaylistLinkSchema:
     """Convert domain PlaylistLink to full schema for detail views."""
     return PlaylistLinkSchema(
-        id=link.id or 0,
+        id=link.id,
         connector_name=link.connector_name,
         connector_playlist_id=link.connector_playlist_identifier,
         connector_playlist_name=link.connector_playlist_name,
@@ -242,7 +243,7 @@ def to_playlist_summary(
             connector_playlist_identifiers keys with default status.
     """
     return PlaylistSummarySchema(
-        id=playlist.id or 0,
+        id=playlist.id,
         name=playlist.name,
         description=playlist.description,
         track_count=playlist.track_count,
@@ -257,7 +258,7 @@ def to_playlist_detail(
 ) -> PlaylistDetailSchema:
     """Convert domain Playlist to detail schema with all entries."""
     return PlaylistDetailSchema(
-        id=playlist.id or 0,
+        id=playlist.id,
         name=playlist.name,
         description=playlist.description,
         track_count=playlist.track_count,

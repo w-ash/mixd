@@ -5,6 +5,8 @@ which connector track is returned for queries, metadata lookups, and bulk
 operations against a real PostgreSQL database.
 """
 
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -174,7 +176,7 @@ class TestPrimaryMappingQueries:
                 test_data_tracker.add_track(dt.id)
 
         # Each canonical track must have exactly one primary mapping for spotify
-        seen_ids: set[int] = set()
+        seen_ids: set[UUID] = set()
         for dt in domain_tracks:
             if dt.id is None or dt.id in seen_ids:
                 continue
@@ -198,7 +200,9 @@ class TestPrimaryMappingQueries:
         """map_track_to_connector syncs the denormalized spotify_id column on DBTrack."""
         # Create a canonical track with no spotify_id
         track_repo = TrackRepository(db_session)
-        track = Track(title="Denorm Test", artists=[Artist(name="Denorm Artist")])
+        track = Track(
+            id=None, title="Denorm Test", artists=[Artist(name="Denorm Artist")]
+        )
         saved_track = await track_repo.save_track(track)
         await db_session.commit()
         assert saved_track.id is not None
@@ -228,7 +232,9 @@ class TestPrimaryMappingQueries:
     ):
         """When a second mapping is added with auto_set_primary, only the newest is primary."""
         track_repo = TrackRepository(db_session)
-        track = Track(title="Relink Test", artists=[Artist(name="Relink Artist")])
+        track = Track(
+            id=None, title="Relink Test", artists=[Artist(name="Relink Artist")]
+        )
         saved_track = await track_repo.save_track(track)
         await db_session.commit()
         assert saved_track.id is not None

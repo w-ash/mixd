@@ -18,6 +18,7 @@ Before comparing, Spotify plays are normalized to start time via
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from attrs import define, field
 
@@ -143,18 +144,18 @@ def deduplicate_cross_source_plays(
         PlayDeduplicationResult with insert/update/suppress lists and stats.
     """
     plays_to_insert: list[TrackPlay] = []
-    plays_to_update: list[tuple[int, dict[str, Any]]] = []
+    plays_to_update: list[tuple[UUID, dict[str, Any]]] = []
     suppressed_plays: list[TrackPlay] = []
     stats: dict[str, int] = defaultdict(int)
 
     # Index existing plays by track_id for fast lookup
-    existing_by_track: dict[int, list[TrackPlay]] = defaultdict(list)
+    existing_by_track: dict[UUID, list[TrackPlay]] = defaultdict(list)
     for ep in existing_plays:
         if ep.track_id is not None:
             existing_by_track[ep.track_id].append(ep)
 
     # Track which existing plays have already been matched (prevent double-matching)
-    matched_existing_ids: set[int] = set()
+    matched_existing_ids: set[UUID] = set()
 
     for new_play in new_plays:
         stats["total_new"] += 1
@@ -175,7 +176,7 @@ def deduplicate_cross_source_plays(
                 continue
 
             # Skip already-matched
-            if existing.id is not None and existing.id in matched_existing_ids:
+            if existing.id in matched_existing_ids:
                 continue
 
             existing_start = _normalize_to_start_time(existing)
@@ -185,8 +186,7 @@ def deduplicate_cross_source_plays(
             if time_diff <= tolerance:
                 # Cross-source match found — merge
                 match_found = True
-                if existing.id is not None:
-                    matched_existing_ids.add(existing.id)
+                matched_existing_ids.add(existing.id)
 
                 # Determine winner by source priority
                 new_priority = _source_priority(new_play.service)
@@ -209,31 +209,29 @@ def deduplicate_cross_source_plays(
                     plays_to_insert.append(enriched)
                     suppressed_plays.append(new_play)
                     # Mark existing for update to add source_services
-                    if existing.id is not None:
-                        plays_to_update.append((
-                            existing.id,
-                            {
-                                "source_services": _build_source_services(
-                                    new_play, existing
-                                ),
-                            },
-                        ))
+                    plays_to_update.append((
+                        existing.id,
+                        {
+                            "source_services": _build_source_services(
+                                new_play, existing
+                            ),
+                        },
+                    ))
                     stats["new_wins"] += 1
                 else:
                     # Existing play is higher priority — enrich it, suppress new
                     merged_context = _merge_context(existing, new_play)
                     source_services = _build_source_services(existing, new_play)
 
-                    if existing.id is not None:
-                        update_fields: dict[str, Any] = {
-                            "source_services": source_services,
-                        }
-                        if merged_context != existing.context:
-                            update_fields["context"] = merged_context
-                        # Preserve ms_played if existing lacks it
-                        if not existing.ms_played and new_play.ms_played:
-                            update_fields["ms_played"] = new_play.ms_played
-                        plays_to_update.append((existing.id, update_fields))
+                    update_fields: dict[str, Any] = {
+                        "source_services": source_services,
+                    }
+                    if merged_context != existing.context:
+                        update_fields["context"] = merged_context
+                    # Preserve ms_played if existing lacks it
+                    if not existing.ms_played and new_play.ms_played:
+                        update_fields["ms_played"] = new_play.ms_played
+                    plays_to_update.append((existing.id, update_fields))
 
                     suppressed_plays.append(new_play)
                     stats["existing_wins"] += 1

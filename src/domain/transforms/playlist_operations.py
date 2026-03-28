@@ -9,6 +9,8 @@ All playlist operations follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
+from uuid import UUID
+
 from src.domain.entities.track import Track
 
 
@@ -30,21 +32,16 @@ def reorder_to_match_target(
         List of tracks reordered to match target, preserving track instances
     """
     # Create mapping from track ID to ALL available instances (handles duplicates)
-    current_track_instances: dict[int, list[Track]] = {}
+    current_track_instances: dict[UUID, list[Track]] = {}
     for track in current_tracks:
-        if track.id is not None:
-            if track.id not in current_track_instances:
-                current_track_instances[track.id] = []
-            current_track_instances[track.id].append(track)
+        if track.id not in current_track_instances:
+            current_track_instances[track.id] = []
+        current_track_instances[track.id].append(track)
 
     # Reconstruct list following target order with greedy instance matching
     reordered_tracks: list[Track] = []
     for target_track in target_tracks:
-        if (
-            target_track.id is not None
-            and target_track.id in current_track_instances
-            and current_track_instances[target_track.id]
-        ):
+        if current_track_instances.get(target_track.id):
             # Use the first available existing track instance to preserve metadata/relationships
             existing_track = current_track_instances[target_track.id].pop(0)
             reordered_tracks.append(existing_track)

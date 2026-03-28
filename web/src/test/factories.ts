@@ -16,7 +16,7 @@ export function makePlaylistSummary(
   overrides: Partial<PlaylistSummarySchema> = {},
 ): PlaylistSummarySchema {
   return {
-    id: 1,
+    id: "019d0000-0000-7000-8000-000000000001",
     name: "Test Playlist",
     description: "A test description",
     track_count: 10,
@@ -36,7 +36,7 @@ export function makePlaylistDetail(
   overrides: Partial<PlaylistDetailSchema> = {},
 ): PlaylistDetailSchema {
   return {
-    id: 1,
+    id: "019d0000-0000-7000-8000-000000000002",
     name: "Test Playlist",
     description: "A test description",
     track_count: 3,
@@ -66,7 +66,7 @@ export function makePlaylistEntry(
   return {
     position: overrides.position ?? 1,
     track: {
-      id: overrides.position ?? 1,
+      id: `019d0000-0000-7000-8000-${String(overrides.position ?? 1).padStart(12, "0")}`,
       title: overrides.title ?? "Test Track",
       artists: [{ name: overrides.artist ?? "Test Artist" }],
       album: overrides.album ?? null,
@@ -88,7 +88,7 @@ export function makePlaylistEntries(
   return items.map((item, i) => ({
     position: i + 1,
     track: {
-      id: i + 100,
+      id: `019d0000-0000-7000-8000-${String(i + 100).padStart(12, "0")}`,
       title: item.title,
       artists: [{ name: item.artist }],
       album: item.album ?? null,
@@ -102,7 +102,7 @@ export function makeWorkflowSummary(
   overrides: Partial<WorkflowSummarySchema> = {},
 ): WorkflowSummarySchema {
   return {
-    id: 1,
+    id: "019d0000-0000-7000-8000-000000000003",
     name: "Test Workflow",
     description: "A test workflow",
     is_template: false,

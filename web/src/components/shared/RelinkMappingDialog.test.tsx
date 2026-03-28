@@ -5,7 +5,7 @@ import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
 import { RelinkMappingDialog } from "./RelinkMappingDialog";
 
 const mockMapping = {
-  mapping_id: 10,
+  mapping_id: "019d0000-0000-7000-8000-000000000010",
   connector_name: "spotify",
   connector_track_id: "sp-123",
   match_method: "direct_import",
@@ -19,7 +19,7 @@ const mockMapping = {
 function renderDialog(open = true) {
   return renderWithProviders(
     <RelinkMappingDialog
-      trackId={42}
+      trackId="019d0000-0000-7000-8000-000000000042"
       mapping={mockMapping}
       open={open}
       onOpenChange={() => {}}

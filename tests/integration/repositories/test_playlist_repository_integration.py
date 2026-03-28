@@ -219,11 +219,14 @@ class TestPlaylistRepositoryIntegration:
         playlist_repo = uow.get_playlist_repository()
 
         # Test retrieval of non-existent playlist
-        with pytest.raises(NotFoundError, match="Entity with ID 99999 not found"):
-            await playlist_repo.get_by_id(99999)
+        nonexistent_id = uuid4()
+        with pytest.raises(
+            NotFoundError, match=f"Entity with ID {nonexistent_id} not found"
+        ):
+            await playlist_repo.get_by_id(nonexistent_id)
 
         # Test deletion of non-existent playlist
-        delete_result = await playlist_repo.delete_playlist(99999)
+        delete_result = await playlist_repo.delete_playlist(uuid4())
         assert delete_result is False
 
         # Test playlist with empty name (should be handled gracefully)

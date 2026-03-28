@@ -9,24 +9,11 @@ import httpx
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
-
-
-def _valid_definition() -> dict:
-    """Minimal valid workflow definition for API requests."""
-    return {
-        "id": "test-wf",
-        "name": "Test Workflow",
-        "description": "A test",
-        "version": "1.0",
-        "tasks": [
-            {
-                "id": "source",
-                "type": "source.liked_tracks",
-                "config": {"service": "spotify"},
-                "upstream": [],
-            }
-        ],
-    }
+from tests.fixtures.factories import nonexistent_id
+from tests.integration.api.conftest import (
+    create_workflow as _create_workflow,
+    valid_workflow_definition as _valid_definition,
+)
 
 
 def _two_task_definition() -> dict:
@@ -63,17 +50,8 @@ def _stub_workflow_background(monkeypatch):
     monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
 
 
-async def _create_workflow(client: httpx.AsyncClient) -> int:
-    """Helper: create a workflow and return its ID."""
-    resp = await client.post(
-        "/api/v1/workflows", json={"definition": _valid_definition()}
-    )
-    assert resp.status_code == 201
-    return resp.json()["id"]
-
-
 async def _update_workflow_tasks(
-    client: httpx.AsyncClient, wf_id: int, definition: dict
+    client: httpx.AsyncClient, wf_id: str, definition: dict
 ) -> None:
     """Helper: update a workflow with a new definition (task pipeline change)."""
     resp = await client.patch(
@@ -140,7 +118,7 @@ class TestListWorkflowVersions:
     async def test_nonexistent_workflow_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.get("/api/v1/workflows/99999/versions")
+        response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/versions")
 
         assert response.status_code == 404
 
@@ -201,7 +179,7 @@ class TestGetWorkflowVersion:
     async def test_nonexistent_workflow_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.get("/api/v1/workflows/99999/versions/1")
+        response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/versions/1")
 
         assert response.status_code == 404
 
@@ -281,6 +259,8 @@ class TestRevertWorkflowVersion:
     async def test_revert_nonexistent_workflow_returns_404(
         self, client: httpx.AsyncClient
     ) -> None:
-        response = await client.post("/api/v1/workflows/99999/versions/1/revert")
+        response = await client.post(
+            f"/api/v1/workflows/{nonexistent_id()}/versions/1/revert"
+        )
 
         assert response.status_code == 404

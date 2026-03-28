@@ -19,11 +19,11 @@ from src.domain.playlist.execution_strategies import (
 def sample_tracks():
     """Create sample tracks for testing."""
     return [
-        Track(id=1, title="Track A", artists=[Artist(name="Artist 1")]),
-        Track(id=2, title="Track B", artists=[Artist(name="Artist 2")]),
-        Track(id=3, title="Track C", artists=[Artist(name="Artist 3")]),
-        Track(id=4, title="Track D", artists=[Artist(name="Artist 4")]),
-        Track(id=5, title="Track E", artists=[Artist(name="Artist 5")]),
+        Track(title="Track A", artists=[Artist(name="Artist 1")]),
+        Track(title="Track B", artists=[Artist(name="Artist 2")]),
+        Track(title="Track C", artists=[Artist(name="Artist 3")]),
+        Track(title="Track D", artists=[Artist(name="Artist 4")]),
+        Track(title="Track E", artists=[Artist(name="Artist 5")]),
     ]
 
 
