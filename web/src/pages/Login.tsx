@@ -55,6 +55,9 @@ export function Login() {
           <AuthView pathname={pathname} />
         </ErrorBoundary>
       </div>
+      <span className="fixed right-3 bottom-3 font-mono text-[10px] text-text-faint/50">
+        {__BUILD_HASH__}
+      </span>
     </div>
   );
 }

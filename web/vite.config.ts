@@ -1,8 +1,16 @@
+import { execFileSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const gitHash = execFileSync("git", ["rev-parse", "--short", "HEAD"])
+  .toString()
+  .trim();
+
 export default defineConfig({
+  define: {
+    __BUILD_HASH__: JSON.stringify(gitHash),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     tsconfigPaths: true,

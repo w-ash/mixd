@@ -4,9 +4,6 @@ Pure ASGI middleware that validates JWT Bearer tokens against Neon Auth's
 JWKS endpoint. When ``neon_auth_jwks_url`` is empty (local dev), this
 middleware is never mounted — see ``app.py``.
 
-Neon Auth uses EdDSA (Ed25519) for JWT signing by default.
-See: https://neon.com/docs/auth/guides/plugins/jwt
-
 Exempt paths (no auth required):
 - ``/api/v1/health`` — Fly.io health checker
 - ``/auth/`` — OAuth callback routes
@@ -29,7 +26,7 @@ from src.config import get_logger
 
 logger = get_logger(__name__)
 
-_EXEMPT_PREFIXES = ("/api/v1/health", "/auth/", "/login", "/assets/")
+_EXEMPT_PREFIXES = ("/api/v1/health", "/auth/", "/login", "/assets/", "/favicon")
 
 # Algorithms accepted from Neon Auth JWTs.
 # EdDSA is the current default; RS256 kept for backward compatibility.
@@ -176,7 +173,6 @@ class NeonAuthMiddleware:
 
         headers = Headers(scope=scope)
 
-        # Validate Bearer token from Neon Auth JWT plugin
         auth_header = headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
@@ -199,7 +195,6 @@ class NeonAuthMiddleware:
                 await self.app(scope, receive, send)
                 return
 
-        # No auth credentials — redirect browser, 401 for API
         if _wants_html(headers):
             await _send_redirect(send, "/login")
         else:

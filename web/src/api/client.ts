@@ -66,6 +66,7 @@ export async function customFetch<T>(
       // Avoid redirect loop if already on an auth page
       if (!window.location.pathname.startsWith("/auth/")) {
         window.location.href = "/auth/sign-in?error=session_expired";
+        // Never resolves — stall while the browser navigates away
         return new Promise(() => {});
       }
     }
