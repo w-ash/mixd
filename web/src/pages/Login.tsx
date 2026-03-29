@@ -1,7 +1,7 @@
-import { AuthView } from "@neondatabase/auth/react/ui";
+import { AuthView, useAuthenticate } from "@neondatabase/auth/react/ui";
 import { useEffect } from "react";
 import { ErrorBoundary, type FallbackProps } from "react-error-boundary";
-import { useParams, useSearchParams } from "react-router";
+import { Navigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { MixdLogo } from "@/components/shared/MixdLogo";
@@ -28,6 +28,7 @@ function AuthErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 export function Login() {
   const { pathname } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { data: session } = useAuthenticate();
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -36,6 +37,11 @@ export function Login() {
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Already signed in — client-side redirect to app
+  if (session) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -52,7 +58,7 @@ export function Login() {
           FallbackComponent={AuthErrorFallback}
           resetKeys={[pathname]}
         >
-          <AuthView pathname={pathname} redirectTo="/" />
+          <AuthView pathname={pathname} />
         </ErrorBoundary>
       </div>
       <span className="fixed right-3 bottom-3 font-mono text-[10px] text-text-faint/50">

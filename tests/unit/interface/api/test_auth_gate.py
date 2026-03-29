@@ -1,8 +1,8 @@
-"""Tests for NeonAuthMiddleware and its helper functions.
+"""Tests for NeonAuthMiddleware.
 
-Exercises every code path in the ASGI auth gate: exempt paths, Bearer token
-validation (valid, expired, bad signature, JWKS failure), email allowlist,
-and content-negotiated responses (401 vs 302).
+Exercises every code path in the ASGI auth gate: non-API paths pass through,
+API paths require Bearer tokens, exempt API paths (health), JWT validation
+(valid, expired, bad signature, JWKS failure), and email allowlist.
 
 Uses a pure ASGI test harness — no FastAPI, no HTTP server.
 """
@@ -13,13 +13,9 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import jwt
-from starlette.datastructures import Headers
 
 import src.interface.api.auth_gate as auth_gate_mod
-from src.interface.api.auth_gate import (
-    NeonAuthMiddleware,
-    _wants_html,
-)
+from src.interface.api.auth_gate import NeonAuthMiddleware
 from tests.fixtures.auth_keys import TEST_JWK_SET, sign_test_jwt
 
 # ---------------------------------------------------------------------------
@@ -55,10 +51,6 @@ def _make_scope(
 
 def _bearer_header(token: str) -> tuple[bytes, bytes]:
     return (b"authorization", f"Bearer {token}".encode())
-
-
-def _accept_header(accept: str) -> tuple[bytes, bytes]:
-    return (b"accept", accept.encode())
 
 
 class _ResponseCapture:
@@ -98,23 +90,44 @@ async def _noop_receive() -> dict:
 # ---------------------------------------------------------------------------
 
 
-class TestHelperFunctions:
-    """Unit tests for _wants_html."""
+class TestNonApiPaths:
+    """Non-API paths pass through without auth (SPA shell, assets)."""
 
-    def test_wants_html_true_for_browser(self):
+    async def test_root_passes_through(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/")
+        send = _ResponseCapture()
 
-        scope = _make_scope(headers=[_accept_header("text/html,application/xhtml+xml")])
-        assert _wants_html(Headers(scope=scope)) is True
+        await mw(scope, _noop_receive, send)
 
-    def test_wants_html_false_for_json(self):
+        assert inner.called is True
 
-        scope = _make_scope(headers=[_accept_header("application/json")])
-        assert _wants_html(Headers(scope=scope)) is False
+    async def test_auth_page_passes_through(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/auth/sign-in")
+        send = _ResponseCapture()
 
-    def test_wants_html_false_for_missing_header(self):
+        await mw(scope, _noop_receive, send)
 
-        scope = _make_scope(headers=[])
-        assert _wants_html(Headers(scope=scope)) is False
+        assert inner.called is True
+
+    async def test_assets_pass_through(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/assets/index-abc123.js")
+        send = _ResponseCapture()
+
+        await mw(scope, _noop_receive, send)
+
+        assert inner.called is True
+
+    async def test_favicon_passes_through(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/favicon.svg")
+        send = _ResponseCapture()
+
+        await mw(scope, _noop_receive, send)
+
+        assert inner.called is True
 
 
 # ---------------------------------------------------------------------------
@@ -158,39 +171,12 @@ class TestNonHttpScope:
         assert inner.called is True
 
 
-class TestExemptPaths:
-    """Exempt paths bypass all auth checks."""
+class TestExemptApiPaths:
+    """Exempt API paths bypass auth (health check)."""
 
     async def test_health_endpoint_exempt(self):
         mw, inner = _make_middleware()
         scope = _make_scope(path="/api/v1/health")
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is True
-
-    async def test_auth_callback_exempt(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(path="/auth/spotify/callback")
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is True
-
-    async def test_login_page_exempt(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(path="/login")
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is True
-
-    async def test_assets_exempt(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(path="/assets/index-abc123.js")
         send = _ResponseCapture()
 
         await mw(scope, _noop_receive, send)
@@ -304,22 +290,11 @@ class TestBearerTokenAuth:
 
 
 class TestNoCredentials:
-    """Unauthenticated request responses."""
+    """API requests without Bearer token get 401."""
 
-    async def test_no_credentials_browser_redirects_to_login(self):
+    async def test_no_bearer_returns_401(self):
         mw, inner = _make_middleware()
-        scope = _make_scope(headers=[_accept_header("text/html")])
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is False
-        assert send.status == 302
-        assert send.header(b"location") == b"/login"
-
-    async def test_no_credentials_api_returns_401(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(headers=[_accept_header("application/json")])
+        scope = _make_scope()
         send = _ResponseCapture()
 
         await mw(scope, _noop_receive, send)

@@ -1,13 +1,12 @@
-"""Site-wide JWT authentication gate via Neon Auth.
+"""API-only JWT authentication gate via Neon Auth.
 
-Pure ASGI middleware that validates JWT Bearer tokens against Neon Auth's
-JWKS endpoint. When ``neon_auth_jwks_url`` is empty (local dev), this
-middleware is never mounted — see ``app.py``.
+Pure ASGI middleware that validates JWT Bearer tokens on ``/api/`` routes
+against Neon Auth's JWKS endpoint. Non-API routes (SPA shell, static assets)
+pass through unconditionally — page-level auth is handled client-side by
+the React ``AuthGuard`` component.
 
-Exempt paths (no auth required):
-- ``/api/v1/health`` — Fly.io health checker
-- ``/auth/`` — OAuth callback routes
-- ``/login`` — login page itself
+When ``neon_auth_jwks_url`` is empty (local dev), this middleware is never
+mounted — see ``app.py``.
 """
 
 # pyright: reportAny=false
@@ -27,7 +26,10 @@ from src.config import get_logger
 
 logger = get_logger(__name__)
 
-_EXEMPT_PREFIXES = ("/api/v1/health", "/auth/", "/login", "/assets/", "/favicon")
+# Only /api/ routes require Bearer authentication.
+# The SPA shell, static assets, and auth callbacks are served without tokens.
+_PROTECTED_PREFIX = "/api/"
+_EXEMPT_API_PATHS = ("/api/v1/health",)
 
 # Algorithms accepted from Neon Auth JWTs.
 # EdDSA is the current default; RS256 kept for backward compatibility.
@@ -129,35 +131,11 @@ async def _send_403(send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-async def _send_redirect(send: Send, location: str) -> None:
-    """Send a 302 redirect to the login page."""
-    await send({
-        "type": "http.response.start",
-        "status": 302,
-        "headers": [
-            (b"location", location.encode()),
-            (b"content-length", b"0"),
-        ],
-    })
-    await send({"type": "http.response.body", "body": b""})
-
-
-def _wants_html(headers: Headers) -> bool:
-    """Check if the client is a browser expecting HTML."""
-    accept = headers.get("accept", "")
-    return "text/html" in accept
-
-
 class NeonAuthMiddleware:
-    """Pure ASGI middleware for JWT-based site authentication.
+    """ASGI middleware for JWT-based API authentication.
 
-    Validates Bearer tokens from Neon Auth's JWKS endpoint.
-    Browser requests without a token are redirected to /login.
-    API requests without a token receive a 401 JSON response.
-
-    Note: Neon Auth session cookies live on the auth service domain
-    and are never sent to the app. All auth goes through Bearer tokens
-    obtained via ``authClient.token()`` on the frontend.
+    Only protects ``/api/`` routes. The SPA shell and static assets pass
+    through unconditionally — page-level auth is the React client's job.
     """
 
     def __init__(
@@ -166,9 +144,9 @@ class NeonAuthMiddleware:
         self.app = app
         self.jwks_url = jwks_url
         self.allowed_emails = allowed_emails
-        # Neon Auth sets aud to the auth service origin
+        # Neon Auth sets aud/iss to the auth service origin
         parsed = urlparse(jwks_url)
-        self.audience = f"{parsed.scheme}://{parsed.netloc}"
+        self.auth_origin = f"{parsed.scheme}://{parsed.netloc}"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -177,36 +155,37 @@ class NeonAuthMiddleware:
 
         path: str = scope.get("path", "")
 
-        # Exempt paths — no auth required
-        if any(path.startswith(prefix) for prefix in _EXEMPT_PREFIXES):
+        # Non-API paths pass through (SPA shell, assets, auth callbacks)
+        if not path.startswith(_PROTECTED_PREFIX):
             await self.app(scope, receive, send)
             return
 
-        headers = Headers(scope=scope)
+        # Exempt API paths (health check)
+        if any(path.startswith(exempt) for exempt in _EXEMPT_API_PATHS):
+            await self.app(scope, receive, send)
+            return
 
+        # Validate Bearer token
+        headers = Headers(scope=scope)
         auth_header = headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             try:
                 jwk_set = await _get_jwk_set(self.jwks_url)
-                claims = _decode_jwt(token, jwk_set, auth_origin=self.audience)
+                claims = _decode_jwt(token, jwk_set, auth_origin=self.auth_origin)
             except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
                 logger.warning("jwt_validation_failed", error=str(exc))
                 await _send_401(send)
                 return
             else:
-                # Check email allowlist if configured
                 if self.allowed_emails:
                     email = claims.get("email", "")
                     if email not in self.allowed_emails:
                         await _send_403(send)
                         return
-                # Attach user info to scope for downstream use
                 scope["auth_user"] = claims
                 await self.app(scope, receive, send)
                 return
 
-        if _wants_html(headers):
-            await _send_redirect(send, "/login")
-        else:
-            await _send_401(send)
+        # No Bearer token on an API route
+        await _send_401(send)
