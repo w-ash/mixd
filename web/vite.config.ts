@@ -3,13 +3,23 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const gitHash = execFileSync("git", ["rev-parse", "--short", "HEAD"])
-  .toString()
-  .trim();
+function getBuildHash(): string {
+  // Docker builds pass BUILD_HASH as an env var; local dev reads from git
+  if (process.env.BUILD_HASH && process.env.BUILD_HASH !== "dev") {
+    return process.env.BUILD_HASH;
+  }
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"])
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
 
 export default defineConfig({
   define: {
-    __BUILD_HASH__: JSON.stringify(gitHash),
+    __BUILD_HASH__: JSON.stringify(getBuildHash()),
   },
   plugins: [react(), tailwindcss()],
   resolve: {

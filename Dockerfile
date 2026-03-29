@@ -29,9 +29,11 @@ FROM node:22-slim AS node-builder
 
 WORKDIR /app/web
 
-# Neon Auth URL injected at build time for the React frontend
+# Build-time args injected by CI / fly deploy
 ARG VITE_NEON_AUTH_URL=""
-ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL
+ARG BUILD_HASH="dev"
+ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL \
+    BUILD_HASH=$BUILD_HASH
 
 # Install pnpm globally (simpler than corepack for build stages)
 RUN npm install -g pnpm@10

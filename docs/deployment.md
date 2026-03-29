@@ -82,17 +82,21 @@ Required for full functionality:
 Pushing a version tag triggers the full release pipeline:
 
 ```bash
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.6.1
+deploy            # pushes main + tags, then watches CI in your terminal
 ```
+
+The `deploy` shell function (defined in `~/.zshrc`) runs `git push origin main --tags` then streams the CI output via `gh run watch`.
 
 **What happens:**
 1. CI has already passed on `main` (lint, type check, tests with coverage, frontend build)
 2. GitHub Actions `release.yml` runs:
    - **Release job** — generates changelog via git-cliff, creates GitHub Release
-   - **Deploy job** — runs `flyctl deploy --remote-only` on Fly's remote builders
+   - **Deploy job** — runs `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
 3. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
 4. Health check at `/api/v1/health` gates the traffic cutover
+
+The build hash is baked into the frontend at build time (`__BUILD_HASH__` in `vite.config.ts`). It appears on the login page for deploy verification.
 
 **Prerequisite:** A `FLY_API_TOKEN` secret must exist in GitHub (Settings → Secrets → Actions). Generate one with:
 ```bash
@@ -104,7 +108,7 @@ fly tokens create deploy -x 999999h
 Deploy from your local machine without tagging:
 
 ```bash
-fly deploy
+fly deploy --build-arg BUILD_HASH=$(git rev-parse --short HEAD)
 ```
 
 This builds the Dockerfile on Fly's remote builders, runs migrations, and switches traffic.
@@ -138,5 +142,7 @@ The health check (`GET /api/v1/health`) runs every 30s with a 30s grace period o
 | HTTPS | Forced (Fly proxy terminates TLS) |
 | Internal port | 8000 |
 | Concurrency | Soft limit 20, hard limit 25 connections |
+| Custom domain | `mixd.me` (TLS cert managed by Fly) |
+| Auth | [Neon Auth](https://neon.com/docs/auth/overview) (Better Auth, EdDSA JWTs) |
 | Database | PostgreSQL 17 via [Neon](https://neon.tech) (pooler endpoint, scale-to-zero) |
 | Container | Multi-stage Dockerfile (Python 3.14 + Node 22) |
