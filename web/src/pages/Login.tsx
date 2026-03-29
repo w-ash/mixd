@@ -52,7 +52,7 @@ export function Login() {
           FallbackComponent={AuthErrorFallback}
           resetKeys={[pathname]}
         >
-          <AuthView pathname={pathname} />
+          <AuthView pathname={pathname} redirectTo="/" />
         </ErrorBoundary>
       </div>
       <span className="fixed right-3 bottom-3 font-mono text-[10px] text-text-faint/50">
