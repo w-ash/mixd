@@ -2,7 +2,7 @@
 
 Exercises every code path in the ASGI auth gate: exempt paths, Bearer token
 validation (valid, expired, bad signature, JWKS failure), email allowlist,
-session cookie fallback, and content-negotiated responses (401 vs 302).
+and content-negotiated responses (401 vs 302).
 
 Uses a pure ASGI test harness — no FastAPI, no HTTP server.
 """
@@ -18,7 +18,6 @@ from starlette.datastructures import Headers
 import src.interface.api.auth_gate as auth_gate_mod
 from src.interface.api.auth_gate import (
     NeonAuthMiddleware,
-    _extract_cookie,
     _wants_html,
 )
 from tests.fixtures.auth_keys import TEST_JWK_SET, sign_test_jwt
@@ -62,10 +61,6 @@ def _accept_header(accept: str) -> tuple[bytes, bytes]:
     return (b"accept", accept.encode())
 
 
-def _cookie_header(cookie: str) -> tuple[bytes, bytes]:
-    return (b"cookie", cookie.encode())
-
-
 class _ResponseCapture:
     """Collects ASGI send messages for assertion."""
 
@@ -104,31 +99,7 @@ async def _noop_receive() -> dict:
 
 
 class TestHelperFunctions:
-    """Unit tests for _extract_cookie and _wants_html."""
-
-    def test_extract_cookie_finds_named_cookie(self):
-
-        scope = _make_scope(headers=[_cookie_header("foo=bar; session=abc123")])
-        headers = Headers(scope=scope)
-        assert _extract_cookie(headers, "session") == "abc123"
-
-    def test_extract_cookie_returns_none_when_absent(self):
-
-        scope = _make_scope(headers=[_cookie_header("foo=bar")])
-        headers = Headers(scope=scope)
-        assert _extract_cookie(headers, "session") is None
-
-    def test_extract_cookie_handles_empty_cookie_header(self):
-
-        scope = _make_scope(headers=[])
-        headers = Headers(scope=scope)
-        assert _extract_cookie(headers, "session") is None
-
-    def test_extract_cookie_handles_whitespace(self):
-
-        scope = _make_scope(headers=[_cookie_header(" name=val ; other=x ")])
-        headers = Headers(scope=scope)
-        assert _extract_cookie(headers, "name") == "val"
+    """Unit tests for _wants_html."""
 
     def test_wants_html_true_for_browser(self):
 
@@ -332,28 +303,8 @@ class TestBearerTokenAuth:
         assert inner.called is True
 
 
-class TestSessionCookieAndNoCredentials:
-    """Cookie auth and unauthenticated responses."""
-
-    async def test_secure_cookie_passes_through(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(
-            headers=[_cookie_header("__Secure-neonauth.session_token=abc123")]
-        )
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is True
-
-    async def test_fallback_cookie_passes_through(self):
-        mw, inner = _make_middleware()
-        scope = _make_scope(headers=[_cookie_header("neonauth.session_token=xyz789")])
-        send = _ResponseCapture()
-
-        await mw(scope, _noop_receive, send)
-
-        assert inner.called is True
+class TestNoCredentials:
+    """Unauthenticated request responses."""
 
     async def test_no_credentials_browser_redirects_to_login(self):
         mw, inner = _make_middleware()

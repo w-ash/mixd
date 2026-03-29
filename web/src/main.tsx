@@ -25,7 +25,11 @@ function Root() {
   if (!authEnabled || !authClient) return app;
 
   return (
-    <NeonAuthUIProvider authClient={authClient} defaultTheme="dark">
+    <NeonAuthUIProvider
+      authClient={authClient}
+      credentials={{ confirmPassword: true }}
+      defaultTheme="dark"
+    >
       {app}
     </NeonAuthUIProvider>
   );

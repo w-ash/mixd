@@ -1,9 +1,15 @@
 import { AuthView } from "@neondatabase/auth/react/ui";
+import { useEffect } from "react";
 import { ErrorBoundary, type FallbackProps } from "react-error-boundary";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { MixdLogo } from "@/components/shared/MixdLogo";
 import { Button } from "@/components/ui/button";
+
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  session_expired: "Your session has expired. Please sign in again.",
+};
 
 function AuthErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
   const message =
@@ -21,6 +27,15 @@ function AuthErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 
 export function Login() {
   const { pathname } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const error = searchParams.get("error");
+    if (error && AUTH_ERROR_MESSAGES[error]) {
+      toast.error(AUTH_ERROR_MESSAGES[error]);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">

@@ -290,6 +290,19 @@
   kbd {
     font-family: var(--font-mono);
   }
+
+  /* ── Password manager / browser autofill overrides ── */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--background) inset;
+    -webkit-text-fill-color: var(--foreground);
+    caret-color: var(--foreground);
+    transition: background-color 5000s ease-in-out 0s;
+  }
 }
 
 /* ── Background grain texture (analog/vinyl feel) ── */

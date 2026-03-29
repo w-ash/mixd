@@ -4,6 +4,9 @@ Pure ASGI middleware that validates JWT Bearer tokens against Neon Auth's
 JWKS endpoint. When ``neon_auth_jwks_url`` is empty (local dev), this
 middleware is never mounted — see ``app.py``.
 
+Neon Auth uses EdDSA (Ed25519) for JWT signing by default.
+See: https://neon.com/docs/auth/guides/plugins/jwt
+
 Exempt paths (no auth required):
 - ``/api/v1/health`` — Fly.io health checker
 - ``/auth/`` — OAuth callback routes
@@ -27,6 +30,10 @@ from src.config import get_logger
 logger = get_logger(__name__)
 
 _EXEMPT_PREFIXES = ("/api/v1/health", "/auth/", "/login", "/assets/")
+
+# Algorithms accepted from Neon Auth JWTs.
+# EdDSA is the current default; RS256 kept for backward compatibility.
+_ACCEPTED_ALGORITHMS = ["EdDSA", "RS256"]
 
 # JWKS cache: (parsed key set, fetched_at)
 _jwks_cache: tuple[jwt.PyJWKSet | None, float] = (None, 0.0)
@@ -71,7 +78,7 @@ def _decode_jwt(token: str, jwk_set: jwt.PyJWKSet) -> dict[str, Any]:
     return jwt.decode(
         token,
         signing_key,
-        algorithms=["RS256"],
+        algorithms=_ACCEPTED_ALGORITHMS,
         options={"require": ["exp", "sub"]},
     )
 
@@ -142,6 +149,10 @@ class NeonAuthMiddleware:
     Validates Bearer tokens from Neon Auth's JWKS endpoint.
     Browser requests without a token are redirected to /login.
     API requests without a token receive a 401 JSON response.
+
+    Note: Neon Auth session cookies live on the auth service domain
+    and are never sent to the app. All auth goes through Bearer tokens
+    obtained via ``authClient.token()`` on the frontend.
     """
 
     def __init__(
@@ -165,7 +176,7 @@ class NeonAuthMiddleware:
 
         headers = Headers(scope=scope)
 
-        # Check for Bearer token
+        # Validate Bearer token from Neon Auth JWT plugin
         auth_header = headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
@@ -188,30 +199,8 @@ class NeonAuthMiddleware:
                 await self.app(scope, receive, send)
                 return
 
-        # Check for session cookie (Neon Auth sets this for browser sessions)
-        session_cookie = _extract_cookie(headers, "__Secure-neonauth.session_token")
-        if not session_cookie:
-            session_cookie = _extract_cookie(headers, "neonauth.session_token")
-
-        if session_cookie:
-            # Cookie-based auth: the session is managed by Neon Auth service.
-            # We trust the cookie and let the request through — Neon Auth
-            # validates it when the frontend fetches the session.
-            await self.app(scope, receive, send)
-            return
-
         # No auth credentials — redirect browser, 401 for API
         if _wants_html(headers):
             await _send_redirect(send, "/login")
         else:
             await _send_401(send)
-
-
-def _extract_cookie(headers: Headers, name: str) -> str | None:
-    """Extract a specific cookie value from headers."""
-    cookie_header = headers.get("cookie", "")
-    for raw_part in cookie_header.split(";"):
-        trimmed = raw_part.strip()
-        if trimmed.startswith(f"{name}="):
-            return trimmed[len(name) + 1 :]
-    return None

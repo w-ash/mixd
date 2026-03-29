@@ -110,16 +110,6 @@ class TestAuthMiddlewareWiring:
         )
         assert resp.status_code == 401
 
-    async def test_session_cookie_passes_through(self, auth_client: httpx.AsyncClient):
-        """Session cookie bypasses JWT check — request reaches route handler."""
-        resp = await auth_client.get(
-            "/api/v1/health",
-            headers={"cookie": "__Secure-neonauth.session_token=test-session"},
-        )
-        # Should reach the route handler (not blocked by auth)
-        assert resp.status_code != 401
-        assert resp.status_code != 302
-
 
 class TestAuthMiddlewareAllowlist:
     """Email allowlist enforcement at the integration level."""

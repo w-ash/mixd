@@ -7,7 +7,11 @@
  * Intercepts non-OK responses, parses the error envelope,
  * and throws a typed ApiError. Base URL is empty since
  * Vite's proxy handles routing to the backend.
+ *
+ * Attaches a Bearer token from Neon Auth when auth is enabled.
  */
+
+import { authClient, authEnabled } from "./auth";
 
 /** Known backend error codes used for retry/display decisions. */
 export const API_ERROR_CODES = {
@@ -38,6 +42,15 @@ export async function customFetch<T>(
   url: string,
   init: RequestInit = {},
 ): Promise<T> {
+  if (authClient) {
+    const { data } = await authClient.token();
+    if (data?.token) {
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${data.token}`);
+      init = { ...init, headers };
+    }
+  }
+
   const response = await fetch(url, init);
 
   // 204 No Content — return envelope with undefined data
@@ -48,6 +61,15 @@ export async function customFetch<T>(
   const body = await response.json();
 
   if (!response.ok) {
+    // Session expired or invalid — redirect to sign-in with error context
+    if (authEnabled && response.status === 401) {
+      // Avoid redirect loop if already on an auth page
+      if (!window.location.pathname.startsWith("/auth/")) {
+        window.location.href = "/auth/sign-in?error=session_expired";
+        return new Promise(() => {});
+      }
+    }
+
     const error = body?.error;
     throw new ApiError(
       response.status,
