@@ -22,6 +22,9 @@ _jwk_dict["use"] = "sig"
 TEST_JWK_SET = jwt.PyJWKSet.from_dict({"keys": [_jwk_dict]})
 
 
+_TEST_AUTH_ORIGIN = "https://test.neonauth.example"
+
+
 def sign_test_jwt(
     claims: dict | None = None,
     *,
@@ -31,12 +34,14 @@ def sign_test_jwt(
 ) -> str:
     """Sign a JWT with the test private key.
 
-    Returns a compact JWS string. Default claims include sub, email, and
-    an exp 1 hour in the future.
+    Returns a compact JWS string. Default claims include sub, email, iss,
+    aud, and an exp 1 hour in the future — matching Neon Auth's JWT format.
     """
     payload = {
         "sub": sub,
         "email": email,
+        "iss": _TEST_AUTH_ORIGIN,
+        "aud": _TEST_AUTH_ORIGIN,
         "exp": int(time.time()) + exp_delta,
         "iat": int(time.time()),
     }

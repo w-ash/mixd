@@ -44,6 +44,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 # Copy source and build (tsc + vite build → dist/)
+# pyproject.toml needed by vite.config.ts to read the app version
+COPY pyproject.toml /app/pyproject.toml
 COPY web/ ./
 RUN pnpm build
 

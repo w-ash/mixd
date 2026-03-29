@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 function getBuildHash(): string {
-  // Docker builds pass BUILD_HASH as an env var; local dev reads from git
   if (process.env.BUILD_HASH && process.env.BUILD_HASH !== "dev") {
-    return process.env.BUILD_HASH;
+    return process.env.BUILD_HASH.slice(0, 7);
   }
   try {
     return execFileSync("git", ["rev-parse", "--short", "HEAD"])
@@ -17,9 +17,20 @@ function getBuildHash(): string {
   }
 }
 
+function getAppVersion(): string {
+  try {
+    const pyproject = readFileSync("../pyproject.toml", "utf-8");
+    const match = pyproject.match(/^version\s*=\s*"(.+)"/m);
+    return match?.[1] ?? "dev";
+  } catch {
+    return "dev";
+  }
+}
+
 export default defineConfig({
   define: {
     __BUILD_HASH__: JSON.stringify(getBuildHash()),
+    __APP_VERSION__: JSON.stringify(getAppVersion()),
   },
   plugins: [react(), tailwindcss()],
   resolve: {

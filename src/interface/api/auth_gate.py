@@ -16,6 +16,7 @@ Exempt paths (no auth required):
 import json
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import jwt
@@ -54,11 +55,16 @@ async def _get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
     return jwk_set
 
 
-def _decode_jwt(token: str, jwk_set: jwt.PyJWKSet) -> dict[str, Any]:
+def _decode_jwt(
+    token: str, jwk_set: jwt.PyJWKSet, *, auth_origin: str | None = None
+) -> dict[str, Any]:
     """Validate and decode a JWT using a cached JWKS key set.
 
     Extracts the signing key from the JWKS by matching the ``kid`` header
     claim. Falls back to the sole key when only one is present.
+
+    Neon Auth sets both ``iss`` and ``aud`` to the auth service origin.
+    See: https://neon.com/docs/auth/guides/plugins/jwt
     """
     header = jwt.get_unverified_header(token)
     kid = header.get("kid")
@@ -76,6 +82,8 @@ def _decode_jwt(token: str, jwk_set: jwt.PyJWKSet) -> dict[str, Any]:
         token,
         signing_key,
         algorithms=_ACCEPTED_ALGORITHMS,
+        audience=auth_origin,
+        issuer=auth_origin,
         options={"require": ["exp", "sub"]},
     )
 
@@ -158,6 +166,9 @@ class NeonAuthMiddleware:
         self.app = app
         self.jwks_url = jwks_url
         self.allowed_emails = allowed_emails
+        # Neon Auth sets aud to the auth service origin
+        parsed = urlparse(jwks_url)
+        self.audience = f"{parsed.scheme}://{parsed.netloc}"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -178,7 +189,7 @@ class NeonAuthMiddleware:
             token = auth_header[7:]
             try:
                 jwk_set = await _get_jwk_set(self.jwks_url)
-                claims = _decode_jwt(token, jwk_set)
+                claims = _decode_jwt(token, jwk_set, auth_origin=self.audience)
             except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
                 logger.warning("jwt_validation_failed", error=str(exc))
                 await _send_401(send)
