@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.6.0
+**Current Version**: 0.6.0.post1
 **Next**: v0.6.1 Repository + Use Case Scoping
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -42,6 +42,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.9** | Project rename: narada → mixd | ✅ Completed | [details](completed/v0.5.x.md#v059-project-rename--narada--mixd) |
 | **v0.5.10** | Polish, documentation & observability | ✅ Completed | [details](completed/v0.5.x.md#v0510-polish-documentation--observability) |
 | **v0.6.0** | Multi-user: schema + user identity + UUIDv7 PKs | ✅ Completed | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
+| **v0.6.0.post1** | Neon Auth integration fix (SPA auth flow) | ✅ Completed | [details](v0.6.x.md#v060post1-neon-auth-integration-fix) |
 | **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
 | **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
 | **v0.6.3** | Multi-user: testing + data claim | 🔜 Not Started | [details](v0.6.x.md#v063-testing--data-claim) |

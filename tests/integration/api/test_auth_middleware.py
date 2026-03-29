@@ -83,12 +83,14 @@ class TestAuthMiddlewareWiring:
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "UNAUTHORIZED"
 
-    async def test_protected_route_browser_302(self, auth_client: httpx.AsyncClient):
+    async def test_non_api_path_passes_through(self, auth_client: httpx.AsyncClient):
+        """Non-API paths (SPA shell) pass through without auth."""
         resp = await auth_client.get(
             "/", headers={"accept": "text/html"}, follow_redirects=False
         )
-        assert resp.status_code == 302
-        assert resp.headers["location"] == "/login"
+        # Should serve the SPA, not redirect — page-level auth is client-side
+        assert resp.status_code != 401
+        assert resp.status_code != 302
 
     async def test_valid_bearer_reaches_route(self, auth_client: httpx.AsyncClient):
         """Valid bearer token passes through middleware to the route handler."""

@@ -11,7 +11,7 @@
  * Attaches a Bearer token from Neon Auth when auth is enabled.
  */
 
-import { authClient, authEnabled } from "./auth";
+import { authClient } from "./auth";
 
 /** Known backend error codes used for retry/display decisions. */
 export const API_ERROR_CODES = {
@@ -43,11 +43,15 @@ export async function customFetch<T>(
   init: RequestInit = {},
 ): Promise<T> {
   if (authClient) {
-    const { data } = await authClient.token();
-    if (data?.token) {
-      const headers = new Headers(init.headers);
-      headers.set("Authorization", `Bearer ${data.token}`);
-      init = { ...init, headers };
+    try {
+      const { data } = await authClient.getSession();
+      if (data?.session?.token) {
+        const headers = new Headers(init.headers);
+        headers.set("Authorization", `Bearer ${data.session.token}`);
+        init = { ...init, headers };
+      }
+    } catch {
+      // No active session — proceed without auth
     }
   }
 
@@ -61,16 +65,6 @@ export async function customFetch<T>(
   const body = await response.json();
 
   if (!response.ok) {
-    // Session expired or invalid — redirect to sign-in with error context
-    if (authEnabled && response.status === 401) {
-      // Avoid redirect loop if already on an auth page
-      if (!window.location.pathname.startsWith("/auth/")) {
-        window.location.href = "/auth/sign-in?error=session_expired";
-        // Never resolves — stall while the browser navigates away
-        return new Promise(() => {});
-      }
-    }
-
     const error = body?.error;
     throw new ApiError(
       response.status,

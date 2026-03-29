@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.hoisted runs before vi.mock hoisting — safe to reference in factory
-const { mockAuthView } = vi.hoisted(() => ({
+const { mockAuthView, mockUseAuthenticate } = vi.hoisted(() => ({
   mockAuthView: vi.fn(),
+  mockUseAuthenticate: vi.fn(),
 }));
 
 vi.mock("@neondatabase/auth/react/ui", () => ({
   AuthView: (props: { pathname?: string }) => mockAuthView(props),
+  useAuthenticate: () => mockUseAuthenticate(),
 }));
 
 vi.mock("@/components/shared/MixdLogo", () => ({
@@ -30,10 +32,16 @@ function renderLogin(path: string) {
 describe("Login", () => {
   beforeEach(() => {
     mockAuthView.mockReturnValue(<div data-testid="auth-view">Auth Form</div>);
+    mockUseAuthenticate.mockReturnValue({
+      data: null,
+      isPending: false,
+      error: null,
+    });
   });
 
   afterEach(() => {
     mockAuthView.mockReset();
+    mockUseAuthenticate.mockReset();
   });
 
   it("renders logo and sign-in text", () => {
