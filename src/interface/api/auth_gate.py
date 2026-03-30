@@ -31,9 +31,9 @@ logger = get_logger(__name__)
 _PROTECTED_PREFIX = "/api/"
 _EXEMPT_API_PATHS = ("/api/v1/health",)
 
-# Algorithms accepted from Neon Auth JWTs.
-# EdDSA is the current default; RS256 kept for backward compatibility.
-_ACCEPTED_ALGORITHMS = ["EdDSA", "RS256"]
+# Neon Auth signs JWTs with EdDSA (Ed25519) exclusively.
+# See: https://neon.com/docs/auth/guides/plugins/jwt
+_ACCEPTED_ALGORITHMS = ["EdDSA"]
 
 # JWKS cache: (parsed key set, fetched_at)
 _jwks_cache: tuple[jwt.PyJWKSet | None, float] = (None, 0.0)

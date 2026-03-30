@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ChevronRight,
+  CircleUser,
   GitBranch,
   LayoutDashboard,
   Library,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
+import { authEnabled } from "@/api/auth";
 import { useHealthCheckApiV1HealthGet } from "@/api/generated/health/health";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { MixdLogo } from "@/components/shared/MixdLogo";
@@ -42,6 +44,9 @@ const navItems: NavItem[] = [
     children: [
       { to: "/settings/integrations", label: "Integrations", Icon: Plug },
       { to: "/settings/sync", label: "Sync", Icon: RefreshCw },
+      ...(authEnabled
+        ? [{ to: "/settings/account", label: "Account", Icon: CircleUser }]
+        : []),
     ],
   },
 ];

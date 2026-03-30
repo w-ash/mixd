@@ -82,7 +82,7 @@ Required for full functionality:
 Pushing a version tag triggers the full release pipeline:
 
 ```bash
-git tag v0.6.1
+git tag v0.6.2
 deploy            # pushes main + tags, then watches CI in your terminal
 ```
 

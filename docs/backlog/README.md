@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.6.0.post1
-**Next**: v0.6.1 Repository + Use Case Scoping
+**Next**: v0.6.2 Repository + Use Case Scoping
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -43,9 +43,10 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.5.10** | Polish, documentation & observability | ✅ Completed | [details](completed/v0.5.x.md#v0510-polish-documentation--observability) |
 | **v0.6.0** | Multi-user: schema + user identity + UUIDv7 PKs | ✅ Completed | [details](v0.6.x.md#v060-schema--user-identity-foundation) |
 | **v0.6.0.post1** | Neon Auth integration fix (SPA auth flow) | ✅ Completed | [details](v0.6.x.md#v060post1-neon-auth-integration-fix) |
-| **v0.6.1** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v061-repository--use-case-scoping) |
-| **v0.6.2** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v062-per-user-oauth) |
-| **v0.6.3** | Multi-user: testing + data claim | 🔜 Not Started | [details](v0.6.x.md#v063-testing--data-claim) |
+| **v0.6.1** | Account management (profile, sign out, delete) | ✅ Completed | [details](v0.6.x.md#v061-account-management) |
+| **v0.6.2** | Multi-user: repository + use case scoping | 🔜 Not Started | [details](v0.6.x.md#v062-repository--use-case-scoping) |
+| **v0.6.3** | Multi-user: per-user OAuth | 🔜 Not Started | [details](v0.6.x.md#v063-per-user-oauth) |
+| **v0.6.4** | Multi-user: testing + data claim | 🔜 Not Started | [details](v0.6.x.md#v064-testing--data-claim) |
 | **v0.7.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.7.x.md#v070-preference-system--likes-migration) |
 | **v0.7.1** | Tagging system | 🔜 Not Started | [details](v0.7.x.md#v071-tagging-system) |
 | **v0.7.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.7.x.md#v072-spotify-playlist-mapping-preference--tag-import) |

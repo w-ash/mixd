@@ -16,7 +16,7 @@ def get_current_user_id(request: Request) -> str:
     ``NeonAuthMiddleware`` when a valid JWT is present. Falls back to
     ``DEFAULT_USER_ID`` when auth is disabled (local dev) or claims are missing.
 
-    Usage in route handlers (v0.6.1)::
+    Usage in route handlers (v0.6.2)::
 
         @router.get("/tracks")
         async def list_tracks(user_id: str = Depends(get_current_user_id)): ...

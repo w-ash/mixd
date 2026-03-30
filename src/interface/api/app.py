@@ -8,7 +8,9 @@ When web/dist/ exists (frontend build output), the app also serves the
 React SPA with a catch-all fallback to index.html for client-side routing.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
+import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,9 +30,42 @@ logger = get_logger(__name__)
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
+async def _seed_templates() -> None:
+    """Seed built-in workflow templates in the background (idempotent)."""
+    try:
+        from src.application.services.workflow_template_seeder import (
+            seed_workflow_templates,
+        )
+        from src.infrastructure.persistence.database.db_connection import get_session
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+
+        async with get_session() as session:
+            uow = get_unit_of_work(session)
+            await seed_workflow_templates(uow)
+    except Exception as e:
+        from sqlalchemy.exc import DatabaseError
+
+        if isinstance(e, DatabaseError):
+            from src.infrastructure.persistence.database.error_classification import (
+                classify_database_error,
+            )
+
+            info = classify_database_error(e)
+            logger.warning(
+                "Failed to seed workflow templates",
+                reason=info.user_message,
+                category=info.category,
+            )
+        else:
+            logger.warning("Failed to seed workflow templates", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
+
     from src.config import setup_logging
 
     setup_logging()
@@ -50,40 +85,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     manager = get_progress_manager()
     sub_id = await manager.subscribe(subscriber)
 
-    # Seed built-in workflow templates (idempotent)
-    try:
-        from src.application.services.workflow_template_seeder import (
-            seed_workflow_templates,
-        )
-        from src.infrastructure.persistence.database.db_connection import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
-            await seed_workflow_templates(uow)
-    except Exception as e:
-        # Classify database errors so the user sees actionable guidance
-        # (e.g., "PostgreSQL not running" instead of opaque OperationalError)
-        from sqlalchemy.exc import DatabaseError
-
-        if isinstance(e, DatabaseError):
-            from src.infrastructure.persistence.database.error_classification import (
-                classify_database_error,
-            )
-
-            info = classify_database_error(e)
-            logger.warning(
-                "Failed to seed workflow templates",
-                reason=info.user_message,
-                category=info.category,
-            )
-        else:
-            logger.warning("Failed to seed workflow templates", error=str(e))
+    # Seed templates in background so the server accepts connections immediately.
+    # On cold starts (Fly machine + Neon DB waking together), blocking here
+    # caused the server to miss Fly.io's health check grace period.
+    seed_task = asyncio.create_task(_seed_templates())
 
     yield
     logger.info("API server shutting down — cancelling background tasks")
+    seed_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await seed_task
     await manager.unsubscribe(sub_id)
 
 

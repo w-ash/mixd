@@ -49,6 +49,9 @@ const Integrations = lazy(() =>
 const Sync = lazy(() =>
   import("./pages/settings/Sync").then((m) => ({ default: m.Sync })),
 );
+const Account = lazy(() =>
+  import("./pages/settings/Account").then((m) => ({ default: m.Account })),
+);
 const Library = lazy(() =>
   import("./pages/Library").then((m) => ({ default: m.Library })),
 );
@@ -241,6 +244,16 @@ export function App() {
                   </Suspense>
                 }
               />
+              {authEnabled && (
+                <Route
+                  path="settings/account"
+                  element={
+                    <Suspense fallback={<PageSkeleton />}>
+                      <Account />
+                    </Suspense>
+                  }
+                />
+              )}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

@@ -220,13 +220,13 @@ class TestBearerTokenAuth:
     async def test_invalid_signature_returns_401(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         # Sign with a different key → signature mismatch
-        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-        wrong_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        wrong_key = Ed25519PrivateKey.generate()
         token = jwt.encode(
             {"sub": "hacker", "exp": 9999999999},
             wrong_key,
-            algorithm="RS256",
+            algorithm="EdDSA",
         )
         mw, inner = _make_middleware()
         scope = _make_scope(headers=[_bearer_header(token)])

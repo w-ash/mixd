@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.0.post1
+ * OpenAPI spec version: 0.6.1
  */
 import type { IntegrityCheckSchema } from './integrityCheckSchema';
 
