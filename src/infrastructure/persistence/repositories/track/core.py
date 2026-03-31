@@ -17,6 +17,7 @@ from sqlalchemy import (
     select,
     text,
     tuple_,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,7 @@ from src.application.pagination import TRACK_SORT_COLUMNS
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
+from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.repositories.interfaces import TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
@@ -108,24 +110,15 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("save_track")
     async def save_track(self, track: Track) -> Track:
-        """Save track without connector mappings using native SQLAlchemy 2.0 features.
+        """Save track using native SQLAlchemy 2.0 features with optimistic locking.
 
-        This method follows SQLAlchemy 2.0 async best practices:
-        1. Uses direct value mappings instead of complex object hierarchies
-        2. Uses explicit eager loading to avoid lazy loading issues
-        3. Leverages upsert's two-phase approach for safe async operations
-        4. Avoids implicit IO in relationship traversal
+        Update path (version > 0) uses WHERE version = :expected to detect
+        concurrent modifications. Insert/upsert path (version == 0) is unaffected.
         """
         if not track.title or not track.artists:
             raise ValueError("Track must have title and artists")
 
-        # version > 0 means the track was loaded from DB — update path
-        if track.version > 0:
-            return await self.update(track.id, track)
-
-        # Create direct column-to-value mappings for insert/update
-        # This avoids the need to convert the entire Track object to a dict
-        values = {
+        values: dict[str, Any] = {
             "title": track.title,
             "artists": {"names": [artist.name for artist in track.artists]},
             "album": track.album,
@@ -150,8 +143,28 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             if connector in track.connector_track_identifiers:
                 values[column] = track.connector_track_identifiers[connector]
 
+        # --- Update path: optimistic locking via version check ---
+        if track.version > 0:
+            values["version"] = track.version + 1
+            values["updated_at"] = datetime.now(UTC)
+
+            stmt = (
+                update(DBTrack)
+                .where(DBTrack.id == track.id, DBTrack.version == track.version)
+                .values(**values)
+                .returning(DBTrack)
+            )
+            result = await self.session.execute(stmt)
+            updated = result.scalar_one_or_none()
+
+            if not updated:
+                raise OptimisticLockError(track.id, track.version)
+
+            await self._load_relationships_via_identity_map([updated])
+            return await TrackMapper.to_domain_with_session(updated, self.session)
+
+        # --- Insert/upsert path (version == 0, no locking needed) ---
         # Handle lookups by ISRC, MBID, or Spotify ID
-        # The upsert method uses a two-phase approach that avoids greenlet issues
         uid = track.user_id
         if track.isrc:
             return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
@@ -180,7 +193,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         # Refresh with explicit eager loading of relationships to avoid lazy loading
         default_rels = self.mapper.get_default_relationships()
         if default_rels:
-            # Extract string names from relationships using utility method
             rel_names = self._extract_relationship_names(default_rels)
             if rel_names:
                 await self.session.refresh(db_track, attribute_names=rel_names)
@@ -189,7 +201,6 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         else:
             await self.session.refresh(db_track)
 
-        # Map back to domain model - the to_domain method has been updated to use AsyncAttrs safely
         result = await TrackMapper.to_domain_with_session(db_track, self.session)
         if result is None:
             raise ValueError(f"Failed to map track from database (id={db_track.id})")

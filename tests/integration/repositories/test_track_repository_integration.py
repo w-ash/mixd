@@ -2,7 +2,11 @@
 
 from uuid import uuid4
 
+from attrs import evolve
+import pytest
+
 from src.domain.entities import Artist, Track
+from src.domain.exceptions import OptimisticLockError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -189,7 +193,6 @@ class TestTrackRepositoryIntegration:
         test_data_tracker.add_track(saved_track.id)
 
         # Update track with new connector identifier (evolve preserves version)
-        from attrs import evolve
 
         updated_track = evolve(
             saved_track,
@@ -211,6 +214,80 @@ class TestTrackRepositoryIntegration:
         assert (
             "musicbrainz" in final_track.connector_track_identifiers
         )  # New connector added
+
+
+class TestTrackOptimisticLocking:
+    """Integration tests for optimistic concurrency control on tracks."""
+
+    async def test_save_track_increments_version(self, db_session, test_data_tracker):
+        """Saving a persisted track should increment its version."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            title=f"TEST_Version_{uuid4()}",
+            artists=[Artist(name="Test Artist")],
+        )
+
+        # First save — DB assigns version=1
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+        assert saved.version == 1
+
+        # Modify and save again — version should increment to 2
+        modified = evolve(saved, title=f"TEST_Version_Updated_{uuid4()}")
+        updated = await track_repo.save_track(modified)
+        assert updated.version == 2
+        assert updated.id == saved.id
+
+        # Reload from DB to confirm persistence
+        reloaded = await track_repo.get_by_id(saved.id)
+        assert reloaded.version == 2
+
+    async def test_save_track_rejects_stale_version(
+        self, db_session, test_data_tracker
+    ):
+        """Saving a track with a stale version should raise OptimisticLockError."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            title=f"TEST_Stale_{uuid4()}",
+            artists=[Artist(name="Test Artist")],
+        )
+
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+
+        # Simulate two concurrent loads — both hold version=1
+        stale_copy = evolve(saved, title="Stale Edit")
+
+        # First save succeeds — version goes to 2
+        fresh_edit = evolve(saved, title="Fresh Edit")
+        await track_repo.save_track(fresh_edit)
+
+        # Second save with stale version=1 should fail
+        with pytest.raises(OptimisticLockError) as exc_info:
+            await track_repo.save_track(stale_copy)
+
+        assert exc_info.value.expected_version == 1
+
+    async def test_save_track_insert_path_unaffected(
+        self, db_session, test_data_tracker
+    ):
+        """New tracks (version=0) should save normally and get version=1."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        track = Track(
+            title=f"TEST_Insert_{uuid4()}",
+            artists=[Artist(name="Test Artist")],
+        )
+        assert track.version == 0
+
+        saved = await track_repo.save_track(track)
+        test_data_tracker.add_track(saved.id)
+        assert saved.version == 1
 
 
 class TestFindTracksByTitleArtist:

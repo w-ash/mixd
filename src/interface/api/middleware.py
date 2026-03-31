@@ -14,6 +14,7 @@ from src.config import get_logger
 from src.domain.exceptions import (
     ConfirmationRequiredError,
     NotFoundError,
+    OptimisticLockError,
     TemplateReadOnlyError,
 )
 
@@ -31,6 +32,24 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": "NOT_FOUND",
                     "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(OptimisticLockError)
+    async def optimistic_lock_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: OptimisticLockError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "OPTIMISTIC_LOCK_CONFLICT",
+                    "message": str(exc),
+                    "details": {
+                        "entity_id": str(exc.entity_id),
+                        "expected_version": exc.expected_version,
+                    },
                 }
             },
         )
