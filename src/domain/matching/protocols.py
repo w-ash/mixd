@@ -68,6 +68,8 @@ class CrossDiscoveryProvider(Protocol):
         artist_name: str,
         track_name: str,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> bool:
         """Attempt to discover and map a track in another service.
 

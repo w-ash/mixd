@@ -1,13 +1,13 @@
 """Playlist CRUD endpoints + connector link management.
 
-Each handler is 5-10 lines: parse request → build Command → execute_use_case() → serialize.
+Each handler is 5-10 lines: parse request -> build Command -> execute_use_case() -> serialize.
 All business logic lives in the use cases — this is pure HTTP translation.
 """
 
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from src.application.runner import execute_use_case
@@ -62,6 +62,7 @@ from src.domain.exceptions import NotFoundError
 from src.infrastructure.connectors._shared.metric_registry import (
     MetricConfigProviderImpl,
 )
+from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import (
     BackupPlaylistRequest,
@@ -99,12 +100,16 @@ router = APIRouter(prefix="/playlists", tags=["playlists"])
 
 @router.get("")
 async def list_playlists(
+    user_id: str = Depends(get_current_user_id),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistSummarySchema]:
     """List all playlists with pagination."""
     result = await execute_use_case(
-        lambda uow: ListPlaylistsUseCase().execute(ListPlaylistsCommand(), uow)
+        lambda uow: ListPlaylistsUseCase().execute(
+            ListPlaylistsCommand(user_id=user_id), uow
+        ),
+        user_id=user_id,
     )
 
     # In-memory pagination (playlist count is small)
@@ -118,37 +123,53 @@ async def list_playlists(
 
 
 @router.post("", status_code=201)
-async def create_playlist(body: CreatePlaylistRequest) -> PlaylistDetailSchema:
+async def create_playlist(
+    body: CreatePlaylistRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> PlaylistDetailSchema:
     """Create a new empty playlist."""
     command = CreateCanonicalPlaylistCommand(
+        user_id=user_id,
         name=body.name,
         description=body.description,
     )
     result = await execute_use_case(
         lambda uow: CreateCanonicalPlaylistUseCase(
             metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow)
+        ).execute(command, uow),
+        user_id=user_id,
     )
     return to_playlist_detail(result.playlist)
 
 
 @router.post("/backup", status_code=201)
-async def backup_playlist(body: BackupPlaylistRequest) -> PlaylistDetailSchema:
+async def backup_playlist(
+    body: BackupPlaylistRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> PlaylistDetailSchema:
     """Backup a playlist from a connector service to the local database."""
     from src.application.services.playlist_backup_service import run_playlist_backup
 
     result = await run_playlist_backup(
-        connector_name=body.connector, playlist_id=body.playlist_id
+        connector_name=body.connector,
+        playlist_id=body.playlist_id,
+        user_id=user_id,
     )
     return to_playlist_detail(result.playlist)
 
 
 @router.get("/{playlist_id}")
-async def get_playlist(playlist_id: UUID) -> PlaylistDetailSchema:
+async def get_playlist(
+    playlist_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> PlaylistDetailSchema:
     """Get a playlist by ID with all entries."""
-    command = ReadCanonicalPlaylistCommand(playlist_id=str(playlist_id))
+    command = ReadCanonicalPlaylistCommand(
+        user_id=user_id, playlist_id=str(playlist_id)
+    )
     result = await execute_use_case(
-        lambda uow: ReadCanonicalPlaylistUseCase().execute(command, uow)
+        lambda uow: ReadCanonicalPlaylistUseCase().execute(command, uow),
+        user_id=user_id,
     )
     if result.playlist is None:
         raise NotFoundError(f"Playlist {playlist_id} not found")
@@ -156,18 +177,22 @@ async def get_playlist(playlist_id: UUID) -> PlaylistDetailSchema:
     # Fetch links for full detail
     link_result = await execute_use_case(
         lambda uow: ListPlaylistLinksUseCase().execute(
-            ListPlaylistLinksCommand(playlist_id=playlist_id), uow
-        )
+            ListPlaylistLinksCommand(user_id=user_id, playlist_id=playlist_id), uow
+        ),
+        user_id=user_id,
     )
     return to_playlist_detail(result.playlist, links=link_result.links)
 
 
 @router.patch("/{playlist_id}")
 async def update_playlist(
-    playlist_id: UUID, body: UpdatePlaylistRequest
+    playlist_id: UUID,
+    body: UpdatePlaylistRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> PlaylistDetailSchema:
     """Update playlist metadata (name and/or description)."""
     command = UpdateCanonicalPlaylistCommand(
+        user_id=user_id,
         playlist_id=str(playlist_id),
         new_tracklist=TrackList(),
         playlist_name=body.name,
@@ -176,19 +201,24 @@ async def update_playlist(
     result = await execute_use_case(
         lambda uow: UpdateCanonicalPlaylistUseCase(
             metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow)
+        ).execute(command, uow),
+        user_id=user_id,
     )
     return to_playlist_detail(result.playlist)
 
 
 @router.delete("/{playlist_id}", status_code=204)
-async def delete_playlist(playlist_id: UUID) -> Response:
+async def delete_playlist(
+    playlist_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
     """Delete a playlist by ID."""
     command = DeleteCanonicalPlaylistCommand(
-        playlist_id=str(playlist_id), force_delete=True
+        user_id=user_id, playlist_id=str(playlist_id), force_delete=True
     )
     await execute_use_case(
-        lambda uow: DeleteCanonicalPlaylistUseCase().execute(command, uow)
+        lambda uow: DeleteCanonicalPlaylistUseCase().execute(command, uow),
+        user_id=user_id,
     )
     return Response(status_code=204)
 
@@ -196,13 +226,17 @@ async def delete_playlist(playlist_id: UUID) -> Response:
 @router.get("/{playlist_id}/tracks")
 async def get_playlist_tracks(
     playlist_id: UUID,
+    user_id: str = Depends(get_current_user_id),
     limit: int = Query(default=10000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistEntrySchema]:
     """Get paginated track entries for a playlist."""
-    command = ReadCanonicalPlaylistCommand(playlist_id=str(playlist_id))
+    command = ReadCanonicalPlaylistCommand(
+        user_id=user_id, playlist_id=str(playlist_id)
+    )
     result = await execute_use_case(
-        lambda uow: ReadCanonicalPlaylistUseCase().execute(command, uow)
+        lambda uow: ReadCanonicalPlaylistUseCase().execute(command, uow),
+        user_id=user_id,
     )
     if result.playlist is None:
         raise NotFoundError(f"Playlist {playlist_id} not found")
@@ -223,19 +257,25 @@ async def get_playlist_tracks(
 
 
 @router.get("/{playlist_id}/links")
-async def list_playlist_links(playlist_id: UUID) -> list[PlaylistLinkSchema]:
+async def list_playlist_links(
+    playlist_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> list[PlaylistLinkSchema]:
     """List all connector links for a playlist."""
     result = await execute_use_case(
         lambda uow: ListPlaylistLinksUseCase().execute(
-            ListPlaylistLinksCommand(playlist_id=playlist_id), uow
-        )
+            ListPlaylistLinksCommand(user_id=user_id, playlist_id=playlist_id), uow
+        ),
+        user_id=user_id,
     )
     return [to_link_schema(link) for link in result.links]
 
 
 @router.post("/{playlist_id}/links", status_code=201)
 async def create_playlist_link(
-    playlist_id: UUID, body: CreateLinkRequest
+    playlist_id: UUID,
+    body: CreateLinkRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> PlaylistLinkSchema:
     """Link a playlist to an external service playlist.
 
@@ -243,24 +283,31 @@ async def create_playlist_link(
     playlist exists before creating the link.
     """
     command = CreatePlaylistLinkCommand(
+        user_id=user_id,
         playlist_id=playlist_id,
         connector=body.connector,
         connector_playlist_id=body.connector_playlist_id,
         sync_direction=SyncDirection(body.sync_direction),
     )
     result = await execute_use_case(
-        lambda uow: CreatePlaylistLinkUseCase().execute(command, uow)
+        lambda uow: CreatePlaylistLinkUseCase().execute(command, uow),
+        user_id=user_id,
     )
     return to_link_schema(result.link)
 
 
 @router.delete("/{playlist_id}/links/{link_id}", status_code=204)
-async def delete_playlist_link(playlist_id: UUID, link_id: UUID) -> Response:  # noqa: ARG001
+async def delete_playlist_link(
+    playlist_id: UUID,  # noqa: ARG001
+    link_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
     """Unlink a playlist from an external service."""
     await execute_use_case(
         lambda uow: DeletePlaylistLinkUseCase().execute(
-            DeletePlaylistLinkCommand(link_id=link_id), uow
-        )
+            DeletePlaylistLinkCommand(user_id=user_id, link_id=link_id), uow
+        ),
+        user_id=user_id,
     )
     return Response(status_code=204)
 
@@ -270,14 +317,17 @@ async def update_playlist_link(
     playlist_id: UUID,  # noqa: ARG001
     link_id: UUID,
     body: UpdateLinkRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> PlaylistLinkSchema:
     """Update a playlist link's sync direction."""
     command = UpdatePlaylistLinkCommand(
+        user_id=user_id,
         link_id=link_id,
         sync_direction=SyncDirection(body.sync_direction),
     )
     result = await execute_use_case(
-        lambda uow: UpdatePlaylistLinkUseCase().execute(command, uow)
+        lambda uow: UpdatePlaylistLinkUseCase().execute(command, uow),
+        user_id=user_id,
     )
     return to_link_schema(result.link)
 
@@ -287,15 +337,18 @@ async def preview_playlist_sync(
     playlist_id: UUID,  # noqa: ARG001
     link_id: UUID,
     direction_override: str | None = Query(default=None),
+    user_id: str = Depends(get_current_user_id),
 ) -> SyncPreviewResponse:
     """Preview what a sync would change without executing it."""
     override = SyncDirection(direction_override) if direction_override else None
     command = PreviewPlaylistSyncCommand(
+        user_id=user_id,
         link_id=link_id,
         direction_override=override,
     )
     result = await execute_use_case(
-        lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow)
+        lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow),
+        user_id=user_id,
     )
     return SyncPreviewResponse(
         tracks_to_add=result.tracks_to_add,
@@ -315,6 +368,7 @@ async def sync_playlist_link(
     playlist_id: UUID,  # noqa: ARG001
     link_id: UUID,
     body: SyncLinkRequest | None = None,
+    user_id: str = Depends(get_current_user_id),
 ) -> SyncStartedResponse:
     """Start a sync operation for a playlist link.
 
@@ -333,7 +387,12 @@ async def sync_playlist_link(
     launch_background(
         f"playlist_sync_{operation_id}",
         lambda: _execute_sync_background(
-            operation_id, link_id, direction_override, sse_queue, confirmed=confirmed
+            operation_id,
+            link_id,
+            direction_override,
+            sse_queue,
+            user_id,
+            confirmed=confirmed,
         ),
     )
 
@@ -345,6 +404,7 @@ async def _execute_sync_background(
     link_id: UUID,
     direction_override: SyncDirection | None,
     sse_queue: asyncio.Queue[object],
+    user_id: str,
     *,
     confirmed: bool = False,
 ) -> None:
@@ -354,12 +414,14 @@ async def _execute_sync_background(
 
     try:
         command = SyncPlaylistLinkCommand(
+            user_id=user_id,
             link_id=link_id,
             direction_override=direction_override,
             confirmed=confirmed,
         )
         result = await execute_use_case(
-            lambda uow: SyncPlaylistLinkUseCase().execute(command, uow)
+            lambda uow: SyncPlaylistLinkUseCase().execute(command, uow),
+            user_id=user_id,
         )
 
         await sse_queue.put(

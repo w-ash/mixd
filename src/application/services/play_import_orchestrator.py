@@ -47,6 +47,8 @@ class PlayImportOrchestrator:
         self,
         importer: PlayImporterProtocol,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
         **import_params: Any,
     ) -> OperationResult:
@@ -78,7 +80,9 @@ class PlayImportOrchestrator:
 
         # Phase 2: Deferred resolution (track_plays)
         logger.info(f"Phase 2: Resolving {len(connector_plays)} connector plays")
-        resolution_result = await self._execute_resolution_phase(connector_plays, uow)
+        resolution_result = await self._execute_resolution_phase(
+            connector_plays, uow, user_id=user_id
+        )
 
         # Combine results for unified reporting
         combined_result = self._combine_phase_results(
@@ -105,6 +109,8 @@ class PlayImportOrchestrator:
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> OperationResult:
         """Execute Phase 2: Resolve connector_plays to canonical track_plays.
 
@@ -129,7 +135,7 @@ class PlayImportOrchestrator:
             if plays:
                 resolver = await self.resolver_factory(service)
                 track_plays, metrics = await resolver.resolve_connector_plays(
-                    plays, uow
+                    plays, uow, user_id=user_id
                 )
                 all_track_plays.extend(track_plays)
                 combined_metrics["resolved_plays"] += len(track_plays)
@@ -151,7 +157,7 @@ class PlayImportOrchestrator:
                     start_dt = datetime.fromtimestamp(start_epoch, tz=UTC)
                     end_dt = datetime.fromtimestamp(end_epoch, tz=UTC)
                     existing_plays = await plays_repo.find_plays_in_time_range(
-                        track_ids, start_dt, end_dt
+                        track_ids, start_dt, end_dt, user_id=user_id
                     )
                 else:
                     existing_plays = []

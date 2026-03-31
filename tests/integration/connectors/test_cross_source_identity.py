@@ -68,7 +68,7 @@ class TestSpotifyThenLastfm:
             spotify_result,
             spotify_metrics,
         ) = await spotify_resolver.resolve_to_canonical_tracks(
-            ["sp_001", "sp_002", "sp_003"], uow
+            ["sp_001", "sp_002", "sp_003"], uow, user_id="default"
         )
 
         assert spotify_metrics.created == 3
@@ -98,6 +98,7 @@ class TestSpotifyThenLastfm:
                 "band::different song",  # No match — genuinely different
             ],
             uow,
+            user_id="default",
         )
 
         # 2 tracks reused from Spotify, 1 new
@@ -186,7 +187,7 @@ class TestLastfmThenSpotify:
         # Mapping Lookup: no existing Spotify mappings
         # Track Creation: ISRC dedup should catch both
         result, metrics = await spotify_resolver.resolve_to_canonical_tracks(
-            ["sp_new_creep", "sp_new_eiirp"], uow
+            ["sp_new_creep", "sp_new_eiirp"], uow, user_id="default"
         )
 
         # Both should reuse existing Last.fm canonicals (not create duplicates)
@@ -195,10 +196,13 @@ class TestLastfmThenSpotify:
 
         # Verify Spotify mappings were created on the existing tracks
         spotify_mappings = (
-            await uow.get_connector_repository().find_tracks_by_connectors([
-                ("spotify", "sp_new_creep"),
-                ("spotify", "sp_new_eiirp"),
-            ])
+            await uow.get_connector_repository().find_tracks_by_connectors(
+                [
+                    ("spotify", "sp_new_creep"),
+                    ("spotify", "sp_new_eiirp"),
+                ],
+                user_id="default",
+            )
         )
         assert len(spotify_mappings) == 2
 
@@ -218,7 +222,7 @@ class TestLastfmThenSpotify:
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
         result, metrics = await spotify_resolver.resolve_to_canonical_tracks(
-            ["sp_brand_new"], uow
+            ["sp_brand_new"], uow, user_id="default"
         )
 
         assert metrics.created == 1
@@ -279,6 +283,7 @@ class TestMixedResolutionPaths:
                 "band c::brand new track",  # Track Creation: create new
             ],
             uow,
+            user_id="default",
         )
 
         assert len(result) == 3

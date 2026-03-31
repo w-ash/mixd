@@ -95,7 +95,9 @@ class TestPlaylistRepositoryIntegration:
         assert retrieved is not None
 
         # Delete the playlist
-        delete_result = await playlist_repo.delete_playlist(saved_playlist.id)
+        delete_result = await playlist_repo.delete_playlist(
+            saved_playlist.id, user_id="default"
+        )
         assert delete_result is True
 
         # Verify it's hard deleted - no longer exists (should raise NotFoundError)
@@ -226,7 +228,7 @@ class TestPlaylistRepositoryIntegration:
             await playlist_repo.get_by_id(nonexistent_id)
 
         # Test deletion of non-existent playlist
-        delete_result = await playlist_repo.delete_playlist(uuid4())
+        delete_result = await playlist_repo.delete_playlist(uuid4(), user_id="default")
         assert delete_result is False
 
         # Test playlist with empty name (should be handled gracefully)

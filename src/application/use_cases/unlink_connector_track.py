@@ -23,6 +23,7 @@ from src.domain.repositories.interfaces import (
 class UnlinkConnectorTrackCommand:
     """Parameters for unlinking a mapping from a track."""
 
+    user_id: str
     mapping_id: UUID
     current_track_id: UUID
 
@@ -53,7 +54,9 @@ class UnlinkConnectorTrackUseCase:
             track_repo = uow.get_track_repository()
 
             # 1. Fetch and validate mapping
-            mapping = await connector_repo.get_mapping_by_id(command.mapping_id)
+            mapping = await connector_repo.get_mapping_by_id(
+                command.mapping_id, user_id=command.user_id
+            )
             if mapping is None:
                 raise NotFoundError(f"Mapping {command.mapping_id} not found")
 
@@ -65,7 +68,9 @@ class UnlinkConnectorTrackUseCase:
             connector_name = mapping.connector_name
 
             # 2. Delete the mapping
-            await connector_repo.delete_mapping(command.mapping_id)
+            await connector_repo.delete_mapping(
+                command.mapping_id, user_id=command.user_id
+            )
 
             # 3. Old track: promote next primary or clear denormalized ID
             await connector_repo.ensure_primary_for_connector(
@@ -80,7 +85,11 @@ class UnlinkConnectorTrackUseCase:
 
             if remaining_count == 0:
                 orphan_track_id = await self._create_orphan_track(
-                    connector_repo, track_repo, connector_track_id, connector_name
+                    connector_repo,
+                    track_repo,
+                    connector_track_id,
+                    connector_name,
+                    user_id=command.user_id,
                 )
 
             await uow.commit()
@@ -95,6 +104,8 @@ class UnlinkConnectorTrackUseCase:
         track_repo: TrackRepositoryProtocol,
         connector_track_id: UUID,
         connector_name: str,
+        *,
+        user_id: str,
     ) -> UUID:
         """Create a new canonical track from an orphaned connector track's metadata.
 
@@ -114,6 +125,7 @@ class UnlinkConnectorTrackUseCase:
             duration_ms=ct.duration_ms,
             release_date=ct.release_date,
             isrc=ct.isrc,
+            user_id=user_id,
         )
         saved_track = await track_repo.save_track(new_track)
 

@@ -35,7 +35,11 @@ class ConnectorPlaylistProcessingService:
     """
 
     async def process_connector_playlist(
-        self, connector_playlist: ConnectorPlaylist | None, uow: UnitOfWorkProtocol
+        self,
+        connector_playlist: ConnectorPlaylist | None,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> Playlist:
         """Process ConnectorPlaylist data to create Playlist with entries.
 
@@ -136,7 +140,7 @@ class ConnectorPlaylistProcessingService:
         ]
 
         existing_tracks_map = await connector_repo.find_tracks_by_connectors(
-            connector_tuples
+            connector_tuples, user_id=user_id
         )
 
         # Separate existing vs new tracks
@@ -158,7 +162,7 @@ class ConnectorPlaylistProcessingService:
             logger.info(f"Creating {len(new_connector_tracks)} new tracks in database")
             try:
                 newly_created_tracks = await connector_repo.ingest_external_tracks_bulk(
-                    connector_name, new_connector_tracks
+                    connector_name, new_connector_tracks, user_id=user_id
                 )
 
                 # Add to mapping
@@ -180,7 +184,7 @@ class ConnectorPlaylistProcessingService:
                     try:
                         single_track_result = (
                             await connector_repo.ingest_external_tracks_bulk(
-                                connector_name, [connector_track]
+                                connector_name, [connector_track], user_id=user_id
                             )
                         )
                         if single_track_result:

@@ -153,7 +153,7 @@ class TestListPendingReviews:
         )
         await repo.update_review_status(accepted.id, ReviewStatus.ACCEPTED)
 
-        reviews, total = await repo.list_pending_reviews()
+        reviews, total = await repo.list_pending_reviews(user_id="default")
         assert total == 1
         assert len(reviews) == 1
         assert reviews[0].track_id == track_id
@@ -175,11 +175,15 @@ class TestListPendingReviews:
                 )
             )
 
-        reviews, total = await repo.list_pending_reviews(limit=2, offset=0)
+        reviews, total = await repo.list_pending_reviews(
+            user_id="default", limit=2, offset=0
+        )
         assert total == 3
         assert len(reviews) == 2
 
-        reviews2, total2 = await repo.list_pending_reviews(limit=2, offset=2)
+        reviews2, total2 = await repo.list_pending_reviews(
+            user_id="default", limit=2, offset=2
+        )
         assert total2 == 3
         assert len(reviews2) == 1
 
@@ -200,7 +204,7 @@ class TestListPendingReviews:
             )
         )
 
-        reviews, _ = await repo.list_pending_reviews()
+        reviews, _ = await repo.list_pending_reviews(user_id="default")
         review = reviews[0]
         # Should have denormalized display fields from connector_track
         assert review.connector_track_title != ""
@@ -247,5 +251,5 @@ class TestCountPending:
             )
         )
 
-        count = await repo.count_pending()
+        count = await repo.count_pending(user_id="default")
         assert count == 1

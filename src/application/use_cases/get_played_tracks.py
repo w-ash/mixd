@@ -33,6 +33,7 @@ class GetPlayedTracksCommand:
     """Parameters for retrieving tracks from listening history.
 
     Attributes:
+        user_id: Owning user.
         limit: Maximum number of tracks to return.
         days_back: Number of days to look back for plays (None for all time).
         connector_filter: Filter by music service ("spotify", "lastfm", etc.).
@@ -40,6 +41,7 @@ class GetPlayedTracksCommand:
         timestamp: When this command was created.
     """
 
+    user_id: str
     limit: int = field(
         default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
         validator=positive_int_in_range(),
@@ -174,7 +176,9 @@ class GetPlayedTracksUseCase:
 
         # Get recent plays with sorting - repository handles the sorting logic
         recent_plays = await plays_repo.get_recent_plays(
-            limit=command.limit * 2, sort_by=command.sort_by
+            limit=command.limit * 2,
+            sort_by=command.sort_by,
+            user_id=command.user_id,
         )
 
         # Extract unique track IDs from recent plays (filter out None values)
@@ -211,6 +215,7 @@ class GetPlayedTracksUseCase:
             metrics=["total_plays", "last_played_dates"],
             period_start=period_start,
             period_end=None,
+            user_id=command.user_id,
         )
 
         # Create tracklist with play metrics in canonical nested structure

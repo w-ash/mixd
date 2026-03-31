@@ -40,10 +40,11 @@ class ImportTracksCommand:
     Supports LastFM API imports (recent/incremental/full) and Spotify file imports.
 
     Attributes:
+        user_id: Authenticated user's ID (for data scoping).
         service: Music service to import from ('lastfm' or 'spotify').
         mode: Import type ('recent', 'incremental', 'full', 'file').
         limit: Maximum tracks to import (LastFM only).
-        user_id: LastFM username for user-specific imports.
+        username: LastFM username for user-specific imports.
         file_path: Path to Spotify data export JSON file.
         confirm: Whether user confirmed destructive operations.
         from_date: Start date for date range filtering (incremental mode only).
@@ -54,12 +55,13 @@ class ImportTracksCommand:
         ValueError: If service/mode combination is invalid or required params missing.
     """
 
+    user_id: str
     service: ServiceType
     mode: ImportMode
 
     # Service-specific parameters
     limit: int | None = None  # For lastfm recent/full imports
-    user_id: str | None = None  # For lastfm incremental/full imports
+    username: str | None = None  # For lastfm incremental/full imports
     file_path: Path | None = None  # For spotify file imports
     confirm: bool = False  # For destructive operations like full history
     from_date: datetime | None = None  # Start date for date range filtering
@@ -327,6 +329,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                user_id=command.user_id,
                 progress_emitter=progress_emitter,
                 limit=limit,  # Passed to ingestion phase
             )
@@ -358,7 +361,7 @@ class ImportTracksUseCase:
         CLEAN ARCHITECTURE: No mention of specific connectors - uses generic service pattern.
 
         Args:
-            command: Contains user_id, from_date, to_date.
+            command: Contains username, from_date, to_date.
             uow: Database transaction manager for atomic operations.
 
         Returns:
@@ -373,8 +376,9 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                username=command.user_id,
+                username=command.username,
                 from_date=command.from_date,
                 to_date=command.to_date,
             )
@@ -404,7 +408,7 @@ class ImportTracksUseCase:
         checkpoint and prompts for confirmation due to large API usage.
 
         Args:
-            command: Contains user_id and confirm flags.
+            command: Contains username and confirm flags.
             uow: Database transaction manager for atomic operations.
 
         Returns:
@@ -432,6 +436,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                user_id=command.user_id,
                 progress_emitter=progress_emitter,
                 limit=50000,  # Passed to ingestion phase
             )
@@ -481,6 +486,7 @@ class ImportTracksUseCase:
             result = await orchestrator.import_plays_two_phase(
                 importer=importer,
                 uow=uow,
+                user_id=command.user_id,
                 progress_emitter=progress_emitter,
                 file_path=command.file_path,
             )
@@ -497,10 +503,11 @@ class ImportTracksUseCase:
 
 
 async def run_import(
+    user_id: str,
     service: ServiceType,
     mode: ImportMode,
     limit: int | None = None,
-    user_id: str | None = None,
+    username: str | None = None,
     file_path: Path | None = None,
     confirm: bool = False,
     from_date: datetime | None = None,
@@ -514,10 +521,11 @@ async def run_import(
     and executes the import operation. Used by CLI commands.
 
     Args:
+        user_id: Authenticated user's ID (for data scoping).
         service: Import service type ('lastfm' or 'spotify').
         mode: Import mode ('recent', 'incremental', 'full', 'file').
         limit: Maximum number of items to import.
-        user_id: User ID for the import operation.
+        username: LastFM username for user-specific imports.
         file_path: File path for file-based imports.
         confirm: Whether to confirm before importing.
         from_date: Start date for date range filtering (incremental mode only).
@@ -537,10 +545,11 @@ async def run_import(
     from src.application.runner import execute_use_case
 
     command = ImportTracksCommand(
+        user_id=user_id,
         service=service,
         mode=mode,
         limit=limit,
-        user_id=user_id,
+        username=username,
         file_path=file_path,
         confirm=confirm,
         from_date=from_date,
@@ -549,6 +558,7 @@ async def run_import(
     )
 
     result = await execute_use_case(
-        lambda uow: ImportTracksUseCase().execute(command, uow, progress_emitter)
+        lambda uow: ImportTracksUseCase().execute(command, uow, progress_emitter),
+        user_id=user_id,
     )
     return result.operation_result

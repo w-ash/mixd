@@ -116,7 +116,7 @@ class TestTwoPhaseHappyPath:
         )
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, file_path="/fake/path.json"
+            mock_importer, mock_uow, user_id="test-user", file_path="/fake/path.json"
         )
 
         assert result.operation_name == "Two-Phase Play Import"
@@ -137,7 +137,9 @@ class TestTwoPhaseHappyPath:
             {"error_count": 0},
         )
 
-        result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user"
+        )
 
         assert "ingestion_phase" in result.metadata
         assert "resolution_phase" in result.metadata
@@ -152,7 +154,9 @@ class TestEmptyIngestion:
         ingestion_result = _make_ingestion_result(imported=0, raw_plays=0, duplicates=0)
         mock_importer.import_plays.return_value = (ingestion_result, [])
 
-        result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user"
+        )
 
         # Should return the ingestion result directly
         assert result is ingestion_result
@@ -177,7 +181,9 @@ class TestResolutionPhaseErrors:
             {"error_count": 1},  # 1 error
         )
 
-        result = await orchestrator.import_plays_two_phase(mock_importer, mock_uow)
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user"
+        )
 
         # The resolution phase error should be in combined metrics
         assert result.metadata["resolution_phase"]["error_count"] == 1

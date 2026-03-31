@@ -12,7 +12,6 @@ from attrs import define, field
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
-from src.domain.exceptions import NotFoundError
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.sync_safety import check_sync_safety
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -24,6 +23,7 @@ logger = get_logger(__name__)
 class PreviewPlaylistSyncCommand:
     """Input: which link to preview sync for, with optional direction override."""
 
+    user_id: str
     link_id: UUID
     direction_override: SyncDirection | None = None
 
@@ -61,22 +61,26 @@ class PreviewPlaylistSyncUseCase:
         self, command: PreviewPlaylistSyncCommand, uow: UnitOfWorkProtocol
     ) -> PreviewPlaylistSyncResult:
         async with uow:
-            link_repo = uow.get_playlist_link_repository()
-            link = await link_repo.get_link(command.link_id)
+            from src.application.use_cases._shared.playlist_resolver import (
+                require_playlist_link,
+            )
 
-            if link is None:
-                raise NotFoundError(f"Playlist link {command.link_id} not found")
-
+            link = await require_playlist_link(
+                command.link_id, uow, user_id=command.user_id
+            )
             direction = command.direction_override or link.sync_direction
 
             # Load canonical playlist
             playlist_repo = uow.get_playlist_repository()
-            canonical = await playlist_repo.get_playlist_by_id(link.playlist_id)
+            canonical = await playlist_repo.get_playlist_by_id(
+                link.playlist_id, user_id=command.user_id
+            )
 
             # Load locally-cached external playlist for real diff
             external = await playlist_repo.get_playlist_by_connector(
                 link.connector_name,
                 link.connector_playlist_identifier,
+                user_id=command.user_id,
                 raise_if_not_found=False,
             )
 

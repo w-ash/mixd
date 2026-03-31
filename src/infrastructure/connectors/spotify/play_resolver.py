@@ -87,6 +87,8 @@ class SpotifyConnectorPlayResolver:
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[TrackPlay], dict[str, Any]]:
         """Resolve Spotify connector plays with full metadata preservation."""
@@ -116,7 +118,7 @@ class SpotifyConnectorPlayResolver:
             canonical_tracks_map,
             canonical_track_metrics,
         ) = await self._resolve_spotify_ids_to_canonical_tracks(
-            unique_spotify_ids, uow, fallback_hints=fallback_hints
+            unique_spotify_ids, uow, user_id=user_id, fallback_hints=fallback_hints
         )
 
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
@@ -311,6 +313,7 @@ class SpotifyConnectorPlayResolver:
         spotify_ids: list[str],
         uow: UnitOfWorkProtocol,
         *,
+        user_id: str,
         fallback_hints: dict[str, FallbackHint] | None = None,
     ) -> tuple[dict[str, Track], dict[str, int]]:
         """Resolve Spotify track IDs to canonical tracks.
@@ -321,7 +324,7 @@ class SpotifyConnectorPlayResolver:
         - Fallback search for dead IDs using artist+title hints
         """
         tracks_map, metrics = await self._inward_resolver.resolve_to_canonical_tracks(
-            spotify_ids, uow, fallback_hints=fallback_hints
+            spotify_ids, uow, user_id=user_id, fallback_hints=fallback_hints
         )
         return tracks_map, {
             "new_tracks_count": metrics.created,

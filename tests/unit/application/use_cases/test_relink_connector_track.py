@@ -64,11 +64,11 @@ class TestRelinkHappyPath:
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
         track_repo = make_mock_track_repo()
-        track_repo.get_by_id = AsyncMock(return_value=make_track(id=20))
+        track_repo.get_track_by_id = AsyncMock(return_value=make_track(id=20))
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=20, current_track_id=10
+            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=10
         )
         result = await RelinkConnectorTrackUseCase().execute(command, uow)
 
@@ -89,11 +89,11 @@ class TestRelinkHappyPath:
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
         track_repo = make_mock_track_repo()
-        track_repo.get_by_id = AsyncMock(return_value=make_track(id=20))
+        track_repo.get_track_by_id = AsyncMock(return_value=make_track(id=20))
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=20, current_track_id=10
+            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=10
         )
         await RelinkConnectorTrackUseCase().execute(command, uow)
 
@@ -114,11 +114,11 @@ class TestRelinkHappyPath:
         )
         connector_repo.ensure_primary_for_connector = AsyncMock()
         track_repo = make_mock_track_repo()
-        track_repo.get_by_id = AsyncMock(return_value=make_track(id=20))
+        track_repo.get_track_by_id = AsyncMock(return_value=make_track(id=20))
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=20, current_track_id=10
+            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=10
         )
         await RelinkConnectorTrackUseCase().execute(command, uow)
 
@@ -135,7 +135,7 @@ class TestRelinkValidation:
         uow = make_mock_uow(connector_repo=connector_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=10, current_track_id=10
+            user_id="test-user", mapping_id=1, new_track_id=10, current_track_id=10
         )
         with pytest.raises(ValueError, match="same track"):
             await RelinkConnectorTrackUseCase().execute(command, uow)
@@ -146,7 +146,7 @@ class TestRelinkValidation:
         uow = make_mock_uow(connector_repo=connector_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=999, new_track_id=20, current_track_id=10
+            user_id="test-user", mapping_id=999, new_track_id=20, current_track_id=10
         )
         with pytest.raises(NotFoundError, match="999"):
             await RelinkConnectorTrackUseCase().execute(command, uow)
@@ -156,13 +156,13 @@ class TestRelinkValidation:
         connector_repo = make_mock_connector_repo()
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         track_repo = make_mock_track_repo()
-        track_repo.get_by_id = AsyncMock(
+        track_repo.get_track_by_id = AsyncMock(
             side_effect=NotFoundError("Track 20 not found")
         )
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=20, current_track_id=10
+            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=10
         )
         with pytest.raises(NotFoundError, match="20"):
             await RelinkConnectorTrackUseCase().execute(command, uow)
@@ -174,7 +174,7 @@ class TestRelinkValidation:
         uow = make_mock_uow(connector_repo=connector_repo)
 
         command = RelinkConnectorTrackCommand(
-            mapping_id=1, new_track_id=20, current_track_id=99
+            user_id="test-user", mapping_id=1, new_track_id=20, current_track_id=99
         )
         with pytest.raises(ValueError, match="does not belong"):
             await RelinkConnectorTrackUseCase().execute(command, uow)

@@ -18,6 +18,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class ListWorkflowVersionsCommand:
+    user_id: str
     workflow_id: UUID
 
 
@@ -33,7 +34,9 @@ class ListWorkflowVersionsUseCase:
     ) -> ListWorkflowVersionsResult:
         async with uow:
             wf_repo = uow.get_workflow_repository()
-            await wf_repo.get_workflow_by_id(command.workflow_id)
+            await wf_repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             version_repo = uow.get_workflow_version_repository()
             versions = await version_repo.list_versions(command.workflow_id)
@@ -47,6 +50,7 @@ class ListWorkflowVersionsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowVersionCommand:
+    user_id: str
     workflow_id: UUID
     version: int
 
@@ -63,7 +67,9 @@ class GetWorkflowVersionUseCase:
     ) -> GetWorkflowVersionResult:
         async with uow:
             wf_repo = uow.get_workflow_repository()
-            await wf_repo.get_workflow_by_id(command.workflow_id)
+            await wf_repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             version_repo = uow.get_workflow_version_repository()
             version = await version_repo.get_version(
@@ -79,6 +85,7 @@ class GetWorkflowVersionUseCase:
 
 @define(frozen=True, slots=True)
 class RevertWorkflowVersionCommand:
+    user_id: str
     workflow_id: UUID
     version: int
 
@@ -103,7 +110,9 @@ class RevertWorkflowVersionUseCase:
             wf_repo = uow.get_workflow_repository()
             version_repo = uow.get_workflow_version_repository()
 
-            existing = await wf_repo.get_workflow_by_id(command.workflow_id)
+            existing = await wf_repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
             target_version = await version_repo.get_version(
                 command.workflow_id, command.version
             )
@@ -125,6 +134,7 @@ class RevertWorkflowVersionUseCase:
             new_version = existing.definition_version + 1
             reverted = Workflow(
                 id=existing.id,
+                user_id=command.user_id,
                 definition=target_version.definition,
                 is_template=existing.is_template,
                 source_template=existing.source_template,

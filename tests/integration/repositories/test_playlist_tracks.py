@@ -1,4 +1,4 @@
-"""Integration tests for PlaylistRepository.get_playlists_for_track().
+"""Integration tests for PlaylistRepository.get_playlists_for_track(user_id="default").
 
 Verifies that we can find all playlists containing a specific track,
 which powers the Track Detail page's "appears in playlists" section.
@@ -75,7 +75,9 @@ class TestGetPlaylistsForTrack:
 
         uow = get_unit_of_work(db_session)
         playlist_repo = uow.get_playlist_repository()
-        playlists = await playlist_repo.get_playlists_for_track(track_id)
+        playlists = await playlist_repo.get_playlists_for_track(
+            track_id, user_id="default"
+        )
 
         names = {p.name for p in playlists}
         assert names == {"Playlist A", "Playlist B"}
@@ -88,7 +90,9 @@ class TestGetPlaylistsForTrack:
 
         uow = get_unit_of_work(db_session)
         playlist_repo = uow.get_playlist_repository()
-        playlists = await playlist_repo.get_playlists_for_track(track_id)
+        playlists = await playlist_repo.get_playlists_for_track(
+            track_id, user_id="default"
+        )
 
         names = {p.name for p in playlists}
         assert "Playlist C" not in names
@@ -107,6 +111,8 @@ class TestGetPlaylistsForTrack:
 
         uow = get_unit_of_work(db_session)
         playlist_repo = uow.get_playlist_repository()
-        playlists = await playlist_repo.get_playlists_for_track(track.id)
+        playlists = await playlist_repo.get_playlists_for_track(
+            track.id, user_id="default"
+        )
 
         assert playlists == []

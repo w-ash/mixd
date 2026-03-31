@@ -70,6 +70,8 @@ async def update_checkpoint(
 async def save_likes(
     track_id: UUID,
     uow: UnitOfWorkProtocol,
+    *,
+    user_id: str,
     services: list[str] | None = None,
     timestamp: datetime | None = None,
     is_liked: bool = True,
@@ -80,6 +82,7 @@ async def save_likes(
     Args:
         track_id: Internal track ID.
         uow: Unit of work for transaction management.
+        user_id: Owner's user ID.
         services: Services to save likes for (defaults to ["mixd"]).
         timestamp: When this sync happened (used for last_synced).
         is_liked: Whether the track is liked.
@@ -93,6 +96,7 @@ async def save_likes(
         _ = await like_repo.save_track_like(
             track_id=track_id,
             service=service,
+            user_id=user_id,
             is_liked=is_liked,
             last_synced=now,
             liked_at=liked_at,
@@ -127,6 +131,7 @@ class ExportLastFmLikesCommand:
 class GetSyncCheckpointStatusCommand:
     """Parameters for retrieving sync checkpoint status."""
 
+    user_id: str
     service: str
     entity_type: Literal["likes", "plays"]
 
@@ -228,7 +233,9 @@ class ImportSpotifyLikesUseCase:
             ]
 
             try:
-                existing_map = await repo.find_tracks_by_connectors(connections)
+                existing_map = await repo.find_tracks_by_connectors(
+                    connections, user_id=command.user_id
+                )
             except Exception:
                 logger.exception("Error bulk-finding tracks")
                 existing_map = {}
@@ -255,7 +262,7 @@ class ImportSpotifyLikesUseCase:
             if existing_ids:
                 like_repo = uow.get_like_repository()
                 like_status = await like_repo.get_liked_status_batch(
-                    existing_ids, ["spotify", "mixd"]
+                    existing_ids, ["spotify", "mixd"], user_id=command.user_id
                 )
                 for track_id in existing_ids:
                     statuses = like_status.get(track_id, {})
@@ -271,7 +278,7 @@ class ImportSpotifyLikesUseCase:
             if new_tracks:
                 try:
                     ingested = await repo.ingest_external_tracks_bulk(
-                        "spotify", new_tracks
+                        "spotify", new_tracks, user_id=command.user_id
                     )
                     for track in ingested:
                         if track.id:
@@ -312,7 +319,9 @@ class ImportSpotifyLikesUseCase:
                         for service in ("spotify", "mixd")
                     )
                 try:
-                    await like_repo.save_track_likes_batch(like_entries)
+                    await like_repo.save_track_likes_batch(
+                        like_entries, user_id=command.user_id
+                    )
                     imported += len(needs_likes)
                 except Exception:
                     logger.exception("Error bulk-saving likes")
@@ -456,11 +465,14 @@ class ExportLastFmLikesUseCase:
         unsynced = await like_repo.get_unsynced_likes(
             source_service="mixd",
             target_service="lastfm",
+            user_id=command.user_id,
             is_liked=True,
             since_timestamp=filter_time,
         )
 
-        total_mixd = await like_repo.count_liked_tracks(service="mixd", is_liked=True)
+        total_mixd = await like_repo.count_liked_tracks(
+            service="mixd", user_id=command.user_id, is_liked=True
+        )
         already_loved = total_mixd - len(unsynced)
         total_to_export = len(unsynced)
 
@@ -519,7 +531,9 @@ class ExportLastFmLikesUseCase:
                 continue
 
             # Process batch
-            results = await self._process_batch(tracks_to_export, lastfm, uow)
+            results = await self._process_batch(
+                tracks_to_export, lastfm, uow, user_id=command.user_id
+            )
 
             for result in results:
                 match result.status:
@@ -575,12 +589,14 @@ class ExportLastFmLikesUseCase:
         tracks: list[Track],
         connector: LoveTrackConnector,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> list[BatchItemResult]:
         """Process track batch through Last.fm API."""
         results: list[BatchItemResult] = []
         for track in tracks:
             try:
-                result = await self._love_track(track, connector, uow)
+                result = await self._love_track(track, connector, uow, user_id=user_id)
                 results.append(result)
             except Exception as e:
                 logger.exception(f"Error processing track {track.id}")
@@ -594,7 +610,12 @@ class ExportLastFmLikesUseCase:
         return results
 
     async def _love_track(
-        self, track: Track, connector: LoveTrackConnector, uow: UnitOfWorkProtocol
+        self,
+        track: Track,
+        connector: LoveTrackConnector,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> BatchItemResult:
         """Love track on Last.fm and record result."""
         if not track.artists:
@@ -611,7 +632,9 @@ class ExportLastFmLikesUseCase:
 
             if success:
                 if track.id:
-                    await save_likes(track.id, uow, ["lastfm"])
+                    await save_likes(
+                        track.id, uow, user_id=user_id, services=["lastfm"]
+                    )
                 return BatchItemResult(
                     status=BatchItemStatus.EXPORTED,
                     track_id=track.id,
@@ -639,31 +662,33 @@ class GetSyncCheckpointStatusUseCase:
     ) -> SyncCheckpointStatus:
         """Get checkpoint status for a service and entity type."""
         async with uow:
-            return await self._get_status(command.service, command.entity_type, uow)
+            return await self._get_status(
+                command.user_id, command.service, command.entity_type, uow
+            )
 
     async def execute_all(
         self,
+        user_id: str,
         combinations: tuple[tuple[str, Literal["likes", "plays"]], ...],
         uow: UnitOfWorkProtocol,
     ) -> list[SyncCheckpointStatus]:
         """Get checkpoint statuses for all service/entity combinations in a single session."""
         async with uow:
             return [
-                await self._get_status(service, entity_type, uow)
+                await self._get_status(user_id, service, entity_type, uow)
                 for service, entity_type in combinations
             ]
 
     @staticmethod
     async def _get_status(
+        user_id: str,
         service: str,
         entity_type: Literal["likes", "plays"],
         uow: UnitOfWorkProtocol,
     ) -> SyncCheckpointStatus:
-        from src.config.constants import BusinessLimits
-
         repo = uow.get_checkpoint_repository()
         checkpoint = await repo.get_sync_checkpoint(
-            user_id=BusinessLimits.DEFAULT_USER_ID,
+            user_id=user_id,
             service=service,
             entity_type=entity_type,
         )
@@ -695,7 +720,8 @@ async def run_spotify_likes_import(
         user_id=user_id, limit=limit, max_imports=max_imports
     )
     return await execute_use_case(
-        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow, progress_emitter)
+        lambda uow: ImportSpotifyLikesUseCase().execute(command, uow, progress_emitter),
+        user_id=user_id,
     )
 
 
@@ -716,29 +742,35 @@ async def run_lastfm_likes_export(
         override_date=override_date,
     )
     return await execute_use_case(
-        lambda uow: ExportLastFmLikesUseCase().execute(command, uow, progress_emitter)
+        lambda uow: ExportLastFmLikesUseCase().execute(command, uow, progress_emitter),
+        user_id=user_id,
     )
 
 
 async def get_sync_checkpoint_status(
+    user_id: str,
     service: str,
     entity_type: Literal["likes", "plays"],
 ) -> SyncCheckpointStatus:
     """Get sync checkpoint status for UI display."""
     from src.application.runner import execute_use_case
 
-    command = GetSyncCheckpointStatusCommand(service=service, entity_type=entity_type)
+    command = GetSyncCheckpointStatusCommand(
+        user_id=user_id, service=service, entity_type=entity_type
+    )
     return await execute_use_case(
-        lambda uow: GetSyncCheckpointStatusUseCase().execute(command, uow)
+        lambda uow: GetSyncCheckpointStatusUseCase().execute(command, uow),
+        user_id=user_id,
     )
 
 
-async def get_all_checkpoint_statuses() -> list[SyncCheckpointStatus]:
+async def get_all_checkpoint_statuses(user_id: str) -> list[SyncCheckpointStatus]:
     """Get checkpoint statuses for all known service/entity combinations in a single session."""
     from src.application.runner import execute_use_case
 
     return await execute_use_case(
         lambda uow: GetSyncCheckpointStatusUseCase().execute_all(
-            CHECKPOINT_COMBINATIONS, uow
-        )
+            user_id, CHECKPOINT_COMBINATIONS, uow
+        ),
+        user_id=user_id,
     )

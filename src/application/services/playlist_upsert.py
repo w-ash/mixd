@@ -37,9 +37,12 @@ def build_create_playlist_command(
     connector_playlist: ConnectorPlaylist,
     connector_name: str,
     playlist_id: str,
+    *,
+    user_id: str,
 ) -> CreateCanonicalPlaylistCommand:
     """Build create command from connector playlist data."""
     return CreateCanonicalPlaylistCommand(
+        user_id=user_id,
         name=connector_playlist.name,
         tracklist=TrackList(),
         connector_playlist=connector_playlist,
@@ -53,9 +56,12 @@ def build_update_playlist_command(
     existing_playlist: Playlist,
     connector_playlist: ConnectorPlaylist,
     connector_name: str,
+    *,
+    user_id: str,
 ) -> UpdateCanonicalPlaylistCommand:
     """Build update command from existing playlist + connector data."""
     return UpdateCanonicalPlaylistCommand(
+        user_id=user_id,
         playlist_id=str(existing_playlist.id),
         new_tracklist=TrackList(),
         connector_playlist=connector_playlist,
@@ -71,6 +77,8 @@ async def upsert_canonical_playlist(
     playlist_id: str,
     uow: UnitOfWorkProtocol,
     metric_config: MetricConfigProvider,
+    *,
+    user_id: str,
 ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
     """Full create-or-update flow for callers with direct UoW access.
 
@@ -82,7 +90,7 @@ async def upsert_canonical_playlist(
     try:
         read_use_case = ReadCanonicalPlaylistUseCase()
         read_command = ReadCanonicalPlaylistCommand(
-            playlist_id=playlist_id, connector=connector_name
+            user_id=user_id, playlist_id=playlist_id, connector=connector_name
         )
         result = await read_use_case.execute(read_command, uow)
         existing_playlist = result.playlist
@@ -97,7 +105,7 @@ async def upsert_canonical_playlist(
 
     if existing_playlist:
         command = build_update_playlist_command(
-            existing_playlist, connector_playlist, connector_name
+            existing_playlist, connector_playlist, connector_name, user_id=user_id
         )
         result = await UpdateCanonicalPlaylistUseCase(
             metric_config=metric_config
@@ -112,7 +120,7 @@ async def upsert_canonical_playlist(
         return result
     else:
         command = build_create_playlist_command(
-            connector_playlist, connector_name, playlist_id
+            connector_playlist, connector_name, playlist_id, user_id=user_id
         )
         result = await CreateCanonicalPlaylistUseCase(
             metric_config=metric_config

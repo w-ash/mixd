@@ -22,7 +22,11 @@ def _get_lastfm_checkpoint_info() -> str | None:
         from src.application.use_cases.sync_likes import get_sync_checkpoint_status
 
         checkpoint_status = run_async(
-            get_sync_checkpoint_status(service="lastfm", entity_type="likes")
+            get_sync_checkpoint_status(
+                user_id=BusinessLimits.DEFAULT_USER_ID,
+                service="lastfm",
+                entity_type="likes",
+            )
         )
         return checkpoint_status.format_timestamp()
     except Exception:

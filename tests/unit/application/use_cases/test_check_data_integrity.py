@@ -19,7 +19,7 @@ class TestAllChecksPass:
     @pytest.mark.asyncio
     async def test_all_pass_overall_status(self, uow):
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         assert result.overall_status == "pass"
         assert result.total_issues == 0
@@ -27,7 +27,7 @@ class TestAllChecksPass:
     @pytest.mark.asyncio
     async def test_six_checks_returned(self, uow):
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         assert len(result.checks) == 6
         names = {c.name for c in result.checks}
@@ -53,7 +53,7 @@ class TestFailStatus:
         ]
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         assert result.overall_status == "fail"
 
@@ -77,7 +77,7 @@ class TestWarnStatus:
         ]
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         assert result.overall_status == "warn"
 
@@ -88,7 +88,7 @@ class TestWarnStatus:
         connector_repo.count_orphaned_connector_tracks.return_value = 10
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         orphan_check = next(
             c for c in result.checks if c.name == "orphaned_connector_tracks"
@@ -111,7 +111,7 @@ class TestWarnStatus:
         ]
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         dup_check = next(c for c in result.checks if c.name == "duplicate_tracks")
         assert dup_check.status == "warn"
@@ -124,7 +124,7 @@ class TestWarnStatus:
         review_repo.count_stale_pending.return_value = 5
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         stale_check = next(
             c for c in result.checks if c.name == "stale_pending_reviews"
@@ -143,7 +143,7 @@ class TestPendingReviewsInformational:
         review_repo.count_pending.return_value = 100
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         pending_check = next(c for c in result.checks if c.name == "pending_reviews")
         assert pending_check.status == "pass"
@@ -165,6 +165,6 @@ class TestFailOverridesWarn:
         connector_repo.count_orphaned_connector_tracks.return_value = 5
 
         result = await CheckDataIntegrityUseCase().execute(
-            CheckDataIntegrityCommand(), uow
+            CheckDataIntegrityCommand(user_id="test-user"), uow
         )
         assert result.overall_status == "fail"

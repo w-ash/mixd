@@ -41,6 +41,8 @@ class FakeInwardResolver(InwardTrackResolver):
         self,
         missing_ids: list[str],
         uow: object,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         self.reuse_calls.append(missing_ids)
         return {
@@ -53,6 +55,8 @@ class FakeInwardResolver(InwardTrackResolver):
         self,
         missing_ids: list[str],
         uow: object,
+        *,
+        user_id: str = "default",
     ) -> dict[str, Track]:
         self.create_calls.append(missing_ids)
         return {
@@ -79,7 +83,7 @@ class TestAllExisting:
 
         resolver = FakeInwardResolver()
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a", "id_b"], uow
+            ["id_a", "id_b"], uow, user_id="test-user"
         )
 
         assert result == {"id_a": track_a, "id_b": track_b}
@@ -103,7 +107,7 @@ class TestAllMissing:
 
         resolver = FakeInwardResolver(batch_results={"id_a": track_a, "id_b": track_b})
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a", "id_b"], uow
+            ["id_a", "id_b"], uow, user_id="test-user"
         )
 
         assert result == {"id_a": track_a, "id_b": track_b}
@@ -129,7 +133,7 @@ class TestMixed:
 
         resolver = FakeInwardResolver(batch_results={"new_id": new_track})
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["existing_id", "new_id"], uow
+            ["existing_id", "new_id"], uow, user_id="test-user"
         )
 
         assert result == {"existing_id": existing_track, "new_id": new_track}
@@ -152,7 +156,7 @@ class TestCreationFailure:
 
         resolver = FakeInwardResolver(batch_results={"id_a": track_a})
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a", "id_b"], uow
+            ["id_a", "id_b"], uow, user_id="test-user"
         )
 
         assert result == {"id_a": track_a}
@@ -167,7 +171,9 @@ class TestEmptyInput:
     async def test_empty_input_returns_empty(self):
         uow = MagicMock()
         resolver = FakeInwardResolver()
-        result, metrics = await resolver.resolve_to_canonical_tracks([], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [], uow, user_id="test-user"
+        )
 
         assert result == {}
         assert metrics.existing == 0
@@ -190,6 +196,7 @@ class TestDeduplication:
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id_a", "id_a", "ID_A"],
             uow,  # ID_A normalizes to id_a
+            user_id="test-user",
         )
 
         # Only one lookup connection
@@ -221,7 +228,9 @@ class TestNormalization:
         uow.get_connector_repository.return_value = connector_repo
 
         resolver = FakeInwardResolver()
-        result, _ = await resolver.resolve_to_canonical_tracks(["  ID_A  "], uow)
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            ["  ID_A  "], uow, user_id="test-user"
+        )
 
         # Normalized to "id_a" for lookup
         call_args = connector_repo.find_tracks_by_connectors.call_args
@@ -266,7 +275,9 @@ class TestCanonicalReuseHook:
         uow.get_connector_repository.return_value = connector_repo
 
         resolver = FakeInwardResolver(reuse_results={"id_a": reused_track})
-        result, metrics = await resolver.resolve_to_canonical_tracks(["id_a"], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
 
         assert result == {"id_a": reused_track}
         assert metrics.reused == 1
@@ -290,7 +301,7 @@ class TestCanonicalReuseHook:
             batch_results={"id_b": created_track},
         )
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_a", "id_b"], uow
+            ["id_a", "id_b"], uow, user_id="test-user"
         )
 
         assert result == {"id_a": reused_track, "id_b": created_track}
@@ -318,7 +329,7 @@ class TestCanonicalReuseHook:
             batch_results={"id_new": created_track},
         )
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id_existing", "id_reused", "id_new"], uow
+            ["id_existing", "id_reused", "id_new"], uow, user_id="test-user"
         )
 
         assert result["id_existing"] == existing_track
@@ -341,7 +352,9 @@ class TestCanonicalReuseHook:
         uow.get_connector_repository.return_value = connector_repo
 
         resolver = FakeInwardResolver(batch_results={"id_a": track})
-        result, metrics = await resolver.resolve_to_canonical_tracks(["id_a"], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
 
         assert metrics.reused == 0
         assert metrics.created == 1

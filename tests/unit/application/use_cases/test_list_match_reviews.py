@@ -34,7 +34,7 @@ class TestListMatchReviewsHappyPath:
         review_repo = uow.get_match_review_repository()
         review_repo.list_pending_reviews.return_value = (reviews, 2)
 
-        command = ListMatchReviewsCommand(limit=50, offset=0)
+        command = ListMatchReviewsCommand(user_id="test-user", limit=50, offset=0)
         result = await ListMatchReviewsUseCase().execute(command, uow)
 
         assert isinstance(result, ListMatchReviewsResult)
@@ -48,11 +48,13 @@ class TestListMatchReviewsHappyPath:
         review_repo = uow.get_match_review_repository()
         review_repo.list_pending_reviews.return_value = ([], 0)
 
-        command = ListMatchReviewsCommand(sort_by="created_at_desc")
+        command = ListMatchReviewsCommand(
+            user_id="test-user", sort_by="created_at_desc"
+        )
         await ListMatchReviewsUseCase().execute(command, uow)
 
         review_repo.list_pending_reviews.assert_called_once_with(
-            limit=50, offset=0, sort_by="created_at_desc"
+            user_id="test-user", limit=50, offset=0, sort_by="created_at_desc"
         )
 
 
@@ -64,7 +66,7 @@ class TestListMatchReviewsEmpty:
         review_repo = uow.get_match_review_repository()
         review_repo.list_pending_reviews.return_value = ([], 0)
 
-        command = ListMatchReviewsCommand()
+        command = ListMatchReviewsCommand(user_id="test-user")
         result = await ListMatchReviewsUseCase().execute(command, uow)
 
         assert result.reviews == []

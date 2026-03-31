@@ -45,6 +45,7 @@ class CreateCanonicalPlaylistCommand:
         timestamp: Creation timestamp (defaults to now)
     """
 
+    user_id: str
     name: str = field(validator=non_empty_string)
     tracklist: TrackList = field(factory=TrackList)
     connector_playlist: ConnectorPlaylist | None = None
@@ -156,7 +157,7 @@ class CreateCanonicalPlaylistUseCase:
 
                     processing_service = ConnectorPlaylistProcessingService()
                     source_data = await processing_service.process_connector_playlist(
-                        command.connector_playlist, uow
+                        command.connector_playlist, uow, user_id=command.user_id
                     )
 
                 # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
@@ -180,6 +181,7 @@ class CreateCanonicalPlaylistUseCase:
 
                     playlist = Playlist(
                         name=command.name,
+                        user_id=command.user_id,
                         entries=persisted_entries,
                         description=command.description,
                         connector_playlist_identifiers=connector_playlist_identifiers,
@@ -199,6 +201,7 @@ class CreateCanonicalPlaylistUseCase:
                         connector_playlist_identifiers=connector_playlist_identifiers
                         or {},
                     )
+                    playlist = evolve(playlist, user_id=command.user_id)
                     # Add metadata if provided
                     if command.metadata:
                         playlist = evolve(playlist, metadata=command.metadata.copy())

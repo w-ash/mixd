@@ -45,7 +45,7 @@ class TestListWorkflowVersions:
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_version_repo=version_repo)
 
         result = await ListWorkflowVersionsUseCase().execute(
-            ListWorkflowVersionsCommand(workflow_id=1), uow
+            ListWorkflowVersionsCommand(user_id="test-user", workflow_id=1), uow
         )
 
         assert len(result.versions) == 2
@@ -59,7 +59,7 @@ class TestListWorkflowVersions:
 
         with pytest.raises(NotFoundError):
             await ListWorkflowVersionsUseCase().execute(
-                ListWorkflowVersionsCommand(workflow_id=999), uow
+                ListWorkflowVersionsCommand(user_id="test-user", workflow_id=999), uow
             )
 
 
@@ -73,7 +73,8 @@ class TestGetWorkflowVersion:
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_version_repo=version_repo)
 
         result = await GetWorkflowVersionUseCase().execute(
-            GetWorkflowVersionCommand(workflow_id=1, version=3), uow
+            GetWorkflowVersionCommand(user_id="test-user", workflow_id=1, version=3),
+            uow,
         )
 
         assert result.version.version == 3
@@ -88,7 +89,10 @@ class TestGetWorkflowVersion:
 
         with pytest.raises(NotFoundError):
             await GetWorkflowVersionUseCase().execute(
-                GetWorkflowVersionCommand(workflow_id=1, version=99), uow
+                GetWorkflowVersionCommand(
+                    user_id="test-user", workflow_id=1, version=99
+                ),
+                uow,
             )
 
 
@@ -113,7 +117,8 @@ class TestRevertWorkflowVersion:
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_version_repo=version_repo)
 
         result = await RevertWorkflowVersionUseCase().execute(
-            RevertWorkflowVersionCommand(workflow_id=1, version=2), uow
+            RevertWorkflowVersionCommand(user_id="test-user", workflow_id=1, version=2),
+            uow,
         )
 
         # Snapshot was created with next version number (4)

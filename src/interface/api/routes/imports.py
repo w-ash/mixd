@@ -14,11 +14,12 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.application.services.progress_manager import get_progress_manager
 from src.config import get_logger
 from src.config.constants import BusinessLimits, SSEConstants
+from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
@@ -114,6 +115,7 @@ async def _prepare_operation() -> tuple[str, OperationBoundEmitter]:
 @router.post("/lastfm/history")
 async def import_lastfm_history(
     body: ImportLastfmHistoryRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm listening history import."""
     operation_id, emitter = await _prepare_operation()
@@ -122,6 +124,7 @@ async def import_lastfm_history(
         from src.application.use_cases.import_play_history import run_import
 
         await run_import(
+            user_id=user_id,
             service="lastfm",
             mode=body.mode,
             limit=body.limit,
@@ -139,6 +142,7 @@ async def import_lastfm_history(
 @router.post("/spotify/likes")
 async def import_spotify_likes(
     body: ImportSpotifyLikesRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Spotify liked tracks import."""
     operation_id, emitter = await _prepare_operation()
@@ -147,7 +151,7 @@ async def import_spotify_likes(
         from src.application.use_cases.sync_likes import run_spotify_likes_import
 
         await run_spotify_likes_import(
-            user_id=BusinessLimits.DEFAULT_USER_ID,
+            user_id=user_id,
             limit=body.limit,
             max_imports=body.max_imports,
             progress_emitter=emitter,
@@ -162,6 +166,7 @@ async def import_spotify_likes(
 @router.post("/lastfm/likes")
 async def export_lastfm_likes(
     body: ExportLastfmLikesRequest,
+    user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
     operation_id, emitter = await _prepare_operation()
@@ -170,7 +175,7 @@ async def export_lastfm_likes(
         from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
         await run_lastfm_likes_export(
-            user_id=BusinessLimits.DEFAULT_USER_ID,
+            user_id=user_id,
             batch_size=body.batch_size,
             max_exports=body.max_exports,
             progress_emitter=emitter,
@@ -183,7 +188,10 @@ async def export_lastfm_likes(
 
 
 @router.post("/spotify/history")
-async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
+async def import_spotify_history(
+    file: UploadFile,
+    user_id: str = Depends(get_current_user_id),
+) -> OperationStartedResponse:
     """Import Spotify listening history from a GDPR data export JSON file."""
     if file.size and file.size > BusinessLimits.MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -227,6 +235,7 @@ async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
 
         try:
             await run_import(
+                user_id=user_id,
                 service="spotify",
                 mode="file",
                 file_path=temp_path,
@@ -247,11 +256,13 @@ async def import_spotify_history(file: UploadFile) -> OperationStartedResponse:
 
 
 @router.get("/checkpoints")
-async def get_checkpoints() -> list[CheckpointStatusSchema]:
+async def get_checkpoints(
+    user_id: str = Depends(get_current_user_id),
+) -> list[CheckpointStatusSchema]:
     """Get sync checkpoint status for all known service/entity combinations."""
     from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
 
-    statuses = await get_all_checkpoint_statuses()
+    statuses = await get_all_checkpoint_statuses(user_id=user_id)
     return [
         CheckpointStatusSchema(
             service=s.service,

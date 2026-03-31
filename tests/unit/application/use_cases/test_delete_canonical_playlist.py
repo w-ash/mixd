@@ -28,23 +28,25 @@ class TestDeleteCanonicalPlaylistCommand:
 
     def test_valid_command(self):
         """Test creating a valid delete command."""
-        cmd = DeleteCanonicalPlaylistCommand(playlist_id="some-id")
+        cmd = DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="some-id")
         assert cmd.playlist_id == "some-id"
         assert cmd.force_delete is False
 
     def test_force_delete_flag(self):
         """Test command with force delete enabled."""
-        cmd = DeleteCanonicalPlaylistCommand(playlist_id="some-id", force_delete=True)
+        cmd = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id="some-id", force_delete=True
+        )
         assert cmd.force_delete is True
 
     def test_empty_id_rejected(self):
         """Test that empty playlist ID is rejected."""
         with pytest.raises(ValueError):
-            DeleteCanonicalPlaylistCommand(playlist_id="")
+            DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="")
 
     def test_command_is_frozen(self):
         """Test command immutability."""
-        cmd = DeleteCanonicalPlaylistCommand(playlist_id="some-id")
+        cmd = DeleteCanonicalPlaylistCommand(user_id="test-user", playlist_id="some-id")
         with pytest.raises(AttributeError):
             cmd.playlist_id = "other-id"
 
@@ -57,7 +59,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         playlist = make_playlist(name="To Delete")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
-        command = DeleteCanonicalPlaylistCommand(playlist_id=str(playlist.id))
+        command = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id=str(playlist.id)
+        )
         use_case = DeleteCanonicalPlaylistUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -79,7 +83,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         playlist_repo.get_playlist_by_connector.return_value = None
 
         fake_id = uuid7()
-        command = DeleteCanonicalPlaylistCommand(playlist_id=str(fake_id))
+        command = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id=str(fake_id)
+        )
         use_case = DeleteCanonicalPlaylistUseCase()
 
         with pytest.raises(NotFoundError):
@@ -94,7 +100,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         )
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
-        command = DeleteCanonicalPlaylistCommand(playlist_id=str(playlist.id))
+        command = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id=str(playlist.id)
+        )
         use_case = DeleteCanonicalPlaylistUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -112,7 +120,7 @@ class TestDeleteCanonicalPlaylistUseCase:
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
         command = DeleteCanonicalPlaylistCommand(
-            playlist_id=str(playlist.id), force_delete=True
+            user_id="test-user", playlist_id=str(playlist.id), force_delete=True
         )
         use_case = DeleteCanonicalPlaylistUseCase()
 
@@ -126,7 +134,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
         mock_uow.get_playlist_repository().delete_playlist.return_value = False
 
-        command = DeleteCanonicalPlaylistCommand(playlist_id=str(playlist.id))
+        command = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id=str(playlist.id)
+        )
         use_case = DeleteCanonicalPlaylistUseCase()
 
         with pytest.raises(ValueError, match="Failed to delete"):
@@ -139,7 +149,9 @@ class TestDeleteCanonicalPlaylistUseCase:
         playlist = make_playlist()
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
-        command = DeleteCanonicalPlaylistCommand(playlist_id=str(playlist.id))
+        command = DeleteCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id=str(playlist.id)
+        )
         use_case = DeleteCanonicalPlaylistUseCase()
 
         result = await use_case.execute(command, mock_uow)

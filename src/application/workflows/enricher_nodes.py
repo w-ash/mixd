@@ -78,10 +78,11 @@ async def enrich_spotify_liked_status(
         likes_to_save.append((track.id, "spotify", is_saved, now, None))
 
     if likes_to_save:
+        user_id = workflow_context.user_id
 
         async def _persist_likes(uow: UnitOfWorkProtocol) -> None:
             like_repo = uow.get_like_repository()
-            await like_repo.save_track_likes_batch(likes_to_save)
+            await like_repo.save_track_likes_batch(likes_to_save, user_id=user_id)
             await uow.commit()
 
         await workflow_context.execute_service(_persist_likes)

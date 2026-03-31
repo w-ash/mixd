@@ -52,6 +52,7 @@ def _generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
 
 @define(frozen=True, slots=True)
 class ListWorkflowsCommand:
+    user_id: str
     include_templates: bool = True
 
 
@@ -69,7 +70,8 @@ class ListWorkflowsUseCase:
         async with uow:
             repo = uow.get_workflow_repository()
             workflows = await repo.list_workflows(
-                include_templates=command.include_templates
+                user_id=command.user_id,
+                include_templates=command.include_templates,
             )
             return ListWorkflowsResult(
                 workflows=workflows,
@@ -84,6 +86,7 @@ class ListWorkflowsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowCommand:
+    user_id: str
     workflow_id: UUID
 
 
@@ -99,7 +102,9 @@ class GetWorkflowUseCase:
     ) -> GetWorkflowResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            workflow = await repo.get_workflow_by_id(command.workflow_id)
+            workflow = await repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
             return GetWorkflowResult(workflow=workflow)
 
 
@@ -110,6 +115,7 @@ class GetWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class CreateWorkflowCommand:
+    user_id: str
     definition: WorkflowDef
     source_template: str | None = None
 
@@ -129,6 +135,7 @@ class CreateWorkflowUseCase:
         validate_workflow_def(command.definition)
 
         workflow = Workflow(
+            user_id=command.user_id,
             definition=command.definition,
             is_template=command.source_template is not None,
             source_template=command.source_template,
@@ -147,6 +154,7 @@ class CreateWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class UpdateWorkflowCommand:
+    user_id: str
     workflow_id: UUID
     definition: WorkflowDef
 
@@ -165,7 +173,9 @@ class UpdateWorkflowUseCase:
 
         async with uow:
             repo = uow.get_workflow_repository()
-            existing = await repo.get_workflow_by_id(command.workflow_id)
+            existing = await repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             if existing.is_template:
                 raise TemplateReadOnlyError(
@@ -197,6 +207,7 @@ class UpdateWorkflowUseCase:
 
             updated = Workflow(
                 id=existing.id,
+                user_id=command.user_id,
                 definition=command.definition,
                 is_template=existing.is_template,
                 source_template=existing.source_template,
@@ -214,6 +225,7 @@ class UpdateWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class DeleteWorkflowCommand:
+    user_id: str
     workflow_id: UUID
 
 
@@ -229,14 +241,18 @@ class DeleteWorkflowUseCase:
     ) -> DeleteWorkflowResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            existing = await repo.get_workflow_by_id(command.workflow_id)
+            existing = await repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             if existing.is_template:
                 raise TemplateReadOnlyError(
                     f"Cannot delete template workflow '{existing.definition.name}'"
                 )
 
-            deleted = await repo.delete_workflow(command.workflow_id)
+            deleted = await repo.delete_workflow(
+                command.workflow_id, user_id=command.user_id
+            )
             if not deleted:
                 raise NotFoundError(f"Workflow {command.workflow_id} not found")
 

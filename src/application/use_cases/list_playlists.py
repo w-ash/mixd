@@ -12,7 +12,9 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class ListPlaylistsCommand:
-    """Parameterless — exists for API uniformity."""
+    """Command for listing playlists, scoped to the authenticated user."""
+
+    user_id: str
 
 
 @define(frozen=True, slots=True)
@@ -46,7 +48,7 @@ class ListPlaylistsUseCase:
         """
         async with uow:
             playlist_repo = uow.get_playlist_repository()
-            playlists = await playlist_repo.list_all_playlists()
+            playlists = await playlist_repo.list_all_playlists(user_id=command.user_id)
 
             return ListPlaylistsResult(
                 playlists=playlists,

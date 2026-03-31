@@ -50,6 +50,8 @@ class LastfmTrackResolutionService:
         self,
         play_records: list[PlayRecord],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[Track | None], dict[str, int]]:
         """Resolve Last.fm plays to canonical tracks.
@@ -80,7 +82,7 @@ class LastfmTrackResolutionService:
             canonical_tracks_map,
             resolution_metrics,
         ) = await self._inward_resolver.resolve_to_canonical_tracks(
-            list(unique_identifiers), uow
+            list(unique_identifiers), uow, user_id=user_id
         )
 
         if progress_callback:

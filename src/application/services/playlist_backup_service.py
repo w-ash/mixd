@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 
 async def run_playlist_backup(
-    connector_name: str, playlist_id: str
+    connector_name: str, playlist_id: str, *, user_id: str
 ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
     """Backup a playlist from a connector service to the local database.
 
@@ -71,6 +71,7 @@ async def run_playlist_backup(
             playlist_id,
             uow,
             metric_config=metric_config,
+            user_id=user_id,
         )
 
-    return await execute_use_case(_backup)
+    return await execute_use_case(_backup, user_id=user_id)

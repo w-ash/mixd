@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 class ListMatchReviewsCommand:
     """Input parameters for listing match reviews."""
 
+    user_id: str
     limit: int = 50
     offset: int = 0
     sort_by: str = "confidence_desc"
@@ -41,6 +42,7 @@ class ListMatchReviewsUseCase:
     ) -> ListMatchReviewsResult:
         review_repo = uow.get_match_review_repository()
         reviews, total = await review_repo.list_pending_reviews(
+            user_id=command.user_id,
             limit=command.limit,
             offset=command.offset,
             sort_by=command.sort_by,

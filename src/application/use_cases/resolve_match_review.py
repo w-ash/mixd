@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 class ResolveMatchReviewCommand:
     """Input parameters for resolving a single match review."""
 
+    user_id: str
     review_id: UUID
     action: Literal["accept", "reject"]
 
@@ -44,7 +45,9 @@ class ResolveMatchReviewUseCase:
     ) -> ResolveMatchReviewResult:
         review_repo = uow.get_match_review_repository()
 
-        review = await review_repo.get_review_by_id(command.review_id)
+        review = await review_repo.get_review_by_id(
+            command.review_id, user_id=command.user_id
+        )
         if review is None:
             raise NotFoundError(f"Match review {command.review_id} not found")
 
@@ -67,7 +70,9 @@ class ResolveMatchReviewUseCase:
                 )
 
             track_repo = uow.get_track_repository()
-            track = await track_repo.get_by_id(review.track_id)
+            track = await track_repo.get_track_by_id(
+                review.track_id, user_id=command.user_id
+            )
 
             await connector_repo.map_track_to_connector(
                 track=track,

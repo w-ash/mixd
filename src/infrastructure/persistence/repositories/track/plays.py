@@ -165,6 +165,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         self,
         track_ids: list[UUID],
         metrics: list[str],
+        *,
+        user_id: str,
         period_start: datetime | None = None,
         period_end: datetime | None = None,
     ) -> PlayAggregationResult:
@@ -216,7 +218,10 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
             stmt = (
                 select(*columns)
-                .where(DBTrackPlay.track_id.in_(track_ids))
+                .where(
+                    DBTrackPlay.track_id.in_(track_ids),
+                    DBTrackPlay.user_id == user_id,
+                )
                 .group_by(DBTrackPlay.track_id)
             )
             rows = (await self.session.execute(stmt)).all()
@@ -244,6 +249,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 select(DBTrackPlay.track_id, func.count().label("total"))
                 .where(
                     DBTrackPlay.track_id.in_(track_ids),
+                    DBTrackPlay.user_id == user_id,
                     DBTrackPlay.played_at >= start_aware,
                     DBTrackPlay.played_at <= end_aware,
                 )
@@ -286,10 +292,12 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
     @db_operation("get_recent_plays")
     async def get_recent_plays(
-        self, limit: int = 100, sort_by: PlaySortBy | None = None
+        self, *, user_id: str, limit: int = 100, sort_by: PlaySortBy | None = None
     ) -> list[TrackPlay]:
-        """Get recent plays with optional sorting."""
+        """Get recent plays with optional sorting, scoped to user."""
         from src.infrastructure.persistence.database.db_models import DBTrack
+
+        user_filter = self.model_class.user_id == user_id
 
         # Handle special sorting cases that require custom queries or aggregations
         if sort_by in ["total_plays_desc", "last_played_desc", "title_asc", "random"]:
@@ -300,6 +308,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                         self.model_class.track_id,
                         func.count().label("cnt"),
                     )
+                    .where(user_filter)
                     .group_by(self.model_class.track_id)
                     .order_by(func.count().desc())
                     .limit(limit)
@@ -317,7 +326,9 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                             order_by=self.model_class.played_at.desc(),
                         )
                         .label("rn"),
-                    ).join(
+                    )
+                    .where(user_filter)
+                    .join(
                         top_tracks, self.model_class.track_id == top_tracks.c.track_id
                     )
                 ).subquery()
@@ -341,7 +352,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                             order_by=self.model_class.played_at.desc(),
                         )
                         .label("rn"),
-                    )
+                    ).where(user_filter)
                 ).subquery()
 
                 stmt = (
@@ -358,6 +369,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 # Join with tracks table for title sorting
                 stmt = (
                     select(self.model_class)
+                    .where(user_filter)
                     .join(DBTrack, self.model_class.track_id == DBTrack.id)
                     .order_by(DBTrack.title)
                     .limit(limit)
@@ -368,7 +380,12 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 return [await self.mapper.to_domain(model) for model in db_models]
 
             elif sort_by == "random":
-                stmt = select(self.model_class).order_by(func.random()).limit(limit)
+                stmt = (
+                    select(self.model_class)
+                    .where(user_filter)
+                    .order_by(func.random())
+                    .limit(limit)
+                )
 
                 query_result = await self.session.execute(stmt)
                 db_models = query_result.scalars().all()
@@ -381,7 +398,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         elif sort_by == "first_played_asc":
             order_by = ("played_at", True)  # ASC
 
-        return await self.find_by([], limit=limit, order_by=order_by)
+        return await self.find_by([user_filter], limit=limit, order_by=order_by)
 
     @db_operation("find_plays_in_time_range")
     async def find_plays_in_time_range(
@@ -389,8 +406,10 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         track_ids: list[UUID],
         start: datetime,
         end: datetime,
+        *,
+        user_id: str,
     ) -> list[TrackPlay]:
-        """Find existing plays for given tracks within a time range.
+        """Find existing plays for given tracks within a time range, scoped to user.
 
         Used by cross-source deduplication to find candidate matches before
         running the dedup algorithm. Leverages ``ix_track_plays_track_played``
@@ -400,6 +419,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             track_ids: Canonical track IDs to search for.
             start: Range start (inclusive, timezone-aware UTC).
             end: Range end (inclusive, timezone-aware UTC).
+            user_id: Owner's user ID.
 
         Returns:
             Matching plays within the time range.
@@ -411,6 +431,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             self.model_class.track_id.in_(track_ids),
             self.model_class.played_at >= start,
             self.model_class.played_at <= end,
+            self.model_class.user_id == user_id,
         ])
 
     @db_operation("bulk_update_play_source_services")

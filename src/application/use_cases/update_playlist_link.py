@@ -4,6 +4,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.playlist_resolver import require_playlist_link
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -13,6 +14,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class UpdatePlaylistLinkCommand:
     """Input: which link to update and the new direction."""
 
+    user_id: str
     link_id: UUID
     sync_direction: SyncDirection
 
@@ -32,6 +34,8 @@ class UpdatePlaylistLinkUseCase:
         self, command: UpdatePlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> UpdatePlaylistLinkResult:
         async with uow:
+            await require_playlist_link(command.link_id, uow, user_id=command.user_id)
+
             link_repo = uow.get_playlist_link_repository()
             link = await link_repo.update_link_direction(
                 command.link_id, command.sync_direction

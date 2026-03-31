@@ -21,6 +21,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
+from src.config.constants import BusinessLimits
 from src.domain.entities.workflow import RunStatus, Workflow
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
@@ -253,7 +254,10 @@ def create(
         await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: CreateWorkflowUseCase().execute(
-                CreateWorkflowCommand(definition=definition), uow
+                CreateWorkflowCommand(
+                    user_id=BusinessLimits.DEFAULT_USER_ID, definition=definition
+                ),
+                uow,
             )
         )
         return result.workflow
@@ -323,7 +327,9 @@ def update(
         result = await execute_use_case(
             lambda uow: UpdateWorkflowUseCase().execute(
                 UpdateWorkflowCommand(
-                    workflow_id=selected.id or 0, definition=definition
+                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    workflow_id=selected.id or 0,
+                    definition=definition,
                 ),
                 uow,
             )
@@ -370,7 +376,10 @@ def delete(
 
         await execute_use_case(
             lambda uow: DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(workflow_id=selected.id or 0), uow
+                DeleteWorkflowCommand(
+                    user_id=BusinessLimits.DEFAULT_USER_ID, workflow_id=selected.id or 0
+                ),
+                uow,
             )
         )
 
@@ -670,7 +679,11 @@ def _execute_workflow(
             # 1. Create PENDING run record
             run_result = await execute_use_case(
                 lambda uow: RunWorkflowUseCase().execute(
-                    RunWorkflowCommand(workflow_id=workflow.id or 0), uow
+                    RunWorkflowCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID,
+                        workflow_id=workflow.id or 0,
+                    ),
+                    uow,
                 )
             )
             run_id = run_result.run_id
@@ -783,7 +796,10 @@ def _get_available_workflows() -> list[Workflow]:
         await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: ListWorkflowsUseCase().execute(
-                ListWorkflowsCommand(include_templates=True), uow
+                ListWorkflowsCommand(
+                    user_id=BusinessLimits.DEFAULT_USER_ID, include_templates=True
+                ),
+                uow,
             )
         )
         return result.workflows

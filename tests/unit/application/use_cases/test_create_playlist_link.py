@@ -60,6 +60,7 @@ class TestCreatePlaylistLinkHappyPath:
 
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
+                user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
@@ -80,6 +81,7 @@ class TestCreatePlaylistLinkHappyPath:
 
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
+                user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
@@ -98,6 +100,7 @@ class TestCreatePlaylistLinkHappyPath:
         # The connector will be called with the raw ID after URL parsing
         result = await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
+                user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="https://open.spotify.com/playlist/37i9dQZF1DZ06evO05tE88",
@@ -116,6 +119,7 @@ class TestCreatePlaylistLinkHappyPath:
 
         await CreatePlaylistLinkUseCase().execute(
             CreatePlaylistLinkCommand(
+                user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
                 connector_playlist_id="ext123",
@@ -140,6 +144,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(NotFoundError):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
+                    user_id="test-user",
                     playlist_id=uuid7(),
                     connector="spotify",
                     connector_playlist_id="ext123",
@@ -158,6 +163,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(ValueError, match="Unknown connector"):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
+                    user_id="test-user",
                     playlist_id=playlist.id,
                     connector="badservice",
                     connector_playlist_id="ext123",
@@ -177,6 +183,7 @@ class TestCreatePlaylistLinkErrors:
         with pytest.raises(ValueError, match="Playlist not found"):
             await CreatePlaylistLinkUseCase().execute(
                 CreatePlaylistLinkCommand(
+                    user_id="test-user",
                     playlist_id=playlist.id,
                     connector="spotify",
                     connector_playlist_id="nonexistent",

@@ -15,7 +15,10 @@ from src.application.use_cases._shared.metadata_builder import (
 from src.application.use_cases._shared.operation_counters import (
     count_operation_types,
 )
-from src.application.use_cases._shared.playlist_resolver import resolve_playlist
+from src.application.use_cases._shared.playlist_resolver import (
+    require_playlist_link,
+    resolve_playlist,
+)
 from src.application.use_cases._shared.playlist_results import (
     ApiMetadata,
     AppendOperationResult,
@@ -37,6 +40,7 @@ __all__ = [
     "classify_db_error_for_logging",
     "count_operation_types",
     "create_connector_playlist_items_from_tracks",
+    "require_playlist_link",
     "resolve_connector",
     "resolve_liked_track_connector",
     "resolve_love_track_connector",

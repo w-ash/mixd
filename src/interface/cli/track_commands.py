@@ -7,6 +7,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
+from src.config.constants import BusinessLimits
 from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
@@ -62,12 +63,18 @@ def merge_tracks(
         try:
             winner_result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(track_id=winner_id), uow
+                    GetTrackDetailsCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=winner_id
+                    ),
+                    uow,
                 )
             )
             loser_result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(track_id=loser_id), uow
+                    GetTrackDetailsCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=loser_id
+                    ),
+                    uow,
                 )
             )
         except NotFoundError as e:
@@ -134,7 +141,12 @@ def merge_tracks(
 
         result = await execute_use_case(
             lambda uow: MergeTracksUseCase().execute(
-                MergeTracksCommand(winner_id=winner_id, loser_id=loser_id), uow
+                MergeTracksCommand(
+                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    winner_id=winner_id,
+                    loser_id=loser_id,
+                ),
+                uow,
             )
         )
 
@@ -167,7 +179,10 @@ def show_track(
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(track_id=parsed_id), uow
+                    GetTrackDetailsCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=parsed_id
+                    ),
+                    uow,
                 )
             )
         except NotFoundError as e:
@@ -362,7 +377,10 @@ def track_playlists(
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackPlaylistsUseCase().execute(
-                    GetTrackPlaylistsCommand(track_id=parsed_id), uow
+                    GetTrackPlaylistsCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=parsed_id
+                    ),
+                    uow,
                 )
             )
         except NotFoundError as e:

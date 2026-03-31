@@ -21,6 +21,7 @@ from src.domain.repositories.interfaces import (
 
 @define(frozen=True, slots=True)
 class GetTrackDetailsCommand:
+    user_id: str
     track_id: UUID
 
 
@@ -139,7 +140,9 @@ class GetTrackDetailsUseCase:
         """
         track_id = command.track_id
         async with uow:
-            track = await uow.get_track_repository().get_by_id(track_id)
+            track = await uow.get_track_repository().get_track_by_id(
+                track_id, user_id=command.user_id
+            )
 
             # Sequential: overhead of TaskGroup not justified for 4 small queries
             connector_repo = uow.get_connector_repository()
@@ -147,12 +150,18 @@ class GetTrackDetailsUseCase:
             plays_repo = uow.get_plays_repository()
             playlist_repo = uow.get_playlist_repository()
 
-            full_mappings = await connector_repo.get_full_mappings_for_track(track_id)
-            likes = await like_repo.get_track_likes(track_id)
-            play_agg = await plays_repo.get_play_aggregations(
-                [track_id], ["total_plays", "last_played_dates", "first_played_dates"]
+            full_mappings = await connector_repo.get_full_mappings_for_track(
+                track_id, user_id=command.user_id
             )
-            playlists = await playlist_repo.get_playlists_for_track(track_id)
+            likes = await like_repo.get_track_likes(track_id, user_id=command.user_id)
+            play_agg = await plays_repo.get_play_aggregations(
+                [track_id],
+                ["total_plays", "last_played_dates", "first_played_dates"],
+                user_id=command.user_id,
+            )
+            playlists = await playlist_repo.get_playlists_for_track(
+                track_id, user_id=command.user_id
+            )
 
             return TrackDetailsResult(
                 track=track,

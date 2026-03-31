@@ -38,10 +38,15 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     async def get_track_likes(
         self,
         track_id: UUID,
+        *,
+        user_id: str,
         services: list[str] | None = None,
     ) -> list[TrackLike]:
-        """Get likes for a track across services."""
-        conditions = [self.model_class.track_id == track_id]
+        """Get likes for a track across services, scoped to user."""
+        conditions = [
+            self.model_class.track_id == track_id,
+            self.model_class.user_id == user_id,
+        ]
 
         if services:
             conditions.append(self.model_class.service.in_(services))
@@ -53,6 +58,8 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         self,
         track_ids: list[UUID],
         services: list[str],
+        *,
+        user_id: str,
     ) -> dict[UUID, dict[str, bool]]:
         """Check like status for multiple tracks across services in 1 query."""
         if not track_ids:
@@ -60,6 +67,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         likes = await self.find_by([
             self.model_class.track_id.in_(track_ids),
             self.model_class.service.in_(services),
+            self.model_class.user_id == user_id,
         ])
         result: dict[UUID, dict[str, bool]] = {}
         for like in likes:
@@ -70,12 +78,15 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     async def count_liked_tracks(
         self,
         service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
     ) -> int:
-        """Count tracks with the given like status for a service (SQL COUNT)."""
+        """Count tracks with the given like status for a service, scoped to user."""
         stmt = self.count([
             self.model_class.service == service,
             self.model_class.is_liked == is_liked,
+            self.model_class.user_id == user_id,
         ])
         result = await self.session.execute(stmt)
         return result.scalar_one()
@@ -84,13 +95,16 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     async def get_all_liked_tracks(
         self,
         service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
         sort_by: str | None = None,
     ) -> list[TrackLike]:
-        """Get all tracks liked on a specific service with optional sorting."""
+        """Get all tracks liked on a specific service, scoped to user."""
         conditions = [
             self.model_class.service == service,
             self.model_class.is_liked == is_liked,
+            self.model_class.user_id == user_id,
         ]
 
         # Handle special sorting cases that require custom queries
@@ -128,14 +142,17 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         self,
         source_service: str,
         target_service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
         since_timestamp: datetime | None = None,
     ) -> list[TrackLike]:
-        """Get tracks liked in source_service but not in target_service."""
+        """Get tracks liked in source_service but not in target_service, scoped to user."""
         # First get all source tracks with the requested like status
         source_conditions = [
             self.model_class.service == source_service,
             self.model_class.is_liked == is_liked,
+            self.model_class.user_id == user_id,
         ]
 
         if since_timestamp:
@@ -153,6 +170,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         target_likes = await self.find_by([
             self.model_class.service == target_service,
             self.model_class.track_id.in_(track_ids),
+            self.model_class.user_id == user_id,
         ])
 
         # Create lookup dict of target likes by track_id
@@ -171,6 +189,8 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         self,
         track_id: UUID,
         service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
         liked_at: datetime | None = None,
@@ -195,7 +215,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
         # Use upsert to either create or update
         return await self.upsert(
             lookup_attrs={
-                "user_id": "default",
+                "user_id": user_id,
                 "track_id": track_id,
                 "service": service,
             },
@@ -206,11 +226,14 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
     async def save_track_likes_batch(
         self,
         likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
+        *,
+        user_id: str,
     ) -> list[TrackLike]:
         """Save multiple track likes in bulk.
 
         Args:
             likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+            user_id: Owner's user ID.
 
         Returns:
             List of saved TrackLike domain objects.
@@ -220,7 +243,7 @@ class TrackLikeRepository(BaseRepository[DBTrackLike, TrackLike]):
 
         for track_id, service, is_liked, last_synced, liked_at in likes:
             entity: dict[str, object] = {
-                "user_id": "default",
+                "user_id": user_id,
                 "track_id": track_id,
                 "service": service,
                 "is_liked": is_liked,

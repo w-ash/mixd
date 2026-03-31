@@ -61,7 +61,17 @@ class TrackRepositoryProtocol(Protocol):
     def get_by_id(
         self, id_: UUID, load_relationships: list[str] | None = None
     ) -> Awaitable[Track]:
-        """Get track by ID."""
+        """Get track by ID (unscoped — for infrastructure-internal use only)."""
+        ...
+
+    def get_track_by_id(
+        self,
+        track_id: UUID,
+        *,
+        user_id: str,
+        load_relationships: list[str] | None = None,
+    ) -> Awaitable[Track]:
+        """Get track by ID, scoped to user. Raises NotFoundError if not found or wrong user."""
         ...
 
     def find_tracks_by_ids(self, track_ids: list[UUID]) -> Awaitable[dict[UUID, Track]]:
@@ -126,6 +136,7 @@ class TrackRepositoryProtocol(Protocol):
     def list_tracks(
         self,
         *,
+        user_id: str,
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
@@ -161,7 +172,7 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_title_artist(
-        self, pairs: list[tuple[str, str]]
+        self, pairs: list[tuple[str, str]], *, user_id: str
     ) -> Awaitable[dict[tuple[str, str], Track]]:
         """Find existing tracks by (title, first_artist) pairs (case-insensitive).
 
@@ -173,7 +184,9 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def find_tracks_by_isrcs(self, isrcs: list[str]) -> Awaitable[dict[str, Track]]:
+    def find_tracks_by_isrcs(
+        self, isrcs: list[str], *, user_id: str
+    ) -> Awaitable[dict[str, Track]]:
         """Batch lookup tracks by ISRC.
 
         Args:
@@ -184,7 +197,9 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def find_tracks_by_mbids(self, mbids: list[str]) -> Awaitable[dict[str, Track]]:
+    def find_tracks_by_mbids(
+        self, mbids: list[str], *, user_id: str
+    ) -> Awaitable[dict[str, Track]]:
         """Batch lookup tracks by MusicBrainz Recording ID.
 
         Args:
@@ -196,7 +211,7 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def find_duplicate_tracks_by_fingerprint(
-        self,
+        self, *, user_id: str
     ) -> Awaitable[list[dict[str, object]]]:
         """Find tracks with identical (title, first_artist, album) tuples.
 
@@ -209,8 +224,10 @@ class TrackRepositoryProtocol(Protocol):
 class PlaylistRepositoryProtocol(Protocol):
     """Repository interface for playlist persistence operations."""
 
-    def get_playlist_by_id(self, playlist_id: UUID) -> Awaitable[Playlist]:
-        """Get playlist by ID."""
+    def get_playlist_by_id(
+        self, playlist_id: UUID, *, user_id: str
+    ) -> Awaitable[Playlist]:
+        """Get playlist by ID. Returns NotFoundError if wrong user (IDOR prevention)."""
         ...
 
     def save_playlist(self, playlist: Playlist) -> Awaitable[Playlist]:
@@ -218,40 +235,48 @@ class PlaylistRepositoryProtocol(Protocol):
         ...
 
     def get_playlist_by_connector(
-        self, connector: str, connector_id: str, raise_if_not_found: bool = True
+        self,
+        connector: str,
+        connector_id: str,
+        *,
+        user_id: str,
+        raise_if_not_found: bool = True,
     ) -> Awaitable[Playlist | None]:
         """Get playlist by connector ID."""
         ...
 
     def update_playlist(
-        self, playlist_id: UUID, playlist: Playlist
+        self, playlist_id: UUID, playlist: Playlist, *, user_id: str
     ) -> Awaitable[Playlist]:
-        """Update existing playlist."""
+        """Update existing playlist, verifying ownership."""
         ...
 
-    def delete_playlist(self, playlist_id: UUID) -> Awaitable[bool]:
-        """Delete playlist by ID.
+    def delete_playlist(self, playlist_id: UUID, *, user_id: str) -> Awaitable[bool]:
+        """Delete playlist by ID, verifying ownership.
 
         Args:
             playlist_id: Internal playlist ID to delete
+            user_id: Owner's user ID for ownership verification
 
         Returns:
             True if playlist was deleted, False if it didn't exist
         """
         ...
 
-    def list_all_playlists(self) -> Awaitable[list[Playlist]]:
+    def list_all_playlists(self, *, user_id: str) -> Awaitable[list[Playlist]]:
         """Get all playlists with basic metadata for listing.
 
         Returns playlists with minimal relationship loading for efficient
         listing operations. Suitable for CLI display and management interfaces.
 
         Returns:
-            List of all stored playlists with basic metadata
+            List of user's stored playlists with basic metadata
         """
         ...
 
-    def get_playlists_for_track(self, track_id: UUID) -> Awaitable[list[Playlist]]:
+    def get_playlists_for_track(
+        self, track_id: UUID, *, user_id: str
+    ) -> Awaitable[list[Playlist]]:
         """Get all playlists containing a specific track.
 
         Args:
@@ -267,7 +292,7 @@ class LikeRepositoryProtocol(Protocol):
     """Repository interface for like persistence operations."""
 
     def get_track_likes(
-        self, track_id: UUID, services: list[str] | None = None
+        self, track_id: UUID, *, user_id: str, services: list[str] | None = None
     ) -> Awaitable[list[TrackLike]]:
         """Get likes for a track across services."""
         ...
@@ -276,6 +301,8 @@ class LikeRepositoryProtocol(Protocol):
         self,
         track_id: UUID,
         service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
         last_synced: datetime | None = None,
         liked_at: datetime | None = None,
@@ -285,6 +312,7 @@ class LikeRepositoryProtocol(Protocol):
         Args:
             track_id: Internal track ID.
             service: Service name ('spotify', 'lastfm', 'mixd').
+            user_id: Owner's user ID.
             is_liked: Whether the track is liked.
             last_synced: When this like was last synced.
             liked_at: When the user originally liked the track. Falls back to now() if not provided.
@@ -294,11 +322,14 @@ class LikeRepositoryProtocol(Protocol):
     def save_track_likes_batch(
         self,
         likes: list[tuple[UUID, str, bool, datetime | None, datetime | None]],
+        *,
+        user_id: str,
     ) -> Awaitable[list[TrackLike]]:
         """Save multiple track likes in bulk.
 
         Args:
             likes: List of (track_id, service, is_liked, last_synced, liked_at) tuples.
+            user_id: Owner's user ID.
 
         Returns:
             List of saved TrackLike domain objects.
@@ -306,12 +337,18 @@ class LikeRepositoryProtocol(Protocol):
         ...
 
     def get_all_liked_tracks(
-        self, service: str, is_liked: bool = True, sort_by: str | None = None
+        self,
+        service: str,
+        *,
+        user_id: str,
+        is_liked: bool = True,
+        sort_by: str | None = None,
     ) -> Awaitable[list[TrackLike]]:
         """Get all liked tracks for a service.
 
         Args:
             service: Service to get likes from
+            user_id: Owner's user ID.
             is_liked: Filter by like status
             sort_by: Optional sorting method (liked_at_desc, liked_at_asc, title_asc, random)
         """
@@ -321,6 +358,8 @@ class LikeRepositoryProtocol(Protocol):
         self,
         track_ids: list[UUID],
         services: list[str],
+        *,
+        user_id: str,
     ) -> Awaitable[dict[UUID, dict[str, bool]]]:
         """Check like status for multiple tracks across services.
 
@@ -330,7 +369,9 @@ class LikeRepositoryProtocol(Protocol):
         """
         ...
 
-    def count_liked_tracks(self, service: str, is_liked: bool = True) -> Awaitable[int]:
+    def count_liked_tracks(
+        self, service: str, *, user_id: str, is_liked: bool = True
+    ) -> Awaitable[int]:
         """Count tracks with the given like status for a service.
 
         More efficient than get_all_liked_tracks when only the count is needed,
@@ -338,6 +379,7 @@ class LikeRepositoryProtocol(Protocol):
 
         Args:
             service: Service to count likes for
+            user_id: Owner's user ID.
             is_liked: Filter by like status
         """
         ...
@@ -346,6 +388,8 @@ class LikeRepositoryProtocol(Protocol):
         self,
         source_service: str,
         target_service: str,
+        *,
+        user_id: str,
         is_liked: bool = True,
         since_timestamp: datetime | None = None,
     ) -> Awaitable[list[TrackLike]]:
@@ -399,7 +443,7 @@ class ConnectorRepositoryProtocol(Protocol):
     """Repository interface for connector track mapping operations."""
 
     def get_full_mappings_for_track(
-        self, track_id: UUID
+        self, track_id: UUID, *, user_id: str
     ) -> Awaitable[list[FullMappingInfo]]:
         """Get all mappings for a track with full connector track metadata.
 
@@ -481,12 +525,13 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def find_tracks_by_connectors(
-        self, connections: list[tuple[str, str]]
+        self, connections: list[tuple[str, str]], *, user_id: str
     ) -> Awaitable[dict[tuple[str, str], Track]]:
         """Find tracks by connector name and ID in bulk.
 
         Args:
             connections: List of (connector, connector_id) tuples
+            user_id: Owner's user ID.
 
         Returns:
             Dictionary mapping (connector, connector_id) tuples to Track objects
@@ -497,6 +542,8 @@ class ConnectorRepositoryProtocol(Protocol):
         self,
         connector: str,
         tracks: list[ConnectorTrack],
+        *,
+        user_id: str,
     ) -> Awaitable[list[Track]]:
         """Bulk ingest multiple tracks from external connector.
 
@@ -564,22 +611,28 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_mapping_by_id(self, mapping_id: UUID) -> Awaitable[TrackMapping | None]:
-        """Get a single track mapping by its database ID.
+    def get_mapping_by_id(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> Awaitable[TrackMapping | None]:
+        """Get a single track mapping by its database ID, scoped to user.
 
         Args:
             mapping_id: Database ID of the mapping row.
+            user_id: Authenticated user ID for ownership scoping.
 
         Returns:
-            TrackMapping domain entity if found, None otherwise.
+            TrackMapping domain entity if found and owned by user, None otherwise.
         """
         ...
 
-    def delete_mapping(self, mapping_id: UUID) -> Awaitable[TrackMapping]:
+    def delete_mapping(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> Awaitable[TrackMapping]:
         """Delete a track mapping and return the pre-deletion entity.
 
         Args:
             mapping_id: Database ID of the mapping to delete.
+            user_id: Authenticated user ID for ownership scoping.
 
         Returns:
             The deleted TrackMapping entity (pre-deletion snapshot).
@@ -691,7 +744,7 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def get_match_method_stats(
-        self, recent_days: int = 30
+        self, *, user_id: str, recent_days: int = 30
     ) -> Awaitable[list[MatchMethodStatRow]]:
         """Aggregate match method statistics grouped by method and connector.
 
@@ -838,11 +891,12 @@ class PlaysRepositoryProtocol(Protocol):
         ...
 
     def get_recent_plays(
-        self, limit: int = 100, sort_by: str | None = None
+        self, *, user_id: str, limit: int = 100, sort_by: str | None = None
     ) -> Awaitable[list[TrackPlay]]:
         """Get recent plays.
 
         Args:
+            user_id: Owner's user ID.
             limit: Maximum number of plays to return
             sort_by: Optional sorting method (played_at_desc, total_plays_desc, last_played_desc, title_asc, random)
         """
@@ -852,6 +906,8 @@ class PlaysRepositoryProtocol(Protocol):
         self,
         track_ids: list[UUID],
         metrics: list[str],
+        *,
+        user_id: str,
         period_start: datetime | None = None,
         period_end: datetime | None = None,
     ) -> Awaitable[PlayAggregationResult]:
@@ -860,6 +916,7 @@ class PlaysRepositoryProtocol(Protocol):
         Args:
             track_ids: List of track IDs to get play data for
             metrics: List of metrics to calculate ["total_plays", "last_played_dates", "period_plays"]
+            user_id: Owner's user ID.
             period_start: Start date for period-based metrics (optional)
             period_end: End date for period-based metrics (optional)
 
@@ -873,6 +930,8 @@ class PlaysRepositoryProtocol(Protocol):
         track_ids: list[UUID],
         start: datetime,
         end: datetime,
+        *,
+        user_id: str,
     ) -> Awaitable[list[TrackPlay]]:
         """Find existing plays for given tracks within a time range.
 
@@ -991,21 +1050,23 @@ class WorkflowRepositoryProtocol(Protocol):
     """Repository interface for workflow persistence operations."""
 
     def list_workflows(
-        self, *, include_templates: bool = True
+        self, *, user_id: str, include_templates: bool = True
     ) -> Awaitable[list[Workflow]]:
-        """List all workflows, optionally filtering out templates."""
+        """List user's workflows + shared templates."""
         ...
 
-    def get_workflow_by_id(self, workflow_id: UUID) -> Awaitable[Workflow]:
-        """Get workflow by ID. Raises NotFoundError if not found."""
+    def get_workflow_by_id(
+        self, workflow_id: UUID, *, user_id: str
+    ) -> Awaitable[Workflow]:
+        """Get workflow by ID. Raises NotFoundError if not found or wrong user."""
         ...
 
     def save_workflow(self, workflow: Workflow) -> Awaitable[Workflow]:
         """Create or update a workflow."""
         ...
 
-    def delete_workflow(self, workflow_id: UUID) -> Awaitable[bool]:
-        """Delete workflow by ID. Returns True if deleted."""
+    def delete_workflow(self, workflow_id: UUID, *, user_id: str) -> Awaitable[bool]:
+        """Delete workflow by ID, verifying ownership. Returns True if deleted."""
         ...
 
     def get_workflow_by_source_template(
@@ -1112,6 +1173,7 @@ class MatchReviewRepositoryProtocol(Protocol):
     def list_pending_reviews(
         self,
         *,
+        user_id: str,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = "confidence_desc",
@@ -1119,8 +1181,10 @@ class MatchReviewRepositoryProtocol(Protocol):
         """List pending reviews with pagination and sorting."""
         ...
 
-    def get_review_by_id(self, review_id: UUID) -> Awaitable[MatchReview | None]:
-        """Get a single review by ID."""
+    def get_review_by_id(
+        self, review_id: UUID, *, user_id: str
+    ) -> Awaitable[MatchReview | None]:
+        """Get a single review by ID, verifying ownership."""
         ...
 
     def create_review(self, review: MatchReview) -> Awaitable[MatchReview]:
@@ -1137,11 +1201,13 @@ class MatchReviewRepositoryProtocol(Protocol):
         """Update a review's status (accept/reject)."""
         ...
 
-    def count_pending(self) -> Awaitable[int]:
+    def count_pending(self, *, user_id: str) -> Awaitable[int]:
         """Count pending reviews."""
         ...
 
-    def count_stale_pending(self, older_than_days: int) -> Awaitable[int]:
+    def count_stale_pending(
+        self, older_than_days: int, *, user_id: str
+    ) -> Awaitable[int]:
         """Count pending reviews older than the given threshold."""
         ...
 
@@ -1162,7 +1228,9 @@ class DashboardAggregates(TypedDict):
 class StatsRepositoryProtocol(Protocol):
     """Cross-table read-only aggregation queries."""
 
-    def get_dashboard_aggregates(self) -> Awaitable[DashboardAggregates]:
+    def get_dashboard_aggregates(
+        self, *, user_id: str
+    ) -> Awaitable[DashboardAggregates]:
         """Compute all dashboard counts in minimal round trips."""
         ...
 
@@ -1337,6 +1405,8 @@ class PlayResolverProtocol(Protocol):
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[TrackPlay], ResolutionMetrics]:
         """Resolve connector plays to canonical track plays.
@@ -1344,6 +1414,7 @@ class PlayResolverProtocol(Protocol):
         Args:
             connector_plays: Raw plays from external service.
             uow: Unit of work for database operations.
+            user_id: Authenticated user ID for data scoping.
             progress_callback: Optional progress reporting.
 
         Returns:

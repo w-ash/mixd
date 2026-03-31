@@ -39,7 +39,7 @@ class TestGetDashboardStatsUseCase:
         )
 
         result = await GetDashboardStatsUseCase().execute(
-            GetDashboardStatsCommand(), mock_uow
+            GetDashboardStatsCommand(user_id="test-user"), mock_uow
         )
 
         assert result.total_tracks == 150
@@ -67,7 +67,7 @@ class TestGetDashboardStatsUseCase:
         )
 
         result = await GetDashboardStatsUseCase().execute(
-            GetDashboardStatsCommand(), mock_uow
+            GetDashboardStatsCommand(user_id="test-user"), mock_uow
         )
 
         assert result.total_tracks == 0
@@ -92,7 +92,9 @@ class TestGetDashboardStatsUseCase:
             )
         )
 
-        await GetDashboardStatsUseCase().execute(GetDashboardStatsCommand(), mock_uow)
+        await GetDashboardStatsUseCase().execute(
+            GetDashboardStatsCommand(user_id="test-user"), mock_uow
+        )
 
         stats_repo = mock_uow.get_stats_repository()
         stats_repo.get_dashboard_aggregates.assert_called_once()

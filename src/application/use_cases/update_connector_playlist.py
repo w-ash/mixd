@@ -60,6 +60,7 @@ class UpdateConnectorPlaylistCommand:
     like append-only mode vs full synchronization.
     """
 
+    user_id: str
     playlist_id: str = field(validator=non_empty_string)
     new_tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
@@ -366,7 +367,7 @@ class UpdateConnectorPlaylistUseCase:
             try:
                 # Step 1: Get current playlist state (from internal database)
                 current_playlist = await self._get_current_playlist(
-                    command.playlist_id, command.connector, uow
+                    command.playlist_id, command.connector, uow, user_id=command.user_id
                 )
 
                 # Step 2: Handle track updates based on mode
@@ -481,7 +482,7 @@ class UpdateConnectorPlaylistUseCase:
                 return result
 
     async def _get_current_playlist(
-        self, playlist_id: str, connector: str, uow: UnitOfWorkProtocol
+        self, playlist_id: str, connector: str, uow: UnitOfWorkProtocol, *, user_id: str
     ) -> Playlist:
         """Retrieves playlist from local database using external service ID.
 
@@ -500,7 +501,7 @@ class UpdateConnectorPlaylistUseCase:
 
         # Resolve connector ID to canonical playlist
         playlist = await playlist_repo.get_playlist_by_connector(
-            connector, playlist_id, raise_if_not_found=False
+            connector, playlist_id, user_id=user_id, raise_if_not_found=False
         )
 
         if playlist is None:

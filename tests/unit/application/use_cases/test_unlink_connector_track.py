@@ -64,12 +64,14 @@ class TestUnlinkHappyPath:
         connector_repo.count_mappings_for_connector_track = AsyncMock(return_value=1)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=10
+        )
         result = await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         assert result.deleted_mapping_id == 1
         assert result.orphan_track_id is None
-        connector_repo.delete_mapping.assert_awaited_once_with(1)
+        connector_repo.delete_mapping.assert_awaited_once_with(1, user_id="test-user")
 
     async def test_primary_reassigned_after_deletion(self) -> None:
         mapping = _make_mapping(is_primary=True)
@@ -80,7 +82,9 @@ class TestUnlinkHappyPath:
         connector_repo.count_mappings_for_connector_track = AsyncMock(return_value=1)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=10
+        )
         await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         connector_repo.ensure_primary_for_connector.assert_awaited_once_with(
@@ -96,7 +100,9 @@ class TestUnlinkHappyPath:
         connector_repo.count_mappings_for_connector_track = AsyncMock(return_value=1)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=10
+        )
         await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         uow.commit.assert_awaited_once()
@@ -125,7 +131,9 @@ class TestUnlinkOrphanCreation:
 
         uow = make_mock_uow(connector_repo=connector_repo, track_repo=track_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=10
+        )
         result = await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         assert result.orphan_track_id == 42
@@ -145,7 +153,9 @@ class TestUnlinkOrphanCreation:
         connector_repo.count_mappings_for_connector_track = AsyncMock(return_value=2)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=10
+        )
         result = await UnlinkConnectorTrackUseCase().execute(command, uow)
 
         assert result.orphan_track_id is None
@@ -159,7 +169,9 @@ class TestUnlinkValidation:
         connector_repo.get_mapping_by_id = AsyncMock(return_value=None)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=999, current_track_id=10)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=999, current_track_id=10
+        )
         with pytest.raises(NotFoundError, match="999"):
             await UnlinkConnectorTrackUseCase().execute(command, uow)
 
@@ -169,6 +181,8 @@ class TestUnlinkValidation:
         connector_repo.get_mapping_by_id = AsyncMock(return_value=mapping)
         uow = make_mock_uow(connector_repo=connector_repo)
 
-        command = UnlinkConnectorTrackCommand(mapping_id=1, current_track_id=99)
+        command = UnlinkConnectorTrackCommand(
+            user_id="test-user", mapping_id=1, current_track_id=99
+        )
         with pytest.raises(ValueError, match="does not belong"):
             await UnlinkConnectorTrackUseCase().execute(command, uow)

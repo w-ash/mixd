@@ -15,7 +15,9 @@ from src.domain.repositories import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class CheckDataIntegrityCommand:
-    """Parameterless — exists for API uniformity."""
+    """Integrity checks scoped to user."""
+
+    user_id: str
 
 
 @define(slots=True)
@@ -65,7 +67,9 @@ class CheckDataIntegrityUseCase:
             )
 
             # 4. Duplicate tracks (same title/artist/album fingerprint)
-            duplicates = await track_repo.find_duplicate_tracks_by_fingerprint()
+            duplicates = await track_repo.find_duplicate_tracks_by_fingerprint(
+                user_id=command.user_id
+            )
             checks.append(
                 IntegrityCheckResult(
                     name="duplicate_tracks",
@@ -77,7 +81,7 @@ class CheckDataIntegrityUseCase:
 
             # 5. Stale pending reviews (older than threshold)
             stale_count = await review_repo.count_stale_pending(
-                IntegrityConstants.STALE_REVIEW_DAYS
+                IntegrityConstants.STALE_REVIEW_DAYS, user_id=command.user_id
             )
             checks.append(
                 IntegrityCheckResult(
@@ -88,7 +92,7 @@ class CheckDataIntegrityUseCase:
             )
 
             # 6. Total pending reviews (informational — never fails)
-            pending_count = await review_repo.count_pending()
+            pending_count = await review_repo.count_pending(user_id=command.user_id)
             checks.append(
                 IntegrityCheckResult(
                     name="pending_reviews",

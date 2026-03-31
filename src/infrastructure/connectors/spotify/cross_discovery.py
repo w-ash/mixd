@@ -54,6 +54,8 @@ class SpotifyCrossDiscoveryProvider:
         artist_name: str,
         track_name: str,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> bool:
         """Search Spotify, evaluate match quality, create mapping if accepted.
 
@@ -73,9 +75,9 @@ class SpotifyCrossDiscoveryProvider:
                 )
                 if lb_spotify_id:
                     existing = (
-                        await uow.get_connector_repository().find_tracks_by_connectors([
-                            ("spotify", lb_spotify_id)
-                        ])
+                        await uow.get_connector_repository().find_tracks_by_connectors(
+                            [("spotify", lb_spotify_id)], user_id=user_id
+                        )
                     )
                     if existing:
                         existing_track = existing["spotify", lb_spotify_id]
@@ -129,9 +131,9 @@ class SpotifyCrossDiscoveryProvider:
                 else None
             )
             if spotify_isrc:
-                existing = await uow.get_track_repository().find_tracks_by_isrcs([
-                    spotify_isrc
-                ])
+                existing = await uow.get_track_repository().find_tracks_by_isrcs(
+                    [spotify_isrc], user_id=user_id
+                )
                 if existing:
                     isrc_track = next(iter(existing.values()))
                     if isrc_track.id != track.id:

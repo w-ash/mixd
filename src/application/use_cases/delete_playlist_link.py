@@ -8,6 +8,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.playlist_resolver import require_playlist_link
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -19,6 +20,7 @@ logger = get_logger(__name__)
 class DeletePlaylistLinkCommand:
     """Input for deleting a playlist link."""
 
+    user_id: str
     link_id: UUID
 
 
@@ -37,6 +39,8 @@ class DeletePlaylistLinkUseCase:
         self, command: DeletePlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> DeletePlaylistLinkResult:
         async with uow:
+            await require_playlist_link(command.link_id, uow, user_id=command.user_id)
+
             link_repo = uow.get_playlist_link_repository()
             deleted = await link_repo.delete_link(command.link_id)
 

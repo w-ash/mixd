@@ -62,7 +62,7 @@ class TestListTracksBasic:
     async def test_empty_database_returns_empty(self, db_session: AsyncSession) -> None:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks()
+        page = await track_repo.list_tracks(user_id="default")
 
         assert page["tracks"] == []
         assert page["total"] == 0
@@ -76,7 +76,7 @@ class TestListTracksBasic:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(limit=2, offset=0)
+        page = await track_repo.list_tracks(user_id="default", limit=2, offset=0)
 
         assert page["total"] == 3
         assert len(page["tracks"]) == 2
@@ -88,7 +88,9 @@ class TestListTracksBasic:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(sort_by="title_asc", limit=2, offset=1)
+        page = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2, offset=1
+        )
 
         assert page["total"] == 3
         assert len(page["tracks"]) == 2
@@ -106,7 +108,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(query="Creep")
+        page = await track_repo.list_tracks(user_id="default", query="Creep")
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Creep"
@@ -117,7 +119,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(query="Radiohead")
+        page = await track_repo.list_tracks(user_id="default", query="Radiohead")
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Creep"
@@ -128,7 +130,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(query="Pablo")
+        page = await track_repo.list_tracks(user_id="default", query="Pablo")
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Creep"
@@ -138,7 +140,7 @@ class TestListTracksSearch:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(query="radiohead")
+        page = await track_repo.list_tracks(user_id="default", query="radiohead")
 
         assert page["total"] == 1
 
@@ -153,7 +155,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(liked=True)
+        page = await track_repo.list_tracks(user_id="default", liked=True)
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Liked Song"
@@ -165,7 +167,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(liked=False)
+        page = await track_repo.list_tracks(user_id="default", liked=False)
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Not Liked"
@@ -209,7 +211,7 @@ class TestListTracksFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(connector="spotify")
+        page = await track_repo.list_tracks(user_id="default", connector="spotify")
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Spotify Track"
@@ -225,7 +227,7 @@ class TestListTracksSorting:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(sort_by="title_asc")
+        page = await track_repo.list_tracks(user_id="default", sort_by="title_asc")
 
         assert [t.title for t in page["tracks"]] == ["Alpha", "Mango", "Zebra"]
 
@@ -236,7 +238,7 @@ class TestListTracksSorting:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(sort_by="title_desc")
+        page = await track_repo.list_tracks(user_id="default", sort_by="title_desc")
 
         assert [t.title for t in page["tracks"]] == ["Zebra", "Mango", "Alpha"]
 
@@ -247,7 +249,7 @@ class TestListTracksSorting:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(sort_by="duration_asc")
+        page = await track_repo.list_tracks(user_id="default", sort_by="duration_asc")
 
         assert [t.title for t in page["tracks"]] == ["Short", "Medium", "Long"]
 
@@ -263,7 +265,7 @@ class TestListTracksPaginationBoundary:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(offset=100, limit=50)
+        page = await track_repo.list_tracks(user_id="default", offset=100, limit=50)
 
         assert page["total"] == 1
         assert page["tracks"] == []
@@ -284,7 +286,7 @@ class TestListTracksLikedIds:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks()
+        page = await track_repo.list_tracks(user_id="default")
 
         assert id1 in page["liked_track_ids"]
         assert id2 in page["liked_track_ids"]
@@ -297,7 +299,7 @@ class TestListTracksLikedIds:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks()
+        page = await track_repo.list_tracks(user_id="default")
 
         assert page["liked_track_ids"] == set()
 
@@ -314,7 +316,9 @@ class TestListTracksCombinedFilters:
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(query="Radiohead", liked=True)
+        page = await track_repo.list_tracks(
+            user_id="default", query="Radiohead", liked=True
+        )
 
         assert page["total"] == 1
         assert page["tracks"][0].title == "Creep"
@@ -336,20 +340,30 @@ class TestListTracksKeysetPagination:
         track_repo = uow.get_track_repository()
 
         # Page 1 via offset
-        p1_off = await track_repo.list_tracks(sort_by="title_asc", limit=2, offset=0)
+        p1_off = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2, offset=0
+        )
         # Page 1 also via keyset (no cursor = first page)
-        p1_key = await track_repo.list_tracks(sort_by="title_asc", limit=2)
+        p1_key = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2
+        )
         assert [t.title for t in p1_off["tracks"]] == [
             t.title for t in p1_key["tracks"]
         ]
         assert p1_key["next_page_key"] is not None
 
         # Page 2 via offset
-        p2_off = await track_repo.list_tracks(sort_by="title_asc", limit=2, offset=2)
+        p2_off = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=2, offset=2
+        )
         # Page 2 via keyset
         sort_val, last_id = p1_key["next_page_key"]
         p2_key = await track_repo.list_tracks(
-            sort_by="title_asc", limit=2, after_value=sort_val, after_id=last_id
+            user_id="default",
+            sort_by="title_asc",
+            limit=2,
+            after_value=sort_val,
+            after_id=last_id,
         )
         assert [t.title for t in p2_off["tracks"]] == [
             t.title for t in p2_key["tracks"]
@@ -364,13 +378,19 @@ class TestListTracksKeysetPagination:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        p1 = await track_repo.list_tracks(sort_by="title_desc", limit=2)
+        p1 = await track_repo.list_tracks(
+            user_id="default", sort_by="title_desc", limit=2
+        )
         assert [t.title for t in p1["tracks"]] == ["Gamma", "Beta"]
         assert p1["next_page_key"] is not None
 
         sort_val, last_id = p1["next_page_key"]
         p2 = await track_repo.list_tracks(
-            sort_by="title_desc", limit=2, after_value=sort_val, after_id=last_id
+            user_id="default",
+            sort_by="title_desc",
+            limit=2,
+            after_value=sort_val,
+            after_id=last_id,
         )
         assert [t.title for t in p2["tracks"]] == ["Alpha"]
         assert p2["next_page_key"] is None  # Last page
@@ -384,13 +404,19 @@ class TestListTracksKeysetPagination:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        p1 = await track_repo.list_tracks(sort_by="duration_asc", limit=2)
+        p1 = await track_repo.list_tracks(
+            user_id="default", sort_by="duration_asc", limit=2
+        )
         assert [t.title for t in p1["tracks"]] == ["Short", "Medium"]
         assert p1["next_page_key"] is not None
 
         sort_val, last_id = p1["next_page_key"]
         p2 = await track_repo.list_tracks(
-            sort_by="duration_asc", limit=2, after_value=sort_val, after_id=last_id
+            user_id="default",
+            sort_by="duration_asc",
+            limit=2,
+            after_value=sort_val,
+            after_id=last_id,
         )
         assert [t.title for t in p2["tracks"]] == ["Long"]
 
@@ -403,7 +429,9 @@ class TestListTracksKeysetPagination:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        page = await track_repo.list_tracks(sort_by="title_asc", limit=50)
+        page = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=50
+        )
         assert len(page["tracks"]) == 1
         assert page["next_page_key"] is None
 
@@ -418,13 +446,16 @@ class TestListTracksKeysetPagination:
         track_repo = uow.get_track_repository()
 
         # Search "Rock" — should match 3 tracks
-        p1 = await track_repo.list_tracks(query="Rock", sort_by="title_asc", limit=2)
+        p1 = await track_repo.list_tracks(
+            user_id="default", query="Rock", sort_by="title_asc", limit=2
+        )
         assert p1["total"] == 3
         assert [t.title for t in p1["tracks"]] == ["Alpha Rock", "Beta Rock"]
         assert p1["next_page_key"] is not None
 
         sort_val, last_id = p1["next_page_key"]
         p2 = await track_repo.list_tracks(
+            user_id="default",
             query="Rock",
             sort_by="title_asc",
             limit=2,
@@ -445,12 +476,15 @@ class TestListTracksKeysetPagination:
         track_repo = uow.get_track_repository()
 
         # Get first page to extract cursor
-        p1 = await track_repo.list_tracks(sort_by="title_asc", limit=1)
+        p1 = await track_repo.list_tracks(
+            user_id="default", sort_by="title_asc", limit=1
+        )
         assert p1["next_page_key"] is not None
         sort_val, last_id = p1["next_page_key"]
 
         # Pass both offset=999 and keyset — keyset should win
         p2 = await track_repo.list_tracks(
+            user_id="default",
             sort_by="title_asc",
             limit=2,
             offset=999,
@@ -469,6 +503,6 @@ class TestListTracksKeysetPagination:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        page = await track_repo.list_tracks(include_total=False)
+        page = await track_repo.list_tracks(user_id="default", include_total=False)
         assert page["total"] is None
         assert len(page["tracks"]) == 2

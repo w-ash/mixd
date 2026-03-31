@@ -57,7 +57,9 @@ class TestEnrichmentMetricsMerge:
             connector_instance=Mock(),
             track_metric_names=["explicit_flag"],
         )
-        command = EnrichTracksCommand(tracklist=tracklist, enrichment_config=config)
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
         use_case = EnrichTracksUseCase(metric_config=Mock())
 
         # Act
@@ -106,7 +108,9 @@ class TestEnrichmentMetricsMerge:
             enrichment_type="play_history",
             metrics=["total_plays"],
         )
-        command = EnrichTracksCommand(tracklist=tracklist, enrichment_config=config)
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
         use_case = EnrichTracksUseCase(metric_config=Mock())
 
         result = await use_case.execute(command, mock_uow)

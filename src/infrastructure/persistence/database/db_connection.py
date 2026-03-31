@@ -101,18 +101,34 @@ def create_session_factory(
 ) -> async_sessionmaker[AsyncSession]:
     """Create an async session factory for the given engine.
 
+    Registers an ``after_begin`` event that sets ``app.user_id`` on each
+    PostgreSQL transaction for Row-Level Security enforcement.
+
     Args:
         engine: Optional engine (uses global engine if None)
 
     Returns:
         Async session factory for creating properly configured sessions
     """
-    return async_sessionmaker(
+    from src.infrastructure.persistence.database.user_context import (
+        set_rls_user_on_begin,
+    )
+
+    factory = async_sessionmaker(
         bind=engine or get_engine(),
         expire_on_commit=False,
         autoflush=False,
         autocommit=False,
     )
+
+    # Register RLS context injection on the sync session class underlying
+    # the async session — SQLAlchemy events fire on sync internals even in
+    # async mode.  Must use sync_session_class, not the async factory itself.
+    event.listen(
+        factory.class_.sync_session_class, "after_begin", set_rls_user_on_begin
+    )
+
+    return factory
 
 
 # Global session factory singleton

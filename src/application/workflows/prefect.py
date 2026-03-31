@@ -21,7 +21,7 @@ from prefect.logging import get_run_logger
 
 # Use Mixd's standard logger for module-level logging
 from src.application.services.progress_manager import AsyncProgressManager
-from src.config.constants import NodeType, WorkflowConstants
+from src.config.constants import BusinessLimits, NodeType, WorkflowConstants
 from src.config.logging import get_logger, logging_context
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
@@ -183,6 +183,7 @@ def build_flow(
     workflow_def: WorkflowDef,
     observer: NodeExecutionObserver | None = None,
     dry_run: bool = False,
+    user_id: str = BusinessLimits.DEFAULT_USER_ID,
 ) -> Any:
     """Converts typed workflow definition into executable Prefect flow function.
 
@@ -243,7 +244,7 @@ def build_flow(
 
         # Each task creates its own session from the PostgreSQL pool — no
         # shared session needed under MVCC.
-        workflow_context = create_workflow_context()
+        workflow_context = create_workflow_context(user_id=user_id)
 
         task_results: dict[str, NodeResult] = {}
         node_records: list[NodeExecutionRecord] = []
@@ -586,6 +587,7 @@ async def run_workflow(
     progress_manager: AsyncProgressManager | None = None,
     observer: object | None = None,
     dry_run: bool = False,
+    user_id: str = BusinessLimits.DEFAULT_USER_ID,
     **parameters: object,
 ) -> OperationResult:
     """Executes complete playlist workflow from JSON definition to final result.
@@ -708,7 +710,10 @@ async def run_workflow(
 
                     # Build and execute the workflow
                     workflow = build_flow(
-                        workflow_def, observer=effective_observer, dry_run=dry_run
+                        workflow_def,
+                        observer=effective_observer,
+                        dry_run=dry_run,
+                        user_id=user_id,
                     )
                     context = await workflow(
                         workflow_progress_manager=progress_manager,

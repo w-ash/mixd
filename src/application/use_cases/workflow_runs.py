@@ -26,7 +26,11 @@ from src.application.workflows.prefect import (
     is_workflow_running,
 )
 from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
-from src.config.constants import WorkflowConstants, truncate_error_message
+from src.config.constants import (
+    BusinessLimits,
+    WorkflowConstants,
+    truncate_error_message,
+)
 from src.config.logging import get_logger, logging_context
 from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
@@ -86,6 +90,7 @@ def serialize_output_tracks(
 
 @define(frozen=True, slots=True)
 class RunWorkflowCommand:
+    user_id: str
     workflow_id: UUID
 
 
@@ -108,7 +113,9 @@ class RunWorkflowUseCase:
     ) -> RunWorkflowResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            workflow = await repo.get_workflow_by_id(command.workflow_id)
+            workflow = await repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             # Check execution guard
             if await is_workflow_running(workflow.definition.id):
@@ -150,6 +157,7 @@ class RunWorkflowUseCase:
 
 @define(frozen=True, slots=True)
 class ListWorkflowRunsCommand:
+    user_id: str
     workflow_id: UUID
     limit: int = 20
     offset: int = 0
@@ -167,9 +175,11 @@ class ListWorkflowRunsUseCase:
         self, command: ListWorkflowRunsCommand, uow: UnitOfWorkProtocol
     ) -> ListWorkflowRunsResult:
         async with uow:
-            # Verify workflow exists
+            # Verify workflow exists and user owns it
             wf_repo = uow.get_workflow_repository()
-            await wf_repo.get_workflow_by_id(command.workflow_id)
+            await wf_repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             run_repo = uow.get_workflow_run_repository()
             runs, total = await run_repo.get_runs_for_workflow(
@@ -187,6 +197,7 @@ class ListWorkflowRunsUseCase:
 
 @define(frozen=True, slots=True)
 class GetWorkflowRunCommand:
+    user_id: str
     workflow_id: UUID
     run_id: UUID
 
@@ -202,9 +213,11 @@ class GetWorkflowRunUseCase:
         self, command: GetWorkflowRunCommand, uow: UnitOfWorkProtocol
     ) -> GetWorkflowRunResult:
         async with uow:
-            # Verify workflow exists
+            # Verify workflow exists and user owns it
             wf_repo = uow.get_workflow_repository()
-            await wf_repo.get_workflow_by_id(command.workflow_id)
+            await wf_repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
 
             run_repo = uow.get_workflow_run_repository()
             run = await run_repo.get_run_by_id(command.run_id)
@@ -225,6 +238,7 @@ class GetWorkflowRunUseCase:
 
 @define(frozen=True, slots=True)
 class GetLatestWorkflowRunsCommand:
+    user_id: str
     workflow_ids: list[UUID]
 
 
@@ -279,6 +293,7 @@ class ExecuteWorkflowRunUseCase:
         workflow_def: WorkflowDef,
         run_id: UUID,
         sse_queue: asyncio.Queue[Any] | None = None,
+        user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> ExecuteWorkflowRunResult:
         from src.application.services.progress_manager import get_progress_manager
         from src.application.workflows.observers import RunHistoryObserver
@@ -310,6 +325,7 @@ class ExecuteWorkflowRunUseCase:
                     workflow_def,
                     progress_manager=progress_manager,
                     observer=observer,
+                    user_id=user_id,
                 )
 
                 # 3. Check for observer degradation (DB persistence failures)

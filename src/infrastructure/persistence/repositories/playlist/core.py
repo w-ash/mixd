@@ -124,6 +124,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         tracks: list[Track],
         connector: str | None = None,
+        *,
+        user_id: str,
     ) -> list[Track]:
         """Persist tracks without IDs and return updated tracks with IDs.
 
@@ -187,7 +189,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             try:
                 saved_connector_tracks = (
                     await self.connector_repository.ingest_external_tracks_bulk(
-                        connector, connector_tracks_to_save
+                        connector, connector_tracks_to_save, user_id=user_id
                     )
                 )
             except Exception as e:
@@ -608,19 +610,22 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     async def get_playlist_by_id(
         self,
         playlist_id: UUID,
+        *,
+        user_id: str,
     ) -> Playlist:
         """Retrieve playlist with all tracks and external service mappings.
 
         Args:
             playlist_id: Internal database ID.
+            user_id: Owner's user ID for ownership verification.
 
         Returns:
             Complete playlist entity with tracks and mappings.
 
         Raises:
-            ValueError: If playlist not found.
+            NotFoundError: If playlist not found or belongs to another user.
         """
-        stmt = self.select_by_id(playlist_id)
+        stmt = self.select_by_id(playlist_id).where(DBPlaylist.user_id == user_id)
         stmt = self.with_playlist_relationships(stmt)
 
         # Execute query using the base repository method
@@ -639,6 +644,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         self,
         connector: str,
         connector_id: str,
+        *,
+        user_id: str,
         raise_if_not_found: bool = True,
     ) -> Playlist | None:
         """Find playlist by external service ID (Spotify, Last.fm, etc.).
@@ -646,6 +653,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Args:
             connector: Service name (spotify, lastfm, musicbrainz).
             connector_id: External playlist identifier.
+            user_id: Owner's user ID for scoping.
             raise_if_not_found: Whether to raise exception if not found.
 
         Returns:
@@ -654,8 +662,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Raises:
             NotFoundError: If playlist not found and raise_if_not_found=True.
         """
-        # Use the enhanced select method
-        stmt = self.select_by_connector(connector, connector_id)
+        # Use the enhanced select method, scoped to user
+        stmt = self.select_by_connector(connector, connector_id).where(
+            DBPlaylist.user_id == user_id
+        )
 
         # Add eager loading with our helper
         stmt = self.with_playlist_relationships(stmt)
@@ -724,6 +734,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         updated_tracks = await self._save_new_tracks(
             tracks_to_save,
             connector=source_connector,
+            user_id=playlist.user_id,
         )
 
         # Rebuild entries with persisted tracks (preserving added_at metadata)
@@ -782,14 +793,15 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         await self.session.flush()
 
         # Return a fresh copy with all relationships eager-loaded
-        return await self.get_playlist_by_id(playlist_id)
+        return await self.get_playlist_by_id(playlist_id, user_id=playlist.user_id)
 
     @db_operation("playlist delete")
-    async def delete_playlist(self, playlist_id: UUID) -> bool:
-        """Soft delete playlist and all related tracks/mappings.
+    async def delete_playlist(self, playlist_id: UUID, *, user_id: str) -> bool:
+        """Delete playlist and all related tracks/mappings, verifying ownership.
 
         Args:
             playlist_id: Internal playlist ID to delete.
+            user_id: Owner's user ID for ownership verification.
 
         Returns:
             True if playlist was deleted, False if it didn't exist.
@@ -800,6 +812,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         result = await self.session.execute(
             delete(DBPlaylist)
             .where(DBPlaylist.id == playlist_id)
+            .where(DBPlaylist.user_id == user_id)
             .returning(DBPlaylist.id)
         )
 
@@ -814,22 +827,26 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return playlist_deleted
 
     @db_operation("playlist list all")
-    async def list_all_playlists(self) -> list[Playlist]:
+    async def list_all_playlists(self, *, user_id: str) -> list[Playlist]:
         """Get all playlists with basic metadata for efficient listing.
 
         Lightweight query that skips track loading entirely. Eagerly loads
         only mappings → connector_playlist (3 total queries) and builds
         Playlist objects directly from DB scalar columns.
 
+        Args:
+            user_id: Owner's user ID for scoping.
+
         Returns:
-            List of all stored playlists with basic metadata
+            List of user's stored playlists with basic metadata
         """
-        logger.debug("Listing all playlists")
+        logger.debug("Listing all playlists", user_id=user_id)
 
         # Eagerly load mappings chain for connector identifiers — no track loading
         stmt = (
             self
             .select()
+            .where(DBPlaylist.user_id == user_id)
             .options(
                 selectinload(DBPlaylist.mappings).selectinload(
                     DBPlaylistMapping.connector_playlist
@@ -846,17 +863,24 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return playlists
 
     @db_operation("get_playlists_for_track")
-    async def get_playlists_for_track(self, track_id: UUID) -> list[Playlist]:
-        """Get all playlists containing a specific track.
+    async def get_playlists_for_track(
+        self, track_id: UUID, *, user_id: str
+    ) -> list[Playlist]:
+        """Get all playlists containing a specific track, scoped to user.
 
         Returns lightweight Playlist objects (no track loading) for display
         in track detail views.
+
+        Args:
+            track_id: Internal track ID.
+            user_id: Owner's user ID for scoping.
         """
         stmt = (
             self
             .select()
             .join(DBPlaylistTrack, DBPlaylistTrack.playlist_id == DBPlaylist.id)
             .where(DBPlaylistTrack.track_id == track_id)
+            .where(DBPlaylist.user_id == user_id)
             .distinct()
             .options(
                 selectinload(DBPlaylist.mappings).selectinload(
@@ -871,17 +895,22 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return [self._build_lightweight_playlist(p) for p in db_playlists]
 
     @db_operation("update_playlist")
-    async def update_playlist(self, playlist_id: UUID, playlist: Playlist) -> Playlist:
-        """Update an existing playlist by ID.
+    async def update_playlist(
+        self, playlist_id: UUID, playlist: Playlist, *, user_id: str
+    ) -> Playlist:
+        """Update an existing playlist by ID, verifying ownership.
 
         Args:
             playlist_id: Internal database ID of the playlist to update.
             playlist: Playlist entity with updated data.
+            user_id: Owner's user ID for ownership verification.
 
         Returns:
             Updated playlist with all relationships loaded.
         """
-        return await self.save_playlist(attrs.evolve(playlist, id=playlist_id))
+        return await self.save_playlist(
+            attrs.evolve(playlist, id=playlist_id, user_id=user_id)
+        )
 
     @staticmethod
     def _build_lightweight_playlist(db_playlist: DBPlaylist) -> Playlist:

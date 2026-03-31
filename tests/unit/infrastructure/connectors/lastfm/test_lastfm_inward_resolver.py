@@ -58,7 +58,7 @@ class TestCreatesSkeletalTrackAndEnriches:
 
         uow = _make_uow(saved_track=saved_track)
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -94,7 +94,7 @@ class TestCrossDiscovery:
 
         uow = _make_uow(saved_track=saved_track)
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # Should have called attempt_discovery
@@ -119,7 +119,7 @@ class TestCrossDiscovery:
 
         uow = _make_uow(saved_track=saved_track)
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # Track should still be created
@@ -149,7 +149,7 @@ class TestDiscoveryRejected:
 
         uow = _make_uow(saved_track=saved_track)
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # Track should still be created
@@ -174,7 +174,7 @@ class TestTrackInfoFailure:
 
         uow = _make_uow(saved_track=saved_track)
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -212,7 +212,7 @@ class TestMBIDEnrichment:
 
         uow = _make_uow(saved_track=saved_track)
         result, _ = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -249,7 +249,7 @@ class TestMBIDEnrichment:
 
         uow = _make_uow(saved_track=saved_track)
         result, _ = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -277,7 +277,7 @@ class TestDelegatesToBaseLookup:
             existing_tracks={("lastfm", "radiohead::creep"): existing_track}
         )
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert result["radiohead::creep"] == existing_track
@@ -313,7 +313,7 @@ class TestCanonicalReuse:
         }
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -355,7 +355,7 @@ class TestCanonicalReuse:
         track_repo.find_tracks_by_title_artist.return_value = {}
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         assert "radiohead::creep" in result
@@ -396,7 +396,9 @@ class TestCanonicalReuse:
         }
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["band a::existing", "band b::reused", "band c::new"], uow
+            ["band a::existing", "band b::reused", "band c::new"],
+            uow,
+            user_id="test-user",
         )
 
         assert len(result) == 3
@@ -438,7 +440,7 @@ class TestCanonicalReuse:
         }
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # Should reject the candidate and fall through to track creation

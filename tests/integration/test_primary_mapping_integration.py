@@ -168,7 +168,9 @@ class TestPrimaryMappingQueries:
         ]
 
         repo = TrackConnectorRepository(db_session)
-        domain_tracks = await repo.ingest_external_tracks_bulk("spotify", tracks)
+        domain_tracks = await repo.ingest_external_tracks_bulk(
+            "spotify", tracks, user_id="default"
+        )
         await db_session.commit()
 
         for dt in domain_tracks:

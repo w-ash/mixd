@@ -86,7 +86,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=10, external_track_count=7)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 3
@@ -103,7 +103,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=5, external_track_count=8)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 0
@@ -117,7 +117,7 @@ class TestPreviewPlaylistSyncPush:
         uow = _make_uow_with_playlists(canonical_track_count=5, external_track_count=5)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 0
@@ -137,7 +137,7 @@ class TestPreviewPlaylistSyncPull:
         )
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.tracks_to_add == 3
@@ -155,6 +155,7 @@ class TestPreviewPlaylistSyncPull:
 
         result = await PreviewPlaylistSyncUseCase().execute(
             PreviewPlaylistSyncCommand(
+                user_id="test-user",
                 link_id=_LINK_ID,
                 direction_override=SyncDirection.PULL,
             ),
@@ -176,7 +177,7 @@ class TestPreviewNeverSynced:
         uow = _make_uow_with_playlists(external_exists=False)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.has_comparison_data is False
@@ -196,7 +197,7 @@ class TestPreviewSafetyCheck:
         )
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is True
@@ -209,7 +210,7 @@ class TestPreviewSafetyCheck:
         uow = _make_uow_with_playlists(canonical_track_count=7, external_track_count=10)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is False
@@ -221,7 +222,7 @@ class TestPreviewSafetyCheck:
         uow = _make_uow_with_playlists(external_exists=False)
 
         result = await PreviewPlaylistSyncUseCase().execute(
-            PreviewPlaylistSyncCommand(link_id=_LINK_ID), uow
+            PreviewPlaylistSyncCommand(user_id="test-user", link_id=_LINK_ID), uow
         )
 
         assert result.safety_flagged is False
@@ -238,5 +239,5 @@ class TestPreviewPlaylistSyncErrors:
 
         with pytest.raises(NotFoundError, match="not found"):
             await PreviewPlaylistSyncUseCase().execute(
-                PreviewPlaylistSyncCommand(link_id=uuid7()), uow
+                PreviewPlaylistSyncCommand(user_id="test-user", link_id=uuid7()), uow
             )

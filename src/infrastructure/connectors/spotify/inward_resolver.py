@@ -118,13 +118,16 @@ class SpotifyInwardResolver(InwardTrackResolver):
         connector_ids: list[str],
         uow: UnitOfWorkProtocol,
         *,
+        user_id: str,
         fallback_hints: dict[str, FallbackHint] | None = None,
     ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
         """Override to accept and stash fallback hints before delegating."""
         self._fallback_hints = fallback_hints or {}
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
-        return await super().resolve_to_canonical_tracks(connector_ids, uow)
+        return await super().resolve_to_canonical_tracks(
+            connector_ids, uow, user_id=user_id
+        )
 
     @override
     def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
@@ -199,6 +202,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
         self,
         missing_ids: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Fetch metadata from Spotify API in batch, create tracks + mappings.
 
@@ -221,7 +226,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         existing_by_isrc: dict[str, Track] = {}
         if isrc_to_spotify_id:
             existing_by_isrc = await uow.get_track_repository().find_tracks_by_isrcs(
-                list(isrc_to_spotify_id.keys())
+                list(isrc_to_spotify_id.keys()), user_id=user_id
             )
 
         result: dict[str, Track] = {}

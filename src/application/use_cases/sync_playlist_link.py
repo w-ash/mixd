@@ -42,6 +42,7 @@ def _raise_disappeared(link_id: UUID) -> Never:
 class SyncPlaylistLinkCommand:
     """Input for syncing a playlist link."""
 
+    user_id: str
     link_id: UUID
     direction_override: SyncDirection | None = None
     confirmed: bool = False
@@ -73,25 +74,31 @@ class SyncPlaylistLinkUseCase:
         self, command: SyncPlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> SyncPlaylistLinkResult:
         async with uow:
-            link_repo = uow.get_playlist_link_repository()
-            link = await link_repo.get_link(command.link_id)
+            # Verify ownership before mutating sync status
+            from src.application.use_cases._shared.playlist_resolver import (
+                require_playlist_link,
+            )
 
-            if link is None:
-                raise NotFoundError(f"Playlist link {command.link_id} not found")
+            link = await require_playlist_link(
+                command.link_id, uow, user_id=command.user_id
+            )
 
             link_id: UUID = link.id
             direction = command.direction_override or link.sync_direction
 
-            # Mark as syncing
+            # Mark as syncing (only after ownership is confirmed)
+            link_repo = uow.get_playlist_link_repository()
             await link_repo.update_sync_status(link_id, SyncStatus.SYNCING)
             await uow.commit()
 
         # Run sync outside the initial transaction — push/pull create their own
         try:
             if direction == SyncDirection.PUSH:
-                result = await self._push_sync(link, uow, confirmed=command.confirmed)
+                result = await self._push_sync(
+                    link, uow, user_id=command.user_id, confirmed=command.confirmed
+                )
             else:
-                result = await self._pull_sync(link, uow)
+                result = await self._pull_sync(link, uow, user_id=command.user_id)
 
             # Update status to synced and re-fetch for fresh state
             async with uow:
@@ -130,6 +137,7 @@ class SyncPlaylistLinkUseCase:
         link: PlaylistLink,
         uow: UnitOfWorkProtocol,
         *,
+        user_id: str,
         confirmed: bool = False,
     ) -> SyncPlaylistLinkResult:
         """Push canonical playlist to external service.
@@ -140,13 +148,16 @@ class SyncPlaylistLinkUseCase:
         """
         async with uow:
             playlist_repo = uow.get_playlist_repository()
-            playlist = await playlist_repo.get_playlist_by_id(link.playlist_id)
+            playlist = await playlist_repo.get_playlist_by_id(
+                link.playlist_id, user_id=user_id
+            )
 
             # Safety check against cached external playlist (no API call)
             if not confirmed:
                 external = await playlist_repo.get_playlist_by_connector(
                     link.connector_name,
                     link.connector_playlist_identifier,
+                    user_id=user_id,
                     raise_if_not_found=False,
                 )
                 if external is not None:
@@ -166,6 +177,7 @@ class SyncPlaylistLinkUseCase:
         tracklist = playlist.to_tracklist()
 
         command = UpdateConnectorPlaylistCommand(
+            user_id=user_id,
             playlist_id=link.connector_playlist_identifier,
             new_tracklist=tracklist,
             connector=link.connector_name,
@@ -180,7 +192,7 @@ class SyncPlaylistLinkUseCase:
         )
 
     async def _pull_sync(
-        self, link: PlaylistLink, uow: UnitOfWorkProtocol
+        self, link: PlaylistLink, uow: UnitOfWorkProtocol, *, user_id: str
     ) -> SyncPlaylistLinkResult:
         """Pull external playlist into canonical playlist."""
         from src.infrastructure.connectors._shared.metric_registry import (
@@ -195,7 +207,9 @@ class SyncPlaylistLinkUseCase:
 
             # Count tracks before upsert for diff
             playlist_repo = uow.get_playlist_repository()
-            existing = await playlist_repo.get_playlist_by_id(link.playlist_id)
+            existing = await playlist_repo.get_playlist_by_id(
+                link.playlist_id, user_id=user_id
+            )
             old_count = len(existing.tracks)
 
             # Upsert canonical playlist from external data
@@ -205,12 +219,15 @@ class SyncPlaylistLinkUseCase:
                 link.connector_playlist_identifier,
                 uow,
                 metric_config=MetricConfigProviderImpl(),
+                user_id=user_id,
             )
 
             await uow.commit()
 
             # Re-fetch for new count
-            updated = await playlist_repo.get_playlist_by_id(link.playlist_id)
+            updated = await playlist_repo.get_playlist_by_id(
+                link.playlist_id, user_id=user_id
+            )
             new_count = len(updated.tracks)
 
             added = max(0, new_count - old_count)

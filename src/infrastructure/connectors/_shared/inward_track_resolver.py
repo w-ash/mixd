@@ -88,6 +88,8 @@ class InwardTrackResolver(ABC):
         self,
         missing_ids: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Create canonical tracks for IDs not found in existing mappings.
 
@@ -116,6 +118,8 @@ class InwardTrackResolver(ABC):
         self,
         missing_ids: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Canonical Reuse: match unresolved IDs against existing canonical tracks.
 
@@ -137,7 +141,9 @@ class InwardTrackResolver(ABC):
         if not pairs:
             return {}
 
-        candidates = await uow.get_track_repository().find_tracks_by_title_artist(pairs)
+        candidates = await uow.get_track_repository().find_tracks_by_title_artist(
+            pairs, user_id=user_id
+        )
         if not candidates:
             return {}
 
@@ -206,6 +212,8 @@ class InwardTrackResolver(ABC):
         self,
         connector_ids: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
         """Resolve external connector IDs to canonical tracks.
 
@@ -229,7 +237,9 @@ class InwardTrackResolver(ABC):
         # Step 1 — Mapping Lookup: bulk-fetch existing connector→track mappings
         connections = [(self.connector_name, uid) for uid in unique_ids]
         existing_by_connector = (
-            await uow.get_connector_repository().find_tracks_by_connectors(connections)
+            await uow.get_connector_repository().find_tracks_by_connectors(
+                connections, user_id=user_id
+            )
         )
 
         # Map connector results back to normalized IDs
@@ -252,7 +262,7 @@ class InwardTrackResolver(ABC):
 
         if missing_ids:
             reused_tracks = await self._reuse_existing_canonical_tracks(
-                missing_ids, uow
+                missing_ids, uow, user_id=user_id
             )
             result.update(reused_tracks)
             reused_count = len(reused_tracks)
@@ -269,7 +279,9 @@ class InwardTrackResolver(ABC):
             logger.info(
                 f"Creating {len(still_missing)} new tracks for {self.connector_name}"
             )
-            new_tracks = await self._create_tracks_batch(still_missing, uow)
+            new_tracks = await self._create_tracks_batch(
+                still_missing, uow, user_id=user_id
+            )
             result.update(new_tracks)
             created_count = len(new_tracks)
 

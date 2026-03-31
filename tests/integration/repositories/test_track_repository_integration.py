@@ -231,7 +231,9 @@ class TestFindTracksByTitleArtist:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([("Creep", "Radiohead")])
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Creep", "Radiohead")], user_id="default"
+        )
         assert ("creep", "radiohead") in result
         assert result["creep", "radiohead"].id == saved.id
 
@@ -248,9 +250,12 @@ class TestFindTracksByTitleArtist:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("bohemian rhapsody", "queen"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("bohemian rhapsody", "queen"),
+            ],
+            user_id="default",
+        )
         assert ("bohemian rhapsody", "queen") in result
         assert result["bohemian rhapsody", "queen"].id == saved.id
 
@@ -259,9 +264,12 @@ class TestFindTracksByTitleArtist:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Nonexistent Song", "Unknown Artist"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Nonexistent Song", "Unknown Artist"),
+            ],
+            user_id="default",
+        )
         assert result == {}
 
     async def test_empty_pairs_returns_empty(self, db_session, test_data_tracker):
@@ -269,7 +277,7 @@ class TestFindTracksByTitleArtist:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        result = await track_repo.find_tracks_by_title_artist([])
+        result = await track_repo.find_tracks_by_title_artist([], user_id="default")
         assert result == {}
 
     async def test_multiple_pairs_batch_lookup(self, db_session, test_data_tracker):
@@ -294,11 +302,14 @@ class TestFindTracksByTitleArtist:
         test_data_tracker.add_track(track_a.id)
         test_data_tracker.add_track(track_b.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Song A", "Artist A"),
-            ("Song B", "Artist B"),
-            ("Song C", "Artist C"),  # No match
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Song A", "Artist A"),
+                ("Song B", "Artist B"),
+                ("Song C", "Artist C"),  # No match
+            ],
+            user_id="default",
+        )
 
         assert len(result) == 2
         assert result["song a", "artist a"].id == track_a.id
@@ -328,9 +339,12 @@ class TestFindTracksByTitleArtist:
         test_data_tracker.add_track(first.id)
         test_data_tracker.add_track(second.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Duplicate", "Same Artist"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Duplicate", "Same Artist"),
+            ],
+            user_id="default",
+        )
 
         assert len(result) == 1
         assert result["duplicate", "same artist"].id == first.id
@@ -352,9 +366,12 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Les Fusees", "Bjork"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Les Fusees", "Bjork"),
+            ],
+            user_id="default",
+        )
         assert ("les fusees", "bjork") in result
         assert result["les fusees", "bjork"].id == saved.id
 
@@ -371,9 +388,12 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Don't Stop Me Now", "Queen"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Don't Stop Me Now", "Queen"),
+            ],
+            user_id="default",
+        )
         assert ("don't stop me now", "queen") in result
         assert result["don't stop me now", "queen"].id == saved.id
 
@@ -390,9 +410,12 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Hey Jude", "Beatles"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Hey Jude", "Beatles"),
+            ],
+            user_id="default",
+        )
         assert ("hey jude", "beatles") in result
         assert result["hey jude", "beatles"].id == saved.id
 
@@ -409,9 +432,12 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Thunderstruck", "ACDC"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Thunderstruck", "ACDC"),
+            ],
+            user_id="default",
+        )
         assert ("thunderstruck", "acdc") in result
         assert result["thunderstruck", "acdc"].id == saved.id
 
@@ -428,9 +454,12 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_title_artist([
-            ("Song ft. Guest", "Main Artist"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("Song ft. Guest", "Main Artist"),
+            ],
+            user_id="default",
+        )
         assert ("song ft. guest", "main artist") in result
         assert result["song ft. guest", "main artist"].id == saved.id
 
@@ -480,9 +509,12 @@ class TestParentheticalStripping:
         test_data_tracker.add_track(saved.id)
 
         # Search by bare title (without parenthetical)
-        result = await track_repo.find_tracks_by_title_artist([
-            ("New Kind of Soft", "Artist"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("New Kind of Soft", "Artist"),
+            ],
+            user_id="default",
+        )
         assert ("new kind of soft", "artist") in result
         assert result["new kind of soft", "artist"].id == saved.id
 
@@ -500,9 +532,12 @@ class TestParentheticalStripping:
         test_data_tracker.add_track(saved.id)
 
         # Search by title with parenthetical added
-        result = await track_repo.find_tracks_by_title_artist([
-            ("New Kind of Soft (feat. Neon Priest)", "Artist"),
-        ])
+        result = await track_repo.find_tracks_by_title_artist(
+            [
+                ("New Kind of Soft (feat. Neon Priest)", "Artist"),
+            ],
+            user_id="default",
+        )
         key = ("new kind of soft (feat. neon priest)", "artist")
         assert key in result
         assert result[key].id == saved.id
@@ -547,7 +582,9 @@ class TestFindTracksByISRC:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_isrcs(["USRC17000001"])
+        result = await track_repo.find_tracks_by_isrcs(
+            ["USRC17000001"], user_id="default"
+        )
         assert "USRC17000001" in result
         assert result["USRC17000001"].id == saved.id
 
@@ -556,7 +593,9 @@ class TestFindTracksByISRC:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        result = await track_repo.find_tracks_by_isrcs(["NONEXISTENT123"])
+        result = await track_repo.find_tracks_by_isrcs(
+            ["NONEXISTENT123"], user_id="default"
+        )
         assert result == {}
 
     async def test_find_by_isrc_empty_list(self, db_session, test_data_tracker):
@@ -564,7 +603,7 @@ class TestFindTracksByISRC:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        result = await track_repo.find_tracks_by_isrcs([])
+        result = await track_repo.find_tracks_by_isrcs([], user_id="default")
         assert result == {}
 
 
@@ -586,7 +625,7 @@ class TestFindTracksByMBID:
         saved = await track_repo.save_track(track)
         test_data_tracker.add_track(saved.id)
 
-        result = await track_repo.find_tracks_by_mbids([mbid])
+        result = await track_repo.find_tracks_by_mbids([mbid], user_id="default")
         assert mbid in result
         assert result[mbid].id == saved.id
 

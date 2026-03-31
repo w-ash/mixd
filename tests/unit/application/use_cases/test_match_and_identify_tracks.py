@@ -45,6 +45,7 @@ class TestMatchAndIdentifyTracksCommand:
         """Test creating a valid command."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -57,6 +58,7 @@ class TestMatchAndIdentifyTracksCommand:
         tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError, match="Connector name must be specified"):
             MatchAndIdentifyTracksCommand(
+                user_id="test-user",
                 tracklist=tracklist,
                 connector="",
                 connector_instance=mock_connector,
@@ -67,6 +69,7 @@ class TestMatchAndIdentifyTracksCommand:
         tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError, match="Connector instance must be provided"):
             MatchAndIdentifyTracksCommand(
+                user_id="test-user",
                 tracklist=tracklist,
                 connector="spotify",
                 connector_instance=None,
@@ -80,6 +83,7 @@ class TestMatchAndIdentifyTracksUseCase:
         """Test that empty tracklist returns immediately with zero counts."""
         tracklist = TrackList(tracks=[])
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -108,6 +112,7 @@ class TestMatchAndIdentifyTracksUseCase:
         identity_service.get_existing_identity_mappings.return_value = existing
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -137,6 +142,7 @@ class TestMatchAndIdentifyTracksUseCase:
         identity_service.get_raw_external_matches.return_value = raw_matches
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -175,6 +181,7 @@ class TestMatchAndIdentifyTracksUseCase:
         )
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -191,6 +198,7 @@ class TestMatchAndIdentifyTracksUseCase:
         """Test that result includes non-negative execution time."""
         tracklist = TrackList(tracks=[])
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -214,6 +222,7 @@ class TestMatchAndIdentifyTracksUseCase:
         }
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -246,6 +255,7 @@ class TestMatchAndIdentifyTracksProgress:
         mock_progress.complete_operation = AsyncMock()
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -293,6 +303,7 @@ class TestMatchAndIdentifyTracksProgress:
         identity_service.get_raw_external_matches.return_value = {}
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
@@ -337,6 +348,7 @@ class TestMatchAndIdentifyTracksProgress:
         mock_progress.complete_operation = AsyncMock()
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="lastfm",
             connector_instance=mock_connector,
@@ -378,6 +390,7 @@ class TestMatchAndIdentifyTracksProgress:
         mock_progress.start_operation = AsyncMock(return_value="sub-op-unused")
 
         command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,

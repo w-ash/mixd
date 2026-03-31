@@ -60,6 +60,33 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # PUBLIC API METHODS
     # -------------------------------------------------------------------------
 
+    @db_operation("get_track_by_id")
+    async def get_track_by_id(
+        self,
+        track_id: UUID,
+        *,
+        user_id: str,
+        load_relationships: list[str] | None = None,
+    ) -> Track:
+        """Get track by ID, scoped to user.
+
+        Raises:
+            NotFoundError: If track not found or belongs to another user.
+        """
+        stmt = self.select_by_id(track_id).where(DBTrack.user_id == user_id)
+        if load_relationships:
+            stmt = self.with_relationship(stmt, *load_relationships)
+        else:
+            stmt = self.with_default_relationships(stmt)
+
+        db_model = await self.execute_select_one(stmt)
+        if not db_model:
+            from src.domain.exceptions import NotFoundError
+
+            raise NotFoundError(f"Track {track_id} not found")
+
+        return await self.mapper.to_domain(db_model)
+
     @db_operation("find_tracks_by_ids")
     async def find_tracks_by_ids(self, track_ids: list[UUID]) -> dict[UUID, Track]:
         """Find multiple tracks by their internal IDs in a single batch operation.
@@ -176,6 +203,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     async def list_tracks(
         self,
         *,
+        user_id: str,
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
@@ -193,8 +221,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         ``after_value`` and ``after_id`` are provided, uses a keyset WHERE clause
         for O(1) seeking regardless of page depth. Falls back to OFFSET otherwise.
         """
-        # Build base filter conditions
-        conditions: list[Any] = []
+        # Build base filter conditions — always scoped to user
+        conditions: list[Any] = [DBTrack.user_id == user_id]
 
         if query:
             pattern = f"%{query}%"
@@ -210,7 +238,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if liked is not None:
             liked_subq = (
                 select(DBTrackLike.track_id)
-                .where(DBTrackLike.is_liked == True)  # noqa: E712
+                .where(DBTrackLike.is_liked == True, DBTrackLike.user_id == user_id)  # noqa: E712
                 .distinct()
             )
             if liked:
@@ -221,7 +249,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if connector:
             connector_subq = (
                 select(DBTrackMapping.track_id)
-                .where(DBTrackMapping.connector_name == connector)
+                .where(
+                    DBTrackMapping.connector_name == connector,
+                    DBTrackMapping.user_id == user_id,
+                )
                 .distinct()
             )
             conditions.append(DBTrack.id.in_(connector_subq))
@@ -289,7 +320,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             liked_stmt = (
                 select(DBTrackLike.track_id)
                 .where(
-                    DBTrackLike.track_id.in_(track_ids), DBTrackLike.is_liked.is_(True)
+                    DBTrackLike.track_id.in_(track_ids),
+                    DBTrackLike.is_liked.is_(True),
+                    DBTrackLike.user_id == user_id,
                 )
                 .distinct()
             )
@@ -570,7 +603,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("find_tracks_by_title_artist")
     async def find_tracks_by_title_artist(
-        self, pairs: list[tuple[str, str]]
+        self, pairs: list[tuple[str, str]], *, user_id: str
     ) -> dict[tuple[str, str], Track]:
         """Find existing tracks matching (title, first_artist) pairs.
 
@@ -615,7 +648,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
         ]
 
-        stmt = select(DBTrack).where(or_(*conditions)).order_by(DBTrack.id.asc())
+        stmt = (
+            select(DBTrack)
+            .where(DBTrack.user_id == user_id, or_(*conditions))
+            .order_by(DBTrack.id.asc())
+        )
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
 
@@ -646,19 +683,29 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         return matched
 
     @db_operation("find_tracks_by_isrcs")
-    async def find_tracks_by_isrcs(self, isrcs: list[str]) -> dict[str, Track]:
+    async def find_tracks_by_isrcs(
+        self, isrcs: list[str], *, user_id: str
+    ) -> dict[str, Track]:
         """Batch lookup tracks by ISRC. Returns {isrc: Track} for found tracks."""
-        return await self._find_tracks_by_unique_column(DBTrack.isrc, isrcs)
+        return await self._find_tracks_by_unique_column(
+            DBTrack.isrc, isrcs, user_id=user_id
+        )
 
     @db_operation("find_tracks_by_mbids")
-    async def find_tracks_by_mbids(self, mbids: list[str]) -> dict[str, Track]:
+    async def find_tracks_by_mbids(
+        self, mbids: list[str], *, user_id: str
+    ) -> dict[str, Track]:
         """Batch lookup tracks by MusicBrainz Recording ID (MBID)."""
-        return await self._find_tracks_by_unique_column(DBTrack.mbid, mbids)
+        return await self._find_tracks_by_unique_column(
+            DBTrack.mbid, mbids, user_id=user_id
+        )
 
     # ── Integrity check queries ──────────────────────────────────────
 
     @db_operation("find_duplicate_tracks_by_fingerprint")
-    async def find_duplicate_tracks_by_fingerprint(self) -> list[dict[str, object]]:
+    async def find_duplicate_tracks_by_fingerprint(
+        self, *, user_id: str
+    ) -> list[dict[str, object]]:
         """Find tracks with identical (title, first_artist, album) tuples."""
         first_artist = DBTrack.artists["names"][0].as_string()
         stmt = (
@@ -669,7 +716,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 func.count().label("count"),
                 func.string_agg(cast(DBTrack.id, String), ",").label("track_ids"),
             )
-            .where(DBTrack.title.isnot(None), DBTrack.title != "")  # noqa: PLC1901
+            .where(
+                DBTrack.user_id == user_id,
+                DBTrack.title.isnot(None),
+                func.length(DBTrack.title) > 0,
+            )
             .group_by(DBTrack.title, first_artist, DBTrack.album)
             .having(func.count() > 1)
         )
@@ -690,13 +741,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # -------------------------------------------------------------------------
 
     async def _find_tracks_by_unique_column(
-        self, column: Any, values: list[str]
+        self, column: Any, values: list[str], *, user_id: str
     ) -> dict[str, Track]:
         """Batch lookup tracks by a unique string column (ISRC, MBID, etc.)."""
         if not values:
             return {}
 
-        stmt = self.select().where(column.in_(values))
+        stmt = self.select().where(DBTrack.user_id == user_id, column.in_(values))
         stmt = self.with_default_relationships(stmt)
         result = await self.session.execute(stmt)
         rows = result.scalars().all()

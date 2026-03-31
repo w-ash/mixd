@@ -98,7 +98,9 @@ class TestEnrichTracksUseCase:
         )
 
         command = EnrichTracksCommand(
-            tracklist=sample_tracklist, enrichment_config=external_metadata_config
+            user_id="test-user",
+            tracklist=sample_tracklist,
+            enrichment_config=external_metadata_config,
         )
 
         # Act — patch the stored attribute on the class (slots=True prevents instance patch)
@@ -129,7 +131,9 @@ class TestEnrichTracksUseCase:
         """Test successful play history enrichment."""
         # Arrange
         command = EnrichTracksCommand(
-            tracklist=sample_tracklist, enrichment_config=play_history_config
+            user_id="test-user",
+            tracklist=sample_tracklist,
+            enrichment_config=play_history_config,
         )
 
         # Act
@@ -145,6 +149,7 @@ class TestEnrichTracksUseCase:
         mock_plays_repo.get_play_aggregations.assert_called_once_with(
             track_ids=[1, 2],
             metrics=["total_plays", "last_played_dates"],
+            user_id="test-user",
             period_start=None,
             period_end=None,
         )
@@ -169,7 +174,7 @@ class TestEnrichTracksUseCase:
             enrichment_type="play_history", metrics=["period_plays"], period_days=7
         )
         command = EnrichTracksCommand(
-            tracklist=sample_tracklist, enrichment_config=config
+            user_id="test-user", tracklist=sample_tracklist, enrichment_config=config
         )
 
         # Act
@@ -202,7 +207,9 @@ class TestEnrichTracksUseCase:
         # Arrange
         empty_tracklist = TrackList(tracks=[])
         command = EnrichTracksCommand(
-            tracklist=empty_tracklist, enrichment_config=external_metadata_config
+            user_id="test-user",
+            tracklist=empty_tracklist,
+            enrichment_config=external_metadata_config,
         )
 
         # Act
@@ -230,7 +237,9 @@ class TestEnrichTracksUseCase:
         )
 
         command = EnrichTracksCommand(
-            tracklist=sample_tracklist, enrichment_config=external_metadata_config
+            user_id="test-user",
+            tracklist=sample_tracklist,
+            enrichment_config=external_metadata_config,
         )
 
         # Act — patch the stored attribute on the class (slots=True prevents instance patch)
@@ -251,7 +260,9 @@ class TestEnrichTracksUseCase:
             enrichment_type="invalid_type",  # type: ignore
         )
         command = EnrichTracksCommand(
-            tracklist=sample_tracklist, enrichment_config=invalid_config
+            user_id="test-user",
+            tracklist=sample_tracklist,
+            enrichment_config=invalid_config,
         )
 
         # Act
@@ -333,7 +344,9 @@ class TestEnrichTracksCommand:
             enrichment_type="play_history", metrics=["total_plays"]
         )
 
-        command = EnrichTracksCommand(tracklist=tracklist, enrichment_config=config)
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
         assert command.tracklist == tracklist
         assert command.enrichment_config == config
 
@@ -345,6 +358,8 @@ class TestEnrichTracksCommand:
 
         # Empty tracklists should be allowed at command level - use case handles gracefully
         command = EnrichTracksCommand(
-            tracklist=TrackList(tracks=[]), enrichment_config=config
+            user_id="test-user",
+            tracklist=TrackList(tracks=[]),
+            enrichment_config=config,
         )
         assert command.tracklist.tracks == []

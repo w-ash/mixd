@@ -21,7 +21,7 @@ class TestMergeTracksHappyPath:
         merge_service.merge_tracks = AsyncMock(return_value=winner)
 
         result = await MergeTracksUseCase().execute(
-            MergeTracksCommand(winner_id=1, loser_id=2), uow
+            MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=2), uow
         )
 
         assert isinstance(result, MergeTracksResult)
@@ -35,7 +35,7 @@ class TestMergeTracksHappyPath:
         merge_service.merge_tracks = AsyncMock(return_value=make_track(id=1))
 
         await MergeTracksUseCase().execute(
-            MergeTracksCommand(winner_id=1, loser_id=2), uow
+            MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=2), uow
         )
 
         uow.commit.assert_awaited_once()
@@ -47,7 +47,7 @@ class TestMergeTracksErrors:
 
         with pytest.raises(ValueError, match="Cannot merge a track with itself"):
             await MergeTracksUseCase().execute(
-                MergeTracksCommand(winner_id=5, loser_id=5), uow
+                MergeTracksCommand(user_id="test-user", winner_id=5, loser_id=5), uow
             )
 
         uow.get_track_merge_service.assert_not_called()
@@ -61,5 +61,5 @@ class TestMergeTracksErrors:
 
         with pytest.raises(NotFoundError, match="Track 99"):
             await MergeTracksUseCase().execute(
-                MergeTracksCommand(winner_id=1, loser_id=99), uow
+                MergeTracksCommand(user_id="test-user", winner_id=1, loser_id=99), uow
             )

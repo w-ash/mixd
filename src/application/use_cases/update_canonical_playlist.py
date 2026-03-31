@@ -59,6 +59,7 @@ class UpdateCanonicalPlaylistCommand:
         timestamp: When this command was created
     """
 
+    user_id: str
     playlist_id: str = field(validator=non_empty_string)
     new_tracklist: TrackList = field(factory=TrackList)
     connector_playlist: ConnectorPlaylist | None = None
@@ -165,7 +166,9 @@ class UpdateCanonicalPlaylistUseCase:
         async with uow:
             try:
                 # Step 1: Get current playlist state
-                current_playlist = await require_playlist(command.playlist_id, uow)
+                current_playlist = await require_playlist(
+                    command.playlist_id, uow, user_id=command.user_id
+                )
 
                 # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
                 source_data = command.new_tracklist
@@ -176,7 +179,7 @@ class UpdateCanonicalPlaylistUseCase:
 
                     processing_service = ConnectorPlaylistProcessingService()
                     source_data = await processing_service.process_connector_playlist(
-                        command.connector_playlist, uow
+                        command.connector_playlist, uow, user_id=command.user_id
                     )
 
                 # Convert source_data to Playlist if it's a TrackList

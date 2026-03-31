@@ -34,6 +34,7 @@ class DeleteCanonicalPlaylistCommand:
         timestamp: When the deletion command was created (defaults to current UTC time).
     """
 
+    user_id: str
     playlist_id: str = field(validator=non_empty_string)
     force_delete: bool = (
         False  # Whether to delete even if playlist has external connections
@@ -121,7 +122,9 @@ class DeleteCanonicalPlaylistUseCase:
         async with uow:
             try:
                 # Step 1: Get current playlist to ensure it exists and collect metadata
-                playlist = await require_playlist(command.playlist_id, uow)
+                playlist = await require_playlist(
+                    command.playlist_id, uow, user_id=command.user_id
+                )
 
                 # Step 2: Check for external connections and warn if needed
                 warnings: list[str] = []
@@ -152,7 +155,9 @@ class DeleteCanonicalPlaylistUseCase:
                 # Step 4: Delete the playlist
                 # Note: We're not deleting the tracks themselves as they might be used in other playlists
                 playlist_repo = uow.get_playlist_repository()
-                deletion_successful = await playlist_repo.delete_playlist(playlist_id)
+                deletion_successful = await playlist_repo.delete_playlist(
+                    playlist_id, user_id=command.user_id
+                )
 
                 if not deletion_successful:
                     _raise_deletion_failed_error(playlist_id)

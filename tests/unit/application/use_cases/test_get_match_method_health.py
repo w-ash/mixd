@@ -48,7 +48,7 @@ class TestMatchMethodHealthHappyPath:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         assert len(result.stats) == 2
@@ -67,7 +67,7 @@ class TestMatchMethodHealthHappyPath:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         assert result.total_mappings == 350
@@ -76,12 +76,12 @@ class TestMatchMethodHealthHappyPath:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = []
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(recent_days=7), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user", recent_days=7), mock_uow
         )
 
         assert result.recent_days == 7
         mock_uow.get_connector_repository().get_match_method_stats.assert_called_once_with(
-            recent_days=7
+            user_id="test-user", recent_days=7
         )
 
 
@@ -92,7 +92,7 @@ class TestMatchMethodHealthEmptyDB:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = []
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         assert result.stats == []
@@ -115,7 +115,7 @@ class TestMatchMethodHealthCategoryGrouping:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         groups = result.by_category
@@ -132,7 +132,7 @@ class TestMatchMethodHealthUnknownMethod:
         mock_uow.get_connector_repository().get_match_method_stats.return_value = rows
 
         result = await GetMatchMethodHealthUseCase().execute(
-            GetMatchMethodHealthCommand(), mock_uow
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
         )
 
         assert result.stats[0].category == "Unknown"

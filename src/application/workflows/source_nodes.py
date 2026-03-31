@@ -114,7 +114,9 @@ async def playlist_source(
         # Direct canonical playlist read
         logger.info(f"Reading canonical playlist: {playlist_id}")
 
-        read_command = ReadCanonicalPlaylistCommand(playlist_id=playlist_id)
+        read_command = ReadCanonicalPlaylistCommand(
+            user_id=workflow_context.user_id, playlist_id=playlist_id
+        )
         result = await workflow_context.execute_use_case(
             workflow_context.use_cases.get_read_canonical_playlist_use_case,
             read_command,
@@ -157,6 +159,7 @@ async def playlist_source(
                 playlist_id,
                 uow,
                 metric_config=workflow_context.metric_config,
+                user_id=workflow_context.user_id,
             )
             action = (
                 "created"
@@ -222,16 +225,17 @@ async def source_liked_tracks(
     """
     limit, connector_filter, sort_by = _extract_library_config(config, "liked_at_desc")
 
+    # Get workflow context and execute use case
+    ctx = NodeContext(context)
+    workflow_context = ctx.extract_workflow_context()
+
     # Create command for use case
     command = GetLikedTracksCommand(
+        user_id=workflow_context.user_id,
         limit=limit,
         connector_filter=connector_filter,
         sort_by=sort_by,
     )
-
-    # Get workflow context and execute use case
-    ctx = NodeContext(context)
-    workflow_context = ctx.extract_workflow_context()
 
     await ctx.emit_phase_progress("query", "source", "Querying liked tracks")
 
@@ -280,17 +284,18 @@ async def source_played_tracks(
     limit, connector_filter, sort_by = _extract_library_config(config, "played_at_desc")
     days_back: int | None = config.get("days_back")
 
+    # Get workflow context and execute use case
+    ctx = NodeContext(context)
+    workflow_context = ctx.extract_workflow_context()
+
     # Create command for use case
     command = GetPlayedTracksCommand(
+        user_id=workflow_context.user_id,
         limit=limit,
         days_back=days_back,
         connector_filter=connector_filter,
         sort_by=sort_by,
     )
-
-    # Get workflow context and execute use case
-    ctx = NodeContext(context)
-    workflow_context = ctx.extract_workflow_context()
 
     await ctx.emit_phase_progress("query", "source", "Querying play history")
 

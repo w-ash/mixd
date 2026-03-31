@@ -22,7 +22,7 @@ class TestWorkflowRepositoryCRUD:
         assert saved.id is not None
         assert saved.definition.name == "Test Workflow"
 
-        retrieved = await repo.get_workflow_by_id(saved.id)
+        retrieved = await repo.get_workflow_by_id(saved.id, user_id="default")
         assert retrieved.definition.id == "test-workflow"
         assert len(retrieved.definition.tasks) == 1
 
@@ -44,20 +44,20 @@ class TestWorkflowRepositoryCRUD:
         repo = WorkflowRepository(db_session)
         saved = await repo.save_workflow(Workflow(definition=make_workflow_def()))
 
-        deleted = await repo.delete_workflow(saved.id)
+        deleted = await repo.delete_workflow(saved.id, user_id="default")
         assert deleted is True
 
     async def test_delete_nonexistent_returns_false(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
 
-        deleted = await repo.delete_workflow(uuid7())
+        deleted = await repo.delete_workflow(uuid7(), user_id="default")
         assert deleted is False
 
     async def test_get_nonexistent_raises(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
 
         with pytest.raises(NotFoundError):
-            await repo.get_workflow_by_id(uuid7())
+            await repo.get_workflow_by_id(uuid7(), user_id="default")
 
 
 class TestWorkflowRepositoryTemplates:
@@ -70,7 +70,7 @@ class TestWorkflowRepositoryTemplates:
             Workflow(definition=make_workflow_def("wf2"), is_template=False)
         )
 
-        all_workflows = await repo.list_workflows()
+        all_workflows = await repo.list_workflows(user_id="default")
         assert len(all_workflows) == 2
 
     async def test_list_excludes_templates(self, db_session) -> None:
@@ -82,7 +82,9 @@ class TestWorkflowRepositoryTemplates:
             Workflow(definition=make_workflow_def("wf2"), is_template=False)
         )
 
-        user_workflows = await repo.list_workflows(include_templates=False)
+        user_workflows = await repo.list_workflows(
+            include_templates=False, user_id="default"
+        )
         assert len(user_workflows) == 1
         assert user_workflows[0].is_template is False
 

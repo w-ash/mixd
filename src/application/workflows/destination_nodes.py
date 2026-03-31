@@ -56,9 +56,11 @@ async def _find_existing_playlist_by_name(
     """
     from src.domain.repositories import UnitOfWorkProtocol
 
+    user_id = workflow_context.user_id
+
     async def _search(uow: UnitOfWorkProtocol) -> int | None:
         repo = uow.get_playlist_repository()
-        all_playlists = await repo.list_all_playlists()
+        all_playlists = await repo.list_all_playlists(user_id=user_id)
         for p in all_playlists:
             if p.name == playlist_name:
                 return p.id
@@ -122,6 +124,7 @@ async def create_playlist(
 
         # Create on both canonical and connector
         command = CreateConnectorPlaylistCommand(
+            user_id=workflow_context.user_id,
             tracklist=tracklist,
             playlist_name=playlist_name,
             connector=connector,
@@ -144,6 +147,7 @@ async def create_playlist(
     else:
         # Create canonical only
         command = CreateCanonicalPlaylistCommand(
+            user_id=workflow_context.user_id,
             name=playlist_name,
             tracklist=tracklist,
             description=config.get("description", "Created by Mixd"),
@@ -208,6 +212,7 @@ async def update_playlist(
 
         # playlist_id is connector ID - update connector with optimistic canonical sync
         command = UpdateConnectorPlaylistCommand(
+            user_id=workflow_context.user_id,
             playlist_id=playlist_id,
             new_tracklist=tracklist,
             connector=connector,
@@ -235,6 +240,7 @@ async def update_playlist(
     else:
         # playlist_id is canonical ID - update canonical only
         command = UpdateCanonicalPlaylistCommand(
+            user_id=workflow_context.user_id,
             playlist_id=playlist_id,
             new_tracklist=tracklist,
             append_mode=append,

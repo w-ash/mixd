@@ -48,7 +48,7 @@ class TestListTracksUseCase:
             next_page_key=("Track 3", 3),
         )
 
-        command = ListTracksCommand()
+        command = ListTracksCommand(user_id="test-user")
         result = await ListTracksUseCase().execute(command, mock_uow)
 
         assert isinstance(result, ListTracksResult)
@@ -62,10 +62,11 @@ class TestListTracksUseCase:
     async def test_forwards_search_query(self, mock_uow) -> None:
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        command = ListTracksCommand(query="radiohead")
+        command = ListTracksCommand(user_id="test-user", query="radiohead")
         await ListTracksUseCase().execute(command, mock_uow)
 
         mock_uow.get_track_repository().list_tracks.assert_called_once_with(
+            user_id="test-user",
             query="radiohead",
             liked=None,
             connector=None,
@@ -81,6 +82,7 @@ class TestListTracksUseCase:
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
         command = ListTracksCommand(
+            user_id="test-user",
             query="test",
             liked=True,
             connector="spotify",
@@ -91,6 +93,7 @@ class TestListTracksUseCase:
         await ListTracksUseCase().execute(command, mock_uow)
 
         mock_uow.get_track_repository().list_tracks.assert_called_once_with(
+            user_id="test-user",
             query="test",
             liked=True,
             connector="spotify",
@@ -105,7 +108,9 @@ class TestListTracksUseCase:
     async def test_empty_result(self, mock_uow) -> None:
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        result = await ListTracksUseCase().execute(ListTracksCommand(), mock_uow)
+        result = await ListTracksUseCase().execute(
+            ListTracksCommand(user_id="test-user"), mock_uow
+        )
 
         assert result.tracks == []
         assert result.total == 0
@@ -118,7 +123,9 @@ class TestListTracksUseCase:
             tracks=tracks, total=2
         )
 
-        result = await ListTracksUseCase().execute(ListTracksCommand(), mock_uow)
+        result = await ListTracksUseCase().execute(
+            ListTracksCommand(user_id="test-user"), mock_uow
+        )
 
         assert len(result.tracks) == 2
         assert result.next_cursor is None
@@ -138,7 +145,7 @@ class TestListTracksCursorPagination:
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        command = ListTracksCommand(cursor=cursor)
+        command = ListTracksCommand(user_id="test-user", cursor=cursor)
         await ListTracksUseCase().execute(command, mock_uow)
 
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
@@ -149,7 +156,9 @@ class TestListTracksCursorPagination:
     async def test_invalid_cursor_falls_back_to_offset(self, mock_uow) -> None:
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        command = ListTracksCommand(cursor="not-valid-base64!!!", offset=100)
+        command = ListTracksCommand(
+            user_id="test-user", cursor="not-valid-base64!!!", offset=100
+        )
         await ListTracksUseCase().execute(command, mock_uow)
 
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
@@ -169,7 +178,9 @@ class TestListTracksCursorPagination:
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        command = ListTracksCommand(cursor=cursor, sort_by="duration_asc")
+        command = ListTracksCommand(
+            user_id="test-user", cursor=cursor, sort_by="duration_asc"
+        )
         await ListTracksUseCase().execute(command, mock_uow)
 
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
@@ -189,7 +200,7 @@ class TestListTracksCursorPagination:
             total=None,  # Repository returns None when include_total=False
         )
 
-        command = ListTracksCommand(cursor=cursor)
+        command = ListTracksCommand(user_id="test-user", cursor=cursor)
         result = await ListTracksUseCase().execute(command, mock_uow)
 
         assert result.total is None
@@ -199,7 +210,7 @@ class TestListTracksCommand:
     """Command defaults and validation."""
 
     def test_default_values(self) -> None:
-        cmd = ListTracksCommand()
+        cmd = ListTracksCommand(user_id="test-user")
 
         assert cmd.query is None
         assert cmd.liked is None

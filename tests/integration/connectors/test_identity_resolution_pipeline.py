@@ -53,7 +53,7 @@ class TestLastfmCanonicalParentheticalReuse:
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["ultraviolet::new kind of soft"], uow
+            ["ultraviolet::new kind of soft"], uow, user_id="default"
         )
 
         # Canonical reuse should find the existing track via title_stripped
@@ -85,7 +85,9 @@ class TestLastfmCanonicalParentheticalReuse:
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["ultraviolet::new kind of soft (feat. neon priest)"], uow
+            ["ultraviolet::new kind of soft (feat. neon priest)"],
+            uow,
+            user_id="default",
         )
 
         assert metrics.reused == 1
@@ -130,16 +132,19 @@ class TestSpotifyISRCDedup:
 
         # Mapping Lookup finds nothing (no Spotify mapping exists)
         # Track Creation should detect ISRC collision and reuse existing
-        result = await resolver._create_tracks_batch(["new_spotify_id_456"], uow)
+        result = await resolver._create_tracks_batch(
+            ["new_spotify_id_456"], uow, user_id="default"
+        )
 
         assert "new_spotify_id_456" in result
         assert result["new_spotify_id_456"].id == existing.id
 
         # Verify connector mapping was created with ISRC_MATCH method
         connector_repo = uow.get_connector_repository()
-        mappings = await connector_repo.find_tracks_by_connectors([
-            ("spotify", "new_spotify_id_456")
-        ])
+        mappings = await connector_repo.find_tracks_by_connectors(
+            [("spotify", "new_spotify_id_456")],
+            user_id="default",
+        )
         assert ("spotify", "new_spotify_id_456") in mappings
 
     async def test_creates_new_track_when_isrc_not_in_db(
@@ -162,7 +167,9 @@ class TestSpotifyISRCDedup:
         spotify_connector.connector_name = "spotify"
 
         resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
-        result = await resolver._create_tracks_batch(["sp_new_001"], uow)
+        result = await resolver._create_tracks_batch(
+            ["sp_new_001"], uow, user_id="default"
+        )
 
         assert "sp_new_001" in result
         new_track = result["sp_new_001"]
@@ -225,14 +232,17 @@ class TestCrossDiscoveryISRCCollision:
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        result = await provider.attempt_discovery(track_b, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track_b, "Radiohead", "Creep", uow, user_id="default"
+        )
 
         assert result is True
 
         # Verify the mapping was created on Track A (ISRC owner), NOT Track B
-        mappings = await uow.get_connector_repository().find_tracks_by_connectors([
-            ("spotify", "sp_different_release")
-        ])
+        mappings = await uow.get_connector_repository().find_tracks_by_connectors(
+            [("spotify", "sp_different_release")],
+            user_id="default",
+        )
         assert ("spotify", "sp_different_release") in mappings
         mapped_track = mappings["spotify", "sp_different_release"]
         assert mapped_track.id == track_a.id

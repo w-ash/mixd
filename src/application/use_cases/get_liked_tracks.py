@@ -31,12 +31,14 @@ class GetLikedTracksCommand:
     """Configuration for retrieving liked tracks.
 
     Attributes:
+        user_id: Owning user.
         limit: Maximum number of tracks to return.
         connector_filter: Optional service name to filter by ("spotify", "lastfm").
         sort_by: Optional sort method ("liked_at_desc", "liked_at_asc", "title_asc", "random").
         timestamp: When the command was created.
     """
 
+    user_id: str
     limit: int = field(
         default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
         validator=positive_int_in_range(),
@@ -161,12 +163,18 @@ class GetLikedTracksUseCase:
         if command.connector_filter:
             # Get likes for specific connector service
             track_likes = await like_repo.get_all_liked_tracks(
-                service=command.connector_filter, is_liked=True, sort_by=command.sort_by
+                service=command.connector_filter,
+                is_liked=True,
+                sort_by=command.sort_by,
+                user_id=command.user_id,
             )
         else:
             # Query canonical "mixd" service — the source of truth for all likes
             track_likes = await like_repo.get_all_liked_tracks(
-                service="mixd", is_liked=True, sort_by=command.sort_by
+                service="mixd",
+                is_liked=True,
+                sort_by=command.sort_by,
+                user_id=command.user_id,
             )
 
         # Extract track IDs and apply limit

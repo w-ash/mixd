@@ -127,6 +127,11 @@ class WorkflowContext(Protocol):
     """Central dependency container enabling complex cross-service operations."""
 
     @property
+    def user_id(self) -> str:
+        """Authenticated user ID for ownership scoping."""
+        ...
+
+    @property
     def connectors(self) -> ConnectorRegistry:
         """Music service API access."""
         ...

@@ -41,6 +41,7 @@ class TestCreateCanonicalPlaylistCommand:
         """Test creating a valid command."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="My Playlist",
             tracklist=tracklist,
         )
@@ -51,12 +52,15 @@ class TestCreateCanonicalPlaylistCommand:
         """Test that empty playlist name is rejected."""
         tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError):
-            CreateCanonicalPlaylistCommand(name="", tracklist=tracklist)
+            CreateCanonicalPlaylistCommand(
+                user_id="test-user", name="", tracklist=tracklist
+            )
 
     def test_command_with_connector_mapping(self):
         """Test command with connector name and ID for external mapping."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Discover Weekly",
             tracklist=tracklist,
             connector_name="spotify",
@@ -68,7 +72,9 @@ class TestCreateCanonicalPlaylistCommand:
     def test_command_is_frozen(self):
         """Test command immutability."""
         tracklist = TrackList(tracks=[make_track()])
-        cmd = CreateCanonicalPlaylistCommand(name="Test", tracklist=tracklist)
+        cmd = CreateCanonicalPlaylistCommand(
+            user_id="test-user", name="Test", tracklist=tracklist
+        )
         with pytest.raises(AttributeError):
             cmd.name = "Modified"
 
@@ -82,6 +88,7 @@ class TestCreateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=tracks)
 
         command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Test Playlist",
             tracklist=tracklist,
             description="A test playlist",
@@ -101,6 +108,7 @@ class TestCreateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=[track])
 
         command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Playlist With Existing Tracks",
             tracklist=tracklist,
         )
@@ -117,6 +125,7 @@ class TestCreateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=[make_track()])
 
         command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Spotify Playlist",
             tracklist=tracklist,
             connector_name="spotify",
@@ -139,6 +148,7 @@ class TestCreateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=[make_track()])
 
         command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Metadata Test",
             tracklist=tracklist,
             metadata={"source": "workflow", "version": "1.0"},
@@ -161,6 +171,7 @@ class TestCreateCanonicalPlaylistUseCase:
         )
 
         command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
             name="Failing Playlist",
             tracklist=tracklist,
         )
@@ -174,7 +185,9 @@ class TestCreateCanonicalPlaylistUseCase:
     async def test_result_includes_execution_time(self, mock_uow):
         """Test that result includes non-negative execution time."""
         tracklist = TrackList(tracks=[make_track()])
-        command = CreateCanonicalPlaylistCommand(name="Timed", tracklist=tracklist)
+        command = CreateCanonicalPlaylistCommand(
+            user_id="test-user", name="Timed", tracklist=tracklist
+        )
         use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
 
         result = await use_case.execute(command, mock_uow)

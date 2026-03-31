@@ -87,6 +87,7 @@ class EnrichTracksCommand:
     type and parameters. Allows empty tracklists.
     """
 
+    user_id: str
     tracklist: TrackList
     enrichment_config: EnrichmentConfig
     progress_manager: AsyncProgressManager | None = None
@@ -185,12 +186,16 @@ class EnrichTracksUseCase:
                             command.tracklist,
                             command.enrichment_config,
                             uow,
+                            user_id=command.user_id,
                             progress_manager=command.progress_manager,
                             parent_operation_id=command.parent_operation_id,
                         )
                     elif command.enrichment_config.enrichment_type == "play_history":
                         result = await self._enrich_play_history(
-                            command.tracklist, command.enrichment_config, uow
+                            command.tracklist,
+                            command.enrichment_config,
+                            uow,
+                            user_id=command.user_id,
                         )
                     else:
                         _raise_unknown_enrichment_type_error(
@@ -230,6 +235,8 @@ class EnrichTracksUseCase:
         tracklist: TrackList,
         config: EnrichmentConfig,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
@@ -277,6 +284,7 @@ class EnrichTracksUseCase:
             connector=config.connector,
             connector_instance=config.connector_instance,
             uow=uow,
+            user_id=user_id,
             progress_manager=progress_manager,
             parent_operation_id=parent_operation_id,
         )
@@ -310,7 +318,12 @@ class EnrichTracksUseCase:
         return enriched_tracklist, metrics
 
     async def _enrich_play_history(
-        self, tracklist: TrackList, config: EnrichmentConfig, uow: UnitOfWorkProtocol
+        self,
+        tracklist: TrackList,
+        config: EnrichmentConfig,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
         """Enriches tracks with play history data from database.
 
@@ -347,6 +360,7 @@ class EnrichTracksUseCase:
         play_metrics = await play_repo.get_play_aggregations(
             track_ids=track_ids,
             metrics=config.metrics,
+            user_id=user_id,
             period_start=period_start,
             period_end=period_end,
         )
@@ -371,6 +385,8 @@ class EnrichTracksUseCase:
         connector: str,
         connector_instance: TrackMetadataConnector,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
     ) -> None:
@@ -401,6 +417,7 @@ class EnrichTracksUseCase:
         try:
             # Use the existing identity resolution system
             match_command = MatchAndIdentifyTracksCommand(
+                user_id=user_id,
                 tracklist=tracklist,
                 connector=connector,
                 connector_instance=connector_instance,

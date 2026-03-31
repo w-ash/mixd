@@ -122,6 +122,7 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             # Create the track domain object
             domain_track = Track(
                 id=track.id,
+                version=track.version,
                 user_id=track.user_id,
                 title=track.title,
                 artists=[Artist(name=name) for name in artist_names],

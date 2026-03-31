@@ -114,6 +114,7 @@ class TestSpotifyAddedAtPreservation:
 
         create_use_case = CreateCanonicalPlaylistUseCase(metric_config=MagicMock())
         create_command = CreateCanonicalPlaylistCommand(
+            user_id="default",
             name="Canonical Test Playlist",
             tracklist=TrackList(),
             connector_playlist=connector_playlist,

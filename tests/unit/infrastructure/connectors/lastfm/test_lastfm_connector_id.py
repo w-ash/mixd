@@ -77,7 +77,7 @@ class TestInwardResolverUsesUrlFormat:
         uow = _make_uow(saved_track=saved_track)
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # The connector mapping should use the URL
@@ -107,7 +107,7 @@ class TestInwardResolverUsesUrlFormat:
         uow = _make_uow(saved_track=saved_track)
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
@@ -128,7 +128,7 @@ class TestInwardResolverUsesUrlFormat:
         )
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["radiohead::creep"], uow
+            ["radiohead::creep"], uow, user_id="test-user"
         )
 
         # Should find the existing track via bulk lookup

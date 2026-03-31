@@ -12,6 +12,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
+from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
@@ -133,7 +134,9 @@ async def _list_stored_playlists() -> None:
         )
 
         result = await execute_use_case(
-            lambda uow: ListPlaylistsUseCase().execute(ListPlaylistsCommand(), uow)
+            lambda uow: ListPlaylistsUseCase().execute(
+                ListPlaylistsCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
+            )
         )
 
         if not result.has_playlists:
@@ -206,7 +209,11 @@ async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
         try:
             read_result = await execute_use_case(
                 lambda uow: ReadCanonicalPlaylistUseCase().execute(
-                    ReadCanonicalPlaylistCommand(playlist_id=str(playlist_id)), uow
+                    ReadCanonicalPlaylistCommand(
+                        user_id=BusinessLimits.DEFAULT_USER_ID,
+                        playlist_id=str(playlist_id),
+                    ),
+                    uow,
                 )
             )
             playlist = read_result.playlist
@@ -245,7 +252,9 @@ async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
         delete_result = await execute_use_case(
             lambda uow: DeleteCanonicalPlaylistUseCase().execute(
                 DeleteCanonicalPlaylistCommand(
-                    playlist_id=str(playlist_id), force_delete=force
+                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    playlist_id=str(playlist_id),
+                    force_delete=force,
                 ),
                 uow,
             )
@@ -284,7 +293,9 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
     try:
         with brand_status(f"Backing up playlist from {connector_name}..."):
             result = await run_playlist_backup(
-                connector_name=connector_name, playlist_id=playlist_id
+                connector_name=connector_name,
+                playlist_id=playlist_id,
+                user_id=BusinessLimits.DEFAULT_USER_ID,
             )
 
         from src.application.use_cases.update_canonical_playlist import (
@@ -337,7 +348,9 @@ async def _create_playlist_async(name: str, description: str | None) -> None:
             MetricConfigProviderImpl,
         )
 
-        command = CreateCanonicalPlaylistCommand(name=name, description=description)
+        command = CreateCanonicalPlaylistCommand(
+            user_id=BusinessLimits.DEFAULT_USER_ID, name=name, description=description
+        )
         result = await execute_use_case(
             lambda uow: CreateCanonicalPlaylistUseCase(
                 metric_config=MetricConfigProviderImpl()
@@ -374,6 +387,7 @@ async def _update_playlist_async(
         )
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id=BusinessLimits.DEFAULT_USER_ID,
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(),
             playlist_name=name,

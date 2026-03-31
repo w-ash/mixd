@@ -22,7 +22,7 @@ class TestGetLikedTracksCommand:
 
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
-        command = GetLikedTracksCommand()
+        command = GetLikedTracksCommand(user_id="test-user")
         assert command.limit == 50000
         assert command.sort_by is None
 
@@ -31,27 +31,29 @@ class TestGetLikedTracksCommand:
         valid_sorts = ["liked_at_desc", "liked_at_asc", "title_asc", "random"]
 
         for sort_option in valid_sorts:
-            command = GetLikedTracksCommand(limit=1000, sort_by=sort_option)
+            command = GetLikedTracksCommand(
+                user_id="test-user", limit=1000, sort_by=sort_option
+            )
             assert command.sort_by == sort_option
 
     def test_invalid_limit_zero(self):
         """Test command validation fails for zero limit at construction."""
         with pytest.raises(ValueError, match="must be between"):
-            GetLikedTracksCommand(limit=0)
+            GetLikedTracksCommand(user_id="test-user", limit=0)
 
     def test_invalid_limit_too_large(self):
         """Test command validation fails for limit exceeding 1M sanity guard."""
         with pytest.raises(ValueError, match="must be between"):
-            GetLikedTracksCommand(limit=1_000_001)
+            GetLikedTracksCommand(user_id="test-user", limit=1_000_001)
 
     def test_invalid_sort_option(self):
         """Test command validation fails for invalid sort option at construction."""
         with pytest.raises(ValueError, match="must be one of"):
-            GetLikedTracksCommand(sort_by="invalid_sort")
+            GetLikedTracksCommand(user_id="test-user", sort_by="invalid_sort")
 
     def test_valid_connector_filter(self):
         """Test command accepts connector filter."""
-        command = GetLikedTracksCommand(connector_filter="spotify")
+        command = GetLikedTracksCommand(user_id="test-user", connector_filter="spotify")
         assert command.connector_filter == "spotify"
 
 
@@ -113,6 +115,7 @@ class TestGetLikedTracksUseCase:
     async def test_execute_with_valid_command(self, mock_uow, sample_tracks):
         """Test successful execution with valid command."""
         command = GetLikedTracksCommand(
+            user_id="test-user",
             limit=1000,
             sort_by="liked_at_desc",
             connector_filter="spotify",  # Use filter to avoid duplicate tracks
@@ -128,7 +131,9 @@ class TestGetLikedTracksUseCase:
 
     async def test_execute_passes_sort_to_repository(self, mock_uow):
         """Test that sort_by parameter is passed to repository."""
-        command = GetLikedTracksCommand(sort_by="title_asc", connector_filter="spotify")
+        command = GetLikedTracksCommand(
+            user_id="test-user", sort_by="title_asc", connector_filter="spotify"
+        )
         use_case = GetLikedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
@@ -136,12 +141,12 @@ class TestGetLikedTracksUseCase:
         # Verify repository was called with sort_by parameter
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
-            service="spotify", is_liked=True, sort_by="title_asc"
+            service="spotify", is_liked=True, sort_by="title_asc", user_id="test-user"
         )
 
     async def test_execute_queries_mixd_when_no_filter(self, mock_uow):
         """Test that canonical 'mixd' service is queried when no connector filter."""
-        command = GetLikedTracksCommand(sort_by="liked_at_desc")
+        command = GetLikedTracksCommand(user_id="test-user", sort_by="liked_at_desc")
         use_case = GetLikedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
@@ -149,7 +154,7 @@ class TestGetLikedTracksUseCase:
         # Verify repository was called once for the canonical "mixd" service
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.assert_called_once_with(
-            service="mixd", is_liked=True, sort_by="liked_at_desc"
+            service="mixd", is_liked=True, sort_by="liked_at_desc", user_id="test-user"
         )
 
     async def test_execute_respects_limit(self, mock_uow, sample_likes):
@@ -159,7 +164,7 @@ class TestGetLikedTracksUseCase:
         like_repo = mock_uow.get_like_repository.return_value
         like_repo.get_all_liked_tracks.return_value = many_likes
 
-        command = GetLikedTracksCommand(limit=5)
+        command = GetLikedTracksCommand(user_id="test-user", limit=5)
         use_case = GetLikedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
@@ -173,7 +178,7 @@ class TestGetLikedTracksUseCase:
         """Test that invalid command raises ValueError at construction."""
         # Invalid command now raises ValueError at construction (fail-fast)
         with pytest.raises(ValueError, match="must be between"):
-            GetLikedTracksCommand(limit=0)
+            GetLikedTracksCommand(user_id="test-user", limit=0)
 
     async def test_execute_handles_missing_tracks(self, mock_uow, sample_likes):
         """Test graceful handling when some tracks don't exist."""
@@ -184,7 +189,7 @@ class TestGetLikedTracksUseCase:
         }
 
         command = GetLikedTracksCommand(
-            connector_filter="spotify"
+            user_id="test-user", connector_filter="spotify"
         )  # Use filter to avoid duplicates
         use_case = GetLikedTracksUseCase()
 
@@ -197,7 +202,10 @@ class TestGetLikedTracksUseCase:
     async def test_result_includes_operation_metadata(self, mock_uow):
         """Test that result includes proper metadata for composition."""
         command = GetLikedTracksCommand(
-            limit=100, connector_filter="spotify", sort_by="liked_at_desc"
+            user_id="test-user",
+            limit=100,
+            connector_filter="spotify",
+            sort_by="liked_at_desc",
         )
         use_case = GetLikedTracksUseCase()
 

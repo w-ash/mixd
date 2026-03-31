@@ -312,7 +312,7 @@ class TestCascadeDelete:
         run = await run_repo.create_run(_make_run(workflow.id))
 
         # Delete workflow
-        await wf_repo.delete_workflow(workflow.id)
+        await wf_repo.delete_workflow(workflow.id, user_id="default")
         await db_session.flush()
 
         # Run should be gone

@@ -94,7 +94,7 @@ class TestGetTrackDetailsHappyPath:
     async def test_assembles_all_data(self, mock_uow) -> None:
         track = make_track(id=_TRACK_UUID, title="Creep", artist="Radiohead")
 
-        mock_uow.get_track_repository().get_by_id.return_value = track
+        mock_uow.get_track_repository().get_track_by_id.return_value = track
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = (
             _make_full_mappings()
         )
@@ -107,7 +107,7 @@ class TestGetTrackDetailsHappyPath:
         )
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert isinstance(result, TrackDetailsResult)
@@ -115,7 +115,7 @@ class TestGetTrackDetailsHappyPath:
 
     async def test_connector_mappings_include_provenance(self, mock_uow) -> None:
         track = make_track(id=_TRACK_UUID)
-        mock_uow.get_track_repository().get_by_id.return_value = track
+        mock_uow.get_track_repository().get_track_by_id.return_value = track
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = (
             _make_full_mappings()
         )
@@ -124,7 +124,7 @@ class TestGetTrackDetailsHappyPath:
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert len(result.connector_mappings) == 2
@@ -137,7 +137,7 @@ class TestGetTrackDetailsHappyPath:
         assert spotify.connector_track_title == "Creep"
 
     async def test_like_status_per_service(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_by_id.return_value = make_track(
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
@@ -146,7 +146,7 @@ class TestGetTrackDetailsHappyPath:
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert "spotify" in result.like_status
@@ -154,7 +154,7 @@ class TestGetTrackDetailsHappyPath:
         assert "lastfm" in result.like_status
 
     async def test_play_summary_populated(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_by_id.return_value = make_track(
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
@@ -165,7 +165,7 @@ class TestGetTrackDetailsHappyPath:
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert result.play_summary.total_plays == 42
@@ -173,7 +173,7 @@ class TestGetTrackDetailsHappyPath:
         assert result.play_summary.last_played == datetime(2024, 12, 1, tzinfo=UTC)
 
     async def test_playlists_included(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_by_id.return_value = make_track(
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
@@ -184,7 +184,7 @@ class TestGetTrackDetailsHappyPath:
         )
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert len(result.playlists) == 2
@@ -197,13 +197,13 @@ class TestGetTrackDetailsErrors:
 
     async def test_nonexistent_track_raises_not_found(self, mock_uow) -> None:
         """Verify NotFoundError propagates when track doesn't exist."""
-        mock_uow.get_track_repository().get_by_id.side_effect = NotFoundError(
+        mock_uow.get_track_repository().get_track_by_id.side_effect = NotFoundError(
             "Entity with ID 99999 not found"
         )
 
         with pytest.raises(NotFoundError, match="99999"):
             await GetTrackDetailsUseCase().execute(
-                GetTrackDetailsCommand(track_id=uuid7()), mock_uow
+                GetTrackDetailsCommand(user_id="test-user", track_id=uuid7()), mock_uow
             )
 
 
@@ -211,7 +211,7 @@ class TestGetTrackDetailsEmptyData:
     """Edge cases with no likes, plays, or playlists."""
 
     async def test_no_plays(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_by_id.return_value = make_track(
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
@@ -220,7 +220,7 @@ class TestGetTrackDetailsEmptyData:
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert result.play_summary.total_plays == 0
@@ -228,7 +228,7 @@ class TestGetTrackDetailsEmptyData:
         assert result.play_summary.last_played is None
 
     async def test_no_likes_or_playlists(self, mock_uow) -> None:
-        mock_uow.get_track_repository().get_by_id.return_value = make_track(
+        mock_uow.get_track_repository().get_track_by_id.return_value = make_track(
             id=_TRACK_UUID
         )
         mock_uow.get_connector_repository().get_full_mappings_for_track.return_value = []
@@ -237,7 +237,7 @@ class TestGetTrackDetailsEmptyData:
         mock_uow.get_playlist_repository().get_playlists_for_track.return_value = []
 
         result = await GetTrackDetailsUseCase().execute(
-            GetTrackDetailsCommand(track_id=_TRACK_UUID), mock_uow
+            GetTrackDetailsCommand(user_id="test-user", track_id=_TRACK_UUID), mock_uow
         )
 
         assert result.like_status == {}

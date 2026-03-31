@@ -40,7 +40,9 @@ async def _create_track_with_mapping(
             )
             await uow.commit()
 
-            mappings = await connector_repo.get_full_mappings_for_track(saved.id)
+            mappings = await connector_repo.get_full_mappings_for_track(
+                saved.id, user_id="default"
+            )
             return saved.id, mappings[0]["mapping_id"]
 
     return await execute_use_case(_create)

@@ -28,11 +28,11 @@ class TestResolvePlaylist:
         playlist = make_playlist(name="Found")
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = playlist
 
-        result = await resolve_playlist(str(playlist.id), mock_uow)
+        result = await resolve_playlist(str(playlist.id), mock_uow, user_id="test-user")
 
         assert result is playlist
         mock_uow.get_playlist_repository().get_playlist_by_id.assert_awaited_once_with(
-            playlist.id
+            playlist.id, user_id="test-user"
         )
 
     async def test_uuid_id_not_found_raises(self, mock_uow):
@@ -43,7 +43,7 @@ class TestResolvePlaylist:
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = None
 
         with pytest.raises(NotFoundError, match="not found"):
-            await resolve_playlist(str(uuid7()), mock_uow)
+            await resolve_playlist(str(uuid7()), mock_uow, user_id="test-user")
 
     async def test_uuid_id_not_found_returns_none(self, mock_uow):
         """UUID ID not found returns None when raise_if_not_found=False."""
@@ -53,7 +53,7 @@ class TestResolvePlaylist:
         mock_uow.get_playlist_repository().get_playlist_by_connector.return_value = None
 
         result = await resolve_playlist(
-            str(uuid7()), mock_uow, raise_if_not_found=False
+            str(uuid7()), mock_uow, user_id="test-user", raise_if_not_found=False
         )
 
         assert result is None
@@ -67,11 +67,13 @@ class TestResolvePlaylist:
             playlist
         )
 
-        result = await resolve_playlist("spotify_abc_123", mock_uow)
+        result = await resolve_playlist(
+            "spotify_abc_123", mock_uow, user_id="test-user"
+        )
 
         assert result is playlist
         mock_uow.get_playlist_repository().get_playlist_by_connector.assert_awaited_once_with(
-            "spotify", "spotify_abc_123", raise_if_not_found=True
+            "spotify", "spotify_abc_123", user_id="test-user", raise_if_not_found=True
         )
 
     async def test_custom_connector_name(self, mock_uow):
@@ -82,9 +84,11 @@ class TestResolvePlaylist:
             playlist
         )
 
-        result = await resolve_playlist("lfm_xyz", mock_uow, connector="lastfm")
+        result = await resolve_playlist(
+            "lfm_xyz", mock_uow, user_id="test-user", connector="lastfm"
+        )
 
         assert result is playlist
         mock_uow.get_playlist_repository().get_playlist_by_connector.assert_awaited_once_with(
-            "lastfm", "lfm_xyz", raise_if_not_found=True
+            "lastfm", "lfm_xyz", user_id="test-user", raise_if_not_found=True
         )

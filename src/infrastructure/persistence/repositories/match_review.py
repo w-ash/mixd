@@ -46,16 +46,20 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
     async def list_pending_reviews(
         self,
         *,
+        user_id: str,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = "confidence_desc",
     ) -> tuple[list[MatchReview], int]:
-        """List pending reviews with pagination and sorting.
+        """List pending reviews with pagination and sorting, scoped to user.
 
         Returns:
             Tuple of (reviews, total_count).
         """
-        base_filter = [DBMatchReview.status == ReviewStatus.PENDING]
+        base_filter = [
+            DBMatchReview.status == ReviewStatus.PENDING,
+            DBMatchReview.user_id == user_id,
+        ]
 
         # Count total
         count_stmt = select(func.count(DBMatchReview.id)).where(*base_filter)
@@ -114,9 +118,14 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         return reviews, total
 
     @db_operation("get_review_by_id")
-    async def get_review_by_id(self, review_id: UUID) -> MatchReview | None:
-        """Get a single review by ID."""
-        return await self.find_one_by({"id": review_id})
+    async def get_review_by_id(
+        self, review_id: UUID, *, user_id: str
+    ) -> MatchReview | None:
+        """Get a single review by ID, verifying ownership."""
+        return await self.find_one_by([
+            self.model_class.id == review_id,
+            self.model_class.user_id == user_id,
+        ])
 
     @db_operation("create_review")
     async def create_review(self, review: MatchReview) -> MatchReview:
@@ -179,22 +188,24 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         return await self.update(review_id, updates)
 
     @db_operation("count_pending")
-    async def count_pending(self) -> int:
-        """Count pending reviews."""
+    async def count_pending(self, *, user_id: str) -> int:
+        """Count pending reviews, scoped to user."""
         stmt = select(func.count(DBMatchReview.id)).where(
-            DBMatchReview.status == ReviewStatus.PENDING
+            DBMatchReview.status == ReviewStatus.PENDING,
+            DBMatchReview.user_id == user_id,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
     @db_operation("count_stale_pending")
-    async def count_stale_pending(self, older_than_days: int) -> int:
-        """Count pending reviews older than the given threshold."""
+    async def count_stale_pending(self, older_than_days: int, *, user_id: str) -> int:
+        """Count pending reviews older than the given threshold, scoped to user."""
         from datetime import timedelta
 
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
         stmt = select(func.count(DBMatchReview.id)).where(
             DBMatchReview.status == ReviewStatus.PENDING,
+            DBMatchReview.user_id == user_id,
             DBMatchReview.created_at < cutoff,
         )
         result = await self.session.execute(stmt)

@@ -43,6 +43,7 @@ class TestUpdateCanonicalPlaylistCommand:
         """Test creating a valid update command."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id="42",
             new_tracklist=tracklist,
         )
@@ -54,6 +55,7 @@ class TestUpdateCanonicalPlaylistCommand:
         """Test command with append mode enabled."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id="42",
             new_tracklist=tracklist,
             append_mode=True,
@@ -64,6 +66,7 @@ class TestUpdateCanonicalPlaylistCommand:
         """Test command with dry run enabled."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id="42",
             new_tracklist=tracklist,
             dry_run=True,
@@ -74,12 +77,15 @@ class TestUpdateCanonicalPlaylistCommand:
         """Test that empty playlist ID is rejected."""
         tracklist = TrackList(tracks=[make_track()])
         with pytest.raises(ValueError):
-            UpdateCanonicalPlaylistCommand(playlist_id="", new_tracklist=tracklist)
+            UpdateCanonicalPlaylistCommand(
+                user_id="test-user", playlist_id="", new_tracklist=tracklist
+            )
 
     def test_metadata_update_params(self):
         """Test command with name and description updates."""
         tracklist = TrackList(tracks=[make_track()])
         cmd = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id="42",
             new_tracklist=tracklist,
             playlist_name="New Name",
@@ -91,7 +97,9 @@ class TestUpdateCanonicalPlaylistCommand:
     def test_command_is_frozen(self):
         """Test command immutability."""
         tracklist = TrackList(tracks=[make_track()])
-        cmd = UpdateCanonicalPlaylistCommand(playlist_id="1", new_tracklist=tracklist)
+        cmd = UpdateCanonicalPlaylistCommand(
+            user_id="test-user", playlist_id="1", new_tracklist=tracklist
+        )
         with pytest.raises(AttributeError):
             cmd.playlist_id = "2"
 
@@ -109,6 +117,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -134,6 +143,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -157,6 +167,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -177,6 +188,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         tracklist = TrackList(tracks=new_tracks)
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -199,6 +211,7 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         tracklist = TrackList(tracks=[make_track(id=tid1)])
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             playlist_name="New Name",
@@ -224,6 +237,7 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         tracklist = TrackList(tracks=[make_track()])
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id="not_a_uuid",
             new_tracklist=tracklist,
         )
@@ -242,6 +256,7 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         tracklist = TrackList(tracks=[make_track(id=tid1)])
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -260,6 +275,7 @@ class TestUpdateCanonicalPlaylistUseCase:
 
         tracklist = TrackList(tracks=[make_track()])
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             new_tracklist=tracklist,
             append_mode=True,
@@ -277,6 +293,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             playlist_name="New Name",
         )
@@ -298,6 +315,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             playlist_description="",
         )
@@ -318,6 +336,7 @@ class TestUpdateCanonicalPlaylistUseCase:
         mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
 
         command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
             playlist_id=str(current.id),
             playlist_name="New Name",
             # playlist_description deliberately omitted (defaults to None)

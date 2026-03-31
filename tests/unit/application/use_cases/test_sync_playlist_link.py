@@ -86,7 +86,7 @@ class TestSyncPlaylistLinkPush:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=_LINK_ID), uow
+                SyncPlaylistLinkCommand(user_id="test-user", link_id=_LINK_ID), uow
             )
 
             assert result.tracks_added == 3
@@ -122,6 +122,7 @@ class TestSyncPlaylistLinkPull:
 
             result = await SyncPlaylistLinkUseCase().execute(
                 SyncPlaylistLinkCommand(
+                    user_id="test-user",
                     link_id=_LINK_ID,
                     direction_override=SyncDirection.PULL,
                 ),
@@ -142,7 +143,7 @@ class TestSyncPlaylistLinkErrors:
 
         with pytest.raises(NotFoundError, match="not found"):
             await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=uuid7()), uow
+                SyncPlaylistLinkCommand(user_id="test-user", link_id=uuid7()), uow
             )
 
     @pytest.mark.asyncio
@@ -160,7 +161,7 @@ class TestSyncPlaylistLinkErrors:
 
             with pytest.raises(RuntimeError, match="Spotify API error"):
                 await SyncPlaylistLinkUseCase().execute(
-                    SyncPlaylistLinkCommand(link_id=_LINK_ID), uow
+                    SyncPlaylistLinkCommand(user_id="test-user", link_id=_LINK_ID), uow
                 )
 
             # Verify error status was set
@@ -225,7 +226,10 @@ class TestSyncPlaylistLinkSafetyCheck:
 
         with pytest.raises(ConfirmationRequiredError) as exc_info:
             await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
+                SyncPlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, confirmed=False
+                ),
+                uow,
             )
 
         assert exc_info.value.removals == 145
@@ -251,7 +255,10 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=True), uow
+                SyncPlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, confirmed=True
+                ),
+                uow,
             )
 
             assert result.tracks_removed == 145
@@ -274,7 +281,10 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
+                SyncPlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, confirmed=False
+                ),
+                uow,
             )
 
             assert result.tracks_added == 5
@@ -283,13 +293,12 @@ class TestSyncPlaylistLinkSafetyCheck:
     async def test_pull_not_affected_by_safety_check(self):
         """Pull direction bypasses safety check entirely."""
         link = _make_link(direction=SyncDirection.PULL)
-        uow = make_mock_uow()
+        uow = _make_uow_with_link(link)
         link_repo = uow.get_playlist_link_repository()
         updated_link = _make_link(
             direction=SyncDirection.PULL, status=SyncStatus.SYNCED
         )
         link_repo.get_link.side_effect = [link, updated_link]
-        link_repo.update_sync_status.return_value = None
 
         with patch.object(
             SyncPlaylistLinkUseCase, "_pull_sync", new_callable=AsyncMock
@@ -303,7 +312,10 @@ class TestSyncPlaylistLinkSafetyCheck:
             )
 
             result = await SyncPlaylistLinkUseCase().execute(
-                SyncPlaylistLinkCommand(link_id=_LINK_ID, confirmed=False), uow
+                SyncPlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, confirmed=False
+                ),
+                uow,
             )
 
             assert result.tracks_added == 100

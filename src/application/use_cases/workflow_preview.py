@@ -20,7 +20,7 @@ from src.application.workflows.prefect import (
     WorkflowAlreadyRunningError,
     is_workflow_running,
 )
-from src.config.constants import WorkflowConstants
+from src.config.constants import BusinessLimits, WorkflowConstants
 from src.config.logging import get_logger, logging_context
 from src.domain.entities.workflow import WorkflowDef
 
@@ -50,6 +50,7 @@ class PreviewWorkflowUseCase:
         self,
         workflow_def: WorkflowDef,
         sse_queue: asyncio.Queue[Any] | None = None,
+        user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> PreviewWorkflowResult:
         from src.application.services.progress_manager import get_progress_manager
         from src.application.workflows.observers import PreviewNodeObserver
@@ -78,6 +79,7 @@ class PreviewWorkflowUseCase:
                     progress_manager=progress_manager,
                     observer=observer,
                     dry_run=True,
+                    user_id=user_id,
                 )
 
                 duration_ms = timer.stop()

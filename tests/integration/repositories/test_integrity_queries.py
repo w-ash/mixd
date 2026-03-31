@@ -181,7 +181,7 @@ class TestOrphanedConnectorTracks:
 class TestDuplicateTracksByFingerprint:
     async def test_no_duplicates_on_clean_db(self, db_session: AsyncSession):
         repo = TrackRepository(db_session)
-        result = await repo.find_duplicate_tracks_by_fingerprint()
+        result = await repo.find_duplicate_tracks_by_fingerprint(user_id="default")
         assert result == []
 
     async def test_detects_duplicate_title_artist_album(self, db_session: AsyncSession):
@@ -196,7 +196,7 @@ class TestDuplicateTracksByFingerprint:
         await db_session.flush()
 
         repo = TrackRepository(db_session)
-        result = await repo.find_duplicate_tracks_by_fingerprint()
+        result = await repo.find_duplicate_tracks_by_fingerprint(user_id="default")
         assert len(result) == 1
         assert result[0]["title"] == "Same Song"
         assert result[0]["count"] == 2
@@ -213,14 +213,14 @@ class TestDuplicateTracksByFingerprint:
         await db_session.flush()
 
         repo = TrackRepository(db_session)
-        result = await repo.find_duplicate_tracks_by_fingerprint()
+        result = await repo.find_duplicate_tracks_by_fingerprint(user_id="default")
         assert result == []
 
 
 class TestStalePendingReviews:
     async def test_no_stale_on_clean_db(self, db_session: AsyncSession):
         repo = MatchReviewRepository(db_session)
-        count = await repo.count_stale_pending(older_than_days=30)
+        count = await repo.count_stale_pending(user_id="default", older_than_days=30)
         assert count == 0
 
     async def test_detects_stale_review(self, db_session: AsyncSession):
@@ -243,7 +243,7 @@ class TestStalePendingReviews:
         await db_session.flush()
 
         repo = MatchReviewRepository(db_session)
-        count = await repo.count_stale_pending(older_than_days=30)
+        count = await repo.count_stale_pending(user_id="default", older_than_days=30)
         assert count == 1
 
     async def test_ignores_recent_reviews(self, db_session: AsyncSession):
@@ -263,5 +263,5 @@ class TestStalePendingReviews:
         await db_session.flush()
 
         repo = MatchReviewRepository(db_session)
-        count = await repo.count_stale_pending(older_than_days=30)
+        count = await repo.count_stale_pending(user_id="default", older_than_days=30)
         assert count == 0

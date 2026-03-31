@@ -61,6 +61,7 @@ class TestFindPlaysInTimeRange:
 
         # Query for 20:30 - 21:30 should return only the 21:00 play
         result = await plays_repo.find_plays_in_time_range(
+            user_id="default",
             track_ids=[track.id],
             start=datetime(2024, 10, 1, 20, 30, 0, tzinfo=UTC),
             end=datetime(2024, 10, 1, 21, 30, 0, tzinfo=UTC),
@@ -75,6 +76,7 @@ class TestFindPlaysInTimeRange:
         plays_repo = uow.get_plays_repository()
 
         result = await plays_repo.find_plays_in_time_range(
+            user_id="default",
             track_ids=[],
             start=datetime(2024, 1, 1, tzinfo=UTC),
             end=datetime(2024, 12, 31, tzinfo=UTC),

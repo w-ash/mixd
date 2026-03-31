@@ -24,7 +24,12 @@ _MOCK_METRIC_CONFIG = make_mock_metric_config()
 
 
 class TestPlaylistUpdateRecordIdentityBugs:
-    """Tests proving that playlist updates destroy track record identity."""
+    """Tests proving that playlist updates destroy track record identity.
+
+    All tests are xfail: they document a known bug where the repository
+    overwrites DBPlaylistTrack records by position instead of by track identity.
+    Remove xfail when the record-identity-preserving save_playlist is implemented.
+    """
 
     async def test_dbplaylisttrack_records_follow_tracks_not_positions(
         self, db_session
@@ -54,6 +59,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         )
 
         create_command = CreateCanonicalPlaylistCommand(
+            user_id="default",
             name="Test Playlist",
             tracklist=TrackList(tracks=[track_a, track_b, track_c]),
         )
@@ -105,7 +111,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Step 3: Reorder to [Track B, Track C, Track A]
         async with uow:
             playlist_repo = uow.get_playlist_repository()
-            current_playlist = await playlist_repo.get_playlist_by_id(playlist_id)
+            current_playlist = await playlist_repo.get_playlist_by_id(
+                playlist_id, user_id="default"
+            )
 
         reordered_tracks = [
             current_playlist.tracks[1],  # Track B: pos 1→0
@@ -117,6 +125,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
             metric_config=_MOCK_METRIC_CONFIG
         )
         update_command = UpdateCanonicalPlaylistCommand(
+            user_id="default",
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=reordered_tracks),
             append_mode=False,
@@ -206,6 +215,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         )
 
         create_command = CreateCanonicalPlaylistCommand(
+            user_id="default",
             name="Playlist with Duplicates",
             tracklist=TrackList(tracks=[track_a, track_b]),
         )
@@ -241,7 +251,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Step 2: Update playlist to add duplicate of Track A: [A, B, A]
         async with uow:
             playlist_repo = uow.get_playlist_repository()
-            current_playlist = await playlist_repo.get_playlist_by_id(playlist_id)
+            current_playlist = await playlist_repo.get_playlist_by_id(
+                playlist_id, user_id="default"
+            )
 
         # Add duplicate - same track at position 2
         updated_tracks = [
@@ -259,6 +271,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
             metric_config=_MOCK_METRIC_CONFIG
         )
         update_command = UpdateCanonicalPlaylistCommand(
+            user_id="default",
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=updated_tracks),
             append_mode=False,
@@ -340,6 +353,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
         )
 
         create_command = CreateCanonicalPlaylistCommand(
+            user_id="default",
             name="Test Removal",
             tracklist=TrackList(tracks=[track_a, track_b, track_c]),
         )
@@ -381,7 +395,9 @@ class TestPlaylistUpdateRecordIdentityBugs:
         # Remove Track B: [A,B,C] → [A,C]
         async with uow:
             playlist_repo = uow.get_playlist_repository()
-            current_playlist = await playlist_repo.get_playlist_by_id(playlist_id)
+            current_playlist = await playlist_repo.get_playlist_by_id(
+                playlist_id, user_id="default"
+            )
 
         tracks_after_removal = [
             current_playlist.tracks[0],  # Track A
@@ -392,6 +408,7 @@ class TestPlaylistUpdateRecordIdentityBugs:
             metric_config=_MOCK_METRIC_CONFIG
         )
         update_command = UpdateCanonicalPlaylistCommand(
+            user_id="default",
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(tracks=tracks_after_removal),
             append_mode=False,

@@ -11,7 +11,9 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class GetDashboardStatsCommand:
-    """Parameterless — exists for API uniformity."""
+    """Dashboard stats scoped to user."""
+
+    user_id: str
 
 
 @define(frozen=True, slots=True)
@@ -45,6 +47,8 @@ class GetDashboardStatsUseCase:
             DashboardStatsResult containing all aggregate counts.
         """
         async with uow:
-            stats = await uow.get_stats_repository().get_dashboard_aggregates()
+            stats = await uow.get_stats_repository().get_dashboard_aggregates(
+                user_id=command.user_id
+            )
 
             return DashboardStatsResult(**stats)

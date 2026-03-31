@@ -231,7 +231,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("get_full_mappings_for_track")
     async def get_full_mappings_for_track(
-        self, track_id: UUID
+        self, track_id: UUID, *, user_id: str
     ) -> list[FullMappingInfo]:
         """Get all mappings for a track with joined connector track metadata."""
         stmt = (
@@ -251,6 +251,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 DBTrackMapping.connector_track_id == DBConnectorTrack.id,
             )
             .where(DBTrackMapping.track_id == track_id)
+            .where(DBTrackMapping.user_id == user_id)
             .order_by(
                 DBTrackMapping.is_primary.desc(), DBTrackMapping.confidence.desc()
             )
@@ -273,7 +274,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(
-        self, connections: list[tuple[str, str]]
+        self, connections: list[tuple[str, str]], *, user_id: str
     ) -> dict[tuple[str, str], Track]:
         """Find internal tracks by their external service IDs.
 
@@ -311,9 +312,9 @@ class TrackConnectorRepository:  # noqa: PLR0904
             }
             ct_ids = [ct.id for ct in connector_tracks]
 
-            # Find mappings
             mappings = await self.mapping_repo.find_by([
                 self.mapping_repo.model_class.connector_track_id.in_(ct_ids),
+                self.mapping_repo.model_class.user_id == user_id,
             ])
 
             # Create mapping from connector_track_id to track_id
@@ -531,6 +532,8 @@ class TrackConnectorRepository:  # noqa: PLR0904
         self,
         connector: str,
         tracks: list[ConnectorTrack],
+        *,
+        user_id: str,
     ) -> list[Track]:
         """Import tracks from external music services into the internal database.
 
@@ -586,6 +589,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
         all_ct_db_ids = [ct.id for ct in connector_track_lookup.values()]
         existing_mappings_list = await self.mapping_repo.find_by([
             self.mapping_repo.model_class.connector_track_id.in_(all_ct_db_ids),
+            self.mapping_repo.model_class.user_id == user_id,
         ])
         existing_mapping_by_ct_id: dict[UUID, TrackMapping] = {
             m.connector_track_id: m for m in existing_mappings_list
@@ -644,6 +648,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                     duration_ms=representative_track.duration_ms,
                     release_date=representative_track.release_date,
                     isrc=representative_track.isrc,
+                    user_id=user_id,
                 )
 
                 # Add connector ID and metadata
@@ -728,10 +733,15 @@ class TrackConnectorRepository:  # noqa: PLR0904
             )
 
     @db_operation("get_mapping_by_id")
-    async def get_mapping_by_id(self, mapping_id: UUID) -> TrackMapping | None:
-        """Get a single track mapping by its database ID."""
+    async def get_mapping_by_id(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> TrackMapping | None:
+        """Get a single track mapping by its database ID, scoped to user."""
         result = await self.session.execute(
-            select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+            select(DBTrackMapping).where(
+                DBTrackMapping.id == mapping_id,
+                DBTrackMapping.user_id == user_id,
+            )
         )
         row = result.scalar_one_or_none()
         if row is None:
@@ -739,17 +749,23 @@ class TrackConnectorRepository:  # noqa: PLR0904
         return await TrackMappingMapper.to_domain(row)
 
     @db_operation("delete_mapping")
-    async def delete_mapping(self, mapping_id: UUID) -> TrackMapping:
+    async def delete_mapping(self, mapping_id: UUID, *, user_id: str) -> TrackMapping:
         """Delete a track mapping and return the pre-deletion entity."""
         result = await self.session.execute(
-            select(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+            select(DBTrackMapping).where(
+                DBTrackMapping.id == mapping_id,
+                DBTrackMapping.user_id == user_id,
+            )
         )
         row = result.scalar_one_or_none()
         if row is None:
             raise NotFoundError(f"Mapping {mapping_id} not found")
         mapping = await TrackMappingMapper.to_domain(row)
         await self.session.execute(
-            delete(DBTrackMapping).where(DBTrackMapping.id == mapping_id)
+            delete(DBTrackMapping).where(
+                DBTrackMapping.id == mapping_id,
+                DBTrackMapping.user_id == user_id,
+            )
         )
         return mapping
 
@@ -1176,7 +1192,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
 
     @db_operation("get_match_method_stats")
     async def get_match_method_stats(
-        self, recent_days: int = 30
+        self, *, user_id: str, recent_days: int = 30
     ) -> list[MatchMethodStatRow]:
         """Aggregate match method statistics grouped by method and connector."""
         recent_cutoff = datetime.now(UTC) - timedelta(days=recent_days)
@@ -1192,6 +1208,7 @@ class TrackConnectorRepository:  # noqa: PLR0904
                 func.min(DBTrackMapping.confidence).label("min_confidence"),
                 func.max(DBTrackMapping.confidence).label("max_confidence"),
             )
+            .where(DBTrackMapping.user_id == user_id)
             .group_by(DBTrackMapping.match_method, DBTrackMapping.connector_name)
             .order_by(func.count().desc())
         )

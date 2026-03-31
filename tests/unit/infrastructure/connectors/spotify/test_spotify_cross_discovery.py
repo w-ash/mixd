@@ -49,7 +49,9 @@ class TestSuccessfulDiscovery:
         track = make_track(id=42, title="Creep", artist="Radiohead")
         uow = _make_uow()
 
-        result = await provider.attempt_discovery(track, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track, "Radiohead", "Creep", uow, user_id="test-user"
+        )
 
         assert result is True
         connector.search_track.assert_called_once_with("Radiohead", "Creep")
@@ -67,7 +69,9 @@ class TestNoResults:
         track = make_track(id=42)
         uow = _make_uow()
 
-        result = await provider.attempt_discovery(track, "Unknown", "Song", uow)
+        result = await provider.attempt_discovery(
+            track, "Unknown", "Song", uow, user_id="test-user"
+        )
 
         assert result is False
         uow.get_connector_repository().map_track_to_connector.assert_not_called()
@@ -96,7 +100,9 @@ class TestLowConfidence:
         track = make_track(id=42, title="Creep", artist="Radiohead")
         uow = _make_uow()
 
-        result = await provider.attempt_discovery(track, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track, "Radiohead", "Creep", uow, user_id="test-user"
+        )
 
         assert result is False
         uow.get_connector_repository().map_track_to_connector.assert_not_called()
@@ -113,7 +119,9 @@ class TestExceptionHandling:
         track = make_track(id=42)
         uow = _make_uow()
 
-        result = await provider.attempt_discovery(track, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track, "Radiohead", "Creep", uow, user_id="test-user"
+        )
 
         assert result is False
 
@@ -151,7 +159,11 @@ class TestISRCCollision:
         track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
 
         result = await provider.attempt_discovery(
-            track, "Same Artist", "Same Song", uow
+            track,
+            "Same Artist",
+            "Same Song",
+            uow,
+            user_id="test-user",
         )
 
         assert result is True
@@ -188,7 +200,9 @@ class TestISRCCollision:
         track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_isrcs.return_value = {}
 
-        result = await provider.attempt_discovery(track, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track, "Radiohead", "Creep", uow, user_id="test-user"
+        )
 
         assert result is True
 
@@ -218,7 +232,9 @@ class TestListenBrainzIntegration:
             ("spotify", "existing_spotify_id"): existing_track,
         }
 
-        result = await provider.attempt_discovery(track, "Artist", "Song", uow)
+        result = await provider.attempt_discovery(
+            track, "Artist", "Song", uow, user_id="test-user"
+        )
 
         assert result is True
         # Should NOT have searched Spotify
@@ -256,7 +272,9 @@ class TestListenBrainzIntegration:
         track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_isrcs.return_value = {}
 
-        result = await provider.attempt_discovery(track, "Artist", "Song", uow)
+        result = await provider.attempt_discovery(
+            track, "Artist", "Song", uow, user_id="test-user"
+        )
 
         assert result is True
         connector.search_track.assert_called_once()
@@ -286,7 +304,9 @@ class TestListenBrainzIntegration:
         track_repo = uow.get_track_repository()
         track_repo.find_tracks_by_isrcs.return_value = {}
 
-        result = await provider.attempt_discovery(track, "Radiohead", "Creep", uow)
+        result = await provider.attempt_discovery(
+            track, "Radiohead", "Creep", uow, user_id="test-user"
+        )
 
         assert result is True
         connector.search_track.assert_called_once()

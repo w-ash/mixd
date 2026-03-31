@@ -224,6 +224,12 @@ python_files = ["test_*.py"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--strict-markers --tb=short -n auto -m 'not diagnostic and not slow and not performance'"
+filterwarnings = [
+    # Savepoint-rollback test isolation triggers this when UoW manages its own transactions
+    "ignore:nested transaction already deassociated from connection:sqlalchemy.exc.SAWarning",
+    # AsyncMock auto-creates coroutine attributes that GC collects before they're awaited
+    "ignore:coroutine '.*_safe_call' was never awaited:RuntimeWarning",
+]
 markers = [
     # Test Pyramid Layers (applied via pytestmark in conftest.py)
     "unit: unit tests - pure logic, no external dependencies (<100ms)",

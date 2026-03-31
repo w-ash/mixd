@@ -39,7 +39,7 @@ class TestBatchFetch:
         uow.get_connector_repository.return_value = connector_repo
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id1", "id2"], uow
+            ["id1", "id2"], uow, user_id="test-user"
         )
 
         connector.get_tracks_by_ids.assert_called_once()
@@ -60,7 +60,9 @@ class TestBatchFetch:
         }
         uow.get_connector_repository.return_value = connector_repo
 
-        result, metrics = await resolver.resolve_to_canonical_tracks(["id1"], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id1"], uow, user_id="test-user"
+        )
 
         connector.get_tracks_by_ids.assert_not_called()
         assert result["id1"] == existing
@@ -91,7 +93,7 @@ class TestMissingMetadata:
         uow.get_connector_repository.return_value = connector_repo
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id1", "id2"], uow
+            ["id1", "id2"], uow, user_id="test-user"
         )
 
         assert "id1" in result
@@ -140,7 +142,9 @@ class TestRedirectDetection:
         connector_repo.map_track_to_connector.return_value = saved_track
         uow.get_connector_repository.return_value = connector_repo
 
-        result, metrics = await resolver.resolve_to_canonical_tracks([old_id], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [old_id], uow, user_id="test-user"
+        )
 
         assert old_id in result
         assert metrics.created == 1
@@ -187,7 +191,7 @@ class TestRedirectDetection:
         connector_repo.map_track_to_connector.return_value = make_track(1)
         uow.get_connector_repository.return_value = connector_repo
 
-        await resolver.resolve_to_canonical_tracks([old_id], uow)
+        await resolver.resolve_to_canonical_tracks([old_id], uow, user_id="test-user")
 
         assert old_id in resolver.redirect_resolved_ids
 
@@ -212,7 +216,7 @@ class TestRedirectDetection:
         connector_repo.map_track_to_connector.return_value = make_track(1)
         uow.get_connector_repository.return_value = connector_repo
 
-        await resolver.resolve_to_canonical_tracks([track_id], uow)
+        await resolver.resolve_to_canonical_tracks([track_id], uow, user_id="test-user")
 
         # Only one mapping call (no secondary stale ID mapping)
         assert connector_repo.map_track_to_connector.call_count == 1
@@ -255,7 +259,10 @@ class TestFallbackSearch:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints
+            [dead_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert dead_id in result
@@ -283,7 +290,10 @@ class TestFallbackSearch:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints
+            [dead_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert dead_id not in result
@@ -305,7 +315,10 @@ class TestFallbackSearch:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints
+            [dead_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert dead_id not in result
@@ -323,7 +336,10 @@ class TestFallbackSearch:
 
         hints = {dead_id: FallbackHint(artist_name="Artist", track_name="Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            [dead_id], uow, fallback_hints=hints
+            [dead_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert dead_id not in result
@@ -339,7 +355,10 @@ class TestFallbackSearch:
 
         # No fallback hints provided
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["dead_id"], uow, fallback_hints=None
+            ["dead_id"],
+            uow,
+            fallback_hints=None,
+            user_id="test-user",
         )
 
         assert "dead_id" not in result
@@ -365,7 +384,10 @@ class TestFallbackSearch:
         hints = {"dead_id": FallbackHint(artist_name="Artist", track_name="Song")}
 
         result, _ = await resolver.resolve_to_canonical_tracks(
-            ["dead_id"], uow, fallback_hints=hints
+            ["dead_id"],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert "dead_id" in result
@@ -389,7 +411,10 @@ class TestFallbackSearch:
         hints = {"id2": FallbackHint(artist_name="Artist", track_name="Song B")}
 
         await resolver.resolve_to_canonical_tracks(
-            ["id1", "id2"], uow, fallback_hints=hints
+            ["id1", "id2"],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert resolver.fallback_resolved_ids == {"id2"}
@@ -417,7 +442,10 @@ class TestCanonicalReuse:
 
         hints = {"sp_id_1": FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["sp_id_1"], uow, fallback_hints=hints
+            ["sp_id_1"],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert "sp_id_1" in result
@@ -442,7 +470,10 @@ class TestCanonicalReuse:
 
         # No hints provided — canonical reuse returns empty
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["sp_id_1"], uow, fallback_hints=None
+            ["sp_id_1"],
+            uow,
+            fallback_hints=None,
+            user_id="test-user",
         )
 
         assert "sp_id_1" not in result
@@ -465,7 +496,10 @@ class TestCanonicalReuse:
 
         hints = {"sp_id_1": FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["sp_id_1"], uow, fallback_hints=hints
+            ["sp_id_1"],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         # Should be rejected due to low title similarity
@@ -495,7 +529,10 @@ class TestCanonicalReuse:
 
         hints = {"id1": FallbackHint(artist_name="Artist A", track_name="Reused Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
-            ["id1", "id2"], uow, fallback_hints=hints
+            ["id1", "id2"],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
         )
 
         assert "id1" in result
@@ -552,7 +589,9 @@ class TestISRCDedup:
         # Existing track already has this ISRC
         track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
 
-        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
 
         assert spotify_id in result
         assert result[spotify_id].id == 42
@@ -584,7 +623,9 @@ class TestISRCDedup:
         track_repo.find_tracks_by_isrcs.return_value = {}
         track_repo.save_track.return_value = make_track(99)
 
-        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
 
         assert spotify_id in result
         assert metrics.created == 1
@@ -603,7 +644,9 @@ class TestISRCDedup:
         uow, track_repo, connector_repo = _make_uow_with_repos()
         track_repo.save_track.return_value = make_track(99)
 
-        result, metrics = await resolver.resolve_to_canonical_tracks([spotify_id], uow)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
 
         assert spotify_id in result
         assert metrics.created == 1

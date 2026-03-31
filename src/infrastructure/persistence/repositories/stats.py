@@ -35,24 +35,39 @@ class StatsRepository:
         self._session = session
 
     @db_operation("get_dashboard_aggregates")
-    async def get_dashboard_aggregates(self) -> DashboardAggregates:
-        """Compute all dashboard counts in 5 round trips (down from 8)."""
+    async def get_dashboard_aggregates(self, *, user_id: str) -> DashboardAggregates:
+        """Compute all dashboard counts in 5 round trips, scoped to user.
+
+        Every sub-select is filtered by user_id. For transitively-scoped
+        tables (track_mappings, playlist_mappings), we join through the
+        user-scoped parent table.
+        """
         # --- Query 1: scalar totals via sub-selects --------------------------
         totals_stmt = select(
-            select(func.count(DBTrack.id)).label("total_tracks"),
-            select(func.count(DBTrackPlay.id)).label("total_plays"),
-            select(func.count(DBPlaylist.id)).label("total_playlists"),
+            select(func.count(DBTrack.id))
+            .where(DBTrack.user_id == user_id)
+            .label("total_tracks"),
+            select(func.count(DBTrackPlay.id))
+            .where(DBTrackPlay.user_id == user_id)
+            .label("total_plays"),
+            select(func.count(DBPlaylist.id))
+            .where(DBPlaylist.user_id == user_id)
+            .label("total_playlists"),
             select(func.count(distinct(DBTrackLike.track_id)))
-            .where(DBTrackLike.is_liked == true())
+            .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
             .label("total_liked"),
         )
         totals_row = (await self._session.execute(totals_stmt)).one()
 
         # --- Query 2: service breakdowns (plays + likes) ---------------------
-        plays_by_svc_stmt = select(
-            DBTrackPlay.service,
-            func.count(DBTrackPlay.id),
-        ).group_by(DBTrackPlay.service)
+        plays_by_svc_stmt = (
+            select(
+                DBTrackPlay.service,
+                func.count(DBTrackPlay.id),
+            )
+            .where(DBTrackPlay.user_id == user_id)
+            .group_by(DBTrackPlay.service)
+        )
         plays_rows = (await self._session.execute(plays_by_svc_stmt)).all()
         plays_by_connector = {str(svc): int(cnt) for svc, cnt in plays_rows}
 
@@ -61,24 +76,35 @@ class StatsRepository:
                 DBTrackLike.service,
                 func.count(distinct(DBTrackLike.track_id)),
             )
-            .where(DBTrackLike.is_liked == true())
+            .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
             .group_by(DBTrackLike.service)
         )
         liked_rows = (await self._session.execute(liked_by_svc_stmt)).all()
         liked_by_connector = {str(svc): int(cnt) for svc, cnt in liked_rows}
 
         # --- Query 3: connector breakdowns (tracks + playlists) --------------
-        tracks_by_conn_stmt = select(
-            DBTrackMapping.connector_name,
-            func.count(distinct(DBTrackMapping.track_id)),
-        ).group_by(DBTrackMapping.connector_name)
+        # track_mappings is user-scoped, so filter directly
+        tracks_by_conn_stmt = (
+            select(
+                DBTrackMapping.connector_name,
+                func.count(distinct(DBTrackMapping.track_id)),
+            )
+            .where(DBTrackMapping.user_id == user_id)
+            .group_by(DBTrackMapping.connector_name)
+        )
         tracks_rows = (await self._session.execute(tracks_by_conn_stmt)).all()
         tracks_by_connector = {str(name): int(cnt) for name, cnt in tracks_rows}
 
-        playlists_by_conn_stmt = select(
-            DBPlaylistMapping.connector_name,
-            func.count(DBPlaylistMapping.id),
-        ).group_by(DBPlaylistMapping.connector_name)
+        # playlist_mappings is transitively scoped via playlist FK — join through
+        playlists_by_conn_stmt = (
+            select(
+                DBPlaylistMapping.connector_name,
+                func.count(DBPlaylistMapping.id),
+            )
+            .join(DBPlaylist, DBPlaylistMapping.playlist_id == DBPlaylist.id)
+            .where(DBPlaylist.user_id == user_id)
+            .group_by(DBPlaylistMapping.connector_name)
+        )
         playlists_rows = (await self._session.execute(playlists_by_conn_stmt)).all()
         playlists_by_connector = {str(name): int(cnt) for name, cnt in playlists_rows}
 

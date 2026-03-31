@@ -85,7 +85,7 @@ class TestGetMappingById:
     ) -> None:
         _, _, mapping_id = await _setup_track_with_mapping(db_session)
 
-        result = await connector_repo.get_mapping_by_id(mapping_id)
+        result = await connector_repo.get_mapping_by_id(mapping_id, user_id="default")
 
         assert result is not None
         assert result.id == mapping_id
@@ -94,7 +94,7 @@ class TestGetMappingById:
     async def test_returns_none_when_missing(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        result = await connector_repo.get_mapping_by_id(uuid7())
+        result = await connector_repo.get_mapping_by_id(uuid7(), user_id="default")
         assert result is None
 
 
@@ -106,18 +106,18 @@ class TestDeleteMapping:
     ) -> None:
         _, _, mapping_id = await _setup_track_with_mapping(db_session)
 
-        result = await connector_repo.delete_mapping(mapping_id)
+        result = await connector_repo.delete_mapping(mapping_id, user_id="default")
 
         assert result.id == mapping_id
         # Verify it's actually deleted
-        lookup = await connector_repo.get_mapping_by_id(mapping_id)
+        lookup = await connector_repo.get_mapping_by_id(mapping_id, user_id="default")
         assert lookup is None
 
     async def test_raises_not_found_for_missing(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
         with pytest.raises(NotFoundError):
-            await connector_repo.delete_mapping(uuid7())
+            await connector_repo.delete_mapping(uuid7(), user_id="default")
 
 
 class TestUpdateMappingTrack:

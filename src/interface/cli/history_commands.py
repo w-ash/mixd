@@ -7,6 +7,7 @@ from rich.prompt import Prompt
 import typer
 
 from src.config import settings
+from src.config.constants import BusinessLimits
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     parse_date_string,
@@ -222,7 +223,9 @@ async def _show_checkpoints_async() -> None:
 
         from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
 
-        statuses = await get_all_checkpoint_statuses()
+        statuses = await get_all_checkpoint_statuses(
+            user_id=BusinessLimits.DEFAULT_USER_ID
+        )
 
         if not statuses:
             console.print("[yellow]No sync checkpoints found.[/yellow]")

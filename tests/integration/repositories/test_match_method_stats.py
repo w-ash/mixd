@@ -1,4 +1,4 @@
-"""Integration tests for ConnectorTrackRepository.get_match_method_stats().
+"""Integration tests for ConnectorTrackRepository.get_match_method_stats(user_id="default").
 
 Tests the SQL aggregation query against a real SQLite database, verifying
 correct grouping, counting, confidence aggregation, and recent-window filtering.
@@ -87,7 +87,7 @@ class TestMatchMethodStatsEmpty:
         uow = get_unit_of_work(db_session)
         repo = uow.get_connector_repository()
 
-        result = await repo.get_match_method_stats()
+        result = await repo.get_match_method_stats(user_id="default")
 
         assert result == []
 
@@ -109,7 +109,7 @@ class TestMatchMethodStatsAggregation:
 
         uow = get_unit_of_work(db_session)
         repo = uow.get_connector_repository()
-        result = await repo.get_match_method_stats()
+        result = await repo.get_match_method_stats(user_id="default")
 
         # Should have 2 groups
         assert len(result) == 2
@@ -153,7 +153,7 @@ class TestMatchMethodStatsRecentWindow:
 
         uow = get_unit_of_work(db_session)
         repo = uow.get_connector_repository()
-        result = await repo.get_match_method_stats(recent_days=30)
+        result = await repo.get_match_method_stats(user_id="default", recent_days=30)
 
         assert len(result) == 1
         assert result[0]["total_count"] == 3
@@ -176,7 +176,7 @@ class TestMatchMethodStatsConfidence:
 
         uow = get_unit_of_work(db_session)
         repo = uow.get_connector_repository()
-        result = await repo.get_match_method_stats()
+        result = await repo.get_match_method_stats(user_id="default")
 
         assert len(result) == 1
         row = result[0]

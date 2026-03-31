@@ -23,7 +23,7 @@ class TestGetPlayedTracksCommand:
 
     def test_valid_command_defaults(self):
         """Test valid command with default parameters."""
-        command = GetPlayedTracksCommand()
+        command = GetPlayedTracksCommand(user_id="test-user")
         assert command.limit == BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
         assert command.days_back is None
         assert command.sort_by is None
@@ -31,6 +31,7 @@ class TestGetPlayedTracksCommand:
     def test_valid_command_with_all_options(self):
         """Test valid command with all options."""
         command = GetPlayedTracksCommand(
+            user_id="test-user",
             limit=1000,
             days_back=30,
             connector_filter="spotify",
@@ -51,33 +52,33 @@ class TestGetPlayedTracksCommand:
         ]
 
         for sort_option in valid_sorts:
-            command = GetPlayedTracksCommand(sort_by=sort_option)
+            command = GetPlayedTracksCommand(user_id="test-user", sort_by=sort_option)
             assert command.sort_by == sort_option
 
     def test_invalid_limit_zero(self):
         """Test validation fails for zero limit at construction."""
         with pytest.raises(ValueError, match="must be between"):
-            GetPlayedTracksCommand(limit=0)
+            GetPlayedTracksCommand(user_id="test-user", limit=0)
 
     def test_invalid_limit_exceeds_max(self):
         """Test validation fails for limit exceeding 1M sanity guard."""
         with pytest.raises(ValueError, match="must be between"):
-            GetPlayedTracksCommand(limit=1_000_001)
+            GetPlayedTracksCommand(user_id="test-user", limit=1_000_001)
 
     def test_invalid_days_back_zero(self):
         """Test validation fails for zero days_back at construction."""
         with pytest.raises(ValueError, match="must be positive"):
-            GetPlayedTracksCommand(days_back=0)
+            GetPlayedTracksCommand(user_id="test-user", days_back=0)
 
     def test_invalid_sort_option(self):
         """Test validation fails for invalid sort option at construction."""
         with pytest.raises(ValueError, match="must be one of"):
-            GetPlayedTracksCommand(sort_by="invalid_sort")
+            GetPlayedTracksCommand(user_id="test-user", sort_by="invalid_sort")
 
     def test_negative_days_back_invalid(self):
         """Test validation fails for negative days_back at construction."""
         with pytest.raises(ValueError, match="must be positive"):
-            GetPlayedTracksCommand(days_back=-1)
+            GetPlayedTracksCommand(user_id="test-user", days_back=-1)
 
 
 class TestGetPlayedTracksUseCase:
@@ -144,7 +145,9 @@ class TestGetPlayedTracksUseCase:
 
     async def test_execute_with_valid_command(self, mock_uow, sample_tracks):
         """Test successful execution with valid command."""
-        command = GetPlayedTracksCommand(limit=1000, sort_by="played_at_desc")
+        command = GetPlayedTracksCommand(
+            user_id="test-user", limit=1000, sort_by="played_at_desc"
+        )
         use_case = GetPlayedTracksUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -156,7 +159,9 @@ class TestGetPlayedTracksUseCase:
 
     async def test_execute_passes_sort_to_repository(self, mock_uow):
         """Test that sort_by parameter is passed to repository."""
-        command = GetPlayedTracksCommand(sort_by="total_plays_desc")
+        command = GetPlayedTracksCommand(
+            user_id="test-user", sort_by="total_plays_desc"
+        )
         use_case = GetPlayedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
@@ -164,13 +169,14 @@ class TestGetPlayedTracksUseCase:
         # Verify repository was called with sort_by parameter
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.assert_called_once_with(
+            user_id="test-user",
             limit=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT * 2,
             sort_by="total_plays_desc",
         )
 
     async def test_execute_with_days_back_filter(self, mock_uow):
         """Test that days_back creates proper time window."""
-        command = GetPlayedTracksCommand(days_back=30)
+        command = GetPlayedTracksCommand(user_id="test-user", days_back=30)
         use_case = GetPlayedTracksUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -191,7 +197,9 @@ class TestGetPlayedTracksUseCase:
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = mixed_plays
 
-        command = GetPlayedTracksCommand(connector_filter="spotify")
+        command = GetPlayedTracksCommand(
+            user_id="test-user", connector_filter="spotify"
+        )
         use_case = GetPlayedTracksUseCase()
 
         result_with_filter = await use_case.execute(command, mock_uow)
@@ -210,7 +218,7 @@ class TestGetPlayedTracksUseCase:
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = many_plays
 
-        command = GetPlayedTracksCommand(limit=5)
+        command = GetPlayedTracksCommand(user_id="test-user", limit=5)
         use_case = GetPlayedTracksUseCase()
 
         await use_case.execute(command, mock_uow)
@@ -224,7 +232,7 @@ class TestGetPlayedTracksUseCase:
         """Test that invalid command raises ValueError at construction."""
         # Invalid command now raises ValueError at construction (fail-fast)
         with pytest.raises(ValueError, match="must be between"):
-            GetPlayedTracksCommand(limit=0)
+            GetPlayedTracksCommand(user_id="test-user", limit=0)
 
     async def test_execute_handles_empty_plays(self, mock_uow):
         """Test graceful handling when no plays exist."""
@@ -232,7 +240,7 @@ class TestGetPlayedTracksUseCase:
         plays_repo.get_recent_plays.return_value = []
         plays_repo.get_play_aggregations.return_value = {}
 
-        command = GetPlayedTracksCommand()
+        command = GetPlayedTracksCommand(user_id="test-user")
         use_case = GetPlayedTracksUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -241,7 +249,9 @@ class TestGetPlayedTracksUseCase:
 
     async def test_result_includes_play_metrics_metadata(self, mock_uow):
         """Test that result includes play metrics in canonical nested structure."""
-        command = GetPlayedTracksCommand(days_back=90, sort_by="total_plays_desc")
+        command = GetPlayedTracksCommand(
+            user_id="test-user", days_back=90, sort_by="total_plays_desc"
+        )
         use_case = GetPlayedTracksUseCase()
 
         result = await use_case.execute(command, mock_uow)
@@ -262,7 +272,7 @@ class TestGetPlayedTracksUseCase:
         plays_repo = mock_uow.get_plays_repository.return_value
         plays_repo.get_recent_plays.return_value = plays_with_none
 
-        command = GetPlayedTracksCommand()
+        command = GetPlayedTracksCommand(user_id="test-user")
         use_case = GetPlayedTracksUseCase()
 
         await use_case.execute(command, mock_uow)

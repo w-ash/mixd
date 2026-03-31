@@ -17,6 +17,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class MergeTracksCommand:
     """Parameters for merging two duplicate tracks."""
 
+    user_id: str
     winner_id: UUID
     loser_id: UUID
 
@@ -52,6 +53,11 @@ class MergeTracksUseCase:
             raise ValueError("Cannot merge a track with itself")
 
         async with uow:
+            # Verify both tracks belong to the authenticated user
+            track_repo = uow.get_track_repository()
+            await track_repo.get_track_by_id(command.winner_id, user_id=command.user_id)
+            await track_repo.get_track_by_id(command.loser_id, user_id=command.user_id)
+
             merge_service = uow.get_track_merge_service()
             merged_track = await merge_service.merge_tracks(
                 command.winner_id, command.loser_id, uow

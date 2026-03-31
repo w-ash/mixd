@@ -32,7 +32,8 @@ class LastfmConnectorPlayResolver:
     lastfm_resolution_service: LastfmTrackResolutionService
 
     def __init__(
-        self, lastfm_resolution_service: LastfmTrackResolutionService | None = None
+        self,
+        lastfm_resolution_service: LastfmTrackResolutionService | None = None,
     ):
         """Initialize with Last.fm resolution service."""
         self.lastfm_resolution_service = (
@@ -43,6 +44,8 @@ class LastfmConnectorPlayResolver:
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[TrackPlay], dict[str, Any]]:
         """Resolve Last.fm connector plays using existing infrastructure."""
@@ -57,7 +60,7 @@ class LastfmConnectorPlayResolver:
             resolved_tracks,
             resolution_metrics,
         ) = await self.lastfm_resolution_service.resolve_plays_to_canonical_tracks(
-            play_records, uow, progress_callback
+            play_records, uow, user_id=user_id, progress_callback=progress_callback
         )
 
         # Step 3: Create TrackPlay objects with Last.fm metadata preservation

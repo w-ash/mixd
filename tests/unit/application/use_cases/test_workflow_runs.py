@@ -87,7 +87,7 @@ class TestRunWorkflowUseCase:
             return_value=False,
         ):
             result = await RunWorkflowUseCase().execute(
-                RunWorkflowCommand(workflow_id=1), uow
+                RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
             )
 
         assert result.run_id == 42
@@ -121,7 +121,7 @@ class TestRunWorkflowUseCase:
             return_value=False,
         ):
             result = await RunWorkflowUseCase().execute(
-                RunWorkflowCommand(workflow_id=1), uow
+                RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
             )
 
         assert result.run_id == 42
@@ -141,7 +141,9 @@ class TestRunWorkflowUseCase:
             ),
             pytest.raises(WorkflowAlreadyRunningError),
         ):
-            await RunWorkflowUseCase().execute(RunWorkflowCommand(workflow_id=1), uow)
+            await RunWorkflowUseCase().execute(
+                RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
+            )
 
     async def test_workflow_not_found(self) -> None:
         wf_repo = AsyncMock()
@@ -149,7 +151,9 @@ class TestRunWorkflowUseCase:
         uow = make_mock_uow(workflow_repo=wf_repo)
 
         with pytest.raises(NotFoundError):
-            await RunWorkflowUseCase().execute(RunWorkflowCommand(workflow_id=999), uow)
+            await RunWorkflowUseCase().execute(
+                RunWorkflowCommand(user_id="test-user", workflow_id=999), uow
+            )
 
 
 class TestListWorkflowRunsUseCase:
@@ -168,7 +172,7 @@ class TestListWorkflowRunsUseCase:
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
 
         result = await ListWorkflowRunsUseCase().execute(
-            ListWorkflowRunsCommand(workflow_id=1), uow
+            ListWorkflowRunsCommand(user_id="test-user", workflow_id=1), uow
         )
 
         assert result.total_count == 2
@@ -182,7 +186,7 @@ class TestListWorkflowRunsUseCase:
 
         with pytest.raises(NotFoundError):
             await ListWorkflowRunsUseCase().execute(
-                ListWorkflowRunsCommand(workflow_id=999), uow
+                ListWorkflowRunsCommand(user_id="test-user", workflow_id=999), uow
             )
 
 
@@ -199,7 +203,7 @@ class TestGetWorkflowRunUseCase:
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
 
         result = await GetWorkflowRunUseCase().execute(
-            GetWorkflowRunCommand(workflow_id=1, run_id=5), uow
+            GetWorkflowRunCommand(user_id="test-user", workflow_id=1, run_id=5), uow
         )
 
         assert result.run.id == 5
@@ -215,7 +219,8 @@ class TestGetWorkflowRunUseCase:
 
         with pytest.raises(NotFoundError):
             await GetWorkflowRunUseCase().execute(
-                GetWorkflowRunCommand(workflow_id=1, run_id=999), uow
+                GetWorkflowRunCommand(user_id="test-user", workflow_id=1, run_id=999),
+                uow,
             )
 
     async def test_run_belongs_to_wrong_workflow(self) -> None:
@@ -230,7 +235,7 @@ class TestGetWorkflowRunUseCase:
 
         with pytest.raises(NotFoundError, match="does not belong"):
             await GetWorkflowRunUseCase().execute(
-                GetWorkflowRunCommand(workflow_id=1, run_id=5), uow
+                GetWorkflowRunCommand(user_id="test-user", workflow_id=1, run_id=5), uow
             )
 
 
@@ -244,7 +249,7 @@ class TestGetLatestWorkflowRunsUseCase:
         run_repo.get_latest_runs_for_workflows.return_value = {1: run_a, 2: run_b}
         uow = make_mock_uow(workflow_run_repo=run_repo)
 
-        command = GetLatestWorkflowRunsCommand(workflow_ids=[1, 2])
+        command = GetLatestWorkflowRunsCommand(user_id="test-user", workflow_ids=[1, 2])
         result = await GetLatestWorkflowRunsUseCase().execute(command, uow)
 
         assert len(result.latest_runs) == 2
@@ -257,7 +262,7 @@ class TestGetLatestWorkflowRunsUseCase:
         run_repo.get_latest_runs_for_workflows.return_value = {}
         uow = make_mock_uow(workflow_run_repo=run_repo)
 
-        command = GetLatestWorkflowRunsCommand(workflow_ids=[1, 2])
+        command = GetLatestWorkflowRunsCommand(user_id="test-user", workflow_ids=[1, 2])
         result = await GetLatestWorkflowRunsUseCase().execute(command, uow)
 
         assert result.latest_runs == {}

@@ -15,7 +15,7 @@ from src.infrastructure.persistence.database.db_models import DBUserSettings
 
 logger = get_logger(__name__)
 
-# Single-user key. Multi-user (v1.0.0) would use user IDs.
+# Settings key (distinct from user_id — allows multiple setting namespaces per user)
 _DEFAULT_KEY = "default"
 
 # Settings returned when no row exists yet
@@ -29,13 +29,14 @@ class UserSettingsRepository:
     as DatabaseTokenStorage).
     """
 
-    async def load(self) -> dict[str, Any]:
+    async def load(self, user_id: str) -> dict[str, Any]:
         from src.infrastructure.persistence.database.db_connection import get_session
 
         async with get_session() as session:
             result = await session.execute(
                 select(DBUserSettings.settings).where(
-                    DBUserSettings.key == _DEFAULT_KEY
+                    DBUserSettings.user_id == user_id,
+                    DBUserSettings.key == _DEFAULT_KEY,
                 )
             )
             row = result.scalar_one_or_none()
@@ -43,18 +44,19 @@ class UserSettingsRepository:
                 return dict(_DEFAULT_SETTINGS)
             return {**_DEFAULT_SETTINGS, **row}
 
-    async def patch(self, updates: dict[str, Any]) -> dict[str, Any]:
+    async def patch(self, updates: dict[str, Any], user_id: str) -> dict[str, Any]:
         from src.infrastructure.persistence.database.db_connection import get_session
 
         now = datetime.now(UTC)
 
         # Load current settings to merge
-        current = await self.load()
+        current = await self.load(user_id)
         merged = {**current, **updates}
 
         stmt = (
             pg_insert(DBUserSettings)
             .values(
+                user_id=user_id,
                 key=_DEFAULT_KEY,
                 settings=merged,
                 created_at=now,

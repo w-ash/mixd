@@ -89,7 +89,9 @@ class TestResolverEmptyInput:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
 
-        plays, metrics = await resolver.resolve_connector_plays([], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [], uow, user_id="test-user"
+        )
 
         assert plays == []
         assert metrics["raw_plays"] == 0
@@ -121,7 +123,9 @@ class TestResolverFiltering:
         resolver, uow = resolver_with_existing_tracks
         play = _make_connector_play(incognito=True, ms_played=300000)
 
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 0
         assert metrics["incognito_excluded"] == 1
@@ -134,7 +138,9 @@ class TestResolverFiltering:
         # 5-minute canonical track, only 30 seconds played
         play = _make_connector_play(ms_played=30000)
 
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 0
         assert metrics["duration_excluded"] == 1
@@ -145,7 +151,9 @@ class TestResolverFiltering:
         resolver, uow = resolver_with_existing_tracks
         play = _make_connector_play(ms_played=300000)  # 5 min, well above threshold
 
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 1
         assert isinstance(plays[0], TrackPlay)
@@ -157,7 +165,9 @@ class TestResolverFiltering:
         resolver, uow = resolver_with_existing_tracks
         play = _make_connector_play(ms_played=300000)
 
-        plays, _ = await resolver.resolve_connector_plays([play], uow)
+        plays, _ = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         context = plays[0].context
         assert context["platform"] == "Linux"
@@ -187,7 +197,9 @@ class TestResolverTrackResolution:
         uow.get_connector_repository.return_value = connector_repo
 
         play = _make_connector_play(ms_played=300000)
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 1
         assert plays[0].track_id == 42
@@ -215,7 +227,9 @@ class TestResolverTrackResolution:
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 1
         assert plays[0].track_id == 99
@@ -237,7 +251,9 @@ class TestResolverTrackResolution:
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 0
         assert metrics["error_count"] == 1
@@ -253,7 +269,9 @@ class TestResolverTrackResolution:
         play = _make_connector_play(track_uri="invalid:uri:format")
         uow = MagicMock()
 
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert plays == []
 
@@ -279,7 +297,7 @@ class TestFallbackHintsIntegration:
         play = _make_connector_play(
             track_name="My Song", artist_name="My Artist", ms_played=300000
         )
-        await resolver.resolve_connector_plays([play], uow)
+        await resolver.resolve_connector_plays([play], uow, user_id="test-user")
 
         # The inward resolver should have received fallback hints
         # We verify indirectly by checking search was attempted for the dead ID
@@ -308,7 +326,9 @@ class TestFallbackHintsIntegration:
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 1
         assert plays[0].context["resolution_method"] == MatchMethod.SEARCH_FALLBACK
@@ -342,7 +362,9 @@ class TestRedirectResolvedPlays:
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
-        plays, metrics = await resolver.resolve_connector_plays([play], uow)
+        plays, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert len(plays) == 1
         assert plays[0].context["resolution_method"] == MatchMethod.SPOTIFY_REDIRECT
@@ -367,7 +389,9 @@ class TestRedirectResolvedPlays:
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
-        _, metrics = await resolver.resolve_connector_plays([play], uow)
+        _, metrics = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
 
         assert metrics["redirect_resolved"] == 1
 
@@ -379,7 +403,9 @@ class TestResolverMetrics:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
 
-        _, metrics = await resolver.resolve_connector_plays([], uow)
+        _, metrics = await resolver.resolve_connector_plays(
+            [], uow, user_id="test-user"
+        )
 
         expected_keys = {
             "raw_plays",
@@ -419,7 +445,9 @@ class TestResolverMetrics:
             ),  # incognito filtered
         ]
 
-        result, metrics = await resolver.resolve_connector_plays(plays, uow)
+        result, metrics = await resolver.resolve_connector_plays(
+            plays, uow, user_id="test-user"
+        )
 
         assert metrics["raw_plays"] == 3
         assert metrics["accepted_plays"] == 1

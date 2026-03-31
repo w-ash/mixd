@@ -34,7 +34,9 @@ class TestListPlaylistsUseCase:
         mock_uow.get_playlist_repository().list_all_playlists.return_value = playlists
 
         use_case = ListPlaylistsUseCase()
-        result = await use_case.execute(ListPlaylistsCommand(), mock_uow)
+        result = await use_case.execute(
+            ListPlaylistsCommand(user_id="test-user"), mock_uow
+        )
 
         assert isinstance(result, ListPlaylistsResult)
         assert result.total_count == 3
@@ -46,7 +48,9 @@ class TestListPlaylistsUseCase:
         mock_uow.get_playlist_repository().list_all_playlists.return_value = []
 
         use_case = ListPlaylistsUseCase()
-        result = await use_case.execute(ListPlaylistsCommand(), mock_uow)
+        result = await use_case.execute(
+            ListPlaylistsCommand(user_id="test-user"), mock_uow
+        )
 
         assert result.total_count == 0
         assert result.playlists == []
@@ -57,6 +61,6 @@ class TestListPlaylistsUseCase:
         mock_uow.get_playlist_repository().list_all_playlists.return_value = []
 
         use_case = ListPlaylistsUseCase()
-        await use_case.execute(ListPlaylistsCommand(), mock_uow)
+        await use_case.execute(ListPlaylistsCommand(user_id="test-user"), mock_uow)
 
         mock_uow.__aenter__.assert_called_once()

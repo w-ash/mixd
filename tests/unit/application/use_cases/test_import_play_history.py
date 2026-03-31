@@ -22,7 +22,9 @@ class TestImportTracksCommand:
 
     def test_valid_lastfm_recent(self):
         """Test valid LastFM recent import command."""
-        cmd = ImportTracksCommand(service="lastfm", mode="recent", limit=1000)
+        cmd = ImportTracksCommand(
+            user_id="test-user", service="lastfm", mode="recent", limit=1000
+        )
         assert cmd.service == "lastfm"
         assert cmd.mode == "recent"
 
@@ -44,7 +46,10 @@ class TestImportTracksCommand:
     def test_valid_spotify_file(self):
         """Test valid Spotify file import command."""
         cmd = ImportTracksCommand(
-            service="spotify", mode="file", file_path=Path("/data/export.json")
+            user_id="test-user",
+            service="spotify",
+            mode="file",
+            file_path=Path("/data/export.json"),
         )
         assert cmd.service == "spotify"
         assert cmd.file_path == Path("/data/export.json")
@@ -53,22 +58,25 @@ class TestImportTracksCommand:
         """Test that LastFM doesn't support file mode."""
         with pytest.raises(ValueError, match="doesn't support file mode"):
             ImportTracksCommand(
-                service="lastfm", mode="file", file_path=Path("/data/test.json")
+                user_id="test-user",
+                service="lastfm",
+                mode="file",
+                file_path=Path("/data/test.json"),
             )
 
     def test_spotify_recent_mode_rejected(self):
         """Test that Spotify only supports file mode."""
         with pytest.raises(ValueError, match="only supports file mode"):
-            ImportTracksCommand(service="spotify", mode="recent")
+            ImportTracksCommand(user_id="test-user", service="spotify", mode="recent")
 
     def test_spotify_file_without_path_rejected(self):
         """Test that Spotify file mode requires file_path."""
         with pytest.raises(ValueError, match="file_path is required"):
-            ImportTracksCommand(service="spotify", mode="file")
+            ImportTracksCommand(user_id="test-user", service="spotify", mode="file")
 
     def test_command_is_frozen(self):
         """Test command immutability."""
-        cmd = ImportTracksCommand(service="lastfm", mode="recent")
+        cmd = ImportTracksCommand(user_id="test-user", service="lastfm", mode="recent")
         with pytest.raises(AttributeError):
             cmd.service = "spotify"
 
@@ -80,7 +88,9 @@ class TestImportTracksUseCase:
         """Test that exceptions are captured and returned as failed result."""
         uow = AsyncMock()
 
-        command = ImportTracksCommand(service="lastfm", mode="recent")
+        command = ImportTracksCommand(
+            user_id="test-user", service="lastfm", mode="recent"
+        )
         use_case = ImportTracksUseCase()
 
         # Patch internal method to raise
@@ -113,7 +123,9 @@ class TestImportTracksUseCase:
         op_result = OperationResult(operation_name="Lastfm Recent Import")
         op_result.summary_metrics.add("track_plays", 42, "Track Plays", significance=1)
 
-        command = ImportTracksCommand(service="lastfm", mode="recent", limit=100)
+        command = ImportTracksCommand(
+            user_id="test-user", service="lastfm", mode="recent", limit=100
+        )
         use_case = ImportTracksUseCase()
 
         with patch.object(
@@ -135,7 +147,9 @@ class TestImportTracksUseCase:
         use_case = ImportTracksUseCase()
 
         for mode in ["recent", "incremental", "full"]:
-            cmd = ImportTracksCommand(service="lastfm", mode=mode, confirm=True)
+            cmd = ImportTracksCommand(
+                user_id="test-user", service="lastfm", mode=mode, confirm=True
+            )
             method_name = (
                 f"_run_lastfm_{mode}" if mode != "full" else "_run_lastfm_full_history"
             )
@@ -154,7 +168,10 @@ class TestImportTracksUseCase:
         op_result = OperationResult(operation_name="test")
 
         cmd = ImportTracksCommand(
-            service="spotify", mode="file", file_path=Path("/data/test.json")
+            user_id="test-user",
+            service="spotify",
+            mode="file",
+            file_path=Path("/data/test.json"),
         )
         use_case = ImportTracksUseCase()
 

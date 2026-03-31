@@ -16,6 +16,7 @@ from typing import Any, Literal, Never
 from rich.prompt import Prompt
 import typer
 
+from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.interface.cli.async_runner import run_async
@@ -185,6 +186,7 @@ def run_import_with_progress(
             )
 
             return await run_import(
+                user_id=BusinessLimits.DEFAULT_USER_ID,
                 service=service,
                 mode=mode,
                 progress_emitter=progress_adapter,

@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 class CreatePlaylistLinkCommand:
     """Input for creating a playlist link."""
 
+    user_id: str
     playlist_id: UUID
     connector: str = field(validator=non_empty_string)
     connector_playlist_id: str = field(validator=non_empty_string)
@@ -60,7 +61,9 @@ class CreatePlaylistLinkUseCase:
     ) -> CreatePlaylistLinkResult:
         async with uow:
             # 1. Verify canonical playlist exists
-            await require_playlist(str(command.playlist_id), uow)
+            await require_playlist(
+                str(command.playlist_id), uow, user_id=command.user_id
+            )
 
             # 2. Resolve connector (raises if unavailable)
             connector: PlaylistConnector = resolve_playlist_connector(

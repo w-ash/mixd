@@ -14,6 +14,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 @define(frozen=True, slots=True)
 class GetTrackPlaylistsCommand:
+    user_id: str
     track_id: UUID
 
 
@@ -29,9 +30,11 @@ class GetTrackPlaylistsUseCase:
     ) -> GetTrackPlaylistsResult:
         track_id = command.track_id
         async with uow:
-            # Verify track exists (raises NotFoundError if not)
-            await uow.get_track_repository().get_by_id(track_id)
+            # Verify track exists and belongs to user
+            await uow.get_track_repository().get_track_by_id(
+                track_id, user_id=command.user_id
+            )
             playlists = await uow.get_playlist_repository().get_playlists_for_track(
-                track_id
+                track_id, user_id=command.user_id
             )
             return GetTrackPlaylistsResult(playlists=playlists)

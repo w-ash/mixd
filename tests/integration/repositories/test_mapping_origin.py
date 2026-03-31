@@ -41,7 +41,9 @@ async def _create_track_with_mapping(
     )
     connector_repo = uow.get_connector_repository()
     tracks = await connector_repo.ingest_external_tracks_bulk(
-        connector, [connector_track]
+        connector,
+        [connector_track],
+        user_id="default",
     )
     track_id = tracks[0].id
     assert track_id is not None
@@ -94,7 +96,9 @@ class TestIngestSkipsManualOverride:
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        await connector_repo.ingest_external_tracks_bulk("spotify", [ct])
+        await connector_repo.ingest_external_tracks_bulk(
+            "spotify", [ct], user_id="default"
+        )
 
         # Verify confidence was NOT updated (still 50, not 100)
         result = await db_session.execute(
@@ -128,7 +132,9 @@ class TestIngestSkipsManualOverride:
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        await connector_repo.ingest_external_tracks_bulk("spotify", [ct])
+        await connector_repo.ingest_external_tracks_bulk(
+            "spotify", [ct], user_id="default"
+        )
 
         # Verify confidence WAS updated to 100
         result = await db_session.execute(

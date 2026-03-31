@@ -29,7 +29,7 @@ class TestPlaylistBackupEndpoint:
             data = resp.json()
             assert data["name"] == "Test Playlist"
             mock_backup.assert_awaited_once_with(
-                connector_name="spotify", playlist_id="abc123"
+                connector_name="spotify", playlist_id="abc123", user_id="default"
             )
 
     async def test_backup_missing_fields_returns_422(self, client: httpx.AsyncClient):

@@ -12,6 +12,7 @@ from typing import Any
 
 from attrs import define
 
+from src.config.constants import BusinessLimits
 from src.domain.repositories import UnitOfWorkProtocol
 
 # Approved infrastructure bridge: context.py is a DI container (like runner.py and
@@ -172,6 +173,7 @@ class ConcreteWorkflowContext:
     connectors: ConnectorRegistry
     use_cases: UseCaseProvider
     metric_config: MetricConfigProvider
+    user_id: str = BusinessLimits.DEFAULT_USER_ID
 
     async def _with_uow[TResult](
         self,
@@ -182,15 +184,20 @@ class ConcreteWorkflowContext:
         Each call creates a fresh session from the PostgreSQL connection pool.
         Per-task sessions are safe under MVCC — no shared session needed.
 
+        Wraps execution in ``user_context()`` so the ``after_begin`` event
+        sets ``SET LOCAL app.user_id`` on the PostgreSQL transaction for RLS.
+
         Args:
             fn: Async callable receiving a UoW and returning a result.
         """
+        from src.infrastructure.persistence.database.user_context import user_context
         from src.infrastructure.persistence.repositories.factories import (
             get_unit_of_work,
         )
 
         async with get_session() as session:
-            return await fn(get_unit_of_work(session))
+            with user_context(self.user_id):
+                return await fn(get_unit_of_work(session))
 
     async def execute_service[TResult](
         self,
@@ -231,7 +238,9 @@ class ConcreteWorkflowContext:
         return await self._with_uow(lambda uow: use_case.execute(command, uow))
 
 
-def create_workflow_context() -> WorkflowContext:
+def create_workflow_context(
+    user_id: str = BusinessLimits.DEFAULT_USER_ID,
+) -> WorkflowContext:
     """Create a complete workflow context with all dependencies configured.
 
     Factory function that instantiates and wires together all the services
@@ -240,6 +249,11 @@ def create_workflow_context() -> WorkflowContext:
 
     Each use case / service call creates its own database session from the
     PostgreSQL connection pool — no shared session needed under MVCC.
+
+    Args:
+        user_id: Current user ID for multi-tenant data isolation.  Propagated
+            to per-task sessions via ``user_context()`` so RLS and repo-level
+            WHERE clauses scope data to this user.
 
     Returns:
         Configured workflow context ready for use
@@ -256,4 +270,5 @@ def create_workflow_context() -> WorkflowContext:
         connectors=connectors,
         use_cases=use_cases,
         metric_config=metric_config,
+        user_id=user_id,
     )

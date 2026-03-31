@@ -18,6 +18,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class RelinkConnectorTrackCommand:
     """Parameters for relinking a mapping to a different track."""
 
+    user_id: str
     mapping_id: UUID
     new_track_id: UUID
     current_track_id: UUID
@@ -49,7 +50,9 @@ class RelinkConnectorTrackUseCase:
             track_repo = uow.get_track_repository()
 
             # 1. Fetch and validate mapping
-            mapping = await connector_repo.get_mapping_by_id(command.mapping_id)
+            mapping = await connector_repo.get_mapping_by_id(
+                command.mapping_id, user_id=command.user_id
+            )
             if mapping is None:
                 raise NotFoundError(f"Mapping {command.mapping_id} not found")
 
@@ -60,7 +63,9 @@ class RelinkConnectorTrackUseCase:
                 raise ValueError("Cannot relink mapping to the same track")
 
             # 2. Target track must exist
-            await track_repo.get_by_id(command.new_track_id)
+            await track_repo.get_track_by_id(
+                command.new_track_id, user_id=command.user_id
+            )
 
             old_track_id = mapping.track_id
             connector_name = mapping.connector_name

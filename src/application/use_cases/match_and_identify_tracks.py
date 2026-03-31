@@ -38,6 +38,7 @@ class MatchAndIdentifyTracksCommand:
     """Input parameters for track identity resolution operation.
 
     Args:
+        user_id: Authenticated user's ID (for data scoping).
         tracklist: Tracks to resolve identities for.
         connector: Name of the music service (e.g., "spotify", "lastfm").
         connector_instance: API client instance for the service.
@@ -47,6 +48,7 @@ class MatchAndIdentifyTracksCommand:
         parent_operation_id: Parent operation ID for sub-operation nesting.
     """
 
+    user_id: str
     tracklist: TrackList
     connector: str
     connector_instance: Any  # ServiceConnectorProvider.get_connector() returns Any

@@ -34,6 +34,7 @@ class ReadCanonicalPlaylistCommand:
         timestamp: Request timestamp for audit logging
     """
 
+    user_id: str
     playlist_id: str = field(validator=non_empty_string)
     connector: str | None = None  # Optional connector for external ID lookup
     include_track_metadata: bool = True
@@ -105,6 +106,7 @@ class ReadCanonicalPlaylistUseCase:
                 playlist = await resolve_playlist(
                     command.playlist_id,
                     uow,
+                    user_id=command.user_id,
                     connector=command.connector or "spotify",
                     raise_if_not_found=False,
                 )

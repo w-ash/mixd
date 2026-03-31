@@ -16,6 +16,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class SetPrimaryMappingCommand:
     """Parameters for setting a mapping as primary."""
 
+    user_id: str
     mapping_id: UUID
     track_id: UUID
 
@@ -36,7 +37,9 @@ class SetPrimaryMappingUseCase:
         async with uow:
             connector_repo = uow.get_connector_repository()
 
-            mapping = await connector_repo.get_mapping_by_id(command.mapping_id)
+            mapping = await connector_repo.get_mapping_by_id(
+                command.mapping_id, user_id=command.user_id
+            )
             if mapping is None:
                 raise NotFoundError(f"Mapping {command.mapping_id} not found")
 

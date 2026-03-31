@@ -109,13 +109,16 @@ class TestPlaylistSourceDuplicateHandling:
                 processing_service = ConnectorPlaylistProcessingService()
                 processed_tracklist = (
                     await processing_service.process_connector_playlist(
-                        connector_playlist, uow
+                        connector_playlist,
+                        uow,
+                        user_id="default",
                     )
                 )
 
                 # Create canonical playlist using real use case
                 use_case = CreateCanonicalPlaylistUseCase(metric_config=MagicMock())
                 command = CreateCanonicalPlaylistCommand(
+                    user_id="default",
                     name="Test Integration Playlist",
                     tracklist=processed_tracklist.to_tracklist(),
                     # Use test-specific metadata to ensure we're working with test data
@@ -183,7 +186,7 @@ class TestPlaylistSourceDuplicateHandling:
             # Process empty ConnectorPlaylist - should return empty but valid TrackList
             processing_service = ConnectorPlaylistProcessingService()
             processed_tracklist = await processing_service.process_connector_playlist(
-                empty_connector_playlist, uow
+                empty_connector_playlist, uow, user_id="default"
             )
 
             # Verify: Processing service returns valid empty TrackList

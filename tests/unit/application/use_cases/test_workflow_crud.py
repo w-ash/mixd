@@ -37,7 +37,9 @@ class TestListWorkflows:
         repo = make_mock_workflow_repo(list_workflows=workflows)
         uow = make_mock_uow(workflow_repo=repo)
 
-        result = await ListWorkflowsUseCase().execute(ListWorkflowsCommand(), uow)
+        result = await ListWorkflowsUseCase().execute(
+            ListWorkflowsCommand(user_id="test-user"), uow
+        )
 
         assert result.total_count == 2
         assert len(result.workflows) == 2
@@ -45,7 +47,9 @@ class TestListWorkflows:
     async def test_empty_list(self) -> None:
         uow = make_mock_uow()
 
-        result = await ListWorkflowsUseCase().execute(ListWorkflowsCommand(), uow)
+        result = await ListWorkflowsUseCase().execute(
+            ListWorkflowsCommand(user_id="test-user"), uow
+        )
 
         assert result.total_count == 0
         assert result.workflows == []
@@ -55,10 +59,12 @@ class TestListWorkflows:
         uow = make_mock_uow(workflow_repo=repo)
 
         await ListWorkflowsUseCase().execute(
-            ListWorkflowsCommand(include_templates=False), uow
+            ListWorkflowsCommand(user_id="test-user", include_templates=False), uow
         )
 
-        repo.list_workflows.assert_called_once_with(include_templates=False)
+        repo.list_workflows.assert_called_once_with(
+            user_id="test-user", include_templates=False
+        )
 
 
 class TestGetWorkflow:
@@ -68,7 +74,7 @@ class TestGetWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         result = await GetWorkflowUseCase().execute(
-            GetWorkflowCommand(workflow_id=workflow.id), uow
+            GetWorkflowCommand(user_id="test-user", workflow_id=workflow.id), uow
         )
 
         assert result.workflow.id == workflow.id
@@ -80,7 +86,7 @@ class TestGetWorkflow:
 
         with pytest.raises(NotFoundError):
             await GetWorkflowUseCase().execute(
-                GetWorkflowCommand(workflow_id=uuid7()), uow
+                GetWorkflowCommand(user_id="test-user", workflow_id=uuid7()), uow
             )
 
 
@@ -91,7 +97,7 @@ class TestCreateWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         result = await CreateWorkflowUseCase().execute(
-            CreateWorkflowCommand(definition=wf_def), uow
+            CreateWorkflowCommand(user_id="test-user", definition=wf_def), uow
         )
 
         repo.save_workflow.assert_called_once()
@@ -105,7 +111,7 @@ class TestCreateWorkflow:
 
         with pytest.raises(ValueError, match="no tasks"):
             await CreateWorkflowUseCase().execute(
-                CreateWorkflowCommand(definition=empty_def), uow
+                CreateWorkflowCommand(user_id="test-user", definition=empty_def), uow
             )
 
 
@@ -117,7 +123,10 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
+            UpdateWorkflowCommand(
+                user_id="test-user", workflow_id=existing.id, definition=new_def
+            ),
+            uow,
         )
 
         repo.save_workflow.assert_called_once()
@@ -146,7 +155,10 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
+            UpdateWorkflowCommand(
+                user_id="test-user", workflow_id=existing.id, definition=new_def
+            ),
+            uow,
         )
 
         saved = repo.save_workflow.call_args[0][0]
@@ -161,7 +173,10 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
+            UpdateWorkflowCommand(
+                user_id="test-user", workflow_id=existing.id, definition=new_def
+            ),
+            uow,
         )
 
         saved = repo.save_workflow.call_args[0][0]
@@ -175,7 +190,9 @@ class TestUpdateWorkflow:
         with pytest.raises(TemplateReadOnlyError):
             await UpdateWorkflowUseCase().execute(
                 UpdateWorkflowCommand(
-                    workflow_id=template.id, definition=make_workflow_def()
+                    user_id="test-user",
+                    workflow_id=template.id,
+                    definition=make_workflow_def(),
                 ),
                 uow,
             )
@@ -188,7 +205,9 @@ class TestUpdateWorkflow:
         with pytest.raises(NotFoundError):
             await UpdateWorkflowUseCase().execute(
                 UpdateWorkflowCommand(
-                    workflow_id=uuid7(), definition=make_workflow_def()
+                    user_id="test-user",
+                    workflow_id=uuid7(),
+                    definition=make_workflow_def(),
                 ),
                 uow,
             )
@@ -217,7 +236,10 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
+            UpdateWorkflowCommand(
+                user_id="test-user", workflow_id=existing.id, definition=new_def
+            ),
+            uow,
         )
 
         version_repo.create_version.assert_called_once()
@@ -235,7 +257,10 @@ class TestUpdateWorkflow:
         uow = make_mock_uow(workflow_repo=repo, workflow_version_repo=version_repo)
 
         await UpdateWorkflowUseCase().execute(
-            UpdateWorkflowCommand(workflow_id=existing.id, definition=new_def), uow
+            UpdateWorkflowCommand(
+                user_id="test-user", workflow_id=existing.id, definition=new_def
+            ),
+            uow,
         )
 
         version_repo.create_version.assert_not_called()
@@ -284,10 +309,10 @@ class TestDeleteWorkflow:
         uow = make_mock_uow(workflow_repo=repo)
 
         result = await DeleteWorkflowUseCase().execute(
-            DeleteWorkflowCommand(workflow_id=existing.id), uow
+            DeleteWorkflowCommand(user_id="test-user", workflow_id=existing.id), uow
         )
 
-        repo.delete_workflow.assert_called_once_with(existing.id)
+        repo.delete_workflow.assert_called_once_with(existing.id, user_id="test-user")
         assert result.workflow_id == existing.id
 
     async def test_template_rejection(self) -> None:
@@ -297,7 +322,7 @@ class TestDeleteWorkflow:
 
         with pytest.raises(TemplateReadOnlyError):
             await DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(workflow_id=template.id), uow
+                DeleteWorkflowCommand(user_id="test-user", workflow_id=template.id), uow
             )
 
     async def test_not_found_propagates(self) -> None:
@@ -307,5 +332,5 @@ class TestDeleteWorkflow:
 
         with pytest.raises(NotFoundError):
             await DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(workflow_id=uuid7()), uow
+                DeleteWorkflowCommand(user_id="test-user", workflow_id=uuid7()), uow
             )

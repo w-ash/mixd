@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 class ListTracksCommand:
     """Parameters for listing/searching tracks."""
 
+    user_id: str
     query: str | None = None
     liked: bool | None = None
     connector: str | None = None
@@ -89,6 +90,7 @@ class ListTracksUseCase:
         async with uow:
             track_repo = uow.get_track_repository()
             page: TrackListingPage = await track_repo.list_tracks(
+                user_id=command.user_id,
                 query=command.query,
                 liked=command.liked,
                 connector=command.connector,

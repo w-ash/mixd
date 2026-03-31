@@ -15,6 +15,7 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 class GetMatchMethodHealthCommand:
     """Parameters for the match method health report."""
 
+    user_id: str
     recent_days: int = 30
 
 
@@ -61,7 +62,8 @@ class GetMatchMethodHealthUseCase:
         async with uow:
             connector_repo = uow.get_connector_repository()
             rows = await connector_repo.get_match_method_stats(
-                recent_days=command.recent_days
+                user_id=command.user_id,
+                recent_days=command.recent_days,
             )
             stats = [
                 MethodHealthStat(

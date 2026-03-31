@@ -4,7 +4,7 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
-from src.config.constants import MatchMethod
+from src.config.constants import BusinessLimits, MatchMethod
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import handle_cli_error
 from src.interface.cli.console import get_console
@@ -56,7 +56,7 @@ def stats(
 
         result = await execute_use_case(
             lambda uow: GetDashboardStatsUseCase().execute(
-                GetDashboardStatsCommand(), uow
+                GetDashboardStatsCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
             )
         )
 
@@ -107,7 +107,7 @@ def _run_health_check() -> None:
 
         result = await execute_use_case(
             lambda uow: CheckDataIntegrityUseCase().execute(
-                CheckDataIntegrityCommand(), uow
+                CheckDataIntegrityCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
             )
         )
 
@@ -146,7 +146,7 @@ def _run_matching_report() -> None:
 
         result = await execute_use_case(
             lambda uow: GetMatchMethodHealthUseCase().execute(
-                GetMatchMethodHealthCommand(), uow
+                GetMatchMethodHealthCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
             )
         )
 

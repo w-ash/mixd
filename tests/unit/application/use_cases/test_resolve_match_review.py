@@ -60,9 +60,11 @@ class TestAcceptReview:
         connector_repo.map_track_to_connector.return_value = make_track(42)
 
         track_repo = uow.get_track_repository()
-        track_repo.get_by_id.return_value = make_track(42)
+        track_repo.get_track_by_id.return_value = make_track(42)
 
-        command = ResolveMatchReviewCommand(review_id=1, action="accept")
+        command = ResolveMatchReviewCommand(
+            user_id="test-user", review_id=1, action="accept"
+        )
         result = await ResolveMatchReviewUseCase().execute(command, uow)
 
         assert isinstance(result, ResolveMatchReviewResult)
@@ -90,7 +92,9 @@ class TestRejectReview:
         review_repo.get_review_by_id.return_value = review
         review_repo.update_review_status.return_value = rejected_review
 
-        command = ResolveMatchReviewCommand(review_id=1, action="reject")
+        command = ResolveMatchReviewCommand(
+            user_id="test-user", review_id=1, action="reject"
+        )
         result = await ResolveMatchReviewUseCase().execute(command, uow)
 
         assert result.mapping_created is False
@@ -107,7 +111,9 @@ class TestResolveErrors:
         review_repo = uow.get_match_review_repository()
         review_repo.get_review_by_id.return_value = None
 
-        command = ResolveMatchReviewCommand(review_id=999, action="accept")
+        command = ResolveMatchReviewCommand(
+            user_id="test-user", review_id=999, action="accept"
+        )
         with pytest.raises(NotFoundError, match="999"):
             await ResolveMatchReviewUseCase().execute(command, uow)
 
@@ -117,6 +123,8 @@ class TestResolveErrors:
         review_repo = uow.get_match_review_repository()
         review_repo.get_review_by_id.return_value = review
 
-        command = ResolveMatchReviewCommand(review_id=1, action="reject")
+        command = ResolveMatchReviewCommand(
+            user_id="test-user", review_id=1, action="reject"
+        )
         with pytest.raises(ValueError, match="already resolved"):
             await ResolveMatchReviewUseCase().execute(command, uow)

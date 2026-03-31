@@ -83,6 +83,8 @@ class LastfmInwardResolver(InwardTrackResolver):
         self,
         missing_ids: list[str],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Create canonical tracks for missing Last.fm identifiers.
 
@@ -121,7 +123,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                 # Step 4: Attempt cross-service discovery (e.g. Spotify)
                 if self._cross_discovery:
                     await self._cross_discovery.attempt_discovery(
-                        track, artist_name, track_name, uow
+                        track, artist_name, track_name, uow, user_id=user_id
                     )
 
             except Exception as e:
