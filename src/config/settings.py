@@ -14,6 +14,7 @@ The configuration is organized into logical groups:
 - MatchingConfig: Track matching confidence scores and penalties
 - FreshnessConfig: Cache TTLs for connector metadata
 - ServerConfig: CORS and HTTP middleware
+- SecurityConfig: Token encryption key
 """
 
 # pyright: reportExplicitAny=false, reportAny=false
@@ -426,6 +427,18 @@ class FreshnessConfig(BaseModel):
     )
 
 
+class SecurityConfig(BaseModel):
+    """Security configuration for data protection."""
+
+    token_encryption_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Fernet encryption key for OAuth tokens at rest. "
+            "Generate via: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+        ),
+    )
+
+
 class Settings(BaseSettings):
     """Main application settings with environment variable support.
 
@@ -462,6 +475,7 @@ class Settings(BaseSettings):
     matching: MatchingConfig = Field(default_factory=MatchingConfig)
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
     # Top-level settings
     data_dir: Path = Field(
@@ -497,6 +511,8 @@ class Settings(BaseSettings):
         "neon_auth_url": ("server", None),
         "neon_auth_jwks_url": ("server", None),
         "allowed_emails": ("server", None),
+        # Security
+        "token_encryption_key": ("security", None),
     }
 
     @model_validator(mode="before")
@@ -616,6 +632,14 @@ def log_startup_warnings() -> None:
     if not settings.credentials.lastfm_key:
         logger.warning(
             "Last.fm not configured — scrobble and play count features will be unavailable"
+        )
+    if (
+        settings.server.neon_auth_url
+        and not settings.security.token_encryption_key.get_secret_value()
+    ):
+        logger.warning(
+            "Token encryption not configured — OAuth tokens stored as plaintext. "
+            "Set TOKEN_ENCRYPTION_KEY for production use."
         )
 
 

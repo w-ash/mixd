@@ -8,6 +8,8 @@ import pytest
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
+_UID = "test-user"
+
 
 def _make_token(*, expired: bool = False) -> StoredToken:
     """Create a test token, optionally expired."""
@@ -35,7 +37,7 @@ class TestSpotifyTokenManager:
 
     @pytest.fixture
     def manager(self, mock_storage):
-        return SpotifyTokenManager(storage=mock_storage)
+        return SpotifyTokenManager(storage=mock_storage, user_id=_UID)
 
     async def test_get_valid_token_loads_from_storage(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
@@ -46,7 +48,7 @@ class TestSpotifyTokenManager:
         token = await manager.get_valid_token()
 
         assert token == "access-123"
-        mock_storage.load_token.assert_called_once_with("spotify")
+        mock_storage.load_token.assert_called_once_with("spotify", _UID)
 
     async def test_get_valid_token_caches_in_memory(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock

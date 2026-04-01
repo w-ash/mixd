@@ -14,14 +14,15 @@ Flow:
 # pyright: reportAny=false, reportExplicitAny=false
 
 import base64
+from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
-import time
 import urllib.parse
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 import httpx
+from sqlalchemy import delete
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.connector_status import (
@@ -37,20 +38,17 @@ from src.infrastructure.connectors.spotify.auth import (
     SPOTIFY_SCOPES,
     SpotifyTokenManager,
 )
+from src.interface.api.deps import get_current_user_id
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["auth"])
 
 # ---------------------------------------------------------------------------
-# CSRF STATE MANAGEMENT
+# CSRF STATE MANAGEMENT (database-backed)
 # ---------------------------------------------------------------------------
 
-# In-memory state store with TTL. Single-user, single-worker app — no need
-# for database or Redis. States expire after 5 minutes.
-_CSRF_STATE_TTL = 300
-# Maps state token → (expiry_timestamp, optional PKCE code_verifier)
-_csrf_states: dict[str, tuple[float, str | None]] = {}
+_CSRF_STATE_TTL = timedelta(minutes=5)
 
 
 def _create_pkce_challenge(code_verifier: str) -> str:
@@ -60,34 +58,68 @@ def _create_pkce_challenge(code_verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def _create_state(*, code_verifier: str | None = None) -> str:
-    """Generate a CSRF state token and store it with a TTL.
+async def _create_state(
+    user_id: str,
+    service: str,
+    *,
+    code_verifier: str | None = None,
+) -> str:
+    """Generate a CSRF state token and persist it to the database.
 
-    Optionally stores a PKCE code_verifier alongside the state so the
-    callback can retrieve it during token exchange.
+    Stores user_id alongside the state so the callback can identify
+    which user initiated the OAuth flow. Also prunes expired rows.
     """
-    # Prune expired states
-    now = time.time()
-    expired = [k for k, (exp, _) in _csrf_states.items() if exp < now]
-    for k in expired:
-        del _csrf_states[k]
+    from src.infrastructure.persistence.database.db_connection import get_session
+    from src.infrastructure.persistence.database.db_models import DBOAuthState
 
     state = secrets.token_urlsafe(32)
-    _csrf_states[state] = (now + _CSRF_STATE_TTL, code_verifier)
+    now = datetime.now(UTC)
+
+    async with get_session() as session:
+        # Prune expired states
+        await session.execute(delete(DBOAuthState).where(DBOAuthState.expires_at < now))
+
+        session.add(
+            DBOAuthState(
+                state=state,
+                user_id=user_id,
+                service=service,
+                code_verifier=code_verifier,
+                expires_at=now + _CSRF_STATE_TTL,
+            )
+        )
+
     return state
 
 
-def _validate_state(state: str) -> tuple[bool, str | None]:
-    """Validate and consume a CSRF state token.
+async def _validate_state(state: str) -> tuple[bool, str | None, str | None]:
+    """Validate and consume a CSRF state token from the database.
 
-    Returns (is_valid, code_verifier). The code_verifier is None when
-    no PKCE was used for this state (e.g., non-Spotify flows).
+    Returns (is_valid, code_verifier, user_id). Uses DELETE...RETURNING
+    for atomic consume — single round-trip, no race window.
     """
-    entry = _csrf_states.pop(state, None)
-    if entry is None:
-        return False, None
-    expiry, code_verifier = entry
-    return time.time() < expiry, code_verifier
+    from src.infrastructure.persistence.database.db_connection import get_session
+    from src.infrastructure.persistence.database.db_models import DBOAuthState
+
+    if not state:
+        return False, None, None
+
+    now = datetime.now(UTC)
+
+    async with get_session() as session:
+        result = await session.execute(
+            delete(DBOAuthState)
+            .where(
+                DBOAuthState.state == state,
+                DBOAuthState.expires_at > now,
+            )
+            .returning(DBOAuthState.code_verifier, DBOAuthState.user_id)
+        )
+        row = result.one_or_none()
+        if row is None:
+            return False, None, None
+
+    return True, row.code_verifier, row.user_id
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +128,13 @@ def _validate_state(state: str) -> tuple[bool, str | None]:
 
 
 @router.get("/api/v1/connectors/spotify/auth-url")
-async def get_spotify_auth_url() -> dict[str, str]:
+async def get_spotify_auth_url(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, str]:
     """Generate Spotify OAuth authorization URL with CSRF state and PKCE."""
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = _create_pkce_challenge(code_verifier)
-    state = _create_state(code_verifier=code_verifier)
+    state = await _create_state(user_id, "spotify", code_verifier=code_verifier)
     params = {
         "client_id": settings.credentials.spotify_client_id,
         "response_type": "code",
@@ -116,18 +150,24 @@ async def get_spotify_auth_url() -> dict[str, str]:
 
 
 @router.get("/api/v1/connectors/lastfm/auth-url")
-async def get_lastfm_auth_url(request: Request) -> dict[str, str]:
+async def get_lastfm_auth_url(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, str]:
     """Generate Last.fm web auth URL.
 
     Derives the callback URL from the request's Host header so it works
-    for both localhost development and production deployment.
+    for both localhost development and production deployment. Embeds a
+    ``_state`` query param in the callback URL since Last.fm has no native
+    state parameter.
     """
     api_key = settings.credentials.lastfm_key
+    state = await _create_state(user_id, "lastfm")
 
-    # Derive callback URL from current request
+    # Derive callback URL from current request, including our state token
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.url.netloc)
-    callback_url = f"{scheme}://{host}/auth/lastfm/callback"
+    callback_url = f"{scheme}://{host}/auth/lastfm/callback?_state={state}"
 
     params = {
         "api_key": api_key,
@@ -157,8 +197,8 @@ async def spotify_callback(
             f"/settings/integrations?auth=spotify&status=error&reason={urllib.parse.quote(error)}"
         )
 
-    valid, code_verifier = _validate_state(state)
-    if not valid:
+    valid, code_verifier, user_id = await _validate_state(state)
+    if not valid or not user_id:
         logger.warning("Spotify auth callback with invalid CSRF state")
         return RedirectResponse(
             "/settings/integrations?auth=spotify&status=error&reason=invalid_state"
@@ -166,17 +206,17 @@ async def spotify_callback(
 
     try:
         storage = get_token_storage()
-        mgr = SpotifyTokenManager(storage=storage)
+        mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
         token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
-        await storage.save_token("spotify", StoredToken(**token_info))
 
-        # Fetch display name and cache it with the token
+        # Fetch display name before saving to avoid a double upsert
         display_name = await _fetch_spotify_display_name(token_info["access_token"])
+        token_to_save = StoredToken(**token_info)
         if display_name:
-            token_with_name = StoredToken(**token_info, account_name=display_name)
-            await storage.save_token("spotify", token_with_name)
+            token_to_save = StoredToken(**token_info, account_name=display_name)
+        await storage.save_token("spotify", user_id, token_to_save)
 
-        logger.info("Spotify web auth completed successfully")
+        logger.info("Spotify web auth completed successfully", user_id=user_id)
         return RedirectResponse("/settings/integrations?auth=spotify&status=success")
 
     except Exception:
@@ -187,18 +227,27 @@ async def spotify_callback(
 
 
 @router.get("/auth/lastfm/callback")
-async def lastfm_callback(token: str = "") -> RedirectResponse:
+async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse:
     """Last.fm auth callback — exchanges token for permanent session key.
 
     Last.fm's web auth flow:
-    1. User authorized on last.fm, redirected here with ?token=TOKEN
-    2. We call auth.getSession to exchange the token for a permanent session key
-    3. Session key stored in database, user redirected to /settings
+    1. User authorized on last.fm, redirected here with ?token=TOKEN&_state=STATE
+    2. We validate the state to recover user_id
+    3. We call auth.getSession to exchange the token for a permanent session key
+    4. Session key stored in database, user redirected to /settings
     """
     if not token:
         logger.warning("Last.fm auth callback with no token")
         return RedirectResponse(
             "/settings/integrations?auth=lastfm&status=error&reason=no_token"
+        )
+
+    # Validate state to recover user_id
+    valid, _, user_id = await _validate_state(_state)
+    if not valid or not user_id:
+        logger.warning("Last.fm auth callback with invalid state")
+        return RedirectResponse(
+            "/settings/integrations?auth=lastfm&status=error&reason=invalid_state"
         )
 
     api_key = settings.credentials.lastfm_key
@@ -259,6 +308,7 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
         storage = get_token_storage()
         await storage.save_token(
             "lastfm",
+            user_id,
             StoredToken(
                 session_key=str(session_key),
                 token_type="session",  # noqa: S106 — metadata label, not a secret
@@ -266,7 +316,7 @@ async def lastfm_callback(token: str = "") -> RedirectResponse:
             ),
         )
 
-        logger.info(f"Last.fm web auth completed for user {username}")
+        logger.info(f"Last.fm web auth completed for user {username}", user_id=user_id)
         return RedirectResponse("/settings/integrations?auth=lastfm&status=success")
 
     except Exception:

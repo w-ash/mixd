@@ -87,6 +87,7 @@ class SpotifyTokenManager:
     """
 
     storage: TokenStorage
+    user_id: str
     _refresh_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _token_info: SpotifyTokenCache | None = field(default=None, init=False, repr=False)
 
@@ -96,14 +97,16 @@ class SpotifyTokenManager:
 
     async def _load_from_storage(self) -> SpotifyTokenCache | None:
         """Load token from storage. Returns None if missing."""
-        stored = await self.storage.load_token("spotify")
+        stored = await self.storage.load_token("spotify", self.user_id)
         if stored is None:
             return None
         return cast(SpotifyTokenCache, stored)
 
     async def _save_to_storage(self, token_info: SpotifyTokenCache) -> None:
         """Persist token to storage."""
-        await self.storage.save_token("spotify", cast(StoredToken, token_info))
+        await self.storage.save_token(
+            "spotify", self.user_id, cast(StoredToken, token_info)
+        )
 
     @staticmethod
     def _is_expired(token_info: SpotifyTokenCache) -> bool:

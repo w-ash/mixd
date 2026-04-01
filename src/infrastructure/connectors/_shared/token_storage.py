@@ -42,18 +42,22 @@ class TokenStorage(Protocol):
 
     Implementations handle file-based storage (CLI development) or
     database-backed storage (hosted deployment).
+
+    All methods require ``user_id`` to scope tokens per-user (v0.6.3).
     """
 
-    async def load_token(self, service: str) -> StoredToken | None:
-        """Load stored token for a service. Returns None if no token exists."""
+    async def load_token(self, service: str, user_id: str) -> StoredToken | None:
+        """Load stored token for a service and user. Returns None if no token exists."""
         ...
 
-    async def save_token(self, service: str, token_data: StoredToken) -> None:
-        """Persist token data for a service. Upserts (creates or replaces)."""
+    async def save_token(
+        self, service: str, user_id: str, token_data: StoredToken
+    ) -> None:
+        """Persist token data for a service and user. Upserts (creates or replaces)."""
         ...
 
-    async def delete_token(self, service: str) -> None:
-        """Remove stored token for a service."""
+    async def delete_token(self, service: str, user_id: str) -> None:
+        """Remove stored token for a service and user."""
         ...
 
 
@@ -77,7 +81,7 @@ class FileTokenStorage:
             return self.cache_dir / ".spotify_cache"
         return self.cache_dir / f".{service}_cache"
 
-    async def load_token(self, service: str) -> StoredToken | None:
+    async def load_token(self, service: str, _user_id: str) -> StoredToken | None:
         try:
             return cast(StoredToken, json.loads(self._path_for(service).read_text()))
         except FileNotFoundError:
@@ -86,13 +90,15 @@ class FileTokenStorage:
             logger.warning(f"Failed to read {service} token cache: {e}")
             return None
 
-    async def save_token(self, service: str, token_data: StoredToken) -> None:
+    async def save_token(
+        self, service: str, _user_id: str, token_data: StoredToken
+    ) -> None:
         try:
             self._path_for(service).write_text(json.dumps(token_data))
         except OSError as e:
             logger.warning(f"Failed to write {service} token cache: {e}")
 
-    async def delete_token(self, service: str) -> None:
+    async def delete_token(self, service: str, _user_id: str) -> None:
         try:
             self._path_for(service).unlink()
         except FileNotFoundError:

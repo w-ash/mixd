@@ -34,7 +34,7 @@ def _mock_storage(
     """Create a mock TokenStorage with configured return values."""
     storage = AsyncMock()
 
-    async def _load(service: str) -> StoredToken | None:
+    async def _load(service: str, user_id: str) -> StoredToken | None:
         if service == "spotify":
             return spotify_token
         if service == "lastfm":

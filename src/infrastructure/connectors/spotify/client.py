@@ -74,8 +74,14 @@ class SpotifyAPIClient(BaseAPIClient):
         from src.infrastructure.connectors._shared.token_storage import (
             get_token_storage,
         )
+        from src.infrastructure.persistence.database.user_context import (
+            get_current_user_id_from_context,
+        )
 
-        self._token_manager = SpotifyTokenManager(storage=get_token_storage())
+        self._token_manager = SpotifyTokenManager(
+            storage=get_token_storage(),
+            user_id=get_current_user_id_from_context(),
+        )
         from src.infrastructure.connectors._shared.http_client import (
             make_spotify_client,
         )

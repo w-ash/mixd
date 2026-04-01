@@ -60,6 +60,7 @@ async def _fetch_spotify_display_name(access_token: str) -> str | None:
 
 
 async def get_spotify_status(
+    user_id: str,
     storage: TokenStorage | None = None,
 ) -> ConnectorStatus:
     """Check Spotify auth by reading token from storage.
@@ -68,7 +69,7 @@ async def get_spotify_status(
     a silent refresh so the frontend sees a fresh expires_at.
     """
     storage = storage or get_token_storage()
-    token_data = await storage.load_token("spotify")
+    token_data = await storage.load_token("spotify", user_id)
 
     if token_data is None:
         return ConnectorStatus(name="spotify", connected=False)
@@ -82,7 +83,7 @@ async def get_spotify_status(
     if has_refresh and expires_at < time.time():
         from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
-        mgr = SpotifyTokenManager(storage=storage)
+        mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
         refreshed = await mgr.try_silent_refresh()
         if refreshed is not None:
             expires_at = refreshed.get("expires_at", 0)
@@ -93,7 +94,7 @@ async def get_spotify_status(
                 if display_name:
                     # Cache display name back to storage
                     merged: StoredToken = {**refreshed, "account_name": display_name}  # type: ignore[typeddict-item]
-                    await storage.save_token("spotify", merged)
+                    await storage.save_token("spotify", user_id, merged)
 
     # First visit with valid token but no cached display_name: one-time fetch
     access_token = token_data.get("access_token")
@@ -106,7 +107,7 @@ async def get_spotify_status(
         display_name = await _fetch_spotify_display_name(access_token)
         if display_name:
             updated: StoredToken = {**token_data, "account_name": display_name}
-            await storage.save_token("spotify", updated)
+            await storage.save_token("spotify", user_id, updated)
 
     return ConnectorStatus(
         name="spotify",
@@ -117,6 +118,7 @@ async def get_spotify_status(
 
 
 async def get_lastfm_status(
+    user_id: str,
     storage: TokenStorage | None = None,
 ) -> ConnectorStatus:
     """Check Last.fm auth by looking up stored session key.
@@ -126,7 +128,7 @@ async def get_lastfm_status(
     auth obtains the session key on first authenticated request).
     """
     storage = storage or get_token_storage()
-    token_data = await storage.load_token("lastfm")
+    token_data = await storage.load_token("lastfm", user_id)
 
     has_api_key = bool(settings.credentials.lastfm_key)
     has_session = token_data is not None and bool(token_data.get("session_key"))
@@ -163,13 +165,19 @@ def get_apple_music_status() -> ConnectorStatus:
     return ConnectorStatus(name="apple", connected=False)
 
 
-async def get_all_connector_statuses() -> list[ConnectorStatus]:
+async def get_all_connector_statuses(user_id: str) -> list[ConnectorStatus]:
     """Get authentication status of all configured connectors."""
     import asyncio
 
     storage = get_token_storage()
-    spotify, lastfm = await asyncio.gather(
-        get_spotify_status(storage),
-        get_lastfm_status(storage),
-    )
-    return [spotify, lastfm, get_musicbrainz_status(), get_apple_music_status()]
+    results: list[ConnectorStatus] = []
+    async with asyncio.TaskGroup() as tg:
+        spotify_task = tg.create_task(get_spotify_status(user_id, storage))
+        lastfm_task = tg.create_task(get_lastfm_status(user_id, storage))
+    results = [
+        spotify_task.result(),
+        lastfm_task.result(),
+        get_musicbrainz_status(),
+        get_apple_music_status(),
+    ]
+    return results

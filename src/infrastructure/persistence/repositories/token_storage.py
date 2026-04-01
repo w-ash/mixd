@@ -3,6 +3,10 @@
 Uses standalone get_session() (not UoW) because token refresh happens inside
 httpx auth flows (SpotifyBearerAuth.async_auth_flow) which have no UoW context.
 Each operation is a single-row read/upsert — no multi-table transaction needed.
+
+All methods require ``user_id`` for per-user token isolation (v0.6.3).
+Each operation wraps its session in ``user_context(user_id)`` so the RLS
+``after_begin`` event handler sets ``SET LOCAL app.user_id`` as defense-in-depth.
 """
 
 from datetime import UTC, datetime
@@ -12,7 +16,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import get_logger
 from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import DBOAuthToken
+from src.infrastructure.persistence.database.user_context import user_context
+from src.infrastructure.persistence.repositories.token_encryption import (
+    SENSITIVE_FIELDS,
+    decrypt_field,
+    encrypt_field,
+)
 
 logger = get_logger(__name__)
 
@@ -25,14 +36,14 @@ def _unix_to_datetime(ts: int | None) -> datetime | None:
 
 
 def _row_to_stored_token(row: DBOAuthToken) -> StoredToken:
-    """Convert a database row to a StoredToken dict."""
+    """Convert a database row to a StoredToken dict, decrypting sensitive fields."""
     token: StoredToken = {}
-    if row.access_token:
-        token["access_token"] = row.access_token
-    if row.refresh_token:
-        token["refresh_token"] = row.refresh_token
-    if row.session_key:
-        token["session_key"] = row.session_key
+    for field_name in SENSITIVE_FIELDS:
+        raw = getattr(row, field_name)
+        if raw:
+            decrypted = decrypt_field(raw)
+            if decrypted:
+                token[field_name] = decrypted  # type: ignore[literal-required]
     if row.token_type:
         token["token_type"] = row.token_type
     if row.expires_at:
@@ -53,28 +64,31 @@ class DatabaseTokenStorage:
     operations happen outside the UoW lifecycle (e.g., inside httpx auth flows).
     """
 
-    async def load_token(self, service: str) -> StoredToken | None:
-        from src.infrastructure.persistence.database.db_connection import get_session
+    async def load_token(self, service: str, user_id: str) -> StoredToken | None:
+        with user_context(user_id):
+            async with get_session() as session:
+                result = await session.execute(
+                    select(DBOAuthToken).where(
+                        DBOAuthToken.service == service,
+                        DBOAuthToken.user_id == user_id,
+                    )
+                )
+                row = result.scalar_one_or_none()
+                if row is None:
+                    return None
+                return _row_to_stored_token(row)
 
-        async with get_session() as session:
-            result = await session.execute(
-                select(DBOAuthToken).where(DBOAuthToken.service == service)
-            )
-            row = result.scalar_one_or_none()
-            if row is None:
-                return None
-            return _row_to_stored_token(row)
-
-    async def save_token(self, service: str, token_data: StoredToken) -> None:
-        from src.infrastructure.persistence.database.db_connection import get_session
-
+    async def save_token(
+        self, service: str, user_id: str, token_data: StoredToken
+    ) -> None:
         now = datetime.now(UTC)
         values = {
             "service": service,
+            "user_id": user_id,
             "token_type": token_data.get("token_type", "oauth2"),
-            "access_token": token_data.get("access_token"),
-            "refresh_token": token_data.get("refresh_token"),
-            "session_key": token_data.get("session_key"),
+            "access_token": encrypt_field(token_data.get("access_token")),
+            "refresh_token": encrypt_field(token_data.get("refresh_token")),
+            "session_key": encrypt_field(token_data.get("session_key")),
             "expires_at": _unix_to_datetime(token_data.get("expires_at")),
             "scope": token_data.get("scope"),
             "account_name": token_data.get("account_name"),
@@ -85,8 +99,9 @@ class DatabaseTokenStorage:
         # Set created_at only on insert
         insert_values = {**values, "created_at": now}
 
-        # Upsert: insert or update on service conflict
-        update_cols = {k: v for k, v in values.items() if k != "service"}
+        update_cols = {
+            k: v for k, v in values.items() if k not in ("service", "user_id")
+        }
 
         stmt = (
             pg_insert(DBOAuthToken)
@@ -97,13 +112,16 @@ class DatabaseTokenStorage:
             )
         )
 
-        async with get_session() as session:
-            await session.execute(stmt)
+        with user_context(user_id):
+            async with get_session() as session:
+                await session.execute(stmt)
 
-    async def delete_token(self, service: str) -> None:
-        from src.infrastructure.persistence.database.db_connection import get_session
-
-        async with get_session() as session:
-            await session.execute(
-                delete(DBOAuthToken).where(DBOAuthToken.service == service)
-            )
+    async def delete_token(self, service: str, user_id: str) -> None:
+        with user_context(user_id):
+            async with get_session() as session:
+                await session.execute(
+                    delete(DBOAuthToken).where(
+                        DBOAuthToken.service == service,
+                        DBOAuthToken.user_id == user_id,
+                    )
+                )

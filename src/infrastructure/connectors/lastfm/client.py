@@ -74,6 +74,15 @@ def _sign_params(params: dict[str, str], api_secret: str) -> str:
 # -------------------------------------------------------------------------
 
 
+def _default_user_id() -> str:
+    """Read current user_id from ContextVar (deferred to avoid circular import)."""
+    from src.infrastructure.persistence.database.user_context import (
+        get_current_user_id_from_context,
+    )
+
+    return get_current_user_id_from_context()
+
+
 @define(slots=True)
 class LastFMAPIClient(BaseAPIClient):
     """Last.fm API client using native httpx with JSON format.
@@ -95,6 +104,7 @@ class LastFMAPIClient(BaseAPIClient):
     api_key: str | None = field(default=None)
     api_secret: str | None = field(default=None)
     lastfm_username: str | None = field(default=None)
+    user_id: str = field(factory=_default_user_id)
     _session_key: str | None = field(default=None, init=False, repr=False)
     _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
@@ -240,7 +250,7 @@ class LastFMAPIClient(BaseAPIClient):
                 return self._session_key
 
             # Check persistent storage (database or file)
-            stored = await self._storage.load_token("lastfm")
+            stored = await self._storage.load_token("lastfm", self.user_id)
             stored_key = stored.get("session_key") if stored else None
             if stored_key:
                 self._session_key = stored_key
@@ -296,6 +306,7 @@ class LastFMAPIClient(BaseAPIClient):
             # Persist to storage so it survives restarts
             await self._storage.save_token(
                 "lastfm",
+                self.user_id,
                 {
                     "session_key": self._session_key,
                     "token_type": "session",

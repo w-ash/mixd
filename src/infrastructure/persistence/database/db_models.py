@@ -859,6 +859,32 @@ class DBOAuthToken(BaseEntity):
     )
 
 
+class DBOAuthState(DatabaseModel):
+    """Transient OAuth CSRF state for callback user association.
+
+    Stores the CSRF state token, user_id, and PKCE code_verifier during
+    OAuth flows. The callback handler consumes (deletes) the row atomically.
+    Short-lived (5-minute TTL), no RLS needed — the unguessable state token
+    is the access control. Uses DatabaseModel (not BaseEntity) since updated_at
+    is unnecessary for ephemeral rows.
+    """
+
+    __tablename__: str = "oauth_states"
+
+    state: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    code_verifier: Mapped[str | None] = mapped_column(String())
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+
 class DBUserSettings(BaseEntity):
     """User preferences and application settings.
 

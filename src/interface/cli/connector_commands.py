@@ -25,11 +25,12 @@ def connectors_status(ctx: typer.Context) -> None:
         return
 
     async def _status_async():
+        from src.config.constants import BusinessLimits
         from src.infrastructure.connectors._shared.connector_status import (
             get_all_connector_statuses,
         )
 
-        statuses = await get_all_connector_statuses()
+        statuses = await get_all_connector_statuses(BusinessLimits.DEFAULT_USER_ID)
 
         table = Table(title="Connector Status")
         table.add_column("Name", style="cyan")

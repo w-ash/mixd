@@ -10,6 +10,8 @@ from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
 )
 
+_UID = "test-user"
+
 
 class TestFileTokenStorage:
     """Tests for FileTokenStorage (file-backed credential persistence)."""
@@ -19,7 +21,7 @@ class TestFileTokenStorage:
         return FileTokenStorage(cache_dir=tmp_path)
 
     async def test_load_returns_none_when_no_file(self, storage: FileTokenStorage):
-        result = await storage.load_token("spotify")
+        result = await storage.load_token("spotify", _UID)
         assert result is None
 
     async def test_save_and_load_spotify_token(self, storage: FileTokenStorage):
@@ -31,8 +33,8 @@ class TestFileTokenStorage:
             "expires_at": 1999999999,
             "scope": "playlist-read-private",
         }
-        await storage.save_token("spotify", token)
-        loaded = await storage.load_token("spotify")
+        await storage.save_token("spotify", _UID, token)
+        loaded = await storage.load_token("spotify", _UID)
 
         assert loaded is not None
         assert loaded["access_token"] == "access-123"
@@ -42,13 +44,13 @@ class TestFileTokenStorage:
     async def test_save_uses_spotify_cache_filename(
         self, storage: FileTokenStorage, tmp_path: Path
     ):
-        await storage.save_token("spotify", StoredToken(access_token="test"))
+        await storage.save_token("spotify", _UID, StoredToken(access_token="test"))
         assert (tmp_path / ".spotify_cache").exists()
 
     async def test_save_uses_service_name_for_other_services(
         self, storage: FileTokenStorage, tmp_path: Path
     ):
-        await storage.save_token("lastfm", StoredToken(session_key="sk-123"))
+        await storage.save_token("lastfm", _UID, StoredToken(session_key="sk-123"))
         assert (tmp_path / ".lastfm_cache").exists()
 
     async def test_save_and_load_lastfm_session_key(self, storage: FileTokenStorage):
@@ -57,35 +59,35 @@ class TestFileTokenStorage:
             "token_type": "session",
             "account_name": "testuser",
         }
-        await storage.save_token("lastfm", token)
-        loaded = await storage.load_token("lastfm")
+        await storage.save_token("lastfm", _UID, token)
+        loaded = await storage.load_token("lastfm", _UID)
 
         assert loaded is not None
         assert loaded["session_key"] == "session-key-abc"
         assert loaded["account_name"] == "testuser"
 
     async def test_delete_removes_file(self, storage: FileTokenStorage, tmp_path: Path):
-        await storage.save_token("spotify", StoredToken(access_token="test"))
+        await storage.save_token("spotify", _UID, StoredToken(access_token="test"))
         assert (tmp_path / ".spotify_cache").exists()
 
-        await storage.delete_token("spotify")
+        await storage.delete_token("spotify", _UID)
         assert not (tmp_path / ".spotify_cache").exists()
 
     async def test_delete_nonexistent_is_noop(self, storage: FileTokenStorage):
-        await storage.delete_token("spotify")  # Should not raise
+        await storage.delete_token("spotify", _UID)  # Should not raise
 
     async def test_load_returns_none_on_malformed_json(
         self, storage: FileTokenStorage, tmp_path: Path
     ):
         (tmp_path / ".spotify_cache").write_text("not valid json{{{")
-        result = await storage.load_token("spotify")
+        result = await storage.load_token("spotify", _UID)
         assert result is None
 
     async def test_save_overwrites_existing(self, storage: FileTokenStorage):
-        await storage.save_token("spotify", StoredToken(access_token="old"))
-        await storage.save_token("spotify", StoredToken(access_token="new"))
+        await storage.save_token("spotify", _UID, StoredToken(access_token="old"))
+        await storage.save_token("spotify", _UID, StoredToken(access_token="new"))
 
-        loaded = await storage.load_token("spotify")
+        loaded = await storage.load_token("spotify", _UID)
         assert loaded is not None
         assert loaded["access_token"] == "new"
 
@@ -103,7 +105,7 @@ class TestFileTokenStorage:
         }
         (tmp_path / ".spotify_cache").write_text(json.dumps(spotipy_data))
 
-        loaded = await storage.load_token("spotify")
+        loaded = await storage.load_token("spotify", _UID)
         assert loaded is not None
         assert loaded["access_token"] == "BQDo..."
         assert loaded["refresh_token"] == "AQCz..."
