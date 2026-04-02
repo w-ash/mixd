@@ -6,7 +6,7 @@ from rich.table import Table
 import typer
 
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import get_console
 
 console = get_console()
@@ -25,12 +25,11 @@ def connectors_status(ctx: typer.Context) -> None:
         return
 
     async def _status_async():
-        from src.config.constants import BusinessLimits
         from src.infrastructure.connectors._shared.connector_status import (
             get_all_connector_statuses,
         )
 
-        statuses = await get_all_connector_statuses(BusinessLimits.DEFAULT_USER_ID)
+        statuses = await get_all_connector_statuses(get_cli_user_id())
 
         table = Table(title="Connector Status")
         table.add_column("Name", style="cyan")

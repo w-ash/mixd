@@ -30,6 +30,17 @@ console = get_console()
 err_console = get_error_console()
 
 
+def get_cli_user_id() -> str:
+    """Resolve the user ID for CLI operations.
+
+    Reads ``MIXD_USER_ID`` from settings (env var or ``.env.local``).
+    Falls back to ``DEFAULT_USER_ID`` ("default") for local single-user mode.
+    """
+    from src.config.settings import settings
+
+    return settings.cli.user_id or BusinessLimits.DEFAULT_USER_ID
+
+
 def handle_cli_error(e: Exception, message: str) -> Never:
     """Print error message and exit with code 1.
 
@@ -186,7 +197,7 @@ def run_import_with_progress(
             )
 
             return await run_import(
-                user_id=BusinessLimits.DEFAULT_USER_ID,
+                user_id=get_cli_user_id(),
                 service=service,
                 mode=mode,
                 progress_emitter=progress_adapter,

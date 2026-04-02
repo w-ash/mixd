@@ -21,10 +21,9 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.config.constants import BusinessLimits
 from src.domain.entities.workflow import RunStatus, Workflow
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.completions import complete_workflow_id
 from src.interface.cli.console import (
     brand_panel,
@@ -251,14 +250,14 @@ def create(
         )
         from src.interface.cli.db_bootstrap import ensure_cli_db_ready
 
+        user_id = get_cli_user_id()
         await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: CreateWorkflowUseCase().execute(
-                CreateWorkflowCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID, definition=definition
-                ),
+                CreateWorkflowCommand(user_id=user_id, definition=definition),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
         return result.workflow
 
@@ -324,15 +323,17 @@ def update(
             UpdateWorkflowUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: UpdateWorkflowUseCase().execute(
                 UpdateWorkflowCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    user_id=user_id,
                     workflow_id=selected.id or 0,
                     definition=definition,
                 ),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
         return result.workflow
 
@@ -374,13 +375,13 @@ def delete(
             DeleteWorkflowUseCase,
         )
 
+        user_id = get_cli_user_id()
         await execute_use_case(
             lambda uow: DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID, workflow_id=selected.id or 0
-                ),
+                DeleteWorkflowCommand(user_id=user_id, workflow_id=selected.id or 0),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
 
     try:
@@ -677,14 +678,16 @@ def _execute_workflow(
             from src.config.constants import WorkflowConstants, truncate_error_message
 
             # 1. Create PENDING run record
+            user_id = get_cli_user_id()
             run_result = await execute_use_case(
                 lambda uow: RunWorkflowUseCase().execute(
                     RunWorkflowCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID,
+                        user_id=user_id,
                         workflow_id=workflow.id or 0,
                     ),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
             run_id = run_result.run_id
 
@@ -793,14 +796,14 @@ def _get_available_workflows() -> list[Workflow]:
         )
         from src.interface.cli.db_bootstrap import ensure_cli_db_ready
 
+        user_id = get_cli_user_id()
         await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: ListWorkflowsUseCase().execute(
-                ListWorkflowsCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID, include_templates=True
-                ),
+                ListWorkflowsCommand(user_id=user_id, include_templates=True),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
         return result.workflows
 

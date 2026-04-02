@@ -5,9 +5,8 @@ from typing import Annotated
 from rich.prompt import Prompt
 import typer
 
-from src.config.constants import BusinessLimits
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import parse_iso_date
+from src.interface.cli.cli_helpers import get_cli_user_id, parse_iso_date
 from src.interface.cli.console import brand_status, get_console, get_error_console
 from src.interface.cli.interactive_menu import MenuOption, run_interactive_menu
 from src.interface.cli.ui import display_operation_result
@@ -23,7 +22,7 @@ def _get_lastfm_checkpoint_info() -> str | None:
 
         checkpoint_status = run_async(
             get_sync_checkpoint_status(
-                user_id=BusinessLimits.DEFAULT_USER_ID,
+                user_id=get_cli_user_id(),
                 service="lastfm",
                 entity_type="likes",
             )
@@ -84,7 +83,7 @@ def import_spotify_cmd(
     with brand_status("Importing liked tracks from Spotify..."):
         result = run_async(
             run_spotify_likes_import(
-                user_id=BusinessLimits.DEFAULT_USER_ID,
+                user_id=get_cli_user_id(),
                 limit=limit,
                 max_imports=max_imports,
             )
@@ -147,7 +146,7 @@ def export_lastfm_cmd(
     with brand_status("Exporting liked tracks to Last.fm..."):
         result = run_async(
             run_lastfm_likes_export(
-                user_id=BusinessLimits.DEFAULT_USER_ID,
+                user_id=get_cli_user_id(),
                 batch_size=batch_size,
                 max_exports=max_exports,
                 override_date=override_date,

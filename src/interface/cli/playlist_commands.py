@@ -12,10 +12,9 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
-from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import (
     GOLD,
     brand_panel,
@@ -133,10 +132,12 @@ async def _list_stored_playlists() -> None:
             ListPlaylistsUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: ListPlaylistsUseCase().execute(
-                ListPlaylistsCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
-            )
+                ListPlaylistsCommand(user_id=user_id), uow
+            ),
+            user_id=user_id,
         )
 
         if not result.has_playlists:
@@ -205,16 +206,19 @@ async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
             ReadCanonicalPlaylistUseCase,
         )
 
+        user_id = get_cli_user_id()
+
         # Step 1: Fetch playlist info for confirmation prompt
         try:
             read_result = await execute_use_case(
                 lambda uow: ReadCanonicalPlaylistUseCase().execute(
                     ReadCanonicalPlaylistCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID,
+                        user_id=user_id,
                         playlist_id=str(playlist_id),
                     ),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
             playlist = read_result.playlist
         except Exception as e:
@@ -252,12 +256,13 @@ async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
         delete_result = await execute_use_case(
             lambda uow: DeleteCanonicalPlaylistUseCase().execute(
                 DeleteCanonicalPlaylistCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    user_id=user_id,
                     playlist_id=str(playlist_id),
                     force_delete=force,
                 ),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
 
         console.print(
@@ -295,7 +300,7 @@ async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
             result = await run_playlist_backup(
                 connector_name=connector_name,
                 playlist_id=playlist_id,
-                user_id=BusinessLimits.DEFAULT_USER_ID,
+                user_id=get_cli_user_id(),
             )
 
         from src.application.use_cases.update_canonical_playlist import (
@@ -348,13 +353,15 @@ async def _create_playlist_async(name: str, description: str | None) -> None:
             MetricConfigProviderImpl,
         )
 
+        user_id = get_cli_user_id()
         command = CreateCanonicalPlaylistCommand(
-            user_id=BusinessLimits.DEFAULT_USER_ID, name=name, description=description
+            user_id=user_id, name=name, description=description
         )
         result = await execute_use_case(
             lambda uow: CreateCanonicalPlaylistUseCase(
                 metric_config=MetricConfigProviderImpl()
-            ).execute(command, uow)
+            ).execute(command, uow),
+            user_id=user_id,
         )
 
         console.print(
@@ -386,8 +393,9 @@ async def _update_playlist_async(
             MetricConfigProviderImpl,
         )
 
+        user_id = get_cli_user_id()
         command = UpdateCanonicalPlaylistCommand(
-            user_id=BusinessLimits.DEFAULT_USER_ID,
+            user_id=user_id,
             playlist_id=str(playlist_id),
             new_tracklist=TrackList(),
             playlist_name=name,
@@ -396,7 +404,8 @@ async def _update_playlist_async(
         result = await execute_use_case(
             lambda uow: UpdateCanonicalPlaylistUseCase(
                 metric_config=MetricConfigProviderImpl()
-            ).execute(command, uow)
+            ).execute(command, uow),
+            user_id=user_id,
         )
 
         console.print(

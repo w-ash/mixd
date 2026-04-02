@@ -7,10 +7,9 @@ from rich.prompt import Confirm
 from rich.table import Table
 import typer
 
-from src.config.constants import BusinessLimits
 from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import GOLD, get_console, print_brand_title
 
 console = get_console()
@@ -59,23 +58,23 @@ def merge_tracks(
             MergeTracksUseCase,
         )
 
+        user_id = get_cli_user_id()
+
         # Step 1: Fetch both tracks for confirmation display
         try:
             winner_result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=winner_id
-                    ),
+                    GetTrackDetailsCommand(user_id=user_id, track_id=winner_id),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
             loser_result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=loser_id
-                    ),
+                    GetTrackDetailsCommand(user_id=user_id, track_id=loser_id),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
         except NotFoundError as e:
             console.print(f"[red]Error: {e}[/red]")
@@ -142,12 +141,13 @@ def merge_tracks(
         result = await execute_use_case(
             lambda uow: MergeTracksUseCase().execute(
                 MergeTracksCommand(
-                    user_id=BusinessLimits.DEFAULT_USER_ID,
+                    user_id=user_id,
                     winner_id=winner_id,
                     loser_id=loser_id,
                 ),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
 
         console.print(
@@ -176,14 +176,14 @@ def show_track(
             GetTrackDetailsUseCase,
         )
 
+        user_id = get_cli_user_id()
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackDetailsUseCase().execute(
-                    GetTrackDetailsCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=parsed_id
-                    ),
+                    GetTrackDetailsCommand(user_id=user_id, track_id=parsed_id),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
         except NotFoundError as e:
             console.print(f"[red]Error: {e}[/red]")
@@ -299,9 +299,11 @@ def list_tracks(
             ListTracksUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: ListTracksUseCase().execute(
                 ListTracksCommand(
+                    user_id=user_id,
                     query=query,
                     liked=liked,
                     connector=connector,
@@ -310,7 +312,8 @@ def list_tracks(
                     offset=offset,
                 ),
                 uow,
-            )
+            ),
+            user_id=user_id,
         )
 
         if not result.tracks:
@@ -374,14 +377,14 @@ def track_playlists(
             GetTrackPlaylistsUseCase,
         )
 
+        user_id = get_cli_user_id()
         try:
             result = await execute_use_case(
                 lambda uow: GetTrackPlaylistsUseCase().execute(
-                    GetTrackPlaylistsCommand(
-                        user_id=BusinessLimits.DEFAULT_USER_ID, track_id=parsed_id
-                    ),
+                    GetTrackPlaylistsCommand(user_id=user_id, track_id=parsed_id),
                     uow,
-                )
+                ),
+                user_id=user_id,
             )
         except NotFoundError as e:
             console.print(f"[red]Error: {e}[/red]")

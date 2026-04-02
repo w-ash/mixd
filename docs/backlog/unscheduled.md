@@ -5,6 +5,14 @@ For the planning overview, see [README.md](README.md).
 
 ---
 
+## CLI Power Tools
+
+- **Global `--json` Output Flag** (M) - Add `--json` to root Typer callback, stored in `Context.obj`. Commands with existing `--format` take precedence; all others get JSON output for free. JSON always to stdout (pipe-friendly), errors to stderr. Enables CLI scriptability and integration with `jq`, `grep`, etc.
+- **`mixd db` Debug Commands** (M) - Infrastructure-level debug tools that bypass use cases: `mixd db stats` (row counts per table, index sizes), `mixd db export --table tracks --format json|csv` (data dump for debugging), `mixd db health` (connection test, Alembic migration status, latency ping). New file: `src/interface/cli/db_commands.py`.
+- **`mixd admin claim-data`** (S) - Reassign `user_id='default'` data to a specified user_id (`UPDATE` all 11 user-scoped tables). For local-to-remote migration scenarios. Confirmation prompt with row counts before proceeding.
+- **`mixd debug resolve`** (S) - Interactive track matching test: `mixd debug resolve "Artist" "Title" --connector spotify`. Calls matching engine directly, shows candidate matches with confidence scores. For diagnosing incorrect matches.
+- **CLI Scriptability Polish** (S) - Consistent exit codes (0 success, 1 error, 2 user cancel), ensure errors to stderr and data to stdout (audit all `console.print` vs `err_console.print`), machine-readable error output with `--json`: `{"error": {"code": "...", "message": "..."}}` on stderr.
+
 ## Quality of Life Improvements
 
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution

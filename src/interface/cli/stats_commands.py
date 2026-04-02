@@ -4,9 +4,9 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
-from src.config.constants import BusinessLimits, MatchMethod
+from src.config.constants import MatchMethod
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import handle_cli_error
+from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import get_console
 
 console = get_console()
@@ -54,10 +54,12 @@ def stats(
             GetDashboardStatsUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: GetDashboardStatsUseCase().execute(
-                GetDashboardStatsCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
-            )
+                GetDashboardStatsCommand(user_id=user_id), uow
+            ),
+            user_id=user_id,
         )
 
         # Summary panel
@@ -105,10 +107,12 @@ def _run_health_check() -> None:
             CheckDataIntegrityUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: CheckDataIntegrityUseCase().execute(
-                CheckDataIntegrityCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
-            )
+                CheckDataIntegrityCommand(user_id=user_id), uow
+            ),
+            user_id=user_id,
         )
 
         table = Table(title="Data Integrity Report")
@@ -144,10 +148,12 @@ def _run_matching_report() -> None:
             GetMatchMethodHealthUseCase,
         )
 
+        user_id = get_cli_user_id()
         result = await execute_use_case(
             lambda uow: GetMatchMethodHealthUseCase().execute(
-                GetMatchMethodHealthCommand(user_id=BusinessLimits.DEFAULT_USER_ID), uow
-            )
+                GetMatchMethodHealthCommand(user_id=user_id), uow
+            ),
+            user_id=user_id,
         )
 
         console.print(

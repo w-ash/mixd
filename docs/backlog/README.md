@@ -47,7 +47,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.6.2** | Multi-user: repository + use case scoping | ✅ Completed | [details](v0.6.x.md#v062-repository--use-case-scoping) |
 | **v0.6.3** | Multi-user: per-user OAuth | ✅ Completed | [details](v0.6.x.md#v063-per-user-oauth) |
 | **v0.6.4** | Multi-user: testing + data purge | ✅ Completed | [details](v0.6.x.md#v064-testing--data-purge) |
-| **v0.6.5** | CLI parity (local + remote modes) | 🔜 Not Started | [details](v0.6.x.md#v065-cli-parity) |
+| **v0.6.5** | First-class CLI (identity + feature parity) | 🔨 In Progress | [details](v0.6.x.md#v065-first-class-cli) |
 | **v0.7.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.7.x.md#v070-preference-system--likes-migration) |
 | **v0.7.1** | Tagging system | 🔜 Not Started | [details](v0.7.x.md#v071-tagging-system) |
 | **v0.7.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.7.x.md#v072-spotify-playlist-mapping-preference--tag-import) |
@@ -81,7 +81,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.5.0–v0.5.3 | Infrastructure | Wants it deployed so they can access from any device | Self-hosts, expects clean setup | Needs hosted instance to exist |
 | v0.5.4 | OAuth + auth UX + WCAG + theming + settings | Connects services, picks light/dark mode, settings persist across devices | May prefer CLI auth, but web flow should be clean; appreciates system theme respect | "Connect Spotify" button IS the first impression; light mode widens appeal |
 | v0.5.5 | Performance | Faster workflow execution, snappier pages | Appreciates efficient infrastructure | Expects modern web app responsiveness |
-| v0.6.x | Multi-user data isolation | Per-user data isolation on shared instance | Security hardening for self-hosted | Account creation on hosted instance |
+| v0.6.x | Multi-user data isolation + first-class CLI | Per-user data isolation, CLI for power curation | Security hardening, CLI as primary interface | Account creation on hosted instance |
 | v0.7.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |

@@ -217,8 +217,12 @@ class BatchConfig(BaseModel):
 
 
 class CLIConfig(BaseModel):
-    """CLI display and formatting configuration."""
+    """CLI display, formatting, and identity configuration."""
 
+    user_id: str = Field(
+        default="",
+        description="User ID for CLI operations. Set MIXD_USER_ID for remote (Neon) mode. Empty = 'default' (local single-user).",
+    )
     playlist_name_min_width: PositiveInt = Field(
         default=15,
         description="Minimum column width for playlist names in CLI tables.",
@@ -513,6 +517,8 @@ class Settings(BaseSettings):
         "allowed_emails": ("server", None),
         # Security
         "token_encryption_key": ("security", None),
+        # CLI identity
+        "mixd_user_id": ("cli", "user_id"),
     }
 
     @model_validator(mode="before")
