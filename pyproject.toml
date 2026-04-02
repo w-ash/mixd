@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.6.3"
+version = "0.6.4"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -168,6 +168,9 @@ unfixable = []
 ]
 "src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
 "src/application/workflows/observers.py" = ["ARG002"] # Protocol implementations must match signatures
+"alembic/versions/*.py" = [
+    "S608",     # SQL injection: table names from hardcoded constants, not user input
+]
 "scripts/**/*.py" = [
     "ASYNC230", # Allow sync file operations in async scripts
     "ASYNC250", # Allow blocking input() in async scripts (interactive CLI prompts)

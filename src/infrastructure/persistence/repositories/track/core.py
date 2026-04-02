@@ -125,6 +125,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             "duration_ms": track.duration_ms,
             "release_date": track.release_date,
             "isrc": track.isrc,
+            "user_id": track.user_id,
         }
 
         # Pre-compute normalized text for fuzzy matching index

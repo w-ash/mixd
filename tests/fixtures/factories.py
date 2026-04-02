@@ -25,7 +25,7 @@ from src.domain.entities.playlist import (
     Playlist,
     PlaylistEntry,
 )
-from src.domain.entities.track import Artist, ConnectorTrack, Track
+from src.domain.entities.track import Artist, ConnectorTrack, Track, TrackLike
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
@@ -47,6 +47,7 @@ def make_track(
     id: UUID | None = None,
     title: str = "Test Track",
     artist: str = "Test Artist",
+    user_id: str = "default",
     **kwargs,
 ) -> Track:
     """Build a :class:`Track` with sensible defaults.
@@ -58,15 +59,27 @@ def make_track(
         id = uuid7()
     kwargs.setdefault("artists", [Artist(name=artist)])
     kwargs.setdefault("version", 1)
-    return Track(id=id, title=title, **kwargs)
+    return Track(id=id, title=title, user_id=user_id, **kwargs)
 
 
-def make_tracks(count: int = 3, **kwargs) -> list[Track]:
+def make_tracks(count: int = 3, user_id: str = "default", **kwargs) -> list[Track]:
     """Build *count* tracks with unique UUIDs."""
     return [
-        make_track(title=f"Track {i}", artist=f"Artist {i}", **kwargs)
+        make_track(title=f"Track {i}", artist=f"Artist {i}", user_id=user_id, **kwargs)
         for i in range(1, count + 1)
     ]
+
+
+def make_track_like(
+    track_id: UUID | None = None,
+    service: str = "spotify",
+    user_id: str = "default",
+    **kwargs,
+) -> TrackLike:
+    """Build a :class:`TrackLike` with sensible defaults."""
+    if track_id is None:
+        track_id = uuid7()
+    return TrackLike(track_id=track_id, service=service, user_id=user_id, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +136,7 @@ def make_playlist(
     id: UUID | None = None,
     name: str = "Test Playlist",
     tracks: list[Track] | None = None,
+    user_id: str = "default",
     **kwargs,
 ) -> Playlist:
     """Build a :class:`Playlist` via ``from_tracklist``.
@@ -131,15 +145,16 @@ def make_playlist(
     """
     if id is None:
         id = uuid7()
-    tracks = tracks if tracks is not None else [make_track()]
+    tracks = tracks if tracks is not None else [make_track(user_id=user_id)]
     playlist = Playlist.from_tracklist(name=name, tracklist=tracks, **kwargs)
-    return attrs.evolve(playlist, id=id)
+    return attrs.evolve(playlist, id=id, user_id=user_id)
 
 
 def make_playlist_with_entries(
     id: UUID | None = None,
     track_ids: list[UUID] | None = None,
     name: str = "Test Playlist",
+    user_id: str = "default",
 ) -> Playlist:
     """Build a :class:`Playlist` with explicit :class:`PlaylistEntry` objects."""
     if id is None:
@@ -147,12 +162,12 @@ def make_playlist_with_entries(
     ids = track_ids or [uuid7(), uuid7(), uuid7()]
     entries = [
         PlaylistEntry(
-            track=make_track(id=tid),
+            track=make_track(id=tid, user_id=user_id),
             added_at=datetime(2024, 1, 1, tzinfo=UTC),
         )
         for tid in ids
     ]
-    return Playlist(id=id, name=name, entries=entries)
+    return Playlist(id=id, name=name, user_id=user_id, entries=entries)
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +216,7 @@ def make_workflow(
     definition: WorkflowDef | None = None,
     is_template: bool = False,
     source_template: str | None = None,
+    user_id: str = "default",
     **kwargs,
 ) -> Workflow:
     """Build a :class:`Workflow` with sensible defaults."""
@@ -211,6 +227,7 @@ def make_workflow(
         definition=definition or make_workflow_def(),
         is_template=is_template,
         source_template=source_template,
+        user_id=user_id,
         **kwargs,
     )
 
