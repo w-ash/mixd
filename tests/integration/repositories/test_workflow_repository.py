@@ -16,7 +16,7 @@ from tests.fixtures import make_workflow_def
 class TestWorkflowRepositoryCRUD:
     async def test_save_and_retrieve(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        workflow = Workflow(definition=make_workflow_def())
+        workflow = Workflow(user_id="default", definition=make_workflow_def())
 
         saved = await repo.save_workflow(workflow)
         assert saved.id is not None
@@ -28,11 +28,14 @@ class TestWorkflowRepositoryCRUD:
 
     async def test_update_existing(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        saved = await repo.save_workflow(Workflow(definition=make_workflow_def()))
+        saved = await repo.save_workflow(
+            Workflow(user_id="default", definition=make_workflow_def())
+        )
 
         updated_def = make_workflow_def(name="Updated Name")
         updated = Workflow(
             id=saved.id,
+            user_id="default",
             definition=updated_def,
             created_at=saved.created_at,
         )
@@ -42,7 +45,9 @@ class TestWorkflowRepositoryCRUD:
 
     async def test_delete_returns_true(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        saved = await repo.save_workflow(Workflow(definition=make_workflow_def()))
+        saved = await repo.save_workflow(
+            Workflow(user_id="default", definition=make_workflow_def())
+        )
 
         deleted = await repo.delete_workflow(saved.id, user_id="default")
         assert deleted is True
@@ -61,16 +66,20 @@ class TestWorkflowRepositoryCRUD:
 
 
 class TestWorkflowRepositoryTemplates:
-    async def test_list_includes_templates_by_default(self, db_session) -> None:
+    async def test_list_includes_shared_templates(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
+        # Template: user_id=None (shared with all users)
         await repo.save_workflow(
             Workflow(definition=make_workflow_def("wf1"), is_template=True)
         )
+        # Personal workflow: user_id="user-a"
         await repo.save_workflow(
-            Workflow(definition=make_workflow_def("wf2"), is_template=False)
+            Workflow(
+                user_id="user-a", definition=make_workflow_def("wf2"), is_template=False
+            )
         )
 
-        all_workflows = await repo.list_workflows(user_id="default")
+        all_workflows = await repo.list_workflows(user_id="user-a")
         assert len(all_workflows) == 2
 
     async def test_list_excludes_templates(self, db_session) -> None:
@@ -79,11 +88,13 @@ class TestWorkflowRepositoryTemplates:
             Workflow(definition=make_workflow_def("wf1"), is_template=True)
         )
         await repo.save_workflow(
-            Workflow(definition=make_workflow_def("wf2"), is_template=False)
+            Workflow(
+                user_id="user-a", definition=make_workflow_def("wf2"), is_template=False
+            )
         )
 
         user_workflows = await repo.list_workflows(
-            include_templates=False, user_id="default"
+            include_templates=False, user_id="user-a"
         )
         assert len(user_workflows) == 1
         assert user_workflows[0].is_template is False

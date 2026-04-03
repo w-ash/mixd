@@ -34,7 +34,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
     async def list_workflows(
         self, *, user_id: str, include_templates: bool = True
     ) -> list[Workflow]:
-        """List user's workflows + shared templates.
+        """List user's workflows + shared templates (user_id IS NULL).
 
         Args:
             user_id: Owner's user ID for scoping.
@@ -53,7 +53,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
 
     @db_operation("get_workflow_by_id")
     async def get_workflow_by_id(self, workflow_id: UUID, *, user_id: str) -> Workflow:
-        """Get workflow by ID. Templates (user_id IS NULL) accessible to all.
+        """Get workflow by ID. Shared templates (user_id IS NULL) accessible to all.
 
         Args:
             workflow_id: Internal workflow ID.

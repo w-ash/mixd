@@ -38,7 +38,9 @@ def _make_def(wf_id: str = "test", name: str = "Test") -> WorkflowDef:
 async def _create_workflow(db_session) -> Workflow:
     """Helper to create a workflow that runs can reference via FK."""
     wf_repo = WorkflowRepository(db_session)
-    return await wf_repo.save_workflow(Workflow(definition=_make_def()))
+    return await wf_repo.save_workflow(
+        Workflow(user_id="default", definition=_make_def())
+    )
 
 
 def _make_run(workflow_id: UUID, *, status: str = "pending") -> WorkflowRun:
@@ -273,8 +275,12 @@ class TestLatestRunQueries:
         wf_repo = WorkflowRepository(db_session)
         repo = WorkflowRunRepository(db_session)
 
-        wf1 = await wf_repo.save_workflow(Workflow(definition=_make_def("wf1", "WF1")))
-        wf2 = await wf_repo.save_workflow(Workflow(definition=_make_def("wf2", "WF2")))
+        wf1 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf1", "WF1"))
+        )
+        wf2 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf2", "WF2"))
+        )
 
         # Create runs for wf1 (keep last)
         await repo.create_run(_make_run(wf1.id))
@@ -308,7 +314,9 @@ class TestCascadeDelete:
         wf_repo = WorkflowRepository(db_session)
         run_repo = WorkflowRunRepository(db_session)
 
-        workflow = await wf_repo.save_workflow(Workflow(definition=_make_def()))
+        workflow = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def())
+        )
         run = await run_repo.create_run(_make_run(workflow.id))
 
         # Delete workflow

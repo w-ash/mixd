@@ -62,6 +62,20 @@ async def _seed_templates() -> None:
             logger.warning("Failed to seed workflow templates", error=str(e))
 
 
+async def _prune_expired_oauth_states() -> None:
+    """Delete expired OAuth CSRF state rows that weren't consumed within their TTL."""
+    try:
+        from src.application.services.oauth_state_cleanup import (
+            prune_expired_oauth_states,
+        )
+        from src.infrastructure.persistence.database.db_connection import get_session
+
+        async with get_session() as session:
+            await prune_expired_oauth_states(session)
+    except Exception as e:
+        logger.warning("Failed to prune expired OAuth states", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
@@ -85,16 +99,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     manager = get_progress_manager()
     sub_id = await manager.subscribe(subscriber)
 
-    # Seed templates in background so the server accepts connections immediately.
+    # Run startup tasks in background so the server accepts connections immediately.
     # On cold starts (Fly machine + Neon DB waking together), blocking here
     # caused the server to miss Fly.io's health check grace period.
-    seed_task = asyncio.create_task(_seed_templates())
+    startup_tasks = [
+        asyncio.create_task(_seed_templates()),
+        asyncio.create_task(_prune_expired_oauth_states()),
+    ]
 
     yield
     logger.info("API server shutting down — cancelling background tasks")
-    seed_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await seed_task
+    for task in startup_tasks:
+        task.cancel()
+    for task in startup_tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     await manager.unsubscribe(sub_id)
 
 

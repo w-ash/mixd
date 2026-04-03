@@ -19,7 +19,9 @@ from tests.fixtures import make_workflow_def
 async def _create_parent_workflow(db_session) -> Workflow:
     """Create and persist a parent workflow, returning the saved domain entity."""
     repo = WorkflowRepository(db_session)
-    return await repo.save_workflow(Workflow(definition=make_workflow_def()))
+    return await repo.save_workflow(
+        Workflow(user_id="default", definition=make_workflow_def())
+    )
 
 
 class TestCreateVersion:
@@ -106,10 +108,16 @@ class TestListVersions:
         """Versions for one workflow do not leak into another workflow's list."""
         workflow_repo = WorkflowRepository(db_session)
         wf_a = await workflow_repo.save_workflow(
-            Workflow(definition=make_workflow_def(id="wf-a", name="Workflow A"))
+            Workflow(
+                user_id="default",
+                definition=make_workflow_def(id="wf-a", name="Workflow A"),
+            )
         )
         wf_b = await workflow_repo.save_workflow(
-            Workflow(definition=make_workflow_def(id="wf-b", name="Workflow B"))
+            Workflow(
+                user_id="default",
+                definition=make_workflow_def(id="wf-b", name="Workflow B"),
+            )
         )
 
         version_repo = WorkflowVersionRepository(db_session)
@@ -200,10 +208,16 @@ class TestDeleteVersionsForWorkflow:
     async def test_does_not_affect_other_workflows(self, db_session) -> None:
         workflow_repo = WorkflowRepository(db_session)
         wf_a = await workflow_repo.save_workflow(
-            Workflow(definition=make_workflow_def(id="wf-a", name="Workflow A"))
+            Workflow(
+                user_id="default",
+                definition=make_workflow_def(id="wf-a", name="Workflow A"),
+            )
         )
         wf_b = await workflow_repo.save_workflow(
-            Workflow(definition=make_workflow_def(id="wf-b", name="Workflow B"))
+            Workflow(
+                user_id="default",
+                definition=make_workflow_def(id="wf-b", name="Workflow B"),
+            )
         )
 
         version_repo = WorkflowVersionRepository(db_session)

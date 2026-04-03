@@ -160,7 +160,7 @@ class Workflow:
     """
 
     id: UUID = field(factory=uuid7)
-    user_id: str = "default"
+    user_id: str | None = None
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
     is_template: bool = False
     source_template: str | None = None

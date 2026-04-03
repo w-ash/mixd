@@ -714,9 +714,7 @@ class DBWorkflow(BaseEntity):
 
     __tablename__: str = "workflows"
 
-    user_id: Mapped[str] = mapped_column(
-        String(), nullable=False, default="default", server_default="default"
-    )
+    user_id: Mapped[str | None] = mapped_column(String(), nullable=True)
     name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
     definition: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
@@ -727,6 +725,7 @@ class DBWorkflow(BaseEntity):
     __table_args__: tuple[Any, ...] = (
         UniqueConstraint("source_template", name="uq_workflows_source_template"),
         Index("ix_workflows_is_template", "is_template"),
+        Index("ix_workflows_user_id", "user_id"),
     )
 
 

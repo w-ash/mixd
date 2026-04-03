@@ -8,7 +8,9 @@ user-invocable: false
 
 Mixd uses specialized Claude Code subagents for deep technical expertise. Main agent delegates to subagents for advisory consultation, then implements with full context.
 
-## Available Subagents (7 Total, 3 Active at a Time)
+## Available Subagents (12 Total)
+
+### Implementation Advisors (7 agents, 3 active at a time)
 
 **Backend Agents**:
 1. **sqlalchemy-async-optimizer** - SQLAlchemy 2.0 async patterns, SQLite concurrency, N+1 query prevention
@@ -22,6 +24,16 @@ Mixd uses specialized Claude Code subagents for deep technical expertise. Main a
 
 **Task Agents**:
 7. **workflow-manager** - Create, update, validate, and debug workflow definitions via `mixd workflow` CLI
+
+### Plan Reviewers (5 agents, launched in parallel via `/plan-review`)
+
+8. **reviewer-architect** - Clean Architecture compliance, layer boundaries, dependency flow, complexity budget
+9. **reviewer-engineer** - Implementability, edge cases, existing code reuse, testing strategy
+10. **reviewer-product** - User story alignment, persona fit, workflow completeness, scope creep
+11. **reviewer-security** - OAuth token handling, secret exposure, injection risks, dependency safety
+12. **reviewer-qa** - Test coverage gaps, error paths, regression risks, migration safety
+
+Plan reviewers are **read-only background agents** (`permissionMode: plan`, `background: true`) that run on Sonnet for speed. They are not invoked individually — use the `/plan-review` command to launch all 5 in parallel.
 
 ## Rotation Strategy (Maximize 3 Active)
 
