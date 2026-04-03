@@ -6,7 +6,7 @@ on workflows is updated to allow SELECT/INSERT/UPDATE/DELETE on NULL rows
 
 Expired oauth_states rows are pruned as a one-time cleanup.
 
-Revision ID: 013_shared_templates_and_oauth_cleanup
+Revision ID: 013_shared_templates
 Revises: 012_purge_default_user_data
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "013_shared_templates_and_oauth_cleanup"
+revision = "013_shared_templates"
 down_revision = "012_purge_default_user_data"
 
 
