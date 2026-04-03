@@ -4,34 +4,105 @@ Command-line interface for managing your music library, running workflows, and s
 
 **Global options:** `--verbose` / `-v` for debug output, `--help` on any command.
 
+## Operating Modes
+
+The CLI works in two modes, determined by environment variables:
+
+### Local Mode (default)
+
+Zero-config. Connects to a local Docker PostgreSQL instance. All data is stored under `user_id="default"`.
+
+```bash
+# Just works — no configuration needed
+pnpm dev              # starts PostgreSQL + API + Vite
+mixd stats            # connects to localhost:5432
+```
+
+### Remote Mode
+
+Connects to the production Neon database. Set two environment variables (in `.env.local` or shell):
+
+```bash
+# .env.local
+DATABASE_URL=postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/mixd
+MIXD_USER_ID=your-neon-auth-user-id
+```
+
+Your `MIXD_USER_ID` is the `sub` claim from your Neon Auth JWT — find it on the Account page in the web UI.
+
+### Verifying Your Configuration
+
+```bash
+mixd whoami           # shows user_id, database host, mode, connector status
+```
+
+### Connector Authentication
+
+In local mode (no web server), authenticate with connectors directly from the CLI:
+
+```bash
+mixd connectors auth spotify   # opens browser OAuth flow, stores token
+mixd connectors auth lastfm    # uses LASTFM_USERNAME + LASTFM_PASSWORD from env
+mixd connectors                # verify connection status
+```
+
 ## Command Overview
 
 ```
 mixd
+├── whoami                           Show identity, database, mode, connectors
 ├── version                          Show version information
-├── connectors                       Check music service connector status
+├── connectors
+│   ├── (default)                    Check connector authentication status
+│   └── auth
+│       ├── spotify                  Authenticate with Spotify (browser OAuth)
+│       └── lastfm                   Authenticate with Last.fm (password auth)
 ├── stats                            Library statistics and dashboard
 ├── workflow
+│   ├── (default)                    Interactive workflow browser
 │   ├── list                         List available workflow definitions
-│   └── run [WORKFLOW_ID]            Execute a specific workflow
+│   ├── run [WORKFLOW_ID]            Execute a specific workflow
+│   ├── get WORKFLOW_ID              Show a workflow's full definition
+│   ├── create [--file FILE]         Create workflow from JSON
+│   ├── update WORKFLOW_ID           Update workflow definition from JSON
+│   ├── delete WORKFLOW_ID           Delete a workflow
+│   ├── export                       Export workflow definitions to JSON
+│   ├── validate [--file FILE]       Validate a workflow definition
+│   ├── nodes                        List available node types
+│   ├── runs [WORKFLOW_ID]           List workflow execution runs
+│   ├── versions WORKFLOW_ID         List version history of a workflow
+│   └── revert WORKFLOW_ID VERSION   Revert to a previous version
 ├── playlist
 │   ├── list                         List all local playlists
 │   ├── backup CONNECTOR PLAYLIST_ID Backup a playlist from a music service
 │   ├── create --name NAME           Create a new empty playlist
 │   ├── update PLAYLIST_ID           Update playlist name/description
-│   └── delete PLAYLIST_ID           Delete a playlist
+│   ├── delete PLAYLIST_ID           Delete a playlist
+│   ├── links PLAYLIST_ID            List connector links for a playlist
+│   ├── link PLAYLIST_ID             Link to an external connector playlist
+│   ├── unlink LINK_ID               Remove a connector link
+│   ├── sync LINK_ID                 Sync a linked playlist
+│   └── sync-preview LINK_ID         Preview what a sync would do
 ├── history
+│   ├── (default)                    Interactive history import menu
 │   ├── import-lastfm                Import play history from Last.fm API
 │   ├── import-spotify [FILE_PATH]   Import plays from Spotify JSON export
 │   └── checkpoints                  Show sync checkpoint status
 ├── likes
+│   ├── (default)                    Interactive likes menu
 │   ├── import-spotify               Import liked tracks from Spotify
 │   └── export-lastfm                Export liked tracks to Last.fm as loves
-└── tracks
-    ├── list                         List/search tracks in your library
-    ├── show TRACK_ID                Show detailed track information
-    ├── playlists TRACK_ID           Show which playlists contain a track
-    └── merge                        Merge duplicate tracks
+├── tracks
+│   ├── list                         List/search tracks in your library
+│   ├── show TRACK_ID                Show detailed track information
+│   ├── playlists TRACK_ID           Show which playlists contain a track
+│   ├── merge                        Merge duplicate tracks
+│   ├── relink TRACK_ID MAPPING_ID   Move a mapping to a different track
+│   ├── unlink TRACK_ID MAPPING_ID   Remove a connector mapping
+│   └── set-primary TRACK_ID MAPPING_ID  Set mapping as primary source
+└── reviews
+    ├── list                         List pending match reviews
+    └── resolve [REVIEW_ID]          Resolve a match review (accept/reject)
 ```
 
 ## Command Groups
@@ -42,8 +113,19 @@ Execute and manage playlist workflows.
 
 | Command | Description |
 |---------|-------------|
+| `mixd workflow` | Interactive workflow browser |
 | `mixd workflow list` | List available workflow definitions |
 | `mixd workflow run [WORKFLOW_ID]` | Execute a specific workflow |
+| `mixd workflow get WORKFLOW_ID` | Show a workflow's full definition |
+| `mixd workflow create [--file FILE]` | Create workflow from JSON (file or stdin) |
+| `mixd workflow update WORKFLOW_ID [--file FILE]` | Update workflow definition |
+| `mixd workflow delete WORKFLOW_ID` | Delete a workflow (templates protected) |
+| `mixd workflow export --all \| --id ID` | Export definitions to JSON files |
+| `mixd workflow validate [--file FILE]` | Validate a definition without saving |
+| `mixd workflow nodes` | List available node types with config fields |
+| `mixd workflow runs [WORKFLOW_ID]` | List execution runs (all or per-workflow) |
+| `mixd workflow versions WORKFLOW_ID` | List version history |
+| `mixd workflow revert WORKFLOW_ID VERSION` | Revert to a previous version |
 
 **`workflow run` options:**
 - `--show-results` / `--no-results` — show detailed result metrics (default: show)
@@ -51,15 +133,18 @@ Execute and manage playlist workflows.
 - `--quiet` / `-q` — minimal output
 
 ```bash
+mixd workflow                              # interactive browser
 mixd workflow list
-mixd workflow run discovery_mix
 mixd workflow run discovery_mix --format json
-mixd workflow run                          # interactive selection
+mixd workflow runs                         # list all recent runs
+mixd workflow runs discovery_mix           # runs for a specific workflow
+mixd workflow versions 5                   # version history for workflow 5
+mixd workflow revert 5 2                   # revert workflow 5 to version 2
 ```
 
 ### playlist
 
-Manage stored playlists and data operations.
+Manage stored playlists, connector links, and sync operations.
 
 | Command | Description |
 |---------|-------------|
@@ -68,17 +153,23 @@ Manage stored playlists and data operations.
 | `mixd playlist create --name NAME` | Create a new empty playlist |
 | `mixd playlist update PLAYLIST_ID` | Update playlist name and/or description |
 | `mixd playlist delete PLAYLIST_ID` | Delete a playlist from local database |
+| `mixd playlist links PLAYLIST_ID` | List connector links for a playlist |
+| `mixd playlist link PLAYLIST_ID` | Link to an external connector playlist |
+| `mixd playlist unlink LINK_ID` | Remove a connector link |
+| `mixd playlist sync LINK_ID` | Sync a linked playlist with its connector |
+| `mixd playlist sync-preview LINK_ID` | Preview what a sync would change |
 
-**`playlist create` options:** `--name` / `-n` (required), `--description` / `-d`
-**`playlist update` options:** `--name` / `-n`, `--description` / `-d`
-**`playlist delete` options:** `--force` / `-f` — skip confirmation prompt
+**`playlist link` options:** `--connector` / `-c` (required), `--playlist-id` (required), `--direction` / `-d` `push|pull` (default: push)
+**`playlist sync` options:** `--direction-override` `push|pull`, `--confirm` (skip confirmation)
 
 ```bash
 mixd playlist list
 mixd playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
 mixd playlist create --name "My Playlist" --description "Best tracks"
-mixd playlist update 5 --name "New Name"
-mixd playlist delete 3 --force
+mixd playlist links abc-123-uuid                                        # list linked connectors
+mixd playlist link abc-123-uuid --connector spotify --playlist-id 37i... --direction push
+mixd playlist sync-preview def-456-uuid                                 # preview before sync
+mixd playlist sync def-456-uuid --confirm                               # sync with auto-confirm
 ```
 
 ### history
@@ -135,7 +226,7 @@ mixd likes export-lastfm --date 2025-08-01
 
 ### tracks
 
-Track management operations including merging duplicates.
+Track management — search, inspect, merge, and manage connector mappings.
 
 | Command | Description |
 |---------|-------------|
@@ -143,6 +234,9 @@ Track management operations including merging duplicates.
 | `mixd tracks show TRACK_ID` | Show detailed track info (likes, plays, playlists) |
 | `mixd tracks playlists TRACK_ID` | Show which playlists contain a track |
 | `mixd tracks merge` | Merge two duplicate tracks |
+| `mixd tracks relink TRACK_ID MAPPING_ID` | Move a mapping to a different track |
+| `mixd tracks unlink TRACK_ID MAPPING_ID` | Remove a connector mapping from a track |
+| `mixd tracks set-primary TRACK_ID MAPPING_ID` | Set a mapping as the primary source |
 
 **`tracks list` options:**
 - `--query` / `-q` — search by title/artist
@@ -153,22 +247,47 @@ Track management operations including merging duplicates.
 - `--offset` / `-o` — skip tracks (default: 0)
 - `--format` / `-f` — `table` or `json` (default: `table`)
 
-**`tracks merge` options:** `--winner-id` (required), `--loser-id` (required), `--force`
+**`tracks relink` options:** `--new-track-id` (required) — UUID of the target track
 
 ```bash
 mixd tracks list --query "Radiohead" --liked --limit 20
-mixd tracks show 42
-mixd tracks playlists 42
+mixd tracks show abc-123-uuid
+mixd tracks playlists abc-123-uuid
 mixd tracks merge --winner-id 10 --loser-id 25 --force
+mixd tracks relink abc-123 def-456 --new-track-id ghi-789   # move mapping to another track
+mixd tracks unlink abc-123 def-456                           # remove a bad mapping
+mixd tracks set-primary abc-123 def-456                      # prefer this connector's metadata
+```
+
+### reviews
+
+Manage pending track match reviews — accept or reject proposed matches.
+
+| Command | Description |
+|---------|-------------|
+| `mixd reviews list` | List pending match reviews with confidence scores |
+| `mixd reviews resolve REVIEW_ID --action accept\|reject` | Resolve a single review |
+| `mixd reviews resolve --interactive` | Step through pending reviews one by one |
+
+```bash
+mixd reviews list                                            # see what needs attention
+mixd reviews list --format json                              # machine-readable
+mixd reviews resolve abc-123 --action accept                 # accept a match
+mixd reviews resolve --interactive                           # guided walkthrough
 ```
 
 ### System Commands
 
 | Command | Description |
 |---------|-------------|
+| `mixd whoami` | Show user identity, database, mode, connector status |
 | `mixd version` | Show version information |
 | `mixd connectors` | Check music service connector status |
+| `mixd connectors auth spotify` | Authenticate with Spotify via browser OAuth |
+| `mixd connectors auth lastfm` | Authenticate with Last.fm via credentials |
 | `mixd stats` | Library statistics and dashboard |
+| `mixd stats --health` | Run data integrity checks |
+| `mixd stats --matching` | Show match method health report |
 
 ## Output Formats
 
@@ -228,19 +347,15 @@ Suggestion: Check that the playlist exists and is accessible to your account
 ```bash
 uv run alembic current              # check migration status
 uv run alembic upgrade head         # apply pending migrations
-
-# full reset (destroys all data)
-rm data/db/mixd.db
-uv run alembic upgrade head
 ```
 
 ### Authentication
 
 ```bash
 mixd connectors                       # verify service connections
+mixd connectors auth spotify          # re-authenticate Spotify
+mixd connectors auth lastfm           # re-authenticate Last.fm
 ```
-
-Re-run OAuth flow by deleting the cached token and running a command that requires authentication (e.g., `mixd likes import-spotify`).
 
 ### Verbose Mode
 
