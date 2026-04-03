@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.1"
+    "version": "0.6.5"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -38,7 +38,7 @@
           "auth"
         ],
         "summary": "Get Lastfm Auth Url",
-        "description": "Generate Last.fm web auth URL.\n\nDerives the callback URL from the request's Host header so it works\nfor both localhost development and production deployment.",
+        "description": "Generate Last.fm web auth URL.\n\nDerives the callback URL from the request's Host header so it works\nfor both localhost development and production deployment. Embeds a\n``_state`` query param in the callback URL since Last.fm has no native\nstate parameter.",
         "operationId": "get_lastfm_auth_url_api_v1_connectors_lastfm_auth_url_get",
         "responses": {
           "200": {
@@ -126,7 +126,7 @@
           "auth"
         ],
         "summary": "Lastfm Callback",
-        "description": "Last.fm auth callback \u2014 exchanges token for permanent session key.\n\nLast.fm's web auth flow:\n1. User authorized on last.fm, redirected here with ?token=TOKEN\n2. We call auth.getSession to exchange the token for a permanent session key\n3. Session key stored in database, user redirected to /settings",
+        "description": "Last.fm auth callback \u2014 exchanges token for permanent session key.\n\nLast.fm's web auth flow:\n1. User authorized on last.fm, redirected here with ?token=TOKEN&_state=STATE\n2. We validate the state to recover user_id\n3. We call auth.getSession to exchange the token for a permanent session key\n4. Session key stored in database, user redirected to /settings",
         "operationId": "lastfm_callback_auth_lastfm_callback_get",
         "parameters": [
           {
@@ -137,6 +137,16 @@
               "type": "string",
               "default": "",
               "title": "Token"
+            }
+          },
+          {
+            "name": "_state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": " State"
             }
           }
         ],

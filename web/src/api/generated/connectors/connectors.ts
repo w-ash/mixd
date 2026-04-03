@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.1
+ * OpenAPI spec version: 0.6.5
  */
 import {
   useMutation,

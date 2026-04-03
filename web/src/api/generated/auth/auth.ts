@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.1
+ * OpenAPI spec version: 0.6.5
  */
 import {
   useQuery
@@ -150,7 +150,9 @@ export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awa
  * Generate Last.fm web auth URL.
 
 Derives the callback URL from the request's Host header so it works
-for both localhost development and production deployment.
+for both localhost development and production deployment. Embeds a
+``_state`` query param in the callback URL since Last.fm has no native
+state parameter.
  * @summary Get Lastfm Auth Url
  */
 export type getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse200 = {
@@ -392,9 +394,10 @@ export function useSpotifyCallbackAuthSpotifyCallbackGet<TData = Awaited<ReturnT
  * Last.fm auth callback — exchanges token for permanent session key.
 
 Last.fm's web auth flow:
-1. User authorized on last.fm, redirected here with ?token=TOKEN
-2. We call auth.getSession to exchange the token for a permanent session key
-3. Session key stored in database, user redirected to /settings
+1. User authorized on last.fm, redirected here with ?token=TOKEN&_state=STATE
+2. We validate the state to recover user_id
+3. We call auth.getSession to exchange the token for a permanent session key
+4. Session key stored in database, user redirected to /settings
  * @summary Lastfm Callback
  */
 export type lastfmCallbackAuthLastfmCallbackGetResponse200 = {
