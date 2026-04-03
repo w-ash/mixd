@@ -47,7 +47,11 @@ def upgrade() -> None:
     )
 
     # 4. Index on workflows.user_id for the OR user_id IS NULL query pattern
-    op.create_index("ix_workflows_user_id", "workflows", ["user_id"])
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_workflows_user_id ON workflows (user_id)"
+        )
+    )
 
     # 5. Prune expired OAuth states (one-time cleanup)
     op.execute(sa.text("DELETE FROM oauth_states WHERE expires_at < NOW()"))

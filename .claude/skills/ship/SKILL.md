@@ -73,3 +73,28 @@ If the version was not bumped, skip this entire step.
 - Stage files by explicit name — never `git add -A` or `git add .`.
 - Create a git commit following the conventions from the git log above. The message should be a concise summary with the version tag. Include the Co-Authored-By trailer.
 - If the commit fails due to a pre-commit hook (e.g., ruff reformatted files), re-stage the affected files and retry the commit. Do NOT use `--no-verify`.
+
+## Step 7: Tag and deploy
+
+After the commit succeeds:
+
+1. Create the version tag: run `git tag v{VERSION}` (e.g., `git tag v0.6.6`).
+2. Let the user know what's ready and how to deploy when they choose to:
+
+> Version is committed and tagged locally. When you're ready to deploy, run `deploy` in your terminal.
+
+### What `deploy` does
+
+`deploy` is a shell function (defined in `~/.zshrc`) that runs:
+
+```bash
+git push origin main --tags && sleep 3 && gh run watch <latest-run-id>
+```
+
+1. Pushes the commit and tag to origin together
+2. The `v*` tag triggers `.github/workflows/release.yml`, which runs two jobs:
+   - **GitHub Release**: generates changelog via git-cliff, creates a GitHub Release
+   - **Deploy to Fly.io**: `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
+3. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
+4. Health check at `/api/v1/health` gates the traffic cutover
+5. `gh run watch` streams all of this in the user's terminal
