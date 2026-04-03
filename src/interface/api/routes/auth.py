@@ -258,7 +258,6 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
         )
 
     try:
-        # Exchange token for permanent session key via shared LastFMAPIClient method
         from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 
         async with LastFMAPIClient() as lastfm_client:

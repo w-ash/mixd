@@ -196,7 +196,7 @@ class LastFMAPIClient(BaseAPIClient):
         }
 
         if authenticated:
-            sk = await self._get_session_key()
+            sk = await self.get_session_key()
             base_params["sk"] = sk
             # api_sig excludes "format" per Last.fm API spec
             sig_params = {k: v for k, v in base_params.items() if k != "format"}
@@ -231,7 +231,7 @@ class LastFMAPIClient(BaseAPIClient):
     # SESSION KEY (WRITE AUTH)
     # -------------------------------------------------------------------------
 
-    async def _get_session_key(self) -> str:
+    async def get_session_key(self) -> str:
         """Return a valid Last.fm session key, obtaining one if not yet cached.
 
         Resolution order:

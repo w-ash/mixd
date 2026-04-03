@@ -153,7 +153,7 @@ class SpotifyTokenManager:
         logger.debug("Spotify access token refreshed successfully")
         return cast(SpotifyTokenCache, raw)
 
-    def _run_browser_auth(self) -> str:
+    def run_browser_auth(self) -> str:
         """Run Authorization Code flow: open browser, capture redirect code.
 
         Runs a minimal local HTTP server on port 8888 to capture the OAuth
@@ -284,7 +284,7 @@ class SpotifyTokenManager:
             # First-time: browser authorization flow
             if self._token_info is None:
                 logger.info("No Spotify token found — starting browser authorization")
-                code = await asyncio.to_thread(self._run_browser_auth)
+                code = await asyncio.to_thread(self.run_browser_auth)
                 self._token_info = await self.exchange_code(code)
                 await self._save_to_storage(self._token_info)
 

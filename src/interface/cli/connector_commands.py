@@ -93,11 +93,9 @@ def auth_spotify() -> None:
         storage = get_token_storage()
         mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
 
-        # Browser auth runs in a thread (blocking HTTP server)
-        code = await asyncio.to_thread(mgr._run_browser_auth)
+        code = await asyncio.to_thread(mgr.run_browser_auth)
         token_info = await mgr.exchange_code(code)
 
-        # Fetch display name for confirmation
         display_name = await _fetch_spotify_display_name(token_info["access_token"])
         token_to_save = StoredToken(**token_info)
         if display_name:
@@ -130,7 +128,7 @@ def auth_lastfm() -> None:
 
         user_id = get_cli_user_id()
         async with LastFMAPIClient(user_id=user_id) as client:
-            session_key = await client._get_session_key()
+            session_key = await client.get_session_key()
             return session_key, client.lastfm_username
 
     try:

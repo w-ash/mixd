@@ -427,6 +427,15 @@ async def _update_playlist_async(
 # ---------------------------------------------------------------------------
 
 
+def _parse_sync_direction(value: str | None):
+    """Parse optional sync direction string to SyncDirection enum."""
+    if not value:
+        return None
+    from src.domain.entities.playlist_link import SyncDirection
+
+    return SyncDirection(value)
+
+
 @app.command(name="links")
 def list_links(
     playlist_id: Annotated[str, typer.Argument(help="Playlist UUID")],
@@ -582,11 +591,7 @@ def sync_link(
     """Sync a linked playlist with its external connector."""
     from uuid import UUID
 
-    dir_override = None
-    if direction_override:
-        from src.domain.entities.playlist_link import SyncDirection
-
-        dir_override = SyncDirection(direction_override)
+    dir_override = _parse_sync_direction(direction_override)
 
     async def _sync():
         from src.application.runner import execute_use_case
@@ -633,11 +638,7 @@ def sync_preview(
     """Preview what a sync would do without making changes."""
     from uuid import UUID
 
-    dir_override = None
-    if direction_override:
-        from src.domain.entities.playlist_link import SyncDirection
-
-        dir_override = SyncDirection(direction_override)
+    dir_override = _parse_sync_direction(direction_override)
 
     async def _preview():
         from src.application.runner import execute_use_case
