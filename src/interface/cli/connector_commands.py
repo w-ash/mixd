@@ -59,3 +59,82 @@ def connectors_status(ctx: typer.Context) -> None:
         run_async(_status_async())
     except Exception as e:
         handle_cli_error(e, "Failed to check connector status")
+
+
+# ---------------------------------------------------------------------------
+# Auth subcommands
+# ---------------------------------------------------------------------------
+
+auth_app = typer.Typer(help="Authenticate with music services")
+app.add_typer(auth_app, name="auth")
+
+
+@auth_app.command(name="spotify")
+def auth_spotify() -> None:
+    """Authenticate with Spotify via browser OAuth flow.
+
+    Opens your browser to Spotify's authorization page. After you approve,
+    the token is captured locally and stored for the current CLI user.
+    """
+
+    async def _auth():
+        import asyncio
+
+        from src.infrastructure.connectors._shared.connector_status import (
+            _fetch_spotify_display_name,
+        )
+        from src.infrastructure.connectors._shared.token_storage import (
+            StoredToken,
+            get_token_storage,
+        )
+        from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+
+        user_id = get_cli_user_id()
+        storage = get_token_storage()
+        mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
+
+        # Browser auth runs in a thread (blocking HTTP server)
+        code = await asyncio.to_thread(mgr._run_browser_auth)
+        token_info = await mgr.exchange_code(code)
+
+        # Fetch display name for confirmation
+        display_name = await _fetch_spotify_display_name(token_info["access_token"])
+        token_to_save = StoredToken(**token_info)
+        if display_name:
+            token_to_save = StoredToken(**token_info, account_name=display_name)
+        await storage.save_token("spotify", user_id, token_to_save)
+
+        return display_name
+
+    console.print("[cyan]Opening Spotify authorization in browser...[/cyan]")
+    try:
+        display_name = run_async(_auth())
+        if display_name:
+            console.print(f"[green]Connected as {display_name}[/green]")
+        else:
+            console.print("[green]Spotify connected successfully.[/green]")
+    except Exception as e:
+        handle_cli_error(e, "Spotify authentication failed")
+
+
+@auth_app.command(name="lastfm")
+def auth_lastfm() -> None:
+    """Authenticate with Last.fm using stored credentials.
+
+    Uses LASTFM_USERNAME and LASTFM_PASSWORD from your environment or .env.local
+    to obtain a session key via Last.fm's mobile auth API.
+    """
+
+    async def _auth():
+        from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+
+        user_id = get_cli_user_id()
+        async with LastFMAPIClient(user_id=user_id) as client:
+            session_key = await client._get_session_key()
+            return session_key, client.lastfm_username
+
+    try:
+        _, username = run_async(_auth())
+        console.print(f"[green]Last.fm connected as {username}[/green]")
+    except Exception as e:
+        handle_cli_error(e, "Last.fm authentication failed")

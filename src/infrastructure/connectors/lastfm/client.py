@@ -316,6 +316,56 @@ class LastFMAPIClient(BaseAPIClient):
 
             return self._session_key
 
+    async def exchange_web_auth_token(self, token: str) -> tuple[str, str]:
+        """Exchange a Last.fm web auth token for a permanent session key.
+
+        This is the ``auth.getSession`` flow — used after browser-based
+        authorization where the user approves access on last.fm and is
+        redirected back with a temporary token.
+
+        Both the web callback route and the CLI ``connectors auth lastfm``
+        command share this method to avoid duplicating the exchange logic.
+
+        Args:
+            token: Temporary token from the Last.fm web auth redirect.
+
+        Returns:
+            Tuple of (session_key, username).
+
+        Raises:
+            LastFMAPIError: If the API returns an error response.
+            RuntimeError: If credentials are missing or response is malformed.
+        """
+        if not self.api_key or not self.api_secret:
+            raise RuntimeError("Last.fm web auth requires api_key and api_secret")
+
+        sig_params: dict[str, str] = {
+            "method": "auth.getSession",
+            "api_key": self.api_key,
+            "token": token,
+        }
+        api_sig = _sign_params(sig_params, self.api_secret)
+        request_params = {**sig_params, "api_sig": api_sig, "format": "json"}
+
+        response = await self._client.get("/", params=request_params)
+        _ = response.raise_for_status()
+        data = response.json()
+
+        if "error" in data:
+            raise LastFMAPIError(data["error"], data.get("message", ""))
+
+        raw_session = data.get("session")
+        if not isinstance(raw_session, dict):
+            raise TypeError("Last.fm auth.getSession returned no session object")
+
+        session_key = str(raw_session.get("key", ""))
+        username = str(raw_session.get("name", ""))
+
+        if not session_key:
+            raise RuntimeError("Last.fm auth.getSession returned no session key")
+
+        return session_key, username
+
     # -------------------------------------------------------------------------
     # TRACK INFO API METHODS
     # -------------------------------------------------------------------------

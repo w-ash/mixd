@@ -420,3 +420,256 @@ async def _update_playlist_async(
 
     except Exception as e:
         handle_cli_error(e, "Failed to update playlist")
+
+
+# ---------------------------------------------------------------------------
+# Playlist Link Commands
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="links")
+def list_links(
+    playlist_id: Annotated[str, typer.Argument(help="Playlist UUID")],
+) -> None:
+    """List connector links for a playlist."""
+    from uuid import UUID
+
+    async def _list():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.list_playlist_links import (
+            ListPlaylistLinksCommand,
+            ListPlaylistLinksUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: ListPlaylistLinksUseCase().execute(
+                ListPlaylistLinksCommand(
+                    user_id=user_id, playlist_id=UUID(playlist_id)
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        result = run_async(_list())
+    except Exception as e:
+        handle_cli_error(e, "Failed to list links")
+
+    if not result.links:
+        console.print("[yellow]No connector links for this playlist.[/yellow]")
+        return
+
+    table = Table(title="Playlist Links", show_header=True, header_style="bold magenta")
+    table.add_column("Link ID", style="cyan", no_wrap=True)
+    table.add_column("Connector")
+    table.add_column("External ID", style="dim")
+    table.add_column("Direction")
+    table.add_column("Status")
+    table.add_column("Last Sync", style="dim")
+
+    for link in result.links:
+        table.add_row(
+            str(link.id),
+            link.connector_name,
+            link.connector_playlist_identifier,
+            str(link.sync_direction.value),
+            str(link.sync_status.value),
+            str(link.last_synced_at) if link.last_synced_at else "Never",
+        )
+
+    console.print(table)
+
+
+@app.command(name="link")
+def create_link(
+    playlist_id: Annotated[str, typer.Argument(help="Playlist UUID")],
+    connector: Annotated[
+        str, typer.Option("--connector", "-c", help="Connector name (e.g., 'spotify')")
+    ],
+    external_id: Annotated[
+        str, typer.Option("--playlist-id", help="External playlist ID")
+    ],
+    direction: Annotated[
+        str, typer.Option("--direction", "-d", help="push or pull")
+    ] = "push",
+) -> None:
+    """Link a playlist to an external connector playlist."""
+    from uuid import UUID
+
+    from src.domain.entities.playlist_link import SyncDirection
+
+    sync_dir = SyncDirection(direction)
+
+    async def _create():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.create_playlist_link import (
+            CreatePlaylistLinkCommand,
+            CreatePlaylistLinkUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: CreatePlaylistLinkUseCase().execute(
+                CreatePlaylistLinkCommand(
+                    user_id=user_id,
+                    playlist_id=UUID(playlist_id),
+                    connector=connector,
+                    connector_playlist_id=external_id,
+                    sync_direction=sync_dir,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        result = run_async(_create())
+    except Exception as e:
+        handle_cli_error(e, "Failed to create link")
+
+    console.print(
+        f"[green]Linked[/green] playlist {playlist_id} to {connector}:{external_id} "
+        f"(direction: {direction}, link ID: {result.link.id})"
+    )
+
+
+@app.command(name="unlink")
+def delete_link(
+    link_id: Annotated[str, typer.Argument(help="Link UUID to remove")],
+) -> None:
+    """Remove a connector link from a playlist."""
+    from uuid import UUID
+
+    async def _delete():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.delete_playlist_link import (
+            DeletePlaylistLinkCommand,
+            DeletePlaylistLinkUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: DeletePlaylistLinkUseCase().execute(
+                DeletePlaylistLinkCommand(user_id=user_id, link_id=UUID(link_id)),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        run_async(_delete())
+    except Exception as e:
+        handle_cli_error(e, "Failed to delete link")
+
+    console.print(f"[green]Removed link {link_id}[/green]")
+
+
+@app.command(name="sync")
+def sync_link(
+    link_id: Annotated[str, typer.Argument(help="Link UUID to sync")],
+    direction_override: Annotated[
+        str | None,
+        typer.Option(
+            "--direction-override", help="Override sync direction (push or pull)"
+        ),
+    ] = None,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Skip confirmation")
+    ] = False,
+) -> None:
+    """Sync a linked playlist with its external connector."""
+    from uuid import UUID
+
+    dir_override = None
+    if direction_override:
+        from src.domain.entities.playlist_link import SyncDirection
+
+        dir_override = SyncDirection(direction_override)
+
+    async def _sync():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.sync_playlist_link import (
+            SyncPlaylistLinkCommand,
+            SyncPlaylistLinkUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(
+                    user_id=user_id,
+                    link_id=UUID(link_id),
+                    direction_override=dir_override,
+                    confirmed=confirm,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        result = run_async(_sync())
+    except Exception as e:
+        handle_cli_error(e, "Sync failed")
+
+    console.print(
+        f"[green]Sync complete[/green] — "
+        f"added: {result.tracks_added}, removed: {result.tracks_removed}"
+    )
+
+
+@app.command(name="sync-preview")
+def sync_preview(
+    link_id: Annotated[str, typer.Argument(help="Link UUID to preview")],
+    direction_override: Annotated[
+        str | None,
+        typer.Option(
+            "--direction-override", help="Override sync direction (push or pull)"
+        ),
+    ] = None,
+) -> None:
+    """Preview what a sync would do without making changes."""
+    from uuid import UUID
+
+    dir_override = None
+    if direction_override:
+        from src.domain.entities.playlist_link import SyncDirection
+
+        dir_override = SyncDirection(direction_override)
+
+    async def _preview():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.preview_playlist_sync import (
+            PreviewPlaylistSyncCommand,
+            PreviewPlaylistSyncUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: PreviewPlaylistSyncUseCase().execute(
+                PreviewPlaylistSyncCommand(
+                    user_id=user_id,
+                    link_id=UUID(link_id),
+                    direction_override=dir_override,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        result = run_async(_preview())
+    except Exception as e:
+        handle_cli_error(e, "Preview failed")
+
+    console.print(
+        Panel.fit(
+            f"[cyan]Direction:[/cyan] {result.effective_direction.value}\n"
+            f"[cyan]To add:[/cyan] {len(result.tracks_to_add)}\n"
+            f"[cyan]To remove:[/cyan] {len(result.tracks_to_remove)}\n"
+            f"[cyan]Unchanged:[/cyan] {result.unchanged_count}",
+            title="[bold]Sync Preview[/bold]",
+        )
+    )

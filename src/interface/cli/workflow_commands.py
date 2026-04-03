@@ -561,6 +561,276 @@ def nodes(
         console.print(table)
 
 
+@app.command(name="runs")
+def list_runs(
+    workflow_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="Workflow ID (number or slug) — omit to show all runs",
+            autocompletion=complete_workflow_id,
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l")] = 20,
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """List workflow execution runs."""
+    # Resolve workflow_id to UUID if provided
+    resolved_wf_id: int | None = None
+    if workflow_id is not None:
+        workflows = _get_available_workflows()
+        selected = _resolve_workflow(workflows, workflow_id)
+        if selected is None:
+            err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+            raise typer.Exit(1)
+        resolved_wf_id = selected.id
+
+    async def _list_runs():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_runs import (
+            ListWorkflowRunsCommand,
+            ListWorkflowRunsUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        result = await execute_use_case(
+            lambda uow: ListWorkflowRunsUseCase().execute(
+                ListWorkflowRunsCommand(
+                    user_id=user_id,
+                    workflow_id=resolved_wf_id,
+                    limit=limit,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+        return result
+
+    try:
+        result = run_async(_list_runs())
+    except Exception as e:
+        handle_cli_error(e, "Failed to list runs")
+
+    if not result.runs:
+        console.print("[yellow]No workflow runs found.[/yellow]")
+        return
+
+    if output_format == "json":
+        import json
+
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": r.id,
+                        "workflow_id": r.workflow_id,
+                        "status": r.status,
+                        "started_at": str(r.started_at) if r.started_at else None,
+                        "duration_ms": r.duration_ms,
+                        "output_track_count": r.output_track_count,
+                        "error_message": r.error_message,
+                    }
+                    for r in result.runs
+                ],
+                indent=2,
+                default=str,
+            )
+        )
+        return
+
+    table = Table(
+        title=f"Workflow Runs ({result.total_count} total)",
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("Run ID", style="cyan", no_wrap=True)
+    table.add_column("Workflow", style="green")
+    table.add_column("Status")
+    table.add_column("Started", style="dim")
+    table.add_column("Duration", justify="right")
+    table.add_column("Tracks", justify="right")
+
+    status_styles = {
+        "completed": "[green]completed[/green]",
+        "failed": "[red]failed[/red]",
+        "running": "[yellow]running[/yellow]",
+        "pending": "[dim]pending[/dim]",
+    }
+
+    for r in result.runs:
+        duration = f"{r.duration_ms}ms" if r.duration_ms else "—"
+        tracks = str(r.output_track_count) if r.output_track_count is not None else "—"
+        started = r.started_at.strftime("%Y-%m-%d %H:%M") if r.started_at else "—"
+        table.add_row(
+            str(r.id),
+            r.definition_snapshot.name,
+            status_styles.get(r.status, r.status),
+            started,
+            duration,
+            tracks,
+        )
+
+    console.print(table)
+
+
+@app.command(name="versions")
+def list_versions(
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """List version history of a workflow."""
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    async def _list_versions():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_versions import (
+            ListWorkflowVersionsCommand,
+            ListWorkflowVersionsUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        result = await execute_use_case(
+            lambda uow: ListWorkflowVersionsUseCase().execute(
+                ListWorkflowVersionsCommand(
+                    user_id=user_id,
+                    workflow_id=selected.id or 0,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+        return result
+
+    try:
+        result = run_async(_list_versions())
+    except Exception as e:
+        handle_cli_error(e, "Failed to list versions")
+
+    if not result.versions:
+        console.print(
+            "[yellow]No versions found (workflow has not been updated).[/yellow]"
+        )
+        return
+
+    if output_format == "json":
+        import json
+
+        print(
+            json.dumps(
+                [
+                    {
+                        "version": v.version,
+                        "created_at": str(v.created_at) if v.created_at else None,
+                        "change_summary": v.change_summary,
+                        "task_count": len(v.definition.tasks),
+                    }
+                    for v in result.versions
+                ],
+                indent=2,
+                default=str,
+            )
+        )
+        return
+
+    table = Table(
+        title=f"Versions of '{selected.definition.name}'",
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("Version", justify="right", style="cyan")
+    table.add_column("Created", style="dim")
+    table.add_column("Tasks", justify="right")
+    table.add_column("Changes")
+
+    for v in result.versions:
+        created = v.created_at.strftime("%Y-%m-%d %H:%M") if v.created_at else "—"
+        table.add_row(
+            f"v{v.version}",
+            created,
+            str(len(v.definition.tasks)),
+            v.change_summary or "—",
+        )
+
+    console.print(table)
+
+
+@app.command(name="revert")
+def revert_version(
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
+    version: Annotated[int, typer.Argument(help="Version number to revert to")],
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """Revert a workflow to a previous version."""
+    from rich.prompt import Confirm
+
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    if not Confirm.ask(
+        f"Revert [bold]{selected.definition.name}[/bold] to v{version}?"
+    ):
+        console.print("[yellow]Revert cancelled.[/yellow]")
+        return
+
+    async def _revert():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.workflow_versions import (
+            RevertWorkflowVersionCommand,
+            RevertWorkflowVersionUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        result = await execute_use_case(
+            lambda uow: RevertWorkflowVersionUseCase().execute(
+                RevertWorkflowVersionCommand(
+                    user_id=user_id,
+                    workflow_id=selected.id or 0,
+                    version=version,
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+        return result.workflow
+
+    try:
+        workflow = run_async(_revert())
+    except Exception as e:
+        handle_cli_error(e, "Failed to revert workflow")
+
+    if output_format == "json":
+        print(_serialize_workflow_json(workflow))
+    else:
+        console.print(
+            f"[green]Reverted[/green] [bold]{workflow.definition.name}[/bold] "
+            f"to v{version} (now v{workflow.definition_version})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

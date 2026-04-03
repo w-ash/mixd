@@ -21,7 +21,6 @@ import urllib.parse
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
-import httpx
 from sqlalchemy import delete
 
 from src.config import get_logger, settings
@@ -32,7 +31,6 @@ from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     get_token_storage,
 )
-from src.infrastructure.connectors.lastfm.client import _sign_params
 from src.infrastructure.connectors.spotify.auth import (
     SPOTIFY_AUTHORIZE_URL,
     SPOTIFY_SCOPES,
@@ -260,49 +258,11 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
         )
 
     try:
-        # Exchange token for permanent session key via auth.getSession
-        sig_params = {
-            "method": "auth.getSession",
-            "api_key": api_key,
-            "token": token,
-        }
-        api_sig = _sign_params(sig_params, api_secret)
+        # Exchange token for permanent session key via shared LastFMAPIClient method
+        from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 
-        request_params = {
-            **sig_params,
-            "api_sig": api_sig,
-            "format": "json",
-        }
-
-        async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
-            resp = await client.get(
-                "https://ws.audioscrobbler.com/2.0/",
-                params=request_params,
-            )
-            resp.raise_for_status()
-            data: dict[str, object] = resp.json()
-
-        if "error" in data:
-            error_msg = data.get("message", "Unknown error")
-            logger.warning(f"Last.fm auth.getSession failed: {error_msg}")
-            return RedirectResponse(
-                f"/settings/integrations?auth=lastfm&status=error&reason={urllib.parse.quote(str(error_msg))}"
-            )
-
-        raw_session = data.get("session")
-        if not isinstance(raw_session, dict):
-            logger.error("Last.fm auth.getSession returned no session object")
-            return RedirectResponse(
-                "/settings/integrations?auth=lastfm&status=error&reason=no_session"
-            )
-        session_key = str(raw_session.get("key", ""))
-        username = str(raw_session.get("name", ""))
-
-        if not session_key:
-            logger.error("Last.fm auth.getSession returned no session key")
-            return RedirectResponse(
-                "/settings/integrations?auth=lastfm&status=error&reason=no_session_key"
-            )
+        async with LastFMAPIClient() as lastfm_client:
+            session_key, username = await lastfm_client.exchange_web_auth_token(token)
 
         # Store permanent session key
         storage = get_token_storage()
@@ -310,9 +270,9 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
             "lastfm",
             user_id,
             StoredToken(
-                session_key=str(session_key),
+                session_key=session_key,
                 token_type="session",  # noqa: S106 — metadata label, not a secret
-                account_name=str(username),
+                account_name=username,
             ),
         )
 

@@ -414,3 +414,119 @@ def track_playlists(
         run_async(_track_playlists_async())
     except Exception as e:
         handle_cli_error(e, "Failed to get track playlists")
+
+
+@track_app.command("relink")
+def relink_mapping(
+    track_id: Annotated[str, typer.Argument(help="Current track UUID")],
+    mapping_id: Annotated[str, typer.Argument(help="Mapping UUID to relink")],
+    new_track_id: Annotated[
+        str, typer.Option("--new-track-id", help="Target track UUID")
+    ],
+) -> None:
+    """Move a connector mapping from one track to another."""
+    from uuid import UUID
+
+    async def _relink():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.relink_connector_track import (
+            RelinkConnectorTrackCommand,
+            RelinkConnectorTrackUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: RelinkConnectorTrackUseCase().execute(
+                RelinkConnectorTrackCommand(
+                    user_id=user_id,
+                    mapping_id=UUID(mapping_id),
+                    new_track_id=UUID(new_track_id),
+                    current_track_id=UUID(track_id),
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        run_async(_relink())
+    except Exception as e:
+        handle_cli_error(e, "Failed to relink mapping")
+
+    console.print(
+        f"[green]Relinked mapping {mapping_id} to track {new_track_id}[/green]"
+    )
+
+
+@track_app.command("unlink")
+def unlink_mapping(
+    track_id: Annotated[str, typer.Argument(help="Track UUID")],
+    mapping_id: Annotated[str, typer.Argument(help="Mapping UUID to remove")],
+) -> None:
+    """Remove a connector mapping from a track."""
+    from uuid import UUID
+
+    async def _unlink():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.unlink_connector_track import (
+            UnlinkConnectorTrackCommand,
+            UnlinkConnectorTrackUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: UnlinkConnectorTrackUseCase().execute(
+                UnlinkConnectorTrackCommand(
+                    user_id=user_id,
+                    mapping_id=UUID(mapping_id),
+                    current_track_id=UUID(track_id),
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        run_async(_unlink())
+    except Exception as e:
+        handle_cli_error(e, "Failed to unlink mapping")
+
+    console.print(f"[green]Unlinked mapping {mapping_id} from track {track_id}[/green]")
+
+
+@track_app.command("set-primary")
+def set_primary_mapping(
+    track_id: Annotated[str, typer.Argument(help="Track UUID")],
+    mapping_id: Annotated[str, typer.Argument(help="Mapping UUID to make primary")],
+) -> None:
+    """Set a connector mapping as the primary source for a track."""
+    from uuid import UUID
+
+    async def _set_primary():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.set_primary_mapping import (
+            SetPrimaryMappingCommand,
+            SetPrimaryMappingUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: SetPrimaryMappingUseCase().execute(
+                SetPrimaryMappingCommand(
+                    user_id=user_id,
+                    mapping_id=UUID(mapping_id),
+                    track_id=UUID(track_id),
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        run_async(_set_primary())
+    except Exception as e:
+        handle_cli_error(e, "Failed to set primary mapping")
+
+    console.print(
+        f"[green]Set mapping {mapping_id} as primary for track {track_id}[/green]"
+    )

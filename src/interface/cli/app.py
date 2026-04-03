@@ -32,6 +32,60 @@ def version_command() -> None:
     print_banner(VERSION)
 
 
+@app.command(name="whoami", rich_help_panel="⚙️ System")
+def whoami_command() -> None:
+    """Show current user identity, database, mode, and connector status."""
+    from urllib.parse import urlparse
+
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from src.config.settings import get_database_url
+    from src.interface.cli.async_runner import run_async
+    from src.interface.cli.cli_helpers import get_cli_user_id
+
+    user_id = get_cli_user_id()
+    db_url = get_database_url()
+
+    # Mask password in DB URL for display
+    parsed = urlparse(db_url.replace("+psycopg", ""))
+    masked = db_url.replace(parsed.password, "****") if parsed.password else db_url
+    db_host = parsed.hostname or "unknown"
+    mode = "local" if db_host in ("localhost", "127.0.0.1") else "remote"
+
+    lines = [
+        f"[cyan]User ID:[/cyan]  {user_id}",
+        f"[cyan]Mode:[/cyan]     {mode}",
+        f"[cyan]Database:[/cyan] {masked}",
+    ]
+    console.print(Panel("\n".join(lines), title="[bold]Mixd Identity[/bold]"))
+
+    # Connector status
+    async def _status():
+        from src.infrastructure.connectors._shared.connector_status import (
+            get_all_connector_statuses,
+        )
+
+        return await get_all_connector_statuses(user_id)
+
+    try:
+        statuses = run_async(_status())
+        table = Table(title="Connectors", show_header=True)
+        table.add_column("Service", style="cyan")
+        table.add_column("Status")
+        table.add_column("Account", style="dim")
+
+        for s in statuses:
+            status_str = (
+                "[green]Connected[/green]" if s.connected else "[red]Disconnected[/red]"
+            )
+            table.add_row(s.name, status_str, s.account_name or "—")
+
+        console.print(table)
+    except Exception:
+        console.print("[dim]Could not check connector status.[/dim]")
+
+
 @app.callback()
 def init_cli(
     verbose: Annotated[
@@ -46,6 +100,38 @@ def init_cli(
     from src.config import log_startup_warnings
 
     log_startup_warnings()
+    _warn_if_no_data()
+
+
+def _warn_if_no_data() -> None:
+    """Best-effort warning when MIXD_USER_ID is set but no data exists for that user."""
+    try:
+        from src.config.constants import BusinessLimits
+        from src.config.settings import settings
+
+        user_id = settings.cli.user_id
+        if not user_id or user_id == BusinessLimits.DEFAULT_USER_ID:
+            return
+
+        from src.config.settings import get_sync_database_url
+
+        db_url = get_sync_database_url()
+        if not db_url:
+            return
+
+        import psycopg
+
+        with psycopg.connect(db_url, autocommit=True) as conn:
+            row = conn.execute(
+                "SELECT count(*) FROM tracks WHERE user_id = %s", (user_id,)
+            ).fetchone()
+            if row and row[0] == 0:
+                console.print(
+                    f"[yellow]No data found for user {user_id}. "
+                    f"Check MIXD_USER_ID or import data first.[/yellow]"
+                )
+    except Exception:
+        return  # Best-effort — startup check must never break CLI
 
 
 def _register_commands() -> None:
@@ -56,6 +142,7 @@ def _register_commands() -> None:
         history_commands,
         likes_commands,
         playlist_commands,
+        review_commands,
         stats_commands,
         track_commands,
         workflow_commands,
@@ -109,6 +196,13 @@ def _register_commands() -> None:
         name="stats",
         help="Library statistics and dashboard",
         rich_help_panel="📊 Library Info",
+    )
+
+    app.add_typer(
+        review_commands.app,
+        name="reviews",
+        help="Manage pending track match reviews",
+        rich_help_panel="🎵 Track Operations",
     )
 
 
