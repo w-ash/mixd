@@ -110,6 +110,24 @@ class DatabaseUnitOfWork:  # noqa: PLR0904
         await self._session.commit()
         self._committed = True
 
+    async def commit_batch(self) -> None:
+        """Commit the current batch without marking the UoW as fully committed.
+
+        Issues a real PostgreSQL COMMIT (not a flush), making all pending writes
+        durable. SQLAlchemy's autobegin starts a new implicit transaction
+        immediately after.
+
+        Unlike ``commit()``, this does NOT set ``_committed = True``, so the
+        ``__aexit__`` auto-commit safety net remains active for the final
+        transaction on clean exit.
+
+        Callers MUST use idempotent writes (upserts via ON CONFLICT) because
+        rollback cannot undo already-committed batches. Depends on the session's
+        ``expire_on_commit=False`` setting to prevent ``DetachedInstanceError``
+        on ORM objects held across commit boundaries.
+        """
+        await self._session.commit()
+
     async def rollback(self) -> None:
         """Explicitly rollback the current transaction."""
         await self._session.rollback()

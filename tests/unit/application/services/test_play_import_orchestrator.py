@@ -261,3 +261,93 @@ class TestCombinePhaseResults:
         metric_map = {m.name: m.value for m in result.summary_metrics.metrics}
         assert "success_rate" in metric_map
         assert metric_map["success_rate"] == pytest.approx(80.0)
+
+
+class TestIncrementalCommit:
+    """Verify commit_batch() is called between Phase 1 and Phase 2."""
+
+    async def test_commit_batch_after_phase1(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """Phase 1 data should be committed before Phase 2 starts."""
+        connector_plays = [_make_connector_play()]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = (
+            [_make_resolved_track_play()],
+            {"error_count": 0},
+        )
+
+        await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user"
+        )
+
+        mock_uow.commit_batch.assert_awaited_once()
+
+    async def test_no_commit_batch_on_empty_ingestion(
+        self, orchestrator, mock_uow, mock_importer
+    ):
+        """Empty ingestion short-circuits before commit_batch."""
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=0, raw_plays=0, duplicates=0),
+            [],
+        )
+
+        await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user"
+        )
+
+        mock_uow.commit_batch.assert_not_awaited()
+
+
+class TestPhase2Progress:
+    """Verify progress emission during Phase 2 resolution."""
+
+    async def test_phase2_emits_progress(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """Resolution phase should emit progress events per service."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=3, raw_plays=3, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = (
+            [_make_resolved_track_play(track_id=i + 1) for i in range(3)],
+            {"error_count": 0},
+        )
+
+        emitter = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
+        emitter.emit_progress = AsyncMock()
+        emitter.complete_operation = AsyncMock()
+
+        await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user", progress_emitter=emitter
+        )
+
+        emitter.start_operation.assert_awaited()
+        emitter.emit_progress.assert_awaited()
+        emitter.complete_operation.assert_awaited()
+
+    async def test_no_phase2_progress_on_empty(
+        self, orchestrator, mock_uow, mock_importer
+    ):
+        """Empty ingestion should not start a Phase 2 progress operation."""
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=0, raw_plays=0, duplicates=0),
+            [],
+        )
+
+        emitter = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
+
+        await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user", progress_emitter=emitter
+        )
+
+        # Phase 1 may call start_operation via the importer, but Phase 2 should not
+        # since we short-circuit on empty ingestion
+        emitter.emit_progress.assert_not_awaited()

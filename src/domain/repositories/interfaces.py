@@ -879,6 +879,16 @@ class PlayAggregationResult(TypedDict, total=False):
     period_plays: dict[UUID, int]
 
 
+type PlaySortBy = Literal[
+    "total_plays_desc",
+    "last_played_desc",
+    "title_asc",
+    "random",
+    "played_at_desc",
+    "first_played_asc",
+]
+
+
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
 
@@ -891,14 +901,14 @@ class PlaysRepositoryProtocol(Protocol):
         ...
 
     def get_recent_plays(
-        self, *, user_id: str, limit: int = 100, sort_by: str | None = None
+        self, *, user_id: str, limit: int = 100, sort_by: PlaySortBy | None = None
     ) -> Awaitable[list[TrackPlay]]:
         """Get recent plays.
 
         Args:
             user_id: Owner's user ID.
             limit: Maximum number of plays to return
-            sort_by: Optional sorting method (played_at_desc, total_plays_desc, last_played_desc, title_asc, random)
+            sort_by: Optional sorting method
         """
         ...
 

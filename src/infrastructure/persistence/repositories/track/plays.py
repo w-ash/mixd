@@ -5,7 +5,7 @@
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Literal, override
+from typing import Any, override
 from uuid import UUID
 
 from attrs import define
@@ -14,22 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
-from src.domain.repositories.interfaces import PlayAggregationResult
+from src.domain.repositories.interfaces import PlayAggregationResult, PlaySortBy
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
     BaseRepository,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
-
-type PlaySortBy = Literal[
-    "total_plays_desc",
-    "last_played_desc",
-    "title_asc",
-    "random",
-    "played_at_desc",
-    "first_played_asc",
-]
 
 logger = get_logger(__name__)
 

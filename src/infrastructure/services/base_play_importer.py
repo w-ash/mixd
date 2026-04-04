@@ -147,7 +147,10 @@ class BasePlayImporter[TRawData](ABC):
             )
 
             raw_data = await self._fetch_data(
-                progress_emitter=progress_emitter, uow=uow, **kwargs
+                progress_emitter=progress_emitter,
+                uow=uow,
+                operation_id=operation_id,
+                **kwargs,
             )
 
             if not raw_data:

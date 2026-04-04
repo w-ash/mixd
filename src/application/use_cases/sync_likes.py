@@ -11,6 +11,7 @@ from uuid import UUID
 from attrs import define
 
 from src.application.connector_protocols import LoveTrackConnector
+from src.application.use_cases._shared.batch_commit import commit_batch
 from src.application.use_cases._shared.connector_resolver import (
     resolve_liked_track_connector,
     resolve_love_track_connector,
@@ -202,6 +203,15 @@ class ImportSpotifyLikesUseCase:
 
         spotify_connector = resolve_liked_track_connector(uow)
 
+        await emitter.emit_progress(
+            create_progress_event(
+                operation_id,
+                current=0,
+                total=None,
+                message="Fetching liked tracks from Spotify...",
+            )
+        )
+
         while True:
             if command.max_imports and imported >= command.max_imports:
                 logger.info(f"Reached max imports: {command.max_imports}")
@@ -310,7 +320,7 @@ class ImportSpotifyLikesUseCase:
             if needs_likes:
                 like_repo = uow.get_like_repository()
                 like_entries: list[
-                    tuple[int, str, bool, datetime | None, datetime | None]
+                    tuple[UUID, str, bool, datetime | None, datetime | None]
                 ] = []
                 for track_id in needs_likes:
                     track_liked_at = liked_at_map.get(track_id)
@@ -327,6 +337,10 @@ class ImportSpotifyLikesUseCase:
                     logger.exception("Error bulk-saving likes")
 
             batches += 1
+
+            # Commit each batch incrementally so data survives machine restarts
+            checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
+            await commit_batch(uow)
 
             await emitter.emit_progress(
                 create_progress_event(
@@ -353,10 +367,6 @@ class ImportSpotifyLikesUseCase:
                     )
                 )
                 break
-
-            # Update checkpoint periodically
-            if batches % 10 == 0:
-                checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
 
             if not cursor:
                 logger.info("Completed import of all Spotify likes")
@@ -545,6 +555,7 @@ class ExportLastFmLikesUseCase:
                         errors += 1
 
             checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
+            await commit_batch(uow)
 
         logger.info(
             f"Export complete: {exported} exported, {filtered} skipped, {errors} errors"

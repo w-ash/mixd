@@ -19,7 +19,7 @@ from src.domain.entities import (
     PlayRecord,
     SyncCheckpoint,
 )
-from src.domain.entities.progress import ProgressEmitter
+from src.domain.entities.progress import ProgressEmitter, create_progress_event
 from src.domain.repositories import PlayImporterProtocol
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
@@ -277,6 +277,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         explicit_range: bool = False,
+        operation_id: str | None = None,
         **additional_options: Any,
     ) -> list[PlayRecord]:
         """Download scrobbles using smart daily chunking with auto-scaling for power users.
@@ -289,8 +290,9 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             explicit_range: When True, the caller explicitly requested this date range.
                 The checkpoint will NOT override the start date, allowing historical
                 fetches even when the checkpoint is ahead of the requested range.
+            operation_id: Optional operation ID for progress event emission.
         """
-        _ = additional_options, progress_emitter  # Reserved for future extensibility
+        _ = additional_options  # Reserved for future extensibility
         username = username or self.lastfm_connector.lastfm_username
         if not username:
             raise ValueError(
@@ -367,6 +369,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
 
         all_play_records: list[PlayRecord] = []
         days_processed = 0
+        batch_commit = getattr(uow, "commit_batch", None) if uow else None
 
         # Process each day chronologically (oldest → newest)
         current_date = start_date
@@ -411,6 +414,16 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                 f"Day {current_date}: fetched {len(day_records)} records, total so far: {len(all_play_records)}"
             )
 
+            if progress_emitter and operation_id:
+                await progress_emitter.emit_progress(
+                    create_progress_event(
+                        operation_id=operation_id,
+                        current=days_processed,
+                        total=total_days,
+                        message=f"Fetched {len(all_play_records)} plays ({days_processed}/{total_days} days)",
+                    )
+                )
+
             # Validate day records timestamps are within expected range
             if day_records:
                 day_timestamps = [r.played_at for r in day_records]
@@ -427,7 +440,8 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                         + f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
                     )
 
-            # Save checkpoint after successful day completion
+            # Save checkpoint and commit batch after each day so data
+            # survives machine restarts (at most one day lost on crash)
             if uow:
                 await self._save_day_checkpoint(
                     username=username,
@@ -435,6 +449,8 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                     day_end=effective_end,
                     uow=uow,
                 )
+                if batch_commit is not None:
+                    await batch_commit()
 
             # Move to next day (simple and reliable)
             prev_date = current_date

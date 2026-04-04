@@ -328,6 +328,7 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.__aenter__ = AsyncMock(return_value=uow)
     uow.__aexit__ = AsyncMock(return_value=None)
     uow.commit = AsyncMock()
+    uow.commit_batch = AsyncMock()
     uow.rollback = AsyncMock()
 
     return uow

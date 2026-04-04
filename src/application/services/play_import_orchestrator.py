@@ -17,9 +17,15 @@ from typing import Any
 
 from attrs import define
 
+from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
-from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.entities.progress import (
+    NullProgressEmitter,
+    ProgressEmitter,
+    create_progress_event,
+    tracked_operation,
+)
 from src.domain.matching.play_dedup import (
     compute_dedup_time_range,
     deduplicate_cross_source_plays,
@@ -78,10 +84,13 @@ class PlayImportOrchestrator:
             logger.info("No plays to resolve - ingestion phase complete")
             return ingestion_result
 
+        # Commit Phase 1 data so it survives if Phase 2 crashes
+        await commit_batch(uow)
+
         # Phase 2: Deferred resolution (track_plays)
         logger.info(f"Phase 2: Resolving {len(connector_plays)} connector plays")
         resolution_result = await self._execute_resolution_phase(
-            connector_plays, uow, user_id=user_id
+            connector_plays, uow, user_id=user_id, progress_emitter=progress_emitter
         )
 
         # Combine results for unified reporting
@@ -111,6 +120,7 @@ class PlayImportOrchestrator:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        progress_emitter: ProgressEmitter,
     ) -> OperationResult:
         """Execute Phase 2: Resolve connector_plays to canonical track_plays.
 
@@ -130,66 +140,85 @@ class PlayImportOrchestrator:
             "error_count": 0,
         }
 
-        # Resolve plays per service using registry-provided resolvers
-        for service, plays in [("spotify", spotify_plays), ("lastfm", lastfm_plays)]:
-            if plays:
-                resolver = await self.resolver_factory(service)
-                track_plays, metrics = await resolver.resolve_connector_plays(
-                    plays, uow, user_id=user_id
-                )
-                all_track_plays.extend(track_plays)
-                combined_metrics["resolved_plays"] += len(track_plays)
-                combined_metrics["error_count"] += metrics.get("error_count", 0)
-
-        # Cross-source dedup then save to database
-        dedup_stats: dict[str, int] = {}
-        if all_track_plays:
-            async with uow:
-                plays_repo = uow.get_plays_repository()
-
-                # Query existing plays in the time range for dedup comparison
-                time_range = compute_dedup_time_range(all_track_plays)
-                if time_range is not None:
-                    start_epoch, end_epoch = time_range
-                    track_ids = list({
-                        p.track_id for p in all_track_plays if p.track_id is not None
-                    })
-                    start_dt = datetime.fromtimestamp(start_epoch, tz=UTC)
-                    end_dt = datetime.fromtimestamp(end_epoch, tz=UTC)
-                    existing_plays = await plays_repo.find_plays_in_time_range(
-                        track_ids, start_dt, end_dt, user_id=user_id
+        async with tracked_operation(
+            progress_emitter, "Resolving plays to canonical tracks"
+        ) as operation_id:
+            # Resolve plays per service using registry-provided resolvers
+            for service, plays in [
+                ("spotify", spotify_plays),
+                ("lastfm", lastfm_plays),
+            ]:
+                if plays:
+                    resolver = await self.resolver_factory(service)
+                    track_plays, metrics = await resolver.resolve_connector_plays(
+                        plays, uow, user_id=user_id
                     )
-                else:
-                    existing_plays = []
+                    all_track_plays.extend(track_plays)
+                    combined_metrics["resolved_plays"] += len(track_plays)
+                    combined_metrics["error_count"] += metrics.get("error_count", 0)
 
-                # Run cross-source dedup
-                dedup_result = deduplicate_cross_source_plays(
-                    new_plays=all_track_plays, existing_plays=existing_plays
-                )
-                dedup_stats = dedup_result.stats
+                    await progress_emitter.emit_progress(
+                        create_progress_event(
+                            operation_id=operation_id,
+                            current=len(all_track_plays),
+                            total=len(connector_plays),
+                            message=f"Resolved {len(all_track_plays)}/{len(connector_plays)} plays ({service})",
+                        )
+                    )
 
-                if dedup_result.stats.get("cross_source_matches", 0) > 0:
+            # Cross-source dedup then save to database
+            dedup_stats: dict[str, int] = {}
+            if all_track_plays:
+                async with uow:
+                    plays_repo = uow.get_plays_repository()
+
+                    # Query existing plays in the time range for dedup comparison
+                    time_range = compute_dedup_time_range(all_track_plays)
+                    if time_range is not None:
+                        start_epoch, end_epoch = time_range
+                        track_ids = list({
+                            p.track_id
+                            for p in all_track_plays
+                            if p.track_id is not None
+                        })
+                        start_dt = datetime.fromtimestamp(start_epoch, tz=UTC)
+                        end_dt = datetime.fromtimestamp(end_epoch, tz=UTC)
+                        existing_plays = await plays_repo.find_plays_in_time_range(
+                            track_ids, start_dt, end_dt, user_id=user_id
+                        )
+                    else:
+                        existing_plays = []
+
+                    # Run cross-source dedup
+                    dedup_result = deduplicate_cross_source_plays(
+                        new_plays=all_track_plays, existing_plays=existing_plays
+                    )
+                    dedup_stats = dedup_result.stats
+
+                    if dedup_result.stats.get("cross_source_matches", 0) > 0:
+                        logger.info(
+                            "Cross-source dedup matched plays",
+                            matches=dedup_result.stats.get("cross_source_matches", 0),
+                            suppressed=len(dedup_result.suppressed_plays),
+                        )
+
+                    # Batch-update existing plays enriched by cross-source match
+                    if dedup_result.plays_to_update:
+                        await plays_repo.bulk_update_play_source_services(
+                            dedup_result.plays_to_update
+                        )
+
+                    # Insert only truly new plays (after dedup)
+                    if dedup_result.plays_to_insert:
+                        _ = await plays_repo.bulk_insert_plays(
+                            dedup_result.plays_to_insert
+                        )
+
+                    await uow.commit()
                     logger.info(
-                        "Cross-source dedup matched plays",
-                        matches=dedup_result.stats.get("cross_source_matches", 0),
-                        suppressed=len(dedup_result.suppressed_plays),
+                        f"Saved {len(dedup_result.plays_to_insert)} plays "
+                        f"({len(dedup_result.suppressed_plays)} suppressed by cross-source dedup)"
                     )
-
-                # Batch-update existing plays enriched by cross-source match
-                if dedup_result.plays_to_update:
-                    await plays_repo.bulk_update_play_source_services(
-                        dedup_result.plays_to_update
-                    )
-
-                # Insert only truly new plays (after dedup)
-                if dedup_result.plays_to_insert:
-                    _ = await plays_repo.bulk_insert_plays(dedup_result.plays_to_insert)
-
-                await uow.commit()
-                logger.info(
-                    f"Saved {len(dedup_result.plays_to_insert)} plays "
-                    f"({len(dedup_result.suppressed_plays)} suppressed by cross-source dedup)"
-                )
 
         # Convert to OperationResult with summary metrics
         result = OperationResult(

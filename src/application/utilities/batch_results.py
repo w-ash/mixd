@@ -13,6 +13,7 @@ For actual batch processing, use the specialized processors:
 
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from attrs import define, field
 
@@ -40,7 +41,7 @@ class BatchItemResult:
     """
 
     status: BatchItemStatus
-    track_id: int | None = None
+    track_id: UUID | None = None
     error: str | None = None
     metadata: dict[str, Any] = field(factory=dict)
 
