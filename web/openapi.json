@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.6"
+    "version": "0.6.7"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {

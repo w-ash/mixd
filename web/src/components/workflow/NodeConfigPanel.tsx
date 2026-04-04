@@ -255,7 +255,7 @@ export function NodeConfigPanel() {
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <categoryConfig.Icon
-            size={14}
+            className="size-3.5"
             strokeWidth={1.5}
             style={{ color: categoryConfig.accentColor }}
             aria-hidden="true"
@@ -268,7 +268,7 @@ export function NodeConfigPanel() {
           onClick={() => selectNode(null)}
           aria-label="Close panel"
         >
-          <X size={14} />
+          <X className="size-3.5" />
         </Button>
       </div>
 
@@ -344,9 +344,8 @@ export function NodeConfigPanel() {
           <div className="flex flex-col items-center gap-3 pt-6 text-center">
             <div className="flex size-10 items-center justify-center rounded-lg bg-surface-elevated">
               <Settings2
-                size={18}
                 strokeWidth={1.5}
-                className="text-text-faint"
+                className="size-[18px] text-text-faint"
               />
             </div>
             <div className="space-y-1">

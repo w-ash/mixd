@@ -145,7 +145,7 @@ export function EditorToolbar() {
         onClick={handleBack}
         aria-label="Back"
       >
-        <ArrowLeft size={16} />
+        <ArrowLeft />
       </Button>
 
       {/* Workflow name — inline editable */}
@@ -175,7 +175,7 @@ export function EditorToolbar() {
         disabled={isSaving || (!isDirty && workflowId !== null)}
         className="gap-1.5"
       >
-        <Save size={14} />
+        <Save className="size-3.5" />
         <span className="text-xs">{isSaving ? "Saving..." : "Save"}</span>
       </Button>
 
@@ -190,7 +190,7 @@ export function EditorToolbar() {
         disabled={!hasNodes}
         className="gap-1.5"
       >
-        <Eye size={14} />
+        <Eye className="size-3.5" />
         <span className="text-xs">Preview</span>
       </Button>
 
@@ -204,7 +204,7 @@ export function EditorToolbar() {
           }}
           className="gap-1.5"
         >
-          <Play size={14} />
+          <Play className="size-3.5" />
           <span className="text-xs">Run</span>
         </Button>
       )}
@@ -219,7 +219,7 @@ export function EditorToolbar() {
               className="gap-1.5"
               title="Version history"
             >
-              <Clock size={14} />
+              <Clock className="size-3.5" />
               <span className="text-xs">History</span>
             </Button>
           </DialogTrigger>
@@ -245,7 +245,7 @@ export function EditorToolbar() {
         aria-label="Undo"
         title="Undo (Ctrl+Z)"
       >
-        <Undo2 size={14} />
+        <Undo2 className="size-3.5" />
       </Button>
       <Button
         variant="ghost"
@@ -255,7 +255,7 @@ export function EditorToolbar() {
         aria-label="Redo"
         title="Redo (Ctrl+Shift+Z)"
       >
-        <Redo2 size={14} />
+        <Redo2 className="size-3.5" />
       </Button>
 
       <div className="mx-1 h-5 w-px bg-border" />
@@ -268,7 +268,7 @@ export function EditorToolbar() {
         aria-label="Auto layout"
         title="Auto layout"
       >
-        <LayoutGrid size={14} />
+        <LayoutGrid className="size-3.5" />
       </Button>
 
       {/* Zoom to Fit */}
@@ -279,7 +279,7 @@ export function EditorToolbar() {
         aria-label="Zoom to fit"
         title="Zoom to fit"
       >
-        <Maximize2 size={14} />
+        <Maximize2 className="size-3.5" />
       </Button>
 
       {/* Delete selected */}
@@ -290,7 +290,7 @@ export function EditorToolbar() {
         aria-label="Delete selected"
         title="Delete selected"
       >
-        <Trash2 size={14} />
+        <Trash2 className="size-3.5" />
       </Button>
     </div>
   );

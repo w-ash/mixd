@@ -109,7 +109,7 @@ function OperationCard({
       {progress && <OperationProgress progress={progress} className="mt-3" />}
 
       <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-        <ConnectorIcon name={connector} iconSize="sm" />
+        <ConnectorIcon name={connector} />
         <span className="text-xs text-text-faint">
           Last sync:{" "}
           <span className="font-mono text-text-muted">

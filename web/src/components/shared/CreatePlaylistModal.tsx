@@ -58,7 +58,7 @@ export function CreatePlaylistModal() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm">
-          <Plus size={14} />
+          <Plus className="size-3.5" />
           New Playlist
         </Button>
       </DialogTrigger>

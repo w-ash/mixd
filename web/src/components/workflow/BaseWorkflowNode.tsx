@@ -105,7 +105,6 @@ export function BaseWorkflowNode({
           }}
         >
           <Icon
-            size={15}
             strokeWidth={1.5}
             style={{ color: resolvedAccent }}
             aria-hidden="true"

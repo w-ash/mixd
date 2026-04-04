@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
 import { formatDate, formatDuration } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 function DetailSkeleton() {
   return (
@@ -149,14 +150,14 @@ export function WorkflowDetail() {
           <div className="flex items-center gap-2">
             {workflow.is_template && (
               <Badge variant="outline" className="gap-1">
-                <Lock size={12} aria-hidden="true" />
+                <Lock className="size-3" aria-hidden="true" />
                 Template
               </Badge>
             )}
             {!workflow.is_template && (
               <Button variant="outline" size="sm" asChild className="gap-1.5">
                 <Link to={`/workflows/${workflowId}/edit`}>
-                  <Pencil size={14} />
+                  <Pencil className="size-3.5" />
                   Edit
                 </Link>
               </Button>
@@ -167,7 +168,7 @@ export function WorkflowDetail() {
               onClick={execute}
               className="gap-1.5"
             >
-              <Play size={14} className={isExecuting ? "animate-spin" : ""} />
+              <Play className={cn("size-3.5", isExecuting && "animate-spin")} />
               {isExecuting ? "Running..." : "Run"}
             </Button>
           </div>

@@ -200,7 +200,11 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
         )}
         {hasDetails && (
           <span className="text-text-faint">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {expanded ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
           </span>
         )}
       </div>
@@ -353,7 +357,7 @@ export function WorkflowRunDetail() {
               onClick={execute}
               className="gap-1.5"
             >
-              <Play size={14} className={isExecuting ? "animate-spin" : ""} />
+              <Play className={cn("size-3.5", isExecuting && "animate-spin")} />
               {isExecuting ? "Running..." : "Run Again"}
             </Button>
           </div>
@@ -363,7 +367,7 @@ export function WorkflowRunDetail() {
       {/* Version mismatch warning */}
       {versionMismatch && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-primary/5 px-4 py-3">
-          <AlertTriangle size={14} className="shrink-0 text-primary" />
+          <AlertTriangle className="size-3.5 shrink-0 text-primary" />
           <p className="font-display text-sm text-primary">
             Workflow definition has changed since this run (v
             {run.definition_version} → v{currentDefVersion}). Results may differ

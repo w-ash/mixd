@@ -26,7 +26,7 @@ function StatusOverlay({ status }: { status?: NodeStatus["status"] }) {
   if (status === "running") {
     return (
       <span className="absolute inset-0 flex items-center justify-center">
-        <Loader2 size={12} className="animate-spin text-white" />
+        <Loader2 className="size-3 animate-spin text-white" />
       </span>
     );
   }
@@ -34,7 +34,7 @@ function StatusOverlay({ status }: { status?: NodeStatus["status"] }) {
   if (status === "completed") {
     return (
       <span className="absolute inset-0 flex items-center justify-center">
-        <Check size={12} className="text-white" strokeWidth={3} />
+        <Check className="size-3 text-white" strokeWidth={3} />
       </span>
     );
   }
@@ -42,7 +42,7 @@ function StatusOverlay({ status }: { status?: NodeStatus["status"] }) {
   // failed
   return (
     <span className="absolute inset-0 flex items-center justify-center">
-      <X size={12} className="text-white" strokeWidth={3} />
+      <X className="size-3 text-white" strokeWidth={3} />
     </span>
   );
 }
@@ -168,11 +168,10 @@ export function PipelineStrip({
                         <StatusOverlay status={statusState} />
                       ) : (
                         <Icon
-                          size={13}
                           style={{
                             color: isDone ? "white" : config.accentColor,
                           }}
-                          className="transition-colors duration-300"
+                          className="size-3.5 transition-colors duration-300"
                         />
                       )}
                     </div>

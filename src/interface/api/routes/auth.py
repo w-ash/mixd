@@ -139,7 +139,7 @@ async def get_spotify_auth_url(
         "redirect_uri": settings.credentials.spotify_redirect_uri,
         "scope": " ".join(SPOTIFY_SCOPES),
         "state": state,
-        "show_dialog": "false",
+        "show_dialog": "true",
         "code_challenge_method": "S256",
         "code_challenge": code_challenge,
     }

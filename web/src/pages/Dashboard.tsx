@@ -106,7 +106,7 @@ function StatCard({
               key={connector}
               className="flex items-center gap-1.5 text-xs text-text-faint"
             >
-              <ConnectorIcon name={connector} labelHidden iconSize="sm" />
+              <ConnectorIcon name={connector} labelHidden />
               <span className="font-mono">{formatCount(count)}</span>
             </span>
           ))}
@@ -277,7 +277,6 @@ function MatchingHealth({ health }: { health: MatchMethodHealthSchema }) {
                           <ConnectorIcon
                             name={method.connector_name}
                             labelHidden
-                            iconSize="sm"
                           />
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs text-text-muted">

@@ -43,8 +43,8 @@ function PaletteItem({ type, category, description }: PaletteItemProps) {
         }}
       >
         <Icon
-          size={13}
           strokeWidth={1.5}
+          className="size-3.5"
           style={{ color: config.accentColor }}
           aria-hidden="true"
         />

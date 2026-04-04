@@ -423,12 +423,7 @@ export function Library() {
                   <TableCell className="w-24">
                     <span className="flex justify-center gap-1">
                       {track.connector_names.map((name) => (
-                        <ConnectorIcon
-                          key={name}
-                          name={name}
-                          iconSize="sm"
-                          labelHidden
-                        />
+                        <ConnectorIcon key={name} name={name} labelHidden />
                       ))}
                     </span>
                   </TableCell>

@@ -9,22 +9,22 @@ const STATUS_CONFIG: Record<
   pending: {
     label: "Pending",
     className: "bg-text-faint/15 text-text-faint",
-    icon: <Clock size={10} />,
+    icon: <Clock className="size-2.5" />,
   },
   running: {
     label: "Running",
     className: "bg-primary/15 text-primary",
-    icon: <Play size={10} className="fill-current" />,
+    icon: <Play className="size-2.5 fill-current" />,
   },
   completed: {
     label: "Completed",
     className: "bg-status-connected/15 text-status-connected",
-    icon: <Check size={10} />,
+    icon: <Check className="size-2.5" />,
   },
   failed: {
     label: "Failed",
     className: "bg-destructive/15 text-destructive",
-    icon: <X size={10} />,
+    icon: <X className="size-2.5" />,
   },
 };
 

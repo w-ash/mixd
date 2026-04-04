@@ -70,7 +70,7 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
   if (!Array.isArray(versions) || versions.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 py-8">
-        <Clock size={24} className="text-text-faint" />
+        <Clock className="size-6 text-text-faint" />
         <p className="font-body text-sm text-text-faint">No version history</p>
       </div>
     );
@@ -105,7 +105,7 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
             >
               <DialogTrigger asChild>
                 <Button variant="ghost" size="icon-xs" title="View diff">
-                  <Eye size={12} />
+                  <Eye className="size-3" />
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-5xl">
@@ -121,7 +121,7 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
               title="Restore this version"
               onClick={() => handleRevert(v.version)}
             >
-              <RotateCcw size={12} />
+              <RotateCcw className="size-3" />
             </Button>
           </div>
         </div>

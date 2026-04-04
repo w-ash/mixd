@@ -63,8 +63,11 @@ function WorkflowRunButton({
       title="Run workflow"
     >
       <Play
-        size={13}
-        className={cn(isExecuting && "animate-spin", "text-text-muted")}
+        className={cn(
+          "size-3.5",
+          isExecuting && "animate-spin",
+          "text-text-muted",
+        )}
       />
     </Button>
   );
@@ -92,7 +95,7 @@ const WorkflowRow = memo(function WorkflowRow({
           </Link>
           {wf.is_template && (
             <Badge variant="outline" className="gap-1 text-[10px]">
-              <Lock size={10} aria-hidden="true" />
+              <Lock className="size-2.5" aria-hidden="true" />
               Template
             </Badge>
           )}
@@ -133,7 +136,7 @@ const WorkflowRow = memo(function WorkflowRow({
               asChild
             >
               <Link to={`/workflows/new?from=${wf.id}`}>
-                <Copy size={13} className="text-text-muted" />
+                <Copy className="size-3.5 text-text-muted" />
               </Link>
             </Button>
           ) : (
@@ -145,7 +148,7 @@ const WorkflowRow = memo(function WorkflowRow({
               asChild
             >
               <Link to={`/workflows/${wf.id}/edit`}>
-                <Pencil size={13} className="text-text-muted" />
+                <Pencil className="size-3.5 text-text-muted" />
               </Link>
             </Button>
           )}
@@ -183,7 +186,7 @@ export function Workflows() {
         action={
           <Button size="sm" asChild className="gap-1.5">
             <Link to="/workflows/new">
-              <Plus size={14} />
+              <Plus className="size-3.5" />
               New Workflow
             </Link>
           </Button>
@@ -204,7 +207,7 @@ export function Workflows() {
           action={
             <Button size="sm" asChild className="gap-1.5">
               <Link to="/workflows/new">
-                <Plus size={14} />
+                <Plus className="size-3.5" />
                 New Workflow
               </Link>
             </Button>

@@ -34,8 +34,8 @@ function NodeSummaryList({ result }: { result: PreviewResult }) {
               style={{ borderLeftColor: cat.accentColor }}
             >
               <cat.Icon
-                size={11}
                 strokeWidth={1.5}
+                className="size-[11px]"
                 style={{ color: cat.accentColor }}
                 aria-hidden="true"
               />
@@ -156,7 +156,7 @@ export function PreviewPanel() {
         onClick={() => setIsOpen(true)}
         className="flex h-8 items-center gap-1.5 border-t border-border bg-surface-sunken px-4 text-text-faint transition-colors hover:text-text-muted"
       >
-        <ChevronUp size={12} />
+        <ChevronUp className="size-3" />
         <span className="font-display text-[10px] uppercase tracking-wider">
           Preview
         </span>
@@ -169,7 +169,7 @@ export function PreviewPanel() {
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-2">
-          <Eye size={13} className="text-primary" />
+          <Eye className="size-3.5 text-primary" />
           <span className="font-display text-xs text-text">Preview</span>
           <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
             dry run
@@ -182,7 +182,7 @@ export function PreviewPanel() {
             onClick={() => setIsOpen(false)}
             aria-label="Collapse"
           >
-            <ChevronDown size={12} />
+            <ChevronDown className="size-3" />
           </Button>
           <Button
             variant="ghost"
@@ -190,7 +190,7 @@ export function PreviewPanel() {
             onClick={handleClose}
             aria-label="Close preview"
           >
-            <X size={12} />
+            <X className="size-3" />
           </Button>
         </div>
       </div>
@@ -206,7 +206,7 @@ export function PreviewPanel() {
 
         {isPreviewRunning && (
           <div className="flex items-center gap-2 py-8 justify-center">
-            <Loader2 size={16} className="animate-spin text-primary" />
+            <Loader2 className="animate-spin text-primary" />
             <span className="font-display text-xs text-text-muted">
               Running preview...
             </span>

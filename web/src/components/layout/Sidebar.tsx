@@ -95,15 +95,14 @@ export function Sidebar() {
                 )}
               >
                 <item.Icon
-                  size={18}
                   strokeWidth={1.5}
-                  className="shrink-0"
+                  className="size-[18px] shrink-0"
                   aria-hidden="true"
                 />
                 {item.label}
                 <ChevronRight
-                  size={14}
                   className={cn(
+                    "size-3.5",
                     "ml-auto transition-transform duration-150",
                     pathname.startsWith(item.to) && "rotate-90",
                   )}
@@ -132,7 +131,6 @@ export function Sidebar() {
                         }
                       >
                         <child.Icon
-                          size={16}
                           strokeWidth={1.5}
                           className="shrink-0"
                           aria-hidden="true"
@@ -154,9 +152,8 @@ export function Sidebar() {
                 }
               >
                 <item.Icon
-                  size={18}
                   strokeWidth={1.5}
-                  className="shrink-0"
+                  className="size-[18px] shrink-0"
                   aria-hidden="true"
                 />
                 {item.label}

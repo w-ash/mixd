@@ -17,7 +17,7 @@ export function BackLink({ to, children }: BackLinkProps) {
       to={to}
       className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors"
     >
-      <ArrowLeft size={14} />
+      <ArrowLeft className="size-3.5" />
       {children}
     </Link>
   );

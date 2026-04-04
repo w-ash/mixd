@@ -40,7 +40,7 @@ export function LastRunCard({
     <div className="rounded-lg border-l-2 border-border-muted bg-surface-elevated/50 pl-4 pr-4 py-3">
       {versionMismatch && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
-          <AlertTriangle size={12} />
+          <AlertTriangle className="size-3" />
           <span className="font-display">
             Definition changed since last run
           </span>
@@ -67,7 +67,7 @@ export function LastRunCard({
           className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
         >
           Details
-          <ExternalLink size={10} />
+          <ExternalLink className="size-2.5" />
         </Link>
       </div>
     </div>

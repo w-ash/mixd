@@ -25,13 +25,16 @@ function makeConnector(
 
 describe("ConnectorCard", () => {
   describe("disconnected state", () => {
-    it("shows Connect button for disconnected Spotify", () => {
+    it("shows Connect button and description for disconnected Spotify", () => {
       renderWithProviders(
         <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
       );
 
-      expect(screen.getByText("Not configured")).toBeInTheDocument();
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
       expect(screen.getByText("Connect Spotify")).toBeInTheDocument();
+      expect(
+        screen.getByText("Playlists, liked tracks, and library sync"),
+      ).toBeInTheDocument();
     });
 
     it("shows Connect button for disconnected Last.fm", () => {
@@ -40,26 +43,6 @@ describe("ConnectorCard", () => {
       );
 
       expect(screen.getByText("Connect Last.fm")).toBeInTheDocument();
-    });
-
-    it("shows permissions text for Spotify", () => {
-      renderWithProviders(
-        <ConnectorCard connector={makeConnector({ name: "spotify" })} />,
-      );
-
-      expect(
-        screen.getByText(/We'll access your playlists, liked tracks/),
-      ).toBeInTheDocument();
-    });
-
-    it("shows permissions text for Last.fm", () => {
-      renderWithProviders(
-        <ConnectorCard connector={makeConnector({ name: "lastfm" })} />,
-      );
-
-      expect(
-        screen.getByText(/We'll access your listening history/),
-      ).toBeInTheDocument();
     });
   });
 
@@ -77,17 +60,13 @@ describe("ConnectorCard", () => {
       );
 
       expect(screen.getByText("Spotify")).toBeInTheDocument();
-      expect(screen.getByText("Connected")).toBeInTheDocument();
-      expect(
-        screen.getByText("Playlists, liked tracks, and library sync"),
-      ).toBeInTheDocument();
       expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
       expect(
         screen.getByText("Token refreshes automatically"),
       ).toBeInTheDocument();
     });
 
-    it("shows Disconnect button for connected connector", () => {
+    it("shows settings gear for connected connector", () => {
       renderWithProviders(
         <ConnectorCard
           connector={makeConnector({
@@ -99,10 +78,12 @@ describe("ConnectorCard", () => {
         />,
       );
 
-      expect(screen.getByText("Disconnect")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Spotify settings" }),
+      ).toBeInTheDocument();
     });
 
-    it("shows confirmation dialog when Disconnect is clicked", async () => {
+    it("shows confirmation dialog when Disconnect is clicked via settings", async () => {
       const user = userEvent.setup();
 
       renderWithProviders(
@@ -116,7 +97,12 @@ describe("ConnectorCard", () => {
         />,
       );
 
-      await user.click(screen.getByText("Disconnect"));
+      // Open settings panel
+      await user.click(
+        screen.getByRole("button", { name: "Spotify settings" }),
+      );
+      // Click disconnect in the settings panel
+      await user.click(screen.getByText("Disconnect Spotify"));
 
       await waitFor(() => {
         expect(screen.getByText("Disconnect Spotify?")).toBeInTheDocument();
@@ -138,14 +124,32 @@ describe("ConnectorCard", () => {
       );
 
       expect(screen.getByText("Last.fm")).toBeInTheDocument();
-      expect(screen.getByText("Connected")).toBeInTheDocument();
       expect(screen.getByText("Signed in as musicfan42")).toBeInTheDocument();
       expect(screen.getByText("Permanent session")).toBeInTheDocument();
     });
   });
 
+  describe("connected + stale authError", () => {
+    it("shows connected status even when authError is present", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+          authError="invalid_state"
+        />,
+      );
+
+      expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
+      expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
+    });
+  });
+
   describe("expired state", () => {
-    it("shows Session expired badge and Reconnect button", () => {
+    it("shows expired status and Reconnect button", () => {
       renderWithProviders(
         <ConnectorCard
           connector={makeConnector({
@@ -157,7 +161,7 @@ describe("ConnectorCard", () => {
         />,
       );
 
-      expect(screen.getByText("Session expired")).toBeInTheDocument();
+      expect(screen.getByText(/session expired/i)).toBeInTheDocument();
       expect(screen.getByText("Reconnect")).toBeInTheDocument();
     });
   });
@@ -190,7 +194,7 @@ describe("ConnectorCard", () => {
   });
 
   describe("passive connectors", () => {
-    it("renders Apple Music with Coming soon badge", () => {
+    it("renders Apple Music with Coming soon", () => {
       renderWithProviders(
         <ConnectorCard connector={makeConnector({ name: "apple" })} />,
       );
@@ -198,10 +202,8 @@ describe("ConnectorCard", () => {
       expect(screen.getByText("Apple Music")).toBeInTheDocument();
       expect(screen.getByText("Coming soon")).toBeInTheDocument();
       expect(
-        screen.getByText("Connector under development"),
+        screen.getByText("Playlists and library sync"),
       ).toBeInTheDocument();
-      // No interactive buttons
-      expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
 
     it("renders MusicBrainz with Available badge", () => {
@@ -217,7 +219,7 @@ describe("ConnectorCard", () => {
       expect(screen.getByText("MusicBrainz")).toBeInTheDocument();
       expect(screen.getByText("Available")).toBeInTheDocument();
       expect(
-        screen.getByText(/no authentication required/),
+        screen.getByText("Track metadata enrichment and identification"),
       ).toBeInTheDocument();
     });
   });
@@ -248,7 +250,7 @@ describe("ConnectorCard", () => {
   });
 
   describe("accessibility", () => {
-    it("Disconnect button has aria-label with connector name", () => {
+    it("settings gear button has aria-label with connector name", () => {
       renderWithProviders(
         <ConnectorCard
           connector={makeConnector({
@@ -261,7 +263,7 @@ describe("ConnectorCard", () => {
       );
 
       expect(
-        screen.getByRole("button", { name: "Disconnect Spotify" }),
+        screen.getByRole("button", { name: "Spotify settings" }),
       ).toBeInTheDocument();
     });
 
@@ -308,15 +310,17 @@ describe("ConnectorCard", () => {
         />,
       );
 
-      // Open confirmation dialog
-      await user.click(screen.getByText("Disconnect"));
+      // Open settings panel, then click Disconnect
+      await user.click(
+        screen.getByRole("button", { name: "Spotify settings" }),
+      );
+      await user.click(screen.getByText("Disconnect Spotify"));
 
       await waitFor(() => {
         expect(screen.getByText("Disconnect Spotify?")).toBeInTheDocument();
       });
 
       // Find and click the confirm button in the dialog
-      // The dialog has both "Cancel" and "Disconnect" buttons
       const confirmButtons = screen.getAllByText("Disconnect");
       const dialogConfirm = confirmButtons[confirmButtons.length - 1];
       await user.click(dialogConfirm);

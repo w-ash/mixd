@@ -221,7 +221,7 @@ function WorkflowGraphInner({
             onClick={toggleExpanded}
             title={expanded ? "Exit fullscreen" : "Fullscreen"}
           >
-            {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            {expanded ? <Minimize2 /> : <Maximize2 />}
           </ControlButton>
         </Controls>
         <MiniMap

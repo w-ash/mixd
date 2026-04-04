@@ -87,16 +87,9 @@ export function getConnectorLabel(name: string): string {
   return name;
 }
 
-const iconSizes = {
-  sm: "h-4 w-4",
-  lg: "h-8 w-8",
-} as const;
-
 interface ConnectorIconProps {
   name: string;
   className?: string;
-  /** Icon size — "sm" (16px, default) or "lg" (32px). */
-  iconSize?: keyof typeof iconSizes;
   /** Hide the text label — show icon only. */
   labelHidden?: boolean;
 }
@@ -104,7 +97,6 @@ interface ConnectorIconProps {
 export function ConnectorIcon({
   name,
   className = "",
-  iconSize = "sm",
   labelHidden = false,
 }: ConnectorIconProps) {
   const config = connectorConfig[name as ConnectorName];
@@ -117,7 +109,7 @@ export function ConnectorIcon({
       className={`inline-flex items-center gap-2 font-display text-sm font-medium ${config.colorClass} ${className}`}
       {...(labelHidden ? { "aria-hidden": true } : { title: config.label })}
     >
-      <Logo className={`${iconSizes[iconSize]} shrink-0`} />
+      <Logo className="size-4 shrink-0" />
       {!labelHidden && config.label}
     </span>
   );

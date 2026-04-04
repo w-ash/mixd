@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Disc3, HelpCircle } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -12,21 +12,12 @@ import type { ConnectorStatusSchema } from "@/api/generated/model";
 import { STALE } from "@/api/query-client";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ConnectorCard } from "@/components/shared/ConnectorCard";
-import {
-  ConnectorIcon,
-  getConnectorLabel,
-} from "@/components/shared/ConnectorIcon";
+import { getConnectorLabel } from "@/components/shared/ConnectorIcon";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { SectionHeader } from "@/components/shared/SectionHeader";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useConnectorAuth } from "@/hooks/useConnectorAuth";
-import {
-  CONNECTABLE_SERVICES,
-  connectButtonStyles,
-  humanizeAuthError,
-} from "@/lib/connectors";
+import { humanizeAuthError } from "@/lib/connectors";
 
 const sections = [
   {
@@ -62,72 +53,24 @@ function IntegrationsSkeleton() {
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
         <div key={i} className="space-y-3">
           <Skeleton className="h-3 w-32" />
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="divide-y divide-border rounded-lg border border-border">
             {Array.from({ length: count }).map((_, j) => (
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 key={j}
-                className="rounded-xl border border-border p-5 space-y-3"
+                className="flex items-center gap-3 px-4 py-3"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="size-8 rounded" />
-                    <Skeleton className="h-4 w-20" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="size-6 shrink-0 rounded" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-24" />
+                  <Skeleton className="h-3 w-48" />
                 </div>
-                <Skeleton className="h-3.5 w-full max-w-48" />
-                <Skeleton className="h-3.5 w-full max-w-36" />
+                <Skeleton className="h-5 w-16 shrink-0 rounded-full" />
               </div>
             ))}
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Onboarding hero — shown when no connectable services are connected
-// ---------------------------------------------------------------------------
-
-function OnboardingHero() {
-  const spotifyAuth = useConnectorAuth("spotify");
-  const lastfmAuth = useConnectorAuth("lastfm");
-
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-border-muted bg-surface-sunken px-8 py-16 text-center">
-      <span
-        className="flex size-20 items-center justify-center rounded-full bg-surface-elevated text-primary"
-        aria-hidden="true"
-      >
-        <Disc3 className="size-10" />
-      </span>
-      <h2 className="font-display text-xl font-medium text-text">
-        Bring your music home
-      </h2>
-      <p className="max-w-md text-sm text-text-muted">
-        Connect your streaming services to start building your unified library.
-        Your data stays yours — always.
-      </p>
-      <div className="mt-2 flex flex-col gap-3 sm:flex-row">
-        <Button
-          onClick={spotifyAuth.connect}
-          disabled={spotifyAuth.isConnecting}
-          className={`${connectButtonStyles.spotify} min-h-[44px]`}
-        >
-          <ConnectorIcon name="spotify" iconSize="sm" labelHidden />
-          Connect Spotify
-        </Button>
-        <Button
-          onClick={lastfmAuth.connect}
-          disabled={lastfmAuth.isConnecting}
-          className={`${connectButtonStyles.lastfm} min-h-[44px]`}
-        >
-          <ConnectorIcon name="lastfm" iconSize="sm" labelHidden />
-          Connect Last.fm
-        </Button>
-      </div>
     </div>
   );
 }
@@ -152,7 +95,7 @@ function ConnectorSection({
   return (
     <div className="space-y-3">
       <SectionHeader title={title} description={description} />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="divide-y divide-border rounded-lg border border-border">
         {connectors.map((connector, index) => (
           <div
             key={connector.name}
@@ -218,16 +161,6 @@ export function Integrations() {
     navigate("/settings/integrations", { replace: true });
   }, [searchParams, navigate, queryClient]);
 
-  // Check if we should show the onboarding hero:
-  // no connectable services are connected
-  const showOnboarding =
-    !isLoading &&
-    !isError &&
-    connectors.length > 0 &&
-    connectors
-      .filter((c) => CONNECTABLE_SERVICES.has(c.name))
-      .every((c) => !c.connected);
-
   return (
     <div>
       <title>Integrations — Mixd</title>
@@ -250,10 +183,8 @@ export function Integrations() {
         />
       )}
 
-      {showOnboarding && <OnboardingHero />}
-
       {!isLoading && !isError && connectors.length > 0 && (
-        <div className={showOnboarding ? "mt-12 space-y-12" : "space-y-12"}>
+        <div className="space-y-8">
           {sections.map((section) => (
             <ConnectorSection
               key={section.title}
