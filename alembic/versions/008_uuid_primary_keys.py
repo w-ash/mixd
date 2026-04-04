@@ -142,7 +142,7 @@ def upgrade() -> None:
     # Table/column names come from hardcoded constants above — not user input.
     for child_table, fk_col, parent_table in FK_RELATIONSHIPS:
         sql = (
-            f"UPDATE {child_table} c SET uuid_{fk_col} = p.uuid_id "  # noqa: S608
+            f"UPDATE {child_table} c SET uuid_{fk_col} = p.uuid_id "
             f"FROM {parent_table} p WHERE c.{fk_col} = p.id"
         )
         if fk_col == "resolved_track_id":
