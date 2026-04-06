@@ -151,7 +151,7 @@ class TestSpotifyDisplayName:
         mock_fetch = AsyncMock(return_value="fetched_user")
         with (
             patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}._fetch_spotify_display_name", mock_fetch),
+            patch(f"{_SVC}.fetch_spotify_display_name", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 
@@ -175,7 +175,7 @@ class TestSpotifyDisplayName:
         mock_fetch = AsyncMock(return_value=None)
         with (
             patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}._fetch_spotify_display_name", mock_fetch),
+            patch(f"{_SVC}.fetch_spotify_display_name", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 

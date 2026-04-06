@@ -4,7 +4,9 @@ repos:
     rev: v4.5.0
     hooks:
     -   id: trailing-whitespace
+        exclude: ^web/src/api/generated/
     -   id: end-of-file-fixer
+        exclude: ^web/src/api/generated/
     -   id: check-yaml
     -   id: check-toml
     -   id: check-json

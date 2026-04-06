@@ -31,9 +31,10 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.6.1
-        with:
-          body_path: CHANGES.md
+        run: gh release create "$TAG" --title "$TAG" --notes-file CHANGES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
 
   deploy:
     name: Deploy to Fly.io

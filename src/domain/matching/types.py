@@ -91,9 +91,9 @@ class ConfidenceEvidence:
     isrc_suspect: bool = False
     match_weight: float = 0.0
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, object]:
         """Convert to dictionary for storage in track_mappings.confidence_evidence."""
-        result: dict[str, Any] = {
+        result: dict[str, object] = {
             "base_score": self.base_score,
             "title_score": round(self.title_score, 2),
             "artist_score": round(self.artist_score, 2),
@@ -131,7 +131,7 @@ class MatchResult:
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
 
     @property
-    def evidence_dict(self) -> dict[str, Any] | None:
+    def evidence_dict(self) -> dict[str, object] | None:
         """Serialize evidence for DB storage, returning None when absent."""
         return self.evidence.as_dict() if self.evidence else None
 

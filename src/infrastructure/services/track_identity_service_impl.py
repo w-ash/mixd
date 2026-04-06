@@ -144,6 +144,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         self, matches: MatchResultsById, connector: str
     ) -> None:
         """Save identity mappings to database."""
+        no_metadata = cast(dict[str, object] | None, None)
         mappings = [
             (
                 mr.track,
@@ -151,7 +152,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
                 mr.connector_id,
                 mr.match_method,
                 mr.confidence,
-                None,
+                no_metadata,
                 mr.evidence_dict,
             )
             for mr in matches.values()
