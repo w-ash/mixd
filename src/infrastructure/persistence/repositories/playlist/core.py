@@ -394,7 +394,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
     async def _ensure_connector_playlists(
         self, connector_ids: dict[str, str]
-    ) -> dict[str, int]:
+    ) -> dict[str, UUID]:
         """Ensure connector playlists exist and return their database IDs.
 
         Creates minimal connector playlist entries if they don't exist yet,
@@ -408,7 +408,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """
 
         now = datetime.now(UTC)
-        connector_playlist_db_ids: dict[str, int] = {}
+        connector_playlist_db_ids: dict[str, UUID] = {}
 
         for connector_name, external_id in connector_ids.items():
             # Check if connector playlist exists

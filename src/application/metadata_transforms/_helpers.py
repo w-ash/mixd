@@ -18,6 +18,7 @@ in the application/metadata_transforms package.
 
 from datetime import UTC, datetime, timedelta
 from typing import TypeIs
+from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities.shared import MetricValue
@@ -101,7 +102,7 @@ def calculate_time_window(
 
 def get_play_metrics(
     tracklist: TrackList,
-) -> tuple[dict[int, MetricValue], dict[int, MetricValue]]:
+) -> tuple[dict[UUID, MetricValue], dict[UUID, MetricValue]]:
     """Extract play count and last played date metrics from tracklist metadata.
 
     Reads from the canonical nested structure: metadata["metrics"][metric_name].

@@ -9,6 +9,7 @@ while delegating to the new unambiguous identity pipeline components.
 
 from collections.abc import Callable
 from typing import Any, cast, override
+from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import Track
@@ -73,7 +74,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         connector_instance: object,
         progress_callback: ProgressCallback | None = None,
         **additional_options: Any,
-    ) -> dict[int, RawProviderMatch]:
+    ) -> dict[UUID, RawProviderMatch]:
         """Get raw matches from external providers.
 
         This method delegates to the appropriate provider while maintaining
@@ -103,68 +104,56 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
             )
             # Individual failures are already logged by providers via log_match_failure()
 
-        # Return only matches
-        # Calling code (MatchAndIdentifyTracksUseCase) only expects successful matches
         return result.matches
 
     @override
     async def get_existing_identity_mappings(
-        self, track_ids: list[int], connector: str
+        self, track_ids: list[UUID], connector: str
     ) -> MatchResultsById:
-        """Retrieve existing identity mappings from database.
-
-        This method uses the existing connector repository to get mappings
-        and loads the actual Track objects.
-        """
-        # Use existing connector repository functionality
+        """Retrieve existing identity mappings from database."""
+        # get_connector_mappings already filters by connector when provided
         mappings = await self.connector_repo.get_connector_mappings(
             track_ids, connector
         )
 
-        # Load actual Track objects for the mapped track IDs
-        mapped_track_ids = [
-            track_id
-            for track_id, mapping_data in mappings.items()
-            if connector in mapping_data
-        ]
-
-        if not mapped_track_ids:
+        if not mappings:
             return {}
 
-        # Load Track objects from database
-        tracks_by_id = await self.track_repo.find_tracks_by_ids(mapped_track_ids)
+        tracks_by_id = await self.track_repo.find_tracks_by_ids(list(mappings.keys()))
 
-        # Convert to MatchResultsById format with actual Track objects
-        result: MatchResultsById = {}
-        for track_id, mapping_data in mappings.items():
-            if connector in mapping_data and track_id in tracks_by_id:
-                from src.domain.matching.types import MatchResult
+        from src.domain.matching.types import (
+            EXISTING_MAPPING_CONFIDENCE,
+            EXISTING_MAPPING_METHOD,
+            MatchResult,
+        )
 
-                result[track_id] = MatchResult(
-                    track=tracks_by_id[track_id],  # Use actual Track object
-                    success=True,
-                    connector_id=mapping_data.get(connector, ""),
-                    confidence=90,  # Default confidence for existing mappings
-                    match_method="existing_mapping",
-                )
-        return result
+        return {
+            track_id: MatchResult(
+                track=tracks_by_id[track_id],
+                success=True,
+                connector_id=mapping_data.get(connector, ""),
+                confidence=EXISTING_MAPPING_CONFIDENCE,
+                match_method=EXISTING_MAPPING_METHOD,
+            )
+            for track_id, mapping_data in mappings.items()
+            if track_id in tracks_by_id
+        }
 
     @override
     async def persist_identity_mappings(
         self, matches: MatchResultsById, connector: str
     ) -> None:
-        """Save identity mappings to database.
-
-        This method uses the existing repository infrastructure to persist mappings.
-        """
-        for match_result in matches.values():
-            if hasattr(match_result, "track") and hasattr(match_result.track, "id"):
-                # Use existing repository method to save mapping
-                _ = await self.connector_repo.map_track_to_connector(
-                    track=match_result.track,
-                    connector=connector,
-                    connector_id=match_result.connector_id,
-                    match_method=match_result.match_method,
-                    confidence=match_result.confidence,
-                    confidence_evidence=match_result.evidence_dict,
-                )
+        """Save identity mappings to database."""
+        mappings = [
+            (
+                mr.track,
+                connector,
+                mr.connector_id,
+                mr.match_method,
+                mr.confidence,
+                None,
+                mr.evidence_dict,
+            )
+            for mr in matches.values()
+        ]
+        await self.connector_repo.map_tracks_to_connectors(mappings)

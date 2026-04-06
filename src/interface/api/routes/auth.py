@@ -25,7 +25,7 @@ from sqlalchemy import delete
 
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.connector_status import (
-    _fetch_spotify_display_name,
+    fetch_spotify_display_name,
 )
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
@@ -208,7 +208,7 @@ async def spotify_callback(
         token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
 
         # Fetch display name before saving to avoid a double upsert
-        display_name = await _fetch_spotify_display_name(token_info["access_token"])
+        display_name = await fetch_spotify_display_name(token_info["access_token"])
         token_to_save = StoredToken(**token_info)
         if display_name:
             token_to_save = StoredToken(**token_info, account_name=display_name)

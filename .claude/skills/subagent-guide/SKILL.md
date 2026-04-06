@@ -25,15 +25,15 @@ Mixd uses specialized Claude Code subagents for deep technical expertise. Main a
 **Task Agents**:
 7. **workflow-manager** - Create, update, validate, and debug workflow definitions via `mixd workflow` CLI
 
-### Plan Reviewers (5 agents, launched in parallel via `/plan-review`)
+### Reviewers (5 agents, launched in parallel via `/review`)
 
-8. **reviewer-architect** - Clean Architecture compliance, layer boundaries, dependency flow, complexity budget
+8. **reviewer-architect** - Architecture compliance, layer boundaries, dependency flow, complexity budget
 9. **reviewer-engineer** - Implementability, edge cases, existing code reuse, testing strategy
 10. **reviewer-product** - User story alignment, persona fit, workflow completeness, scope creep
-11. **reviewer-security** - OAuth token handling, secret exposure, injection risks, dependency safety
+11. **reviewer-security** - Auth handling, secret exposure, injection risks, dependency safety
 12. **reviewer-qa** - Test coverage gaps, error paths, regression risks, migration safety
 
-Plan reviewers are **read-only background agents** (`permissionMode: plan`, `background: true`) that run on Sonnet for speed. They are not invoked individually — use the `/plan-review` command to launch all 5 in parallel.
+Reviewers are **read-only background agents** (`permissionMode: plan`, `background: true`) that run on Sonnet with `effort: medium`. They are not invoked individually — use `/review` to launch them. A SubagentStop hook enforces that every reviewer produces a structured report before stopping. Supports four modes: plan reviews, diff reviews, vertical feature audits, and horizontal layer audits. See `.claude/review.yaml` for project-specific review dimensions.
 
 ## Rotation Strategy (Maximize 3 Active)
 

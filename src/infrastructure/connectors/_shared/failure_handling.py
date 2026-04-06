@@ -4,6 +4,8 @@ Provides structured logging and composable utilities for failure handling
 across all matching providers while maintaining clean architecture principles.
 """
 
+from uuid import UUID
+
 from src.config import get_logger
 from src.domain.matching.types import (
     MatchFailure,
@@ -61,7 +63,7 @@ def log_failure_summary(service: str, match_count: int, failure_count: int) -> N
 
 
 def create_and_log_failure(
-    track_id: int,
+    track_id: UUID,
     reason: MatchFailureReason,
     service: str,
     method: str,
@@ -82,7 +84,7 @@ def create_and_log_failure(
 
 
 def handle_track_processing_failure(
-    track_id: int,
+    track_id: UUID,
     service: str,
     method: str,
     error: Exception,

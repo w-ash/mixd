@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.6.7"
+version = "0.6.8"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -165,6 +165,15 @@ unfixable = []
     "SIM113",   # Allow manual counters in tests (as_completed doesn't support enumerate)
     "RUF001",   # Allow unicode characters in test strings (intentional test data)
     "RUF003",   # Allow unicode characters in test comments (readability)
+]
+"src/domain/repositories/interfaces.py" = [
+    "PLR0904",  # Protocol repository interfaces have many methods by design
+]
+"src/infrastructure/persistence/unit_of_work.py" = [
+    "PLR0904",  # UoW exposes all repository accessors — many methods by design
+]
+"src/infrastructure/persistence/repositories/track/connector.py" = [
+    "PLR0904",  # Connector track repo implements a large Protocol interface
 ]
 "src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
 "src/application/workflows/observers.py" = ["ARG002"] # Protocol implementations must match signatures

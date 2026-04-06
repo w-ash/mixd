@@ -22,6 +22,7 @@ providing reusable business logic while maintaining clean separation of concerns
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, Never
+from uuid import UUID
 
 from attrs import define, field
 
@@ -98,7 +99,7 @@ class SpotifyOperations:
 
     async def batch_get_track_info(
         self, tracks: list[Track], **_options: Any
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[UUID, dict[str, Any]]:
         """Fetch track metadata for multiple tracks using bulk Spotify API."""
         # Extract Spotify IDs from tracks that have mappings
         spotify_mapped = [

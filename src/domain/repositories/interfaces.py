@@ -488,6 +488,31 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def map_tracks_to_connectors(
+        self,
+        mappings: list[
+            tuple[
+                Track,
+                str,
+                str,
+                str,
+                int,
+                dict[str, object] | None,
+                dict[str, object] | None,
+            ]
+        ],
+    ) -> Awaitable[list[Track]]:
+        """Batch-map multiple tracks to connectors in a single operation.
+
+        Args:
+            mappings: List of (track, service_name, external_id, match_method,
+                    confidence, metadata, confidence_evidence) tuples.
+
+        Returns:
+            List of Track objects updated with external service connections.
+        """
+        ...
+
     def get_connector_mappings(
         self, track_ids: list[UUID], connector: str | None = None
     ) -> Awaitable[dict[UUID, dict[str, str]]]:
@@ -556,6 +581,28 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             List of successfully ingested Track objects
+        """
+        ...
+
+    def ensure_connector_tracks(
+        self,
+        connector_name: str,
+        tracks_data: list[dict[str, Any]],
+    ) -> Awaitable[dict[tuple[str, str], UUID]]:
+        """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
+
+        Each dict in tracks_data must have keys: connector_id, title, artists (list[str]).
+        Optional keys: album, duration_ms, isrc, release_date, raw_metadata.
+
+        Upserts on (connector_name, connector_track_identifier). Idempotent — safe
+        to call for tracks that already have connector_tracks rows.
+
+        Args:
+            connector_name: Service name (e.g., "spotify", "lastfm").
+            tracks_data: List of dicts with connector track metadata.
+
+        Returns:
+            Mapping of (connector_name, external_id) to database UUID.
         """
         ...
 
@@ -1245,7 +1292,7 @@ class StatsRepositoryProtocol(Protocol):
         ...
 
 
-class UnitOfWorkProtocol(Protocol):  # noqa: PLR0904
+class UnitOfWorkProtocol(Protocol):
     """Unit of Work interface for transaction boundary management.
 
     This protocol follows Clean Architecture principles by allowing the application

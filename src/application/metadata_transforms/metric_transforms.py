@@ -15,6 +15,7 @@ Unlike pure domain transforms, these functions:
 
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
@@ -61,7 +62,7 @@ def filter_by_metric_range(
     def transform(t: TrackList) -> TrackList:
         """Apply the metric filter transformation."""
         metrics = t.metadata.get("metrics", {})
-        metric_values: dict[int, Any] = metrics.get(metric_name, {})
+        metric_values: dict[UUID, Any] = metrics.get(metric_name, {})
 
         if not metric_values:
             _warn_missing_metrics("Filter by", metric_name, t)

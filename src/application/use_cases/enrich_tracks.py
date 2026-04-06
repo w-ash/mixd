@@ -11,6 +11,7 @@ Processes multiple tracks efficiently in batches.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from typing import TYPE_CHECKING, Any, Literal, Never, cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from src.application.services.progress_manager import AsyncProgressManager
@@ -107,7 +108,7 @@ class EnrichTracksResult:
     """
 
     enriched_tracklist: TrackList
-    metrics_added: dict[str, dict[int, Any]]
+    metrics_added: dict[str, dict[UUID, Any]]
     track_count: int
     enriched_count: int
     execution_time_ms: int = 0
@@ -239,7 +240,7 @@ class EnrichTracksUseCase:
         user_id: str,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
-    ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
+    ) -> tuple[TrackList, dict[str, dict[UUID, Any]]]:
         """Enriches tracks with metadata from external APIs.
 
         Fetches track metrics from Spotify, Last.fm, or MusicBrainz using cache-first
@@ -324,7 +325,7 @@ class EnrichTracksUseCase:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> tuple[TrackList, dict[str, dict[int, Any]]]:
+    ) -> tuple[TrackList, dict[str, dict[UUID, Any]]]:
         """Enriches tracks with play history data from database.
 
         Adds play counts, last played dates, and optionally period-specific
@@ -377,7 +378,7 @@ class EnrichTracksUseCase:
         enriched_tracklist = tracklist.with_metadata("metrics", combined_metrics)
 
         # Widen TypedDict → plain dict to match return type shared with external metadata path
-        return enriched_tracklist, cast(dict[str, dict[int, Any]], play_metrics)
+        return enriched_tracklist, cast(dict[str, dict[UUID, Any]], play_metrics)
 
     async def _ensure_track_identities(
         self,

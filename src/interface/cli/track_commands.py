@@ -1,6 +1,7 @@
 """CLI commands for track operations: show, merge, list, playlists."""
 
 from typing import Annotated
+from uuid import UUID
 
 from rich.panel import Panel
 from rich.prompt import Confirm
@@ -25,10 +26,11 @@ track_app = typer.Typer(
 @track_app.command("merge")
 def merge_tracks(
     winner_id: Annotated[
-        int, typer.Option("--winner-id", help="Track ID that will keep all references")
+        UUID, typer.Option("--winner-id", help="Track ID that will keep all references")
     ],
     loser_id: Annotated[
-        int, typer.Option("--loser-id", help="Track ID that will be merged and deleted")
+        UUID,
+        typer.Option("--loser-id", help="Track ID that will be merged and deleted"),
     ],
     force: Annotated[
         bool, typer.Option("--force", help="Skip confirmation prompt")
@@ -165,7 +167,6 @@ def show_track(
     track_id: Annotated[str, typer.Argument(help="Track UUID to display")],
 ) -> None:
     """Show detailed information about a track including likes, plays, and playlists."""
-    from uuid import UUID
 
     parsed_id = UUID(track_id)
 
@@ -366,7 +367,6 @@ def track_playlists(
     track_id: Annotated[str, typer.Argument(help="Track UUID to look up")],
 ) -> None:
     """Show which playlists contain a given track."""
-    from uuid import UUID
 
     parsed_id = UUID(track_id)
 
@@ -425,7 +425,6 @@ def relink_mapping(
     ],
 ) -> None:
     """Move a connector mapping from one track to another."""
-    from uuid import UUID
 
     async def _relink():
         from src.application.runner import execute_use_case
@@ -464,7 +463,6 @@ def unlink_mapping(
     mapping_id: Annotated[str, typer.Argument(help="Mapping UUID to remove")],
 ) -> None:
     """Remove a connector mapping from a track."""
-    from uuid import UUID
 
     async def _unlink():
         from src.application.runner import execute_use_case
@@ -500,7 +498,6 @@ def set_primary_mapping(
     mapping_id: Annotated[str, typer.Argument(help="Mapping UUID to make primary")],
 ) -> None:
     """Set a connector mapping as the primary source for a track."""
-    from uuid import UUID
 
     async def _set_primary():
         from src.application.runner import execute_use_case

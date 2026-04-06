@@ -91,8 +91,6 @@ class WorkflowRunRepository:
     @db_operation("save_node_record")
     async def save_node_record(self, node: WorkflowRunNode) -> WorkflowRunNode:
         """Persist a new node execution record."""
-        if node.run_id is None:
-            raise ValueError("Node must have a run_id")
         db_node = self.mapper.node_to_db(node, run_id=node.run_id)
         self.session.add(db_node)
         await self.session.flush()

@@ -24,6 +24,7 @@ from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
 from src.domain.entities.track import TrackList, TrackListMetadata
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import PlaySortBy
 
 logger = get_logger(__name__)
 
@@ -50,7 +51,7 @@ class GetPlayedTracksCommand:
     connector_filter: str | None = (
         None  # Optional service filter ("spotify", "lastfm", etc.)
     )
-    sort_by: str | None = field(
+    sort_by: PlaySortBy | None = field(
         default=None,
         validator=optional_in_choices([
             "played_at_desc",

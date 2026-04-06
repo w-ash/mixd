@@ -105,9 +105,6 @@ class DeleteCanonicalPlaylistUseCase:
         """
         timer = ExecutionTimer()
 
-        def _raise_no_id_error() -> Never:
-            raise ValueError("Playlist has no ID - cannot delete unsaved playlist")
-
         def _raise_deletion_failed_error(playlist_id: UUID) -> Never:
             raise ValueError(
                 f"Failed to delete playlist {playlist_id} - it may not exist"
@@ -146,9 +143,6 @@ class DeleteCanonicalPlaylistUseCase:
 
                 # Step 3: Collect metadata before deletion
                 playlist_id = playlist.id
-                if playlist_id is None:
-                    _raise_no_id_error()
-
                 playlist_name = playlist.name
                 tracks_count = len(playlist.tracks)
 

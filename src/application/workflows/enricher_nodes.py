@@ -11,6 +11,7 @@ connector access and custom persistence logic.
 
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 from src.application.connector_protocols import LibraryContainsConnector
 from src.config import get_logger
@@ -68,7 +69,7 @@ async def enrich_spotify_liked_status(
     # 2. Update in-memory metadata + build persistence batch in one pass
     updated_tracks = list(tracklist.tracks)
     now = datetime.now(UTC)
-    likes_to_save: list[tuple[int, str, bool, datetime | None, datetime | None]] = []
+    likes_to_save: list[tuple[UUID, str, bool, datetime | None, datetime | None]] = []
     for uri, is_saved in saved_status.items():
         idx = uri_to_idx[uri]
         updated_tracks[idx] = updated_tracks[idx].with_connector_metadata(

@@ -9,6 +9,7 @@ playlists while preserving track timestamps and minimizing API calls.
 
 from datetime import UTC, datetime
 from typing import Any, TypedDict
+from uuid import UUID
 
 from attrs import define, field
 
@@ -246,7 +247,7 @@ class UpdateConnectorPlaylistUseCase:
         command: UpdateConnectorPlaylistCommand,
         updated_items: list[ConnectorPlaylistItem],
         enhanced_metadata: dict[str, Any],
-        existing_id: int | None,
+        existing_id: UUID | None,
     ) -> ConnectorPlaylist:
         """Build ConnectorPlaylist entity for database update.
 
@@ -260,16 +261,18 @@ class UpdateConnectorPlaylistUseCase:
         Returns:
             ConnectorPlaylist ready for persistence
         """
-        return ConnectorPlaylist(
-            id=existing_id,
-            connector_name=command.connector,
-            connector_playlist_identifier=command.playlist_id,
-            name=current_playlist.name,
-            description=current_playlist.description,
-            items=updated_items,
-            raw_metadata=enhanced_metadata,
-            last_updated=datetime.now(UTC),
-        )
+        kwargs: dict[str, Any] = {
+            "connector_name": command.connector,
+            "connector_playlist_identifier": command.playlist_id,
+            "name": current_playlist.name,
+            "description": current_playlist.description,
+            "items": updated_items,
+            "raw_metadata": enhanced_metadata,
+            "last_updated": datetime.now(UTC),
+        }
+        if existing_id is not None:
+            kwargs["id"] = existing_id
+        return ConnectorPlaylist(**kwargs)
 
     async def _persist_connector_playlist_with_verification(
         self,

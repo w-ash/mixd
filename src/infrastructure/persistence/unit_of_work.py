@@ -53,7 +53,7 @@ from src.infrastructure.services.track_identity_service_impl import (
 )
 
 
-class DatabaseUnitOfWork:  # noqa: PLR0904
+class DatabaseUnitOfWork:
     """Database implementation of the Unit of Work pattern.
 
     This class manages database transactions and provides access to all repositories

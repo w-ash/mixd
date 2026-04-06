@@ -1,10 +1,11 @@
 """Unit tests for MatchAndIdentifyTracksUseCase.
 
 Tests the identity resolution pipeline: existing mapping lookup, raw match
-fetching, domain evaluation, and mapping persistence.
+fetching, domain evaluation, mapping persistence, and review candidate persistence.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid7
 
 import pytest
 
@@ -13,7 +14,9 @@ from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksResult,
     MatchAndIdentifyTracksUseCase,
 )
+from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import TrackList
+from src.domain.matching.types import ConfidenceEvidence, EvaluationResult, MatchResult
 from tests.fixtures import make_track
 from tests.fixtures.mocks import make_mock_uow
 
@@ -152,8 +155,6 @@ class TestMatchAndIdentifyTracksUseCase:
         # The evaluation service is internal to the use case; we need to
         # patch it at class level due to slots=True
 
-        from src.domain.matching.types import EvaluationResult
-
         evaluation = EvaluationResult(
             accepted={tracks[1].id: MagicMock()},
             review_candidates={},
@@ -263,8 +264,6 @@ class TestMatchAndIdentifyTracksProgress:
             parent_operation_id="parent-op-1",
         )
 
-        from src.domain.matching.types import EvaluationResult
-
         evaluation = EvaluationResult(accepted={}, review_candidates={})
 
         use_case = MatchAndIdentifyTracksUseCase()
@@ -309,8 +308,6 @@ class TestMatchAndIdentifyTracksProgress:
             connector_instance=mock_connector,
             # No progress_manager or parent_operation_id
         )
-
-        from src.domain.matching.types import EvaluationResult
 
         evaluation = EvaluationResult(accepted={}, review_candidates={})
 
@@ -407,3 +404,210 @@ class TestMatchAndIdentifyTracksProgress:
         # No sub-operation created because all tracks were already mapped
         mock_progress.start_operation.assert_not_called()
         identity_service.get_raw_external_matches.assert_not_called()
+
+
+class TestPersistReviewCandidates:
+    """Test review candidate persistence through the use case execute path."""
+
+    @pytest.fixture
+    def review_setup(self, mock_connector):
+        """Set up tracks and review candidates for review persistence tests."""
+        tracks = [make_track(), make_track()]
+        tracklist = TrackList(tracks=tracks)
+
+        # Build review candidates with realistic service_data
+        ct_id_0 = uuid7()
+        ct_id_1 = uuid7()
+
+        review_candidates = {
+            tracks[0].id: MatchResult(
+                track=tracks[0],
+                success=False,
+                review_required=True,
+                connector_id="sp_track_abc",
+                confidence=65,
+                match_method="artist_title",
+                service_data={
+                    "title": "Close Match",
+                    "artists": ["Artist A"],
+                    "album": "Album X",
+                    "duration_ms": 240000,
+                    "isrc": "USRC12345678",
+                },
+                evidence=ConfidenceEvidence(
+                    base_score=60,
+                    title_similarity=0.85,
+                    artist_similarity=0.90,
+                    match_weight=3.5,
+                    final_score=65,
+                ),
+            ),
+            tracks[1].id: MatchResult(
+                track=tracks[1],
+                success=False,
+                review_required=True,
+                connector_id="sp_track_def",
+                confidence=55,
+                match_method="artist_title",
+                service_data={
+                    "title": "Maybe Match",
+                    "artists": ["Artist B"],
+                },
+            ),
+        }
+
+        # Map connector IDs to database UUIDs
+        ct_id_map = {
+            ("spotify", "sp_track_abc"): ct_id_0,
+            ("spotify", "sp_track_def"): ct_id_1,
+        }
+
+        return {
+            "tracks": tracks,
+            "tracklist": tracklist,
+            "review_candidates": review_candidates,
+            "ct_id_map": ct_id_map,
+            "ct_ids": (ct_id_0, ct_id_1),
+        }
+
+    async def test_review_candidates_persisted(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        """Review candidates create connector_tracks then MatchReview records."""
+        uow = mock_uow
+        identity_service = uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.return_value = {}
+
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
+
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.return_value = 2
+
+        evaluation = EvaluationResult(
+            accepted={},
+            review_candidates=review_setup["review_candidates"],
+        )
+
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=review_setup["tracklist"],
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase,
+            "_evaluation_service",
+            create=True,
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, uow)
+
+        assert not result.errors
+
+        # Phase 1: ensure_connector_tracks was called with correct data
+        connector_repo.ensure_connector_tracks.assert_called_once()
+        call_args = connector_repo.ensure_connector_tracks.call_args
+        assert call_args[0][0] == "spotify"
+        tracks_data = call_args[0][1]
+        assert len(tracks_data) == 2
+        assert tracks_data[0]["connector_id"] == "sp_track_abc"
+        assert tracks_data[0]["title"] == "Close Match"
+        assert tracks_data[0]["artists"] == ["Artist A"]
+
+        # Phase 2: create_reviews_batch was called with MatchReview entities
+        review_repo.create_reviews_batch.assert_called_once()
+        reviews = review_repo.create_reviews_batch.call_args[0][0]
+        assert len(reviews) == 2
+        assert all(isinstance(r, MatchReview) for r in reviews)
+
+        # Verify first review has correct fields
+        r0 = next(
+            r for r in reviews if r.connector_track_id == review_setup["ct_ids"][0]
+        )
+        assert r0.connector_name == "spotify"
+        assert r0.match_method == "artist_title"
+        assert r0.confidence == 65
+        assert r0.match_weight == 3.5
+
+    async def test_review_candidates_without_evidence_default_weight(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        """MatchReview.match_weight defaults to 0.0 when evidence is None."""
+        uow = mock_uow
+        identity_service = uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.return_value = {}
+
+        # Use only the second candidate (no evidence)
+        track = review_setup["tracks"][1]
+        no_evidence_candidate = review_setup["review_candidates"][track.id]
+        candidates = {track.id: no_evidence_candidate}
+
+        ct_id = uuid7()
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.return_value = {
+            ("spotify", "sp_track_def"): ct_id,
+        }
+
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.return_value = 1
+
+        evaluation = EvaluationResult(accepted={}, review_candidates=candidates)
+
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=TrackList(tracks=[track]),
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase,
+            "_evaluation_service",
+            create=True,
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            await use_case.execute(command, uow)
+
+        reviews = review_repo.create_reviews_batch.call_args[0][0]
+        assert len(reviews) == 1
+        assert reviews[0].match_weight == 0.0
+        assert reviews[0].confidence_evidence is None
+
+    async def test_empty_review_candidates_no_repo_calls(
+        self, mock_uow, mock_connector
+    ):
+        """Empty review_candidates skips connector_track and review persistence."""
+        uow = mock_uow
+        identity_service = uow.get_track_identity_service()
+        identity_service.get_existing_identity_mappings.return_value = {}
+        identity_service.get_raw_external_matches.return_value = {}
+
+        evaluation = EvaluationResult(accepted={}, review_candidates={})
+
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=TrackList(tracks=[make_track()]),
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase,
+            "_evaluation_service",
+            create=True,
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            await use_case.execute(command, uow)
+
+        # Neither repo should be called when there are no review candidates
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.assert_not_called()
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.assert_not_called()

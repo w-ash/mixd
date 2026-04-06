@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+# Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 """Prune expired OAuth CSRF state rows from the database.
 
 Called from FastAPI lifespan on startup. The oauth_states table uses a 5-minute

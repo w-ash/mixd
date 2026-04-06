@@ -37,7 +37,7 @@ class ConnectorStatus:
     token_expires_at: int | None = None
 
 
-async def _fetch_spotify_display_name(access_token: str) -> str | None:
+async def fetch_spotify_display_name(access_token: str) -> str | None:
     """Best-effort fetch of Spotify display name via GET /me.
 
     Uses a bare httpx client — avoids heavy SpotifyAPIClient initialization,
@@ -88,7 +88,7 @@ async def get_spotify_status(
         if refreshed is not None:
             expires_at = refreshed.get("expires_at", 0)
             if not display_name:
-                display_name = await _fetch_spotify_display_name(
+                display_name = await fetch_spotify_display_name(
                     refreshed["access_token"]
                 )
                 if display_name:
@@ -104,7 +104,7 @@ async def get_spotify_status(
         and isinstance(access_token, str)
         and expires_at > time.time()
     ):
-        display_name = await _fetch_spotify_display_name(access_token)
+        display_name = await fetch_spotify_display_name(access_token)
         if display_name:
             updated: StoredToken = {**token_data, "account_name": display_name}
             await storage.save_token("spotify", user_id, updated)

@@ -485,7 +485,7 @@ def list_links(
             link.connector_playlist_identifier,
             str(link.sync_direction.value),
             str(link.sync_status.value),
-            str(link.last_synced_at) if link.last_synced_at else "Never",
+            str(link.last_synced) if link.last_synced else "Never",
         )
 
     console.print(table)
@@ -667,10 +667,10 @@ def sync_preview(
 
     console.print(
         Panel.fit(
-            f"[cyan]Direction:[/cyan] {result.effective_direction.value}\n"
-            f"[cyan]To add:[/cyan] {len(result.tracks_to_add)}\n"
-            f"[cyan]To remove:[/cyan] {len(result.tracks_to_remove)}\n"
-            f"[cyan]Unchanged:[/cyan] {result.unchanged_count}",
+            f"[cyan]Direction:[/cyan] {result.direction.value}\n"
+            f"[cyan]To add:[/cyan] {result.tracks_to_add}\n"
+            f"[cyan]To remove:[/cyan] {result.tracks_to_remove}\n"
+            f"[cyan]Unchanged:[/cyan] {result.tracks_unchanged}",
             title="[bold]Sync Preview[/bold]",
         )
     )

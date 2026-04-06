@@ -10,6 +10,7 @@ remain in the domain layer.
 
 from abc import ABC, abstractmethod
 from typing import Any
+from uuid import UUID
 
 from src.config import get_logger
 from src.config.logging import logging_context
@@ -55,7 +56,7 @@ class BaseMatchingProvider(ABC):
     @abstractmethod
     async def _match_by_isrc(
         self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Service-specific ISRC matching.
 
         Args:
@@ -69,7 +70,7 @@ class BaseMatchingProvider(ABC):
     @abstractmethod
     async def _match_by_artist_title(
         self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Service-specific artist/title matching.
 
         Args:
@@ -134,7 +135,7 @@ class BaseMatchingProvider(ABC):
             completed = len(unprocessable_tracks)
 
             # Process ISRC tracks
-            isrc_matches: dict[int, RawProviderMatch] = {}
+            isrc_matches: dict[UUID, RawProviderMatch] = {}
             isrc_failures: list[MatchFailure] = []
             if isrc_tracks:
                 isrc_matches, isrc_failures = await self._match_by_isrc(isrc_tracks)
@@ -163,7 +164,7 @@ class BaseMatchingProvider(ABC):
             ] + failed_isrc_tracks
 
             # Process remaining tracks by artist/title
-            artist_title_matches: dict[int, RawProviderMatch] = {}
+            artist_title_matches: dict[UUID, RawProviderMatch] = {}
             artist_title_failures: list[MatchFailure] = []
             if remaining_tracks:
                 (

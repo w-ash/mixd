@@ -9,6 +9,7 @@ formats, and persisting results for future use.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from attrs import define
 
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from src.application.services.progress_manager import AsyncProgressManager
     from src.application.workflows.protocols import MetricConfigProvider
 
-type _MetricsTuple = tuple[int, str, str, float | int | bool]
+type _MetricsTuple = tuple[UUID, str, str, float | int | bool]
 
 logger = get_logger(__name__)
 
@@ -47,7 +48,7 @@ class MetricsApplicationService:
 
     @staticmethod
     def _extract_metrics_from_metadata(
-        fresh_metadata: dict[int, dict[str, Any]],
+        fresh_metadata: dict[UUID, dict[str, Any]],
         metric_names: list[str],
         field_map: dict[str, str],
         connector: str,
@@ -79,14 +80,14 @@ class MetricsApplicationService:
 
     async def get_external_track_metrics(
         self,
-        track_ids: list[int],
+        track_ids: list[UUID],
         connector: str,
         metric_names: list[str],
         uow: UnitOfWorkProtocol,
         connector_instance: TrackMetadataConnector | None = None,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
-    ) -> tuple[dict[str, dict[int, Any]], dict[str, set[int]]]:
+    ) -> tuple[dict[str, dict[UUID, Any]], dict[str, set[UUID]]]:
         """Get track metrics from external APIs using cache-first strategy.
 
         This is the primary method for retrieving track metrics. It handles multiple
@@ -148,18 +149,17 @@ class MetricsApplicationService:
             logger.warning("No valid field mappings found for any requested metrics")
             return {}, {}
 
-        result: dict[str, dict[int, Any]] = {}
-        fresh_ids_per_metric: dict[str, set[int]] = {}
+        result: dict[str, dict[UUID, Any]] = {}
+        fresh_ids_per_metric: dict[str, set[UUID]] = {}
 
         # Phase 1: Single database transaction to identify missing data
-        missing_tracks_per_metric: dict[str, list[int]] = {}
-        cached_values_per_metric: dict[str, dict[int, Any]] = {}
+        missing_tracks_per_metric: dict[str, list[UUID]] = {}
+        cached_values_per_metric: dict[str, dict[UUID, Any]] = {}
 
         async with uow:
+            metrics_repo = uow.get_metrics_repository()
             for metric_name in field_map:
-                # Check cache for fresh metrics
                 max_age_hours = self.metric_config.get_metric_freshness(metric_name)
-                metrics_repo = uow.get_metrics_repository()
 
                 cached_values = await metrics_repo.get_track_metrics(
                     track_ids,
@@ -182,7 +182,7 @@ class MetricsApplicationService:
             # Pre-load tracks that will need API calls (while UoW is still open)
             tracks_for_api: list[Track] = []
             if missing_tracks_per_metric:
-                all_missing_ids: set[int] = set()
+                all_missing_ids: set[UUID] = set()
                 for ids in missing_tracks_per_metric.values():
                     all_missing_ids.update(ids)
                 track_repo = uow.get_track_repository()
@@ -191,7 +191,7 @@ class MetricsApplicationService:
 
         # Phase 2: Single API fetch for all missing tracks, then extract per-metric
         if missing_tracks_per_metric and connector_instance:
-            fresh_metadata: dict[int, dict[str, Any]] = {}
+            fresh_metadata: dict[UUID, dict[str, Any]] = {}
 
             if tracks_for_api:
                 # Filter out tracks with no connector identity (avoids wasted API calls)
@@ -324,7 +324,7 @@ class MetricsApplicationService:
             available_metrics,
         ) in self.metric_config.get_all_connectors_metrics().items():
             tracks_with_metadata: list[Track] = []
-            fresh_metadata: dict[int, dict[str, Any]] = {}
+            fresh_metadata: dict[UUID, dict[str, Any]] = {}
 
             for track in tracks:
                 if (
@@ -353,7 +353,7 @@ class MetricsApplicationService:
 
     async def batch_process_fresh_metadata(
         self,
-        fresh_metadata: dict[int, dict[str, Any]],
+        fresh_metadata: dict[UUID, dict[str, Any]],
         connector: str,
         available_metrics: list[str],
         field_map: dict[str, str],

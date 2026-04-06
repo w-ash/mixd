@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -66,7 +67,7 @@ async def _run_repo_session():
 
 
 async def _update_run_status(
-    run_id: int,
+    run_id: UUID,
     status: RunStatus,
     **kwargs: Any,
 ) -> None:
@@ -76,7 +77,7 @@ async def _update_run_status(
 
 
 async def _update_node_status(
-    run_id: int,
+    run_id: UUID,
     node_id: str,
     status: RunStatus,
     *,
@@ -566,7 +567,7 @@ def list_runs(
     workflow_id: Annotated[
         str | None,
         typer.Argument(
-            help="Workflow ID (number or slug) — omit to show all runs",
+            help="Workflow ID (number or slug)",
             autocompletion=complete_workflow_id,
         ),
     ] = None,
@@ -577,7 +578,7 @@ def list_runs(
 ) -> None:
     """List workflow execution runs."""
     # Resolve workflow_id to UUID if provided
-    resolved_wf_id: int | None = None
+    resolved_wf_id: UUID | None = None
     if workflow_id is not None:
         workflows = _get_available_workflows()
         selected = _resolve_workflow(workflows, workflow_id)
@@ -594,11 +595,15 @@ def list_runs(
         )
 
         user_id = get_cli_user_id()
+        if resolved_wf_id is None:
+            err_console.print("[red]Error: --workflow-id is required.[/red]")
+            raise typer.Exit(1)
+        wf_id: UUID = resolved_wf_id
         result = await execute_use_case(
             lambda uow: ListWorkflowRunsUseCase().execute(
                 ListWorkflowRunsCommand(
                     user_id=user_id,
-                    workflow_id=resolved_wf_id,
+                    workflow_id=wf_id,
                     limit=limit,
                 ),
                 uow,

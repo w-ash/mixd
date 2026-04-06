@@ -336,7 +336,7 @@ def calculate_lis_reorder_operations(
         positions_in_correct_order.add((target_pos, current_pos))
 
     # Debug: log some examples of what's being identified as needing to move
-    tracks_to_move: list[tuple[int, int, int | None]] = [
+    tracks_to_move: list[tuple[int, int, UUID | None]] = [
         (target_pos, current_pos, target_track.id)
         for target_pos, target_track, current_pos in target_track_refs
         if (target_pos, current_pos) not in positions_in_correct_order

@@ -50,7 +50,7 @@ class PlayDeduplicationResult:
     """
 
     plays_to_insert: list[TrackPlay]
-    plays_to_update: list[tuple[int, dict[str, Any]]]
+    plays_to_update: list[tuple[UUID, dict[str, Any]]]
     suppressed_plays: list[TrackPlay]
     stats: dict[str, int] = field(factory=dict)
 

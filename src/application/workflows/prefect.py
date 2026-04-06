@@ -13,6 +13,7 @@ import datetime
 import signal
 import time
 from typing import Any
+from uuid import UUID
 
 import attrs
 from prefect import flow, tags, task
@@ -392,7 +393,7 @@ def build_flow(
                 delta=delta,
             )
             if delta > 0:
-                dropped_ids: list[int | None] = []
+                dropped_ids: list[UUID | None] = []
                 if input_track_count and task_def.upstream:
                     upstream_res = task_results.get(task_def.upstream[0])
                     if upstream_res:
@@ -496,17 +497,17 @@ def build_flow(
 
 def _aggregate_workflow_metrics(
     task_results: dict[str, NodeResult],
-) -> dict[str, dict[int, Any]]:
+) -> dict[str, dict[UUID, Any]]:
     """Aggregate metrics from all workflow task results.
 
     Iterates through task results, extracting metrics from each tracklist's
     metadata and merging them into a unified dict.
     """
-    all_metrics: dict[str, dict[int, Any]] = {}
+    all_metrics: dict[str, dict[UUID, Any]] = {}
 
     for task_id, result in task_results.items():
         tracklist = result["tracklist"]
-        task_metrics: dict[str, dict[int, Any]] = tracklist.metadata.get("metrics", {})
+        task_metrics: dict[str, dict[UUID, Any]] = tracklist.metadata.get("metrics", {})
 
         for metric_name, values in task_metrics.items():
             if values:

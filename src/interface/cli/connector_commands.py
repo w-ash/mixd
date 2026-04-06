@@ -81,7 +81,7 @@ def auth_spotify() -> None:
         import asyncio
 
         from src.infrastructure.connectors._shared.connector_status import (
-            _fetch_spotify_display_name,
+            fetch_spotify_display_name,
         )
         from src.infrastructure.connectors._shared.token_storage import (
             StoredToken,
@@ -96,7 +96,7 @@ def auth_spotify() -> None:
         code = await asyncio.to_thread(mgr.run_browser_auth)
         token_info = await mgr.exchange_code(code)
 
-        display_name = await _fetch_spotify_display_name(token_info["access_token"])
+        display_name = await fetch_spotify_display_name(token_info["access_token"])
         token_to_save = StoredToken(**token_info)
         if display_name:
             token_to_save = StoredToken(**token_info, account_name=display_name)

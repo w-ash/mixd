@@ -5,6 +5,7 @@ Spotify track data into our domain MatchResult objects.
 """
 
 from typing import override
+from uuid import UUID
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities import Track
@@ -53,7 +54,7 @@ class SpotifyProvider(BaseMatchingProvider):
     @override
     async def _match_by_isrc(
         self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Match tracks using Spotify ISRC search API.
 
         Args:
@@ -62,7 +63,7 @@ class SpotifyProvider(BaseMatchingProvider):
         Returns:
             Tuple of (matches dict, failures list).
         """
-        matches: dict[int, RawProviderMatch] = {}
+        matches: dict[UUID, RawProviderMatch] = {}
         failures: list[MatchFailure] = []
 
         for track in tracks:
@@ -121,7 +122,7 @@ class SpotifyProvider(BaseMatchingProvider):
     @override
     async def _match_by_artist_title(
         self, tracks: list[Track]
-    ) -> tuple[dict[int, RawProviderMatch], list[MatchFailure]]:
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Match tracks using Spotify artist/title search API.
 
         Args:
@@ -130,7 +131,7 @@ class SpotifyProvider(BaseMatchingProvider):
         Returns:
             Tuple of (matches dict, failures list).
         """
-        matches: dict[int, RawProviderMatch] = {}
+        matches: dict[UUID, RawProviderMatch] = {}
         failures: list[MatchFailure] = []
 
         for track in tracks:

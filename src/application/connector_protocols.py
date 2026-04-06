@@ -15,6 +15,7 @@ Separated from ``workflows.protocols`` to break a circular import chain:
 
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
+from uuid import UUID
 
 from src.domain.entities import ConnectorPlaylist, ConnectorTrack
 from src.domain.entities.track import Track
@@ -55,7 +56,7 @@ class TrackMetadataConnector(Protocol):
         self,
         tracks: list[Track],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[UUID, dict[str, Any]]:
         """Retrieve complete track data from the external service for multiple tracks."""
         ...
 

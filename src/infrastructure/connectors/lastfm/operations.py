@@ -19,6 +19,7 @@ providing reusable business logic while maintaining clean separation of concerns
 
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import UUID
 
 from attrs import define, field
 
@@ -42,7 +43,7 @@ class TrackProcessingResult:
     Used to maintain type safety in batch processing operations.
     """
 
-    track_id: int
+    track_id: UUID
     info: LastFMTrackInfo
 
 
@@ -265,7 +266,7 @@ class LastFMOperations:
         tracks: list[Track],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
         **_options: Any,
-    ) -> dict[int, LastFMTrackInfo]:
+    ) -> dict[UUID, LastFMTrackInfo]:
         """Fetch track information for multiple tracks using queue-based rate limiting."""
         from src.config import settings
         from src.infrastructure.connectors._shared.rate_limited_batch_processor import (
@@ -281,11 +282,6 @@ class LastFMOperations:
         )
 
         async def process_track(track: Track) -> TrackProcessingResult:
-            if track.id is None:  # pragma: no cover - UUIDv7 tracks always have IDs
-                raise ValueError(
-                    f"Track must have an ID for batch processing: {track.title}"
-                )
-
             lastfm_info = await self.get_track_info_intelligent(track)
             return TrackProcessingResult(track.id, lastfm_info)
 
@@ -300,7 +296,7 @@ class LastFMOperations:
         )
 
         # Process batch with queue-based rate limiting
-        results: dict[int, LastFMTrackInfo] = {}
+        results: dict[UUID, LastFMTrackInfo] = {}
         async for _item_id, result in processor.process_batch(
             tracks, process_track, progress_callback=progress_callback
         ):

@@ -11,6 +11,7 @@ This replaces MatchTracksUseCase and will become the single way to resolve track
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 if TYPE_CHECKING:
     from src.application.services.progress_manager import AsyncProgressManager
@@ -26,9 +27,6 @@ from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResultsById, RawProviderMatch
 from src.domain.repositories import UnitOfWorkProtocol
 from src.domain.repositories.interfaces import TrackIdentityServiceProtocol
-
-# Note: TrackMappingService and spotify_track_lookup removed - redundant with SpotifyConnector behavior
-
 
 logger = get_logger(__name__)
 
@@ -119,8 +117,6 @@ class MatchAndIdentifyTracksUseCase:
     def __attrs_post_init__(self) -> None:
         self._evaluation_service = create_evaluation_service()
 
-    # Note: TrackMappingService removed - SpotifyConnector already handles relinking transparently
-
     async def execute(
         self, command: MatchAndIdentifyTracksCommand, uow: UnitOfWorkProtocol
     ) -> MatchAndIdentifyTracksResult:
@@ -138,8 +134,6 @@ class MatchAndIdentifyTracksUseCase:
             Exception: Unrecoverable infrastructure errors.
         """
         timer = ExecutionTimer()
-
-        # Note: TrackMappingService initialization removed - relinking handled by SpotifyConnector
 
         with logging_context(
             operation="match_and_identify_tracks",
@@ -160,30 +154,12 @@ class MatchAndIdentifyTracksUseCase:
                     errors=[],
                 )
 
-            valid_tracks = list(command.tracklist.tracks)
-            if not valid_tracks:
-                logger.warning(
-                    "No tracks with database IDs - unable to perform identity resolution"
-                )
-                return MatchAndIdentifyTracksResult(
-                    identity_mappings={},
-                    track_count=len(command.tracklist.tracks),
-                    resolved_count=0,
-                    execution_time_ms=timer.stop(),
-                    errors=["No tracks with database IDs available for resolution"],
-                )
-
-            # Log filtering if needed
-            filtered_count = len(command.tracklist.tracks) - len(valid_tracks)
-            if filtered_count > 0:
-                logger.info(
-                    f"Filtered out {filtered_count} tracks without database IDs"
-                )
+            tracks = command.tracklist.tracks
 
             try:
                 # STEP 1: Get existing identity mappings from database
                 track_identity_service = uow.get_track_identity_service()
-                track_ids = [t.id for t in valid_tracks]
+                track_ids = [t.id for t in tracks]
 
                 existing_mappings = (
                     await track_identity_service.get_existing_identity_mappings(
@@ -193,7 +169,7 @@ class MatchAndIdentifyTracksUseCase:
 
                 # STEP 2: Find tracks that need new identity resolution
                 tracks_needing_resolution = [
-                    t for t in valid_tracks if t.id not in existing_mappings
+                    t for t in tracks if t.id not in existing_mappings
                 ]
 
                 if tracks_needing_resolution:
@@ -207,10 +183,6 @@ class MatchAndIdentifyTracksUseCase:
                         tracks=tracks_needing_resolution,
                         command=command,
                     )
-
-                    # STEP 3.5: NOTE: Spotify relinking handling removed - now automatic
-                    # SpotifyConnector already maps both old/new IDs to same data
-                    # MatchAndIdentifyTracksUseCase naturally creates one canonical track
 
                     # STEP 4: Apply ALL business logic through domain service
                     evaluation = self._evaluation_service.evaluate_raw_matches(
@@ -233,9 +205,6 @@ class MatchAndIdentifyTracksUseCase:
                         await self._persist_review_candidates(
                             evaluation.review_candidates, command.connector, uow
                         )
-                        logger.info(
-                            f"{len(evaluation.review_candidates)} matches queued for review"
-                        )
 
                     # Combine existing and newly accepted mappings
                     identity_mappings = {**existing_mappings, **evaluation.accepted}
@@ -246,7 +215,7 @@ class MatchAndIdentifyTracksUseCase:
                 resolved_count = len(identity_mappings)
 
                 logger.info(
-                    f"Successfully resolved {resolved_count} out of {len(valid_tracks)} track identities"
+                    f"Successfully resolved {resolved_count} out of {len(tracks)} track identities"
                 )
 
                 return MatchAndIdentifyTracksResult(
@@ -274,7 +243,7 @@ class MatchAndIdentifyTracksUseCase:
         track_identity_service: TrackIdentityServiceProtocol,
         tracks: list[Track],
         command: MatchAndIdentifyTracksCommand,
-    ) -> dict[int, RawProviderMatch]:
+    ) -> dict[UUID, RawProviderMatch]:
         """Fetch raw matches with optional progress sub-operation tracking.
 
         Creates a sub-operation on the progress manager when available, threads
@@ -332,29 +301,63 @@ class MatchAndIdentifyTracksUseCase:
         review_candidates: MatchResultsById,
         connector: str,
         uow: UnitOfWorkProtocol,
-    ) -> None:
-        """Persist review-zone matches to the match_reviews table."""
-        review_repo = uow.get_match_review_repository()
-        reviews = [
-            MatchReview(
-                track_id=track_id,
-                connector_name=connector,
-                connector_track_id=int(match.connector_id) if match.connector_id else 0,
-                match_method=match.match_method,
-                confidence=match.confidence,
-                match_weight=match.evidence.match_weight if match.evidence else 0.0,
-                confidence_evidence=match.evidence_dict,
-            )
-            for track_id, match in review_candidates.items()
-            if match.connector_id
-        ]
-        if reviews:
-            await review_repo.create_reviews_batch(reviews)
+    ) -> int:
+        """Persist review-zone matches to the match_reviews table.
 
-    # NOTE: _handle_spotify_relinking method removed in Phase 4
-    # REASON: SpotifyConnector.get_tracks_by_ids() already handles relinking transparently
-    # - Maps both old and new IDs to identical track data
-    # - MatchAndIdentifyTracksUseCase naturally creates one canonical track
-    # - No additional business logic needed for relinking
-    # EVIDENCE: Real API testing showed 11/21 tracks (52%) were relinked successfully
-    # RESULT: TrackMappingService and relinking orchestration proven redundant
+        Two-phase: ensures connector_tracks rows exist (required FK), then
+        batch-inserts MatchReview records. Returns count of reviews created.
+        """
+        connector_repo = uow.get_connector_repository()
+
+        # Phase 1: Ensure connector_tracks rows exist for each review candidate
+        tracks_data = [
+            {
+                "connector_id": match.connector_id,
+                "title": match.service_data.get("title", match.track.title),
+                "artists": match.service_data.get(
+                    "artists", [a.name for a in match.track.artists]
+                ),
+                "album": match.service_data.get("album"),
+                "duration_ms": match.service_data.get("duration_ms"),
+                "isrc": match.service_data.get("isrc"),
+                "release_date": match.service_data.get("release_date"),
+                "raw_metadata": match.service_data,
+            }
+            for match in review_candidates.values()
+        ]
+
+        ct_id_map = await connector_repo.ensure_connector_tracks(connector, tracks_data)
+
+        # Phase 2: Build MatchReview entities and batch-persist
+        reviews: list[MatchReview] = []
+        for track_id, match in review_candidates.items():
+            ct_id = ct_id_map.get((connector, match.connector_id))
+            if ct_id is None:
+                logger.warning(
+                    "connector_track not found after upsert",
+                    connector=connector,
+                    connector_id=match.connector_id,
+                )
+                continue
+
+            reviews.append(
+                MatchReview(
+                    track_id=track_id,
+                    connector_name=connector,
+                    connector_track_id=ct_id,
+                    match_method=match.match_method,
+                    confidence=match.confidence,
+                    match_weight=match.evidence.match_weight if match.evidence else 0.0,
+                    confidence_evidence=match.evidence_dict,
+                )
+            )
+
+        review_repo = uow.get_match_review_repository()
+        count = await review_repo.create_reviews_batch(reviews)
+
+        logger.info(
+            "Persisted review candidates",
+            review_count=count,
+            connector=connector,
+        )
+        return count

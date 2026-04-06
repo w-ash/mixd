@@ -226,7 +226,7 @@ def _resolve_interactive() -> None:
         if choice == "skip":
             continue
 
-        async def _do_resolve(rid=review.id, act=choice):
+        async def _do_resolve(rid: UUID = review.id, act: str = choice):
             from src.application.runner import execute_use_case
             from src.application.use_cases.resolve_match_review import (
                 ResolveMatchReviewCommand,
@@ -234,10 +234,13 @@ def _resolve_interactive() -> None:
             )
 
             user_id = get_cli_user_id()
+            action: Literal["accept", "reject"] = (
+                "accept" if act == "accept" else "reject"
+            )
             return await execute_use_case(
                 lambda uow: ResolveMatchReviewUseCase().execute(
                     ResolveMatchReviewCommand(
-                        user_id=user_id, review_id=rid, action=act
+                        user_id=user_id, review_id=rid, action=action
                     ),
                     uow,
                 ),

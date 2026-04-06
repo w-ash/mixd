@@ -8,6 +8,7 @@ use cases. Supports both local canonical playlists and external platform playlis
 # pyright: reportExplicitAny=false, reportAny=false
 
 from typing import Any
+from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
@@ -47,7 +48,7 @@ def _prepare_destination(
 
 async def _find_existing_playlist_by_name(
     workflow_context: WorkflowContext, playlist_name: str
-) -> int | None:
+) -> UUID | None:
     """Check if a canonical playlist with this name already exists.
 
     Returns the playlist ID if found, None otherwise. Used for idempotent
@@ -58,7 +59,7 @@ async def _find_existing_playlist_by_name(
 
     user_id = workflow_context.user_id
 
-    async def _search(uow: UnitOfWorkProtocol) -> int | None:
+    async def _search(uow: UnitOfWorkProtocol) -> UUID | None:
         repo = uow.get_playlist_repository()
         all_playlists = await repo.list_all_playlists(user_id=user_id)
         for p in all_playlists:

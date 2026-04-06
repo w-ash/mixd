@@ -162,7 +162,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 raise OptimisticLockError(track.id, track.version)
 
             await self._load_relationships_via_identity_map([updated])
-            return await TrackMapper.to_domain_with_session(updated, self.session)
+            domain_track = await TrackMapper.to_domain_with_session(
+                updated, self.session
+            )
+            if domain_track is None:
+                raise OptimisticLockError(track.id, track.version)
+            return domain_track
 
         # --- Insert/upsert path (version == 0, no locking needed) ---
         # Handle lookups by ISRC, MBID, or Spotify ID

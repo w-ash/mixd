@@ -5,6 +5,7 @@
 
 import json
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from rich.table import Table
 
@@ -112,7 +113,7 @@ def _display_table_result(
             details_table.add_column(display_name, style="yellow", justify="right")
 
         # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)
-        fresh_metric_ids: dict[str, list[int]] = (
+        fresh_metric_ids: dict[str, list[UUID]] = (
             result.tracklist.metadata.get("fresh_metric_ids", {})
             if result.tracklist
             else {}
@@ -124,8 +125,8 @@ def _display_table_result(
 
             # Get source information from tracklist metadata
             source_info = "Unknown"
-            track_sources: dict[int, dict[str, Any]] = cast(
-                dict[int, dict[str, Any]],
+            track_sources: dict[UUID, dict[str, Any]] = cast(
+                dict[UUID, dict[str, Any]],
                 result.tracklist.metadata.get("track_sources", {})
                 if result.tracklist
                 else {},

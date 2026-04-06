@@ -8,7 +8,7 @@ These types represent the core concepts in our matching domain with zero externa
 
 from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, Final, TypedDict
 from uuid import UUID
 
 from attrs import define, field
@@ -17,6 +17,12 @@ from src.domain.entities.track import Track
 
 type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 """Async progress callback: (completed_count, total, description)."""
+
+# Domain constants for pre-existing identity mappings found in the database.
+# When tracks already have connector mappings, these values represent the
+# synthetic MatchResult created to signal "already resolved."
+EXISTING_MAPPING_CONFIDENCE: Final[int] = 90
+EXISTING_MAPPING_METHOD: Final[str] = "existing_mapping"
 
 
 class MatchFailureReason(Enum):

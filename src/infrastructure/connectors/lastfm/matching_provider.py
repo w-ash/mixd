@@ -13,6 +13,7 @@ raise ``NotImplementedError``).
 # pyright: reportAny=false, reportExplicitAny=false
 
 from typing import Any
+from uuid import UUID
 
 from src.config import get_logger
 from src.config.logging import logging_context
@@ -84,7 +85,7 @@ class LastFMProvider:
         with logging_context(operation="match_lastfm", tracks_count=len(tracks)):
             logger.info(f"Matching {len(tracks)} tracks to LastFM")
 
-            matches: dict[int, RawProviderMatch] = {}
+            matches: dict[UUID, RawProviderMatch] = {}
             failures: list[MatchFailure] = []
 
             try:
@@ -99,7 +100,7 @@ class LastFMProvider:
                 )
 
                 # Process results and classify failures
-                processed_track_ids: set[int] = set()
+                processed_track_ids: set[UUID] = set()
                 for track_id, track_info in track_infos.items():
                     processed_track_ids.add(track_id)
 

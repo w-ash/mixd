@@ -11,7 +11,7 @@ All functions return standardized track data for playlist creation and analysis.
 # pyright: reportExplicitAny=false, reportAny=false
 # Legitimate Any: Prefect context dicts
 
-from typing import Any
+from typing import Any, cast
 
 from src.application.services.connector_playlist_sync_service import (
     sync_connector_playlist,
@@ -30,6 +30,7 @@ from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import PlaySortBy
 
 from .node_context import NodeContext
 from .protocols import NodeResult
@@ -281,7 +282,9 @@ async def source_played_tracks(
     Returns:
         Dict with 'tracklist' containing played tracks and metadata.
     """
-    limit, connector_filter, sort_by = _extract_library_config(config, "played_at_desc")
+    limit, connector_filter, sort_by_str = _extract_library_config(
+        config, "played_at_desc"
+    )
     days_back: int | None = config.get("days_back")
 
     # Get workflow context and execute use case
@@ -294,7 +297,7 @@ async def source_played_tracks(
         limit=limit,
         days_back=days_back,
         connector_filter=connector_filter,
-        sort_by=sort_by,
+        sort_by=cast(PlaySortBy, sort_by_str),
     )
 
     await ctx.emit_phase_progress("query", "source", "Querying play history")
@@ -316,7 +319,7 @@ async def source_played_tracks(
         track_count=len(result.tracklist.tracks),
         days_back=days_back,
         connector_filter=connector_filter,
-        sort_by=sort_by,
+        sort_by=sort_by_str,
         execution_time_ms=result.execution_time_ms,
     )
     return {"tracklist": result.tracklist}

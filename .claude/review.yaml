@@ -1,0 +1,98 @@
+# Review Manifest — defines how this project can be sliced for reviews.
+# The /review skill reads this to scope vertical and horizontal audits.
+# If this file is absent, /review still works using CLAUDE.md and directory inference.
+
+layers:
+  domain:
+    pattern: "src/domain/**/*.py"
+    description: "Pure business logic, zero external deps"
+  application:
+    pattern: "src/application/**/*.py"
+    description: "Use case orchestration, transactions"
+  infrastructure:
+    pattern: "src/infrastructure/**/*.py"
+    description: "API adapters, repositories, persistence"
+  api:
+    pattern: "src/interface/api/**/*.py"
+    description: "FastAPI route handlers and schemas"
+  cli:
+    pattern: "src/interface/cli/**/*.py"
+    description: "Typer CLI commands"
+  frontend:
+    pattern: "web/src/**/*.{ts,tsx}"
+    description: "React UI components and pages"
+
+features:
+  likes-sync:
+    description: "Spotify/Last.fm likes import and export"
+    files:
+      - "src/application/use_cases/sync_likes.py"
+      - "src/infrastructure/connectors/spotify/liked_track_connector.py"
+      - "src/infrastructure/connectors/lastfm/liked_track_connector.py"
+      - "src/interface/api/routes/imports.py"
+      - "web/src/pages/settings/**"
+    persona: "Casual Enthusiast"
+
+  track-matching:
+    description: "Cross-service track identity resolution"
+    files:
+      - "src/domain/matching/**"
+      - "src/application/use_cases/match_and_identify_tracks.py"
+      - "src/interface/api/routes/reviews.py"
+    persona: "Weekly Curator"
+
+  playlist-sync:
+    description: "Cross-service playlist synchronization"
+    files:
+      - "src/domain/playlist/**"
+      - "src/application/use_cases/sync_playlist_link.py"
+      - "src/application/use_cases/create_canonical_playlist.py"
+      - "src/application/use_cases/create_connector_playlist.py"
+      - "src/interface/api/routes/playlists.py"
+      - "web/src/pages/PlaylistDetail.tsx"
+      - "web/src/pages/Playlists.tsx"
+    persona: "Weekly Curator"
+
+  workflows:
+    description: "Declarative automation pipelines"
+    files:
+      - "src/domain/entities/workflow.py"
+      - "src/application/use_cases/workflow_*.py"
+      - "src/application/workflows/**"
+      - "src/interface/api/routes/workflows.py"
+      - "src/interface/cli/workflow_commands.py"
+      - "web/src/pages/Workflow*.tsx"
+    persona: "Tinkerer"
+
+  history-import:
+    description: "Listening history import from Last.fm and Spotify files"
+    files:
+      - "src/application/use_cases/import_play_history.py"
+      - "src/infrastructure/connectors/lastfm/scrobble_provider.py"
+      - "src/infrastructure/connectors/spotify/play_history_provider.py"
+      - "src/interface/api/routes/imports.py"
+      - "src/interface/cli/history_commands.py"
+    persona: "Weekly Curator"
+
+  metadata-enrichment:
+    description: "Track metadata enrichment from MusicBrainz and other sources"
+    files:
+      - "src/application/use_cases/enrich_tracks.py"
+      - "src/application/metadata_transforms/**"
+      - "src/infrastructure/connectors/musicbrainz/**"
+    persona: "Weekly Curator"
+
+  auth:
+    description: "OAuth flows and multi-service authentication"
+    files:
+      - "src/interface/api/routes/auth.py"
+      - "src/interface/api/auth_gate.py"
+      - "src/infrastructure/persistence/repositories/token_repo.py"
+      - "web/src/components/auth/**"
+      - "web/src/pages/Login.tsx"
+    persona: "all"
+
+personas:
+  weekly-curator: "Power user who builds smart playlists weekly, wants full control over metadata"
+  tinkerer: "Loves building workflows, cares about the pipeline system"
+  casual-enthusiast: "Just wants to back up their likes and see listening stats"

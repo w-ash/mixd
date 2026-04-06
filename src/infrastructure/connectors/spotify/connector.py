@@ -11,6 +11,7 @@ SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, override
+from uuid import UUID
 
 from attrs import define, field
 
@@ -96,7 +97,7 @@ class SpotifyConnector(BaseAPIConnector):
         self,
         tracks: list[Track],
         _progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[UUID, dict[str, Any]]:
         """Unified interface for retrieving complete Spotify track data (TrackMetadataConnector protocol).
 
         Extracts Spotify IDs from Track objects and returns complete Spotify track objects

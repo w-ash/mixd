@@ -12,6 +12,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, ClassVar, override
+from uuid import UUID
 
 from attrs import define, field
 
@@ -81,7 +82,7 @@ class LastFMConnector(BaseAPIConnector):
 
     async def get_track_info_batch(
         self, tracks: list[Track]
-    ) -> dict[int, LastFMTrackInfo]:
+    ) -> dict[UUID, LastFMTrackInfo]:
         """Typed batch track info retrieval returning LastFMTrackInfo models."""
         return await self._operations.batch_get_track_info(tracks)
 
@@ -89,7 +90,7 @@ class LastFMConnector(BaseAPIConnector):
         self,
         tracks: list[Track],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[UUID, dict[str, Any]]:
         """Unified interface for retrieving complete Last.fm track data (TrackMetadataConnector protocol).
 
         Uses Last.fm's batch_get_track_info to fetch complete track information objects,

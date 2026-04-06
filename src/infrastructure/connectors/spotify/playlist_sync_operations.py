@@ -6,6 +6,7 @@ Handles minimal playlist updates (add/remove/move) with canonical URI resolution
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 from attrs import define, evolve, field
 
@@ -136,11 +137,11 @@ class SpotifyPlaylistSyncOperations:
     ) -> list[PlaylistOperation]:
         """Convert canonical URIs to Spotify URIs via database lookup."""
         # Collect canonical track IDs
-        canonical_ids: set[int] = set()
+        canonical_ids: set[UUID] = set()
         for op in operations:
             if op.spotify_uri and op.spotify_uri.startswith("canonical:"):
                 try:
-                    track_id = int(op.spotify_uri.split(":", 1)[1])
+                    track_id = UUID(op.spotify_uri.split(":", 1)[1])
                     canonical_ids.add(track_id)
                 except ValueError, IndexError:
                     logger.warning("Invalid canonical URI", uri=op.spotify_uri)
@@ -174,7 +175,7 @@ class SpotifyPlaylistSyncOperations:
 
             if op.spotify_uri.startswith("canonical:"):
                 try:
-                    track_id = int(op.spotify_uri.split(":", 1)[1])
+                    track_id = UUID(op.spotify_uri.split(":", 1)[1])
                     track = track_map.get(track_id)
 
                     if not track:

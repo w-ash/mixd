@@ -179,7 +179,7 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
         )
 
 
-class TrackConnectorRepository:  # noqa: PLR0904
+class TrackConnectorRepository:
     """Connects internal tracks with external music services like Spotify and Last.fm.
 
     Handles ingesting tracks from external APIs, mapping them to canonical internal
@@ -227,6 +227,47 @@ class TrackConnectorRepository:  # noqa: PLR0904
             "isrc": isrc,
             "raw_metadata": raw_metadata or {},
             "last_updated": datetime.now(UTC),
+        }
+
+    @db_operation("ensure_connector_tracks")
+    async def ensure_connector_tracks(
+        self,
+        connector_name: str,
+        tracks_data: list[dict[str, Any]],
+    ) -> dict[tuple[str, str], UUID]:
+        """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
+
+        Builds persistence-format dicts from application-layer data and bulk-upserts.
+        """
+        if not tracks_data:
+            return {}
+
+        now = datetime.now(UTC)
+        upsert_data = [
+            {
+                "connector_name": connector_name,
+                "connector_track_identifier": td["connector_id"],
+                "title": td.get("title", ""),
+                "artists": {"names": td.get("artists", [])},
+                "album": td.get("album"),
+                "duration_ms": td.get("duration_ms"),
+                "release_date": td.get("release_date"),
+                "isrc": td.get("isrc"),
+                "raw_metadata": td.get("raw_metadata", {}),
+                "last_updated": now,
+            }
+            for td in tracks_data
+        ]
+
+        connector_tracks = await self.connector_repo.bulk_upsert(
+            upsert_data,
+            lookup_keys=["connector_name", "connector_track_identifier"],
+            return_models=True,
+        )
+
+        return {
+            (ct.connector_name, ct.connector_track_identifier): ct.id
+            for ct in connector_tracks
         }
 
     @db_operation("get_full_mappings_for_track")
@@ -608,8 +649,6 @@ class TrackConnectorRepository:  # noqa: PLR0904
             # Get the connector track ID from the lookup
             ct_entry = connector_track_lookup[connector_track_identifier]
             connector_track_id = ct_entry.id
-            if connector_track_id is None:
-                continue
 
             # Check pre-fetched mappings instead of per-item query
             mapping = existing_mapping_by_ct_id.get(connector_track_id)
