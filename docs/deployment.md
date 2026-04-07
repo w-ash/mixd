@@ -138,11 +138,45 @@ The health check (`GET /api/v1/health`) runs every 30s with a 30s grace period o
 | Hosting | [Fly.io](https://fly.io) |
 | Region | `sjc` (San Jose) |
 | VM | `shared-cpu-1x`, 512MB |
-| Scaling | Auto-stop to zero, auto-start on request |
+| Scaling | Always-on (1 machine minimum for webhook reliability) |
 | HTTPS | Forced (Fly proxy terminates TLS) |
 | Internal port | 8000 |
 | Concurrency | Soft limit 20, hard limit 25 connections |
 | Custom domain | `mixd.me` (TLS cert managed by Fly) |
 | Auth | [Neon Auth](https://neon.com/docs/auth/overview) (Better Auth, EdDSA JWTs) |
 | Database | PostgreSQL 17 via [Neon](https://neon.tech) (pooler endpoint, scale-to-zero) |
+| CI Database | Neon branch per PR (replaces postgres container) |
+| Auth Webhooks | `user.created` event at `/webhooks/neon-auth` |
 | Container | Multi-stage Dockerfile (Python 3.14 + Node 22) |
+
+## Neon Integration
+
+### CI: Branch-per-PR
+
+CI creates a Neon branch for each pull request, runs Alembic migrations against it, executes tests, and posts a schema diff comment if migrations changed. Branches are deleted when PRs close.
+
+**Required GitHub config:**
+- **Secret** `NEON_API_KEY` — generate from Neon Console → Account Settings → API Keys
+- **Variable** `NEON_PROJECT_ID` — from Neon Console → Project Settings (currently `delicate-hill-47205215`)
+
+### Auth Webhooks
+
+Neon Auth sends events to `POST /webhooks/neon-auth` with EdDSA (Ed25519) signature verification. Currently subscribed to `user.created` (logs signups). Can add `user.before_create` to gate signups via the email allowlist.
+
+**Register or update the webhook:**
+```bash
+curl -X PUT "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches/$NEON_BRANCH_ID/auth/webhooks" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $NEON_API_KEY" \
+  -d '{"enabled": true, "webhook_url": "https://mixd.fly.dev/webhooks/neon-auth", "enabled_events": ["user.created"]}'
+```
+
+**Current values:** Project `delicate-hill-47205215`, branch `br-dry-water-ak9zsove`.
+
+**Available events:**
+| Event | Blocking | Purpose |
+|---|---|---|
+| `user.created` | No | Log signups |
+| `user.before_create` | Yes (5s timeout) | Validate email against allowlist before account creation |
+| `send.otp` | No | Custom OTP delivery (email, SMS, WhatsApp) |
+| `send.magic_link` | No | Custom magic link delivery |
