@@ -12,7 +12,7 @@ vi.mock("@/api/sse-client", () => ({
 }));
 
 import { connectToSSE } from "@/api/sse-client";
-import { mockSSEWithEvents } from "@/test/sse-test-utils";
+import { mockSSEOpenStream, mockSSEWithEvents } from "@/test/sse-test-utils";
 
 /** Mock connectToSSE to reject with an error. */
 function mockSSEError(message: string) {
@@ -78,7 +78,7 @@ describe("useOperationProgress", () => {
   });
 
   it("connects and sets isConnected on open", async () => {
-    mockSSEWithEvents([]);
+    const { close } = mockSSEOpenStream();
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
       wrapper: createWrapper(),
@@ -87,10 +87,11 @@ describe("useOperationProgress", () => {
     await waitFor(() => {
       expect(result.current.isConnected).toBe(true);
     });
+    close();
   });
 
   it("handles started event", async () => {
-    mockSSEWithEvents([
+    const { close } = mockSSEOpenStream([
       {
         event: "started",
         data: JSON.stringify({ total: 200, description: "Importing tracks" }),
@@ -110,10 +111,11 @@ describe("useOperationProgress", () => {
         }),
       );
     });
+    close();
   });
 
   it("handles progress event with metrics", async () => {
-    mockSSEWithEvents([
+    const { close } = mockSSEOpenStream([
       {
         event: "progress",
         data: JSON.stringify({
@@ -144,6 +146,7 @@ describe("useOperationProgress", () => {
         }),
       );
     });
+    close();
   });
 
   it("handles complete event", async () => {
@@ -191,7 +194,7 @@ describe("useOperationProgress", () => {
   });
 
   it("ignores events with empty data", async () => {
-    mockSSEWithEvents([{ event: "progress", data: "" }]);
+    const { close } = mockSSEOpenStream([{ event: "progress", data: "" }]);
 
     const { result } = renderHook(() => useOperationProgress("op-123"), {
       wrapper: createWrapper(),
@@ -202,10 +205,11 @@ describe("useOperationProgress", () => {
       expect(result.current.isConnected).toBe(true);
     });
     expect(result.current.progress?.status).toBe("pending");
+    close();
   });
 
   it("resets state when operationId changes to null", async () => {
-    mockSSEWithEvents([]);
+    const { close } = mockSSEOpenStream();
 
     const { result, rerender } = renderHook(
       ({ id }: { id: string | null }) => useOperationProgress(id),
@@ -225,6 +229,7 @@ describe("useOperationProgress", () => {
       expect(result.current.progress).toBeNull();
       expect(result.current.isConnected).toBe(false);
     });
+    close();
   });
 
   it("sets error on connection failure", async () => {
@@ -269,7 +274,7 @@ describe("useOperationProgress", () => {
   });
 
   it("skips malformed JSON and processes subsequent valid events", async () => {
-    mockSSEWithEvents([
+    const { close } = mockSSEOpenStream([
       { event: "progress", data: "not valid json{{{" },
       {
         event: "progress",
@@ -296,6 +301,7 @@ describe("useOperationProgress", () => {
     });
     // No error surfaced — malformed events are silently skipped
     expect(result.current.error).toBeNull();
+    close();
   });
 
   it("aborts first connection when operationId changes to a different value", async () => {
@@ -339,7 +345,7 @@ describe("useOperationProgress", () => {
     });
 
     // Now switch to second operationId — should abort the first
-    mockSSEWithEvents([
+    const { close } = mockSSEOpenStream([
       {
         event: "started",
         data: JSON.stringify({ description: "Second operation" }),
@@ -359,6 +365,7 @@ describe("useOperationProgress", () => {
         }),
       );
     });
+    close();
   });
 
   it("suppresses AbortError without setting error state", async () => {
@@ -484,7 +491,7 @@ describe("useOperationProgress", () => {
   });
 
   it("handles sub_operation_completed event", async () => {
-    mockSSEWithEvents([
+    const { close } = mockSSEOpenStream([
       {
         event: "started",
         data: JSON.stringify({ total: 100, description: "Running workflow" }),
@@ -516,5 +523,6 @@ describe("useOperationProgress", () => {
       // But the main operation should still be running
       expect(result.current.progress?.status).toBe("running");
     });
+    close();
   });
 });

@@ -12,7 +12,7 @@ vi.mock("@/api/sse-client", () => ({
 }));
 
 import { connectToSSE } from "@/api/sse-client";
-import { mockSSEWithEvents } from "@/test/sse-test-utils";
+import { mockSSEOpenStream, mockSSEWithEvents } from "@/test/sse-test-utils";
 
 function mockSSEError(error: Error) {
   vi.mocked(connectToSSE).mockRejectedValue(error);
@@ -52,7 +52,7 @@ describe("useSSEConnection", () => {
   });
 
   it("connects and sets isConnected when operationId is provided", async () => {
-    mockSSEWithEvents([]);
+    const { close } = mockSSEOpenStream();
 
     const { result } = renderHook(
       () => useSSEConnection("op-123", noopOptions),
@@ -66,6 +66,7 @@ describe("useSSEConnection", () => {
       "/api/v1/operations/op-123/progress",
       expect.any(AbortSignal),
     );
+    close();
   });
 
   it("calls onEvent with parsed JSON for each SSE event", async () => {

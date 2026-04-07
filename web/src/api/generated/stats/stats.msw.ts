@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   faker
@@ -41,8 +41,8 @@ export const getGetMatchingHealthApiV1StatsMatchingGetResponseMock = (overrideRe
 
 export const getGetDashboardStatsApiV1StatsDashboardGetMockHandler = (overrideResponse?: DashboardStatsSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<DashboardStatsSchema> | DashboardStatsSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/stats/dashboard', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetDashboardStatsApiV1StatsDashboardGetResponseMock(),
@@ -53,8 +53,8 @@ export const getGetDashboardStatsApiV1StatsDashboardGetMockHandler = (overrideRe
 
 export const getGetIntegrityReportApiV1StatsIntegrityGetMockHandler = (overrideResponse?: IntegrityReportSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<IntegrityReportSchema> | IntegrityReportSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/stats/integrity', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetIntegrityReportApiV1StatsIntegrityGetResponseMock(),
@@ -65,8 +65,8 @@ export const getGetIntegrityReportApiV1StatsIntegrityGetMockHandler = (overrideR
 
 export const getGetMatchingHealthApiV1StatsMatchingGetMockHandler = (overrideResponse?: MatchMethodHealthSchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MatchMethodHealthSchema> | MatchMethodHealthSchema), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/stats/matching', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetMatchingHealthApiV1StatsMatchingGetResponseMock(),

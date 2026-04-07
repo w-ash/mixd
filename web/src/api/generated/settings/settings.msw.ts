@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   faker
@@ -29,8 +29,8 @@ export const getPatchSettingsApiV1SettingsPatchResponseMock = (overrideResponse:
 
 export const getGetSettingsApiV1SettingsGetMockHandler = (overrideResponse?: UserSettingsResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<UserSettingsResponse> | UserSettingsResponse), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/settings', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetSettingsApiV1SettingsGetResponseMock(),
@@ -41,8 +41,8 @@ export const getGetSettingsApiV1SettingsGetMockHandler = (overrideResponse?: Use
 
 export const getPatchSettingsApiV1SettingsPatchMockHandler = (overrideResponse?: UserSettingsResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<UserSettingsResponse> | UserSettingsResponse), options?: RequestHandlerOptions) => {
   return http.patch('*/api/v1/settings', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getPatchSettingsApiV1SettingsPatchResponseMock(),

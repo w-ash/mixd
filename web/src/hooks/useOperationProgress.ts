@@ -56,6 +56,15 @@ const DEFAULT_PROGRESS: Omit<OperationProgress, "status" | "message"> = {
   subOperation: null,
 };
 
+/** Transition to failed only if the operation is still active (pending/running).
+ *  Guards against clobbering a terminal state (completed, failed, cancelled). */
+function failIfActive(message: string) {
+  return (prev: OperationProgress | null): OperationProgress | null =>
+    prev && (prev.status === "pending" || prev.status === "running")
+      ? { ...DEFAULT_PROGRESS, ...prev, status: "failed" as const, message }
+      : prev;
+}
+
 /**
  * Subscribes to real-time SSE progress for a given operation.
  *
@@ -85,6 +94,9 @@ export function useOperationProgress(
   };
 
   const { isConnected, error, disconnect } = useSSEConnection(operationId, {
+    onStreamEnd() {
+      setProgress(failIfActive("Connection lost"));
+    },
     onEvent(eventType, data) {
       const d = data as Record<string, unknown>;
 
@@ -193,6 +205,11 @@ export function useOperationProgress(
       setProgress(null);
     }
   }, [operationId]);
+
+  // Transition to failed if the SSE transport errors (404, network failure, etc.)
+  useEffect(() => {
+    if (error) setProgress(failIfActive("Connection failed"));
+  }, [error]);
 
   const isActive =
     progress?.status === "running" || progress?.status === "pending";

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   faker
@@ -36,8 +36,8 @@ export const getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock = (): Check
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/lastfm/history', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock(),
@@ -48,8 +48,8 @@ export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (o
 
 export const getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/spotify/likes', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock(),
@@ -60,8 +60,8 @@ export const getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMockHandler = (ove
 
 export const getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/lastfm/likes', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock(),
@@ -72,8 +72,8 @@ export const getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler = (overr
 
 export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/spotify/history', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock(),
@@ -84,8 +84,8 @@ export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = 
 
 export const getGetCheckpointsApiV1ImportsCheckpointsGetMockHandler = (overrideResponse?: CheckpointStatusSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<CheckpointStatusSchema[]> | CheckpointStatusSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/imports/checkpoints', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock(),

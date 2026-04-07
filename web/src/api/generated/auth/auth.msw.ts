@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   faker
@@ -34,8 +34,8 @@ export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseMock = ()
 
 export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetMockHandler = (overrideResponse?: GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200> | GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/connectors/spotify/auth-url', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponseMock(),
@@ -46,8 +46,8 @@ export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetMockHandler = (
 
 export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetMockHandler = (overrideResponse?: GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200> | GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/connectors/lastfm/auth-url', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseMock(),
@@ -59,7 +59,7 @@ export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetMockHandler = (ov
 export const getSpotifyCallbackAuthSpotifyCallbackGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/auth/spotify/callback', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-
+  
     return new HttpResponse(null,
       { status: 200
       })
@@ -69,7 +69,7 @@ export const getSpotifyCallbackAuthSpotifyCallbackGetMockHandler = (overrideResp
 export const getLastfmCallbackAuthLastfmCallbackGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/auth/lastfm/callback', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-
+  
     return new HttpResponse(null,
       { status: 200
       })

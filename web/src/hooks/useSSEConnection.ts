@@ -77,6 +77,7 @@ export function useSSEConnection(
           }
         }
 
+        setIsConnected(false);
         onStreamEndRef.current?.();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;

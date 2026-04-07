@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   faker
@@ -30,7 +30,7 @@ export const getListActiveOperationsApiV1OperationsGetResponseMock = (): ListAct
 export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/operations/:operationId/progress', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-
+  
     return new HttpResponse(null,
       { status: 200
       })
@@ -39,8 +39,8 @@ export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetMock
 
 export const getListActiveOperationsApiV1OperationsGetMockHandler = (overrideResponse?: ListActiveOperationsApiV1OperationsGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ListActiveOperationsApiV1OperationsGet200> | ListActiveOperationsApiV1OperationsGet200), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/operations', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
+  
+  
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getListActiveOperationsApiV1OperationsGetResponseMock(),

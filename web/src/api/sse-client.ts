@@ -8,6 +8,8 @@
 
 import { EventSourceParserStream } from "eventsource-parser/stream";
 
+import { getAuthToken } from "./auth";
+
 export interface SSEEvent {
   event: string;
   data: string;
@@ -21,14 +23,40 @@ export interface SSEEvent {
  * Callers set "isConnected" at that point. The iterable then yields events
  * until the stream closes or the signal aborts.
  */
+const CONNECTION_TIMEOUT_MS = 30_000;
+
 export async function connectToSSE(
   url: string,
   signal: AbortSignal,
+  connectionTimeoutMs = CONNECTION_TIMEOUT_MS,
 ): Promise<AsyncIterable<SSEEvent>> {
-  const response = await fetch(url, {
-    signal,
-    headers: { Accept: "text/event-stream" },
-  });
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+
+  const token = await getAuthToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Timeout covers only the initial HTTP connection, not the stream.
+  // Uses a custom Error (not DOMException) so the hook surfaces it
+  // instead of suppressing it as a user-initiated abort.
+  // Both caller abort and timeout route through a single controller
+  // to avoid AbortSignal.any cross-realm issues in test environments.
+  const fetchCtrl = new AbortController();
+  const timeoutId = setTimeout(
+    () => fetchCtrl.abort(new Error("SSE connection timed out")),
+    connectionTimeoutMs,
+  );
+  const forwardAbort = () => fetchCtrl.abort(signal.reason);
+  signal.addEventListener("abort", forwardAbort, { once: true });
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: fetchCtrl.signal, headers });
+  } finally {
+    clearTimeout(timeoutId);
+    signal.removeEventListener("abort", forwardAbort);
+  }
 
   if (!response.ok) {
     throw new Error(`SSE connection failed: ${response.status}`);

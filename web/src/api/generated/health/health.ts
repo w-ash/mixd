@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   useQuery
@@ -46,22 +46,22 @@ export type healthCheckApiV1HealthGetResponse = (healthCheckApiV1HealthGetRespon
 export const getHealthCheckApiV1HealthGetUrl = () => {
 
 
-
+  
 
   return `/api/v1/health`
 }
 
 export const healthCheckApiV1HealthGet = async ( options?: RequestInit): Promise<healthCheckApiV1HealthGetResponse> => {
-
+  
   return customFetch<healthCheckApiV1HealthGetResponse>(getHealthCheckApiV1HealthGetUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -72,7 +72,7 @@ export const getHealthCheckApiV1HealthGetQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getHealthCheckApiV1HealthGetQueryOptions = <TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -80,13 +80,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getHealthCheckApiV1HealthGetQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>> = ({ signal }) => healthCheckApiV1HealthGet({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -125,7 +125,7 @@ export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof h
 
 export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getHealthCheckApiV1HealthGetQueryOptions(options)
@@ -134,3 +134,7 @@ export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof h
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+
+
+

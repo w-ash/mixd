@@ -11,7 +11,7 @@
  * Attaches a Bearer token from Neon Auth when auth is enabled.
  */
 
-import { authClient } from "./auth";
+import { getAuthToken } from "./auth";
 
 /** Known backend error codes used for retry/display decisions. */
 export const API_ERROR_CODES = {
@@ -42,17 +42,11 @@ export async function customFetch<T>(
   url: string,
   init: RequestInit = {},
 ): Promise<T> {
-  if (authClient) {
-    try {
-      const { data } = await authClient.getSession();
-      if (data?.session?.token) {
-        const headers = new Headers(init.headers);
-        headers.set("Authorization", `Bearer ${data.session.token}`);
-        init = { ...init, headers };
-      }
-    } catch {
-      // No active session — proceed without auth
-    }
+  const token = await getAuthToken();
+  if (token) {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    init = { ...init, headers };
   }
 
   const response = await fetch(url, init);

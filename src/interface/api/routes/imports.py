@@ -79,7 +79,11 @@ async def _run_operation(
         if queue is not None and queue.empty():
             await queue.put({
                 "event": "error",
-                "data": {"operation_id": operation_id, "final_status": "failed"},
+                "data": {
+                    "operation_id": operation_id,
+                    "final_status": "failed",
+                    "message": "Operation failed unexpectedly",
+                },
             })
             await queue.put(SSE_SENTINEL)
     finally:

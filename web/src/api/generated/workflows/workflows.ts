@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.8
+ * OpenAPI spec version: 0.6.9
  */
 import {
   useMutation,
@@ -76,7 +76,7 @@ export const getListWorkflowsApiV1WorkflowsGetUrl = (params?: ListWorkflowsApiV1
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-
+    
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -88,16 +88,16 @@ export const getListWorkflowsApiV1WorkflowsGetUrl = (params?: ListWorkflowsApiV1
 }
 
 export const listWorkflowsApiV1WorkflowsGet = async (params?: ListWorkflowsApiV1WorkflowsGetParams, options?: RequestInit): Promise<listWorkflowsApiV1WorkflowsGetResponse> => {
-
+  
   return customFetch<listWorkflowsApiV1WorkflowsGetResponse>(getListWorkflowsApiV1WorkflowsGetUrl(params),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -108,7 +108,7 @@ export const getListWorkflowsApiV1WorkflowsGetQueryKey = (params?: ListWorkflows
     ] as const;
     }
 
-
+    
 export const getListWorkflowsApiV1WorkflowsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>, TError = HTTPValidationError>(params?: ListWorkflowsApiV1WorkflowsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -116,13 +116,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListWorkflowsApiV1WorkflowsGetQueryKey(params);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>> = ({ signal }) => listWorkflowsApiV1WorkflowsGet(params, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -161,7 +161,7 @@ export function useListWorkflowsApiV1WorkflowsGet<TData = Awaited<ReturnType<typ
 
 export function useListWorkflowsApiV1WorkflowsGet<TData = Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>, TError = HTTPValidationError>(
  params?: ListWorkflowsApiV1WorkflowsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowsApiV1WorkflowsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListWorkflowsApiV1WorkflowsGetQueryOptions(params,options)
@@ -200,15 +200,15 @@ export type createWorkflowApiV1WorkflowsPostResponse = (createWorkflowApiV1Workf
 export const getCreateWorkflowApiV1WorkflowsPostUrl = () => {
 
 
-
+  
 
   return `/api/v1/workflows`
 }
 
 export const createWorkflowApiV1WorkflowsPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: RequestInit): Promise<createWorkflowApiV1WorkflowsPostResponse> => {
-
+  
   return customFetch<createWorkflowApiV1WorkflowsPostResponse>(getCreateWorkflowApiV1WorkflowsPostUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -216,7 +216,7 @@ export const createWorkflowApiV1WorkflowsPost = async (createWorkflowRequest: Cr
       createWorkflowRequest,)
   }
 );}
-
+  
 
 
 
@@ -231,7 +231,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWorkflowApiV1WorkflowsPost>>, {data: CreateWorkflowRequest}> = (props) => {
@@ -242,7 +242,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -283,22 +283,22 @@ export type listNodeTypesApiV1WorkflowsNodesGetResponse = (listNodeTypesApiV1Wor
 export const getListNodeTypesApiV1WorkflowsNodesGetUrl = () => {
 
 
-
+  
 
   return `/api/v1/workflows/nodes`
 }
 
 export const listNodeTypesApiV1WorkflowsNodesGet = async ( options?: RequestInit): Promise<listNodeTypesApiV1WorkflowsNodesGetResponse> => {
-
+  
   return customFetch<listNodeTypesApiV1WorkflowsNodesGetResponse>(getListNodeTypesApiV1WorkflowsNodesGetUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -309,7 +309,7 @@ export const getListNodeTypesApiV1WorkflowsNodesGetQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getListNodeTypesApiV1WorkflowsNodesGetQueryOptions = <TData = Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -317,13 +317,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListNodeTypesApiV1WorkflowsNodesGetQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>> = ({ signal }) => listNodeTypesApiV1WorkflowsNodesGet({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -362,7 +362,7 @@ export function useListNodeTypesApiV1WorkflowsNodesGet<TData = Awaited<ReturnTyp
 
 export function useListNodeTypesApiV1WorkflowsNodesGet<TData = Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>, TError = unknown>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listNodeTypesApiV1WorkflowsNodesGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListNodeTypesApiV1WorkflowsNodesGetQueryOptions(options)
@@ -401,15 +401,15 @@ export type validateWorkflowApiV1WorkflowsValidatePostResponse = (validateWorkfl
 export const getValidateWorkflowApiV1WorkflowsValidatePostUrl = () => {
 
 
-
+  
 
   return `/api/v1/workflows/validate`
 }
 
 export const validateWorkflowApiV1WorkflowsValidatePost = async (workflowValidationRequest: WorkflowValidationRequest, options?: RequestInit): Promise<validateWorkflowApiV1WorkflowsValidatePostResponse> => {
-
+  
   return customFetch<validateWorkflowApiV1WorkflowsValidatePostResponse>(getValidateWorkflowApiV1WorkflowsValidatePostUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -417,7 +417,7 @@ export const validateWorkflowApiV1WorkflowsValidatePost = async (workflowValidat
       workflowValidationRequest,)
   }
 );}
-
+  
 
 
 
@@ -432,7 +432,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof validateWorkflowApiV1WorkflowsValidatePost>>, {data: WorkflowValidationRequest}> = (props) => {
@@ -443,7 +443,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -491,15 +491,15 @@ export type previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse = (previewUn
 export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl = () => {
 
 
-
+  
 
   return `/api/v1/workflows/preview`
 }
 
 export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: RequestInit): Promise<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse> => {
-
+  
   return customFetch<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse>(getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -507,7 +507,7 @@ export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWork
       createWorkflowRequest,)
   }
 );}
-
+  
 
 
 
@@ -522,7 +522,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewUnsavedWorkflowApiV1WorkflowsPreviewPost>>, {data: CreateWorkflowRequest}> = (props) => {
@@ -533,7 +533,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -581,22 +581,22 @@ export type previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse = (p
 export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/preview`
 }
 
 export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (workflowId: string, options?: RequestInit): Promise<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse> => {
-
+  
   return customFetch<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse>(getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -611,7 +611,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>, {workflowId: string}> = (props) => {
@@ -622,13 +622,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost>>>
-
+    
     export type PreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMutationError = HTTPValidationError
 
     /**
@@ -670,22 +670,22 @@ export type getWorkflowApiV1WorkflowsWorkflowIdGetResponse = (getWorkflowApiV1Wo
 export const getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}`
 }
 
 export const getWorkflowApiV1WorkflowsWorkflowIdGet = async (workflowId: string, options?: RequestInit): Promise<getWorkflowApiV1WorkflowsWorkflowIdGetResponse> => {
-
+  
   return customFetch<getWorkflowApiV1WorkflowsWorkflowIdGetResponse>(getGetWorkflowApiV1WorkflowsWorkflowIdGetUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -696,7 +696,7 @@ export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey = (workflowId: st
     ] as const;
     }
 
-
+    
 export const getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -704,13 +704,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(workflowId);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>> = ({ signal }) => getWorkflowApiV1WorkflowsWorkflowIdGet(workflowId, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(workflowId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -749,7 +749,7 @@ export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<Return
 
 export function useGetWorkflowApiV1WorkflowsWorkflowIdGet<TData = Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError = HTTPValidationError>(
  workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowApiV1WorkflowsWorkflowIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryOptions(workflowId,options)
@@ -788,16 +788,16 @@ export type updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse = (updateWorkflo
 export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}`
 }
 
 export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: string,
     updateWorkflowRequest: UpdateWorkflowRequest, options?: RequestInit): Promise<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse> => {
-
+  
   return customFetch<updateWorkflowApiV1WorkflowsWorkflowIdPatchResponse>(getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -805,7 +805,7 @@ export const updateWorkflowApiV1WorkflowsWorkflowIdPatch = async (workflowId: st
       updateWorkflowRequest,)
   }
 );}
-
+  
 
 
 
@@ -820,7 +820,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWorkflowApiV1WorkflowsWorkflowIdPatch>>, {workflowId: string;data: UpdateWorkflowRequest}> = (props) => {
@@ -831,7 +831,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -879,22 +879,22 @@ export type deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse = (deleteWorkfl
 export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}`
 }
 
 export const deleteWorkflowApiV1WorkflowsWorkflowIdDelete = async (workflowId: string, options?: RequestInit): Promise<deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse> => {
-
+  
   return customFetch<deleteWorkflowApiV1WorkflowsWorkflowIdDeleteResponse>(getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -909,7 +909,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>, {workflowId: string}> = (props) => {
@@ -920,13 +920,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWorkflowApiV1WorkflowsWorkflowIdDelete>>>
-
+    
     export type DeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMutationError = HTTPValidationError
 
     /**
@@ -968,22 +968,22 @@ export type runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse = (runWor
 export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/run`
 }
 
 export const runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost = async (workflowId: string, options?: RequestInit): Promise<runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse> => {
-
+  
   return customFetch<runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostResponse>(getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -998,7 +998,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>, {workflowId: string}> = (props) => {
@@ -1009,13 +1009,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost>>>
-
+    
     export type RunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMutationError = HTTPValidationError
 
     /**
@@ -1059,7 +1059,7 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl = (workflowId
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-
+    
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -1072,16 +1072,16 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl = (workflowId
 
 export const listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet = async (workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: RequestInit): Promise<listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponse> => {
-
+  
   return customFetch<listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetResponse>(getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetUrl(workflowId,params),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -1093,7 +1093,7 @@ export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey = (workf
     ] as const;
     }
 
-
+    
 export const getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -1102,13 +1102,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey(workflowId,params);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>> = ({ signal }) => listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet(workflowId,params, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(workflowId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1151,7 +1151,7 @@ export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Await
 export function useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet<TData = Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError = HTTPValidationError>(
  workflowId: string,
     params?: ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryOptions(workflowId,params,options)
@@ -1191,23 +1191,23 @@ export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl = (workflo
     runId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/runs/${runId}`
 }
 
 export const getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet = async (workflowId: string,
     runId: string, options?: RequestInit): Promise<getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse> => {
-
+  
   return customFetch<getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetResponse>(getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetUrl(workflowId,runId),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -1219,7 +1219,7 @@ export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryKey = (wo
     ] as const;
     }
 
-
+    
 export const getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(workflowId: string,
     runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -1228,13 +1228,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryKey(workflowId,runId);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>> = ({ signal }) => getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(workflowId,runId, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(workflowId && runId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1277,7 +1277,7 @@ export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Aw
 export function useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet<TData = Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError = HTTPValidationError>(
  workflowId: string,
     runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetQueryOptions(workflowId,runId,options)
@@ -1316,22 +1316,22 @@ export type listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse = (l
 export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl = (workflowId: string,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/versions`
 }
 
 export const listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet = async (workflowId: string, options?: RequestInit): Promise<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse> => {
-
+  
   return customFetch<listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetResponse>(getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetUrl(workflowId),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -1342,7 +1342,7 @@ export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey 
     ] as const;
     }
 
-
+    
 export const getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -1350,13 +1350,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryKey(workflowId);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>> = ({ signal }) => listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet(workflowId, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(workflowId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1395,7 +1395,7 @@ export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData
 
 export function useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet<TData = Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError = HTTPValidationError>(
  workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetQueryOptions(workflowId,options)
@@ -1435,23 +1435,23 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl 
     version: number,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/versions/${version}`
 }
 
 export const getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet = async (workflowId: string,
     version: number, options?: RequestInit): Promise<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse> => {
-
+  
   return customFetch<getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResponse>(getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetUrl(workflowId,version),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -1463,7 +1463,7 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQuer
     ] as const;
     }
 
-
+    
 export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -1472,13 +1472,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryKey(workflowId,version);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>> = ({ signal }) => getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet(workflowId,version, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(workflowId && version), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -1521,7 +1521,7 @@ export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<
 export function useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet<TData = Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError = HTTPValidationError>(
  workflowId: string,
     version: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetQueryOptions(workflowId,version,options)
@@ -1561,23 +1561,23 @@ export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
     version: number,) => {
 
 
-
+  
 
   return `/api/v1/workflows/${workflowId}/versions/${version}/revert`
 }
 
 export const revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost = async (workflowId: string,
     version: number, options?: RequestInit): Promise<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse> => {
-
+  
   return customFetch<revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponse>(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostUrl(workflowId,version),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
-
+  
 
 
 
@@ -1592,7 +1592,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>, {workflowId: string;version: number}> = (props) => {
@@ -1603,13 +1603,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationResult = NonNullable<Awaited<ReturnType<typeof revertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost>>>
-
+    
     export type RevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationError = HTTPValidationError
 
     /**
@@ -1625,3 +1625,4 @@ export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
       > => {
       return useMutation(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions(options), queryClient);
     }
+    

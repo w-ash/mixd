@@ -19,3 +19,14 @@ export const authEnabled = Boolean(NEON_AUTH_URL);
 
 // biome-ignore lint/style/noNonNullAssertion: guarded by authEnabled check
 export const authClient = authEnabled ? createAuthClient(NEON_AUTH_URL!) : null;
+
+/** Resolve the current Bearer token, or undefined if auth is disabled / session expired. */
+export async function getAuthToken(): Promise<string | undefined> {
+  if (!authClient) return undefined;
+  try {
+    const { data } = await authClient.getSession();
+    return data?.session?.token ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
