@@ -338,6 +338,9 @@ class DBTrackMetric(BaseEntity):
         Index(None, "track_id", "connector_name", "metric_type"),
     )
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
@@ -599,6 +602,9 @@ class DBPlaylistMapping(BaseEntity):
         Index("ix_playlist_mappings_sync_status", "sync_status"),
     )
 
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
     playlist_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("playlists.id", ondelete="CASCADE"),

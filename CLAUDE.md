@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Mixd Does
 
-**Personal music metadata hub** — reclaims listening data from Spotify, Last.fm, and MusicBrainz, unifies it across services, and lets users build smart playlists via declarative workflow pipelines. Users own their data, not platforms.
+**Music metadata hub** — reclaims listening data from Spotify, Last.fm, and MusicBrainz, unifies it across services, and lets users build smart playlists via declarative workflow pipelines. Users own their data, not platforms.
 
 ## Core Principles
 
 - **Python 3.14+** — use modern features and type safety
-- **DRY** — single-maintainer codebase, no duplication
+- **DRY** — no duplication
 - **Clean breaks** over backward compatibility — no legacy adapters
 - **Batch-first** — design for collections, single items are degenerate cases
 - **Immutable domain** — pure transformations, no side effects

@@ -12,6 +12,7 @@ mounted — see ``app.py``.
 # pyright: reportAny=false
 # Legitimate Any: ASGI scope/message dicts are untyped
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -35,8 +36,9 @@ _EXEMPT_API_PATHS = ("/api/v1/health",)
 # See: https://neon.com/docs/auth/guides/plugins/jwt
 _ACCEPTED_ALGORITHMS = ["EdDSA"]
 
-# JWKS cache: (parsed key set, fetched_at)
+# JWKS cache: (parsed key set, fetched_at) + lock to prevent thundering herd
 _jwks_cache: tuple[jwt.PyJWKSet | None, float] = (None, 0.0)
+_jwks_cache_lock = asyncio.Lock()
 _JWKS_CACHE_TTL = 3600  # 1 hour
 
 
@@ -53,20 +55,32 @@ def parse_allowed_emails(csv: str) -> frozenset[str] | None:
 
 
 async def get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
-    """Fetch, parse, and cache JWKS public keys from Neon Auth."""
-    global _jwks_cache
-    jwk_set, fetched_at = _jwks_cache
+    """Fetch, parse, and cache JWKS public keys from Neon Auth.
 
+    Uses a double-check lock to prevent concurrent cache-miss requests
+    from all hitting the JWKS endpoint simultaneously.
+    """
+    global _jwks_cache
+
+    # Fast path: no lock needed when cache is fresh
+    jwk_set, fetched_at = _jwks_cache
     if jwk_set is not None and (time.monotonic() - fetched_at) < _JWKS_CACHE_TTL:
         return jwk_set
 
-    async with httpx.AsyncClient(verify=True) as client:
-        resp = await client.get(jwks_url, timeout=10)
-        resp.raise_for_status()
-        jwk_set = jwt.PyJWKSet.from_dict(resp.json())
+    # Slow path: single-fetch under lock
+    async with _jwks_cache_lock:
+        # Double-check: another coroutine may have refreshed while we waited
+        jwk_set, fetched_at = _jwks_cache
+        if jwk_set is not None and (time.monotonic() - fetched_at) < _JWKS_CACHE_TTL:
+            return jwk_set
 
-    _jwks_cache = (jwk_set, time.monotonic())
-    return jwk_set
+        async with httpx.AsyncClient(verify=True) as client:
+            resp = await client.get(jwks_url, timeout=10)
+            resp.raise_for_status()
+            jwk_set = jwt.PyJWKSet.from_dict(resp.json())
+
+        _jwks_cache = (jwk_set, time.monotonic())
+        return jwk_set
 
 
 def _decode_jwt(
