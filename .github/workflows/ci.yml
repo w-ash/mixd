@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  pull-requests: write
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -19,25 +23,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: mixd_test
-          POSTGRES_USER: mixd
-          POSTGRES_PASSWORD: mixd
-        ports: ["5432:5432"]
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: false
 
+      - name: Create Neon branch
+        id: neon-branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: ci/pr-${{ github.event.number || github.sha }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          database: neondb
+
+      - name: Set DATABASE_URL
+        run: echo "DATABASE_URL=${DB_URL/postgres:\/\//postgresql+psycopg:\/\/}" >> "$GITHUB_ENV"
+        env:
+          DB_URL: ${{ steps.neon-branch.outputs.db_url }}
+
       - uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
         run: uv sync --frozen
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
 
       - name: Lint
         run: uv run ruff check .
@@ -50,8 +61,21 @@ jobs:
 
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
-        env:
-          DATABASE_URL: postgresql+psycopg://mixd:mixd@localhost:5432/mixd_test
+
+      - name: Check for migration changes
+        if: github.event_name == 'pull_request'
+        id: migration-check
+        run: echo "changed=$(git diff --name-only origin/main -- alembic/ | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Schema diff
+        if: github.event_name == 'pull_request' && steps.migration-check.outputs.changed != ''
+        uses: neondatabase/schema-diff-action@v1
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          compare_branch: ci/pr-${{ github.event.number }}
+          base_branch: main
+          api_key: ${{ secrets.NEON_API_KEY }}
+          database: neondb
 
   web:
     name: Web

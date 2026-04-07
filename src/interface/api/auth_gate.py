@@ -40,7 +40,19 @@ _jwks_cache: tuple[jwt.PyJWKSet | None, float] = (None, 0.0)
 _JWKS_CACHE_TTL = 3600  # 1 hour
 
 
-async def _get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
+def parse_allowed_emails(csv: str) -> frozenset[str] | None:
+    """Parse a comma-separated email allowlist into a frozenset.
+
+    Returns ``None`` when *csv* is empty, meaning "no restriction".
+    Used by both NeonAuthMiddleware (per-request gate) and the Neon Auth
+    webhook handler (signup validation).
+    """
+    if not csv:
+        return None
+    return frozenset(e.strip() for e in csv.split(",") if e.strip())
+
+
+async def get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
     """Fetch, parse, and cache JWKS public keys from Neon Auth."""
     global _jwks_cache
     jwk_set, fetched_at = _jwks_cache
@@ -171,7 +183,7 @@ class NeonAuthMiddleware:
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             try:
-                jwk_set = await _get_jwk_set(self.jwks_url)
+                jwk_set = await get_jwk_set(self.jwks_url)
                 claims = _decode_jwt(token, jwk_set, auth_origin=self.auth_origin)
             except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
                 logger.warning("jwt_validation_failed", error=str(exc))

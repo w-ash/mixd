@@ -41,7 +41,7 @@ async def _auth_test_client(
         patch.object(settings.server, "allowed_emails", allowed_emails),
         patch.object(
             auth_gate_mod,
-            "_get_jwk_set",
+            "get_jwk_set",
             new_callable=AsyncMock,
             return_value=TEST_JWK_SET,
         ),

@@ -190,7 +190,7 @@ class TestBearerTokenAuth:
     def setup_method(self):
         auth_gate_mod._jwks_cache = (None, 0.0)
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_valid_jwt_attaches_claims_to_scope(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         token = sign_test_jwt(sub="user-42", email="me@mixd.app")
@@ -203,7 +203,7 @@ class TestBearerTokenAuth:
         assert inner.called is True
         assert inner.captured_scope["auth_user"]["sub"] == "user-42"
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_expired_jwt_returns_401(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         token = sign_test_jwt(exp_delta=-3600)  # expired 1 hour ago
@@ -216,7 +216,7 @@ class TestBearerTokenAuth:
         assert inner.called is False
         assert send.status == 401
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_invalid_signature_returns_401(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         # Sign with a different key → signature mismatch
@@ -237,7 +237,7 @@ class TestBearerTokenAuth:
         assert inner.called is False
         assert send.status == 401
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_jwks_fetch_failure_returns_401(self, mock_jwks: AsyncMock):
         mock_jwks.side_effect = httpx.ConnectError("connection refused")
         token = sign_test_jwt()
@@ -250,7 +250,7 @@ class TestBearerTokenAuth:
         assert inner.called is False
         assert send.status == 401
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_email_in_allowlist_passes(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         token = sign_test_jwt(email="me@mixd.app")
@@ -262,7 +262,7 @@ class TestBearerTokenAuth:
 
         assert inner.called is True
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_email_not_in_allowlist_returns_403(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         token = sign_test_jwt(email="outsider@evil.com")
@@ -276,7 +276,7 @@ class TestBearerTokenAuth:
         assert send.status == 403
         assert send.body_json["error"]["code"] == "FORBIDDEN"
 
-    @patch.object(auth_gate_mod, "_get_jwk_set", new_callable=AsyncMock)
+    @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_no_allowlist_anyone_passes(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         token = sign_test_jwt(email="anyone@anywhere.com")

@@ -149,21 +149,12 @@ def create_app() -> FastAPI:
 
     # Site auth gate — only active when NEON_AUTH_URL is set (production)
     if settings.server.neon_auth_url:
-        from src.interface.api.auth_gate import NeonAuthMiddleware
+        from src.interface.api.auth_gate import NeonAuthMiddleware, parse_allowed_emails
 
-        allowed = (
-            frozenset(
-                e.strip()
-                for e in settings.server.allowed_emails.split(",")
-                if e.strip()
-            )
-            if settings.server.allowed_emails
-            else None
-        )
         app.add_middleware(
             NeonAuthMiddleware,
             jwks_url=settings.server.neon_auth_jwks_url,
-            allowed_emails=allowed,
+            allowed_emails=parse_allowed_emails(settings.server.allowed_emails),
         )
 
     # HTTP caching: ETags, Cache-Control, Server-Timing (pure ASGI — not BaseHTTPMiddleware)
@@ -195,6 +186,11 @@ def create_app() -> FastAPI:
     # Auth routes: callbacks at /auth/*, auth-url endpoints at /api/v1/connectors/*
     # Mounted without prefix — routes define their own paths
     app.include_router(auth_router)
+
+    # Webhook routes: /webhooks/* — no prefix, bypasses NeonAuthMiddleware
+    from src.interface.api.routes.webhooks import router as webhooks_router
+
+    app.include_router(webhooks_router)
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")

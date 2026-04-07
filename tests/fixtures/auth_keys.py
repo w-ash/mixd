@@ -1,4 +1,4 @@
-"""Shared Ed25519 key pair and JWT helpers for auth tests.
+"""Shared Ed25519 key pair and JWT/webhook helpers for auth tests.
 
 Generates a test Ed25519 key pair once at import time. Both unit and integration
 auth tests import from here to avoid duplicating cryptographic setup.
@@ -7,6 +7,8 @@ Uses EdDSA (Ed25519) to match Neon Auth's signing algorithm.
 See: https://neon.com/docs/auth/guides/plugins/jwt
 """
 
+import base64
+import json
 import time
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -53,3 +55,36 @@ def sign_test_jwt(
     return jwt.encode(
         payload, _private_key, algorithm="EdDSA", headers={"kid": _TEST_KID}
     )
+
+
+def sign_test_webhook(
+    body: bytes, *, timestamp: int | None = None
+) -> tuple[str, str, str]:
+    """Create a detached JWS signature for a webhook payload.
+
+    Returns (signature, kid, timestamp) matching the headers Neon Auth sends:
+    ``x-neon-signature``, ``x-neon-signature-kid``, ``x-neon-timestamp``.
+
+    The detached JWS format is ``header..signature`` (empty payload section).
+    The signing input is ``base64url(header).base64url(timestamp.body)``.
+    """
+    ts = str(timestamp or int(time.time()))
+
+    # JWS header
+    header_dict = {"alg": "EdDSA", "kid": _TEST_KID}
+    header_b64 = (
+        base64.urlsafe_b64encode(json.dumps(header_dict).encode()).rstrip(b"=").decode()
+    )
+
+    # Payload: timestamp.body
+    payload_raw = f"{ts}.".encode() + body
+    payload_b64 = base64.urlsafe_b64encode(payload_raw).rstrip(b"=").decode()
+
+    # Sign
+    signing_input = f"{header_b64}.{payload_b64}".encode()
+    sig_bytes = _private_key.sign(signing_input)
+    sig_b64 = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+
+    # Detached JWS: header..signature (empty payload)
+    detached_jws = f"{header_b64}..{sig_b64}"
+    return detached_jws, _TEST_KID, ts

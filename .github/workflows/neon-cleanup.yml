@@ -1,0 +1,21 @@
+name: Neon Branch Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  cleanup:
+    name: Delete Neon CI branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ci/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
