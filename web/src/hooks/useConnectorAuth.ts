@@ -5,12 +5,12 @@ import { toast } from "sonner";
 import {
   getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet,
   getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet,
-} from "@/api/generated/auth/auth";
+} from "#/api/generated/auth/auth";
 import {
   getGetConnectorsApiV1ConnectorsGetQueryKey,
   useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete,
-} from "@/api/generated/connectors/connectors";
-import { getConnectorLabel } from "@/components/shared/ConnectorIcon";
+} from "#/api/generated/connectors/connectors";
+import { getConnectorLabel } from "#/components/shared/ConnectorIcon";
 
 type AuthUrlFetcher = (
   options?: RequestInit,

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetAuthToken = vi.fn<() => Promise<string | undefined>>();
 
-vi.mock("@/api/auth", () => ({
+vi.mock("#/api/auth", () => ({
   getAuthToken: (...args: unknown[]) => mockGetAuthToken(...(args as [])),
 }));
 

@@ -16,10 +16,10 @@ import { useCallback, useMemo } from "react";
 import {
   BaseWorkflowNode,
   type WorkflowNodeData,
-} from "@/components/workflow/BaseWorkflowNode";
-import { useNodeSchemas } from "@/hooks/useNodeSchemas";
-import { miniMapNodeColor, NODE_CONFIG } from "@/lib/workflow-config";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/components/workflow/BaseWorkflowNode";
+import { useNodeSchemas } from "#/hooks/useNodeSchemas";
+import { miniMapNodeColor, NODE_CONFIG } from "#/lib/workflow-config";
+import { useEditorStore } from "#/stores/editor-store";
 
 function EditableNode({
   data,

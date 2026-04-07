@@ -7,12 +7,12 @@ import { useOperationProgress } from "./useOperationProgress";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
-vi.mock("@/api/sse-client", () => ({
+vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-import { mockSSEOpenStream, mockSSEWithEvents } from "@/test/sse-test-utils";
+import { connectToSSE } from "#/api/sse-client";
+import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
 
 /** Mock connectToSSE to reject with an error. */
 function mockSSEError(message: string) {

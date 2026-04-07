@@ -1,9 +1,9 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import type { MatchMethodHealthSchema } from "@/api/generated/model";
-import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import type { MatchMethodHealthSchema } from "#/api/generated/model";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { Dashboard } from "./Dashboard";
 

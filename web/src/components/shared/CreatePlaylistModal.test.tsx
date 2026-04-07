@@ -1,14 +1,14 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { Toaster } from "@/components/ui/sonner";
-import { server } from "@/test/setup";
+import { Toaster } from "#/components/ui/sonner";
+import { server } from "#/test/setup";
 import {
   renderWithProviders,
   screen,
   userEvent,
   waitFor,
-} from "@/test/test-utils";
+} from "#/test/test-utils";
 
 import { CreatePlaylistModal } from "./CreatePlaylistModal";
 

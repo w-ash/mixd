@@ -13,7 +13,7 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: mockUseAuthenticate,
 }));
 
-vi.mock("@/api/auth", () => ({
+vi.mock("#/api/auth", () => ({
   authClient: mockAuthClient,
   authEnabled: true,
 }));
@@ -23,7 +23,7 @@ import {
   screen,
   userEvent,
   waitFor,
-} from "@/test/test-utils";
+} from "#/test/test-utils";
 
 import { Account } from "./Account";
 

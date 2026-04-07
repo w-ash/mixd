@@ -3,18 +3,18 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createTestQueryClient } from "@/test/test-utils";
+import { createTestQueryClient } from "#/test/test-utils";
 
 import { useWorkflowSSE } from "./useWorkflowSSE";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
-vi.mock("@/api/sse-client", () => ({
+vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-import { mockSSEWithEvents } from "@/test/sse-test-utils";
+import { connectToSSE } from "#/api/sse-client";
+import { mockSSEWithEvents } from "#/test/sse-test-utils";
 
 // ─── Test wrapper ───────────────────────────────────────────────
 

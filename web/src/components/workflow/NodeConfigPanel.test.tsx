@@ -13,15 +13,15 @@ vi.mock("@xyflow/react", () => ({
   useNodesInitialized: () => false,
 }));
 
-vi.mock("@/lib/workflow-layout", () => ({
+vi.mock("#/lib/workflow-layout", () => ({
   layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
   buildEdges: vi.fn().mockReturnValue([]),
   generateNodeId: vi.fn().mockReturnValue("node_1"),
   createInitialNodes: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
 }));
 
-import { useEditorStore } from "@/stores/editor-store";
-import { renderWithProviders, screen } from "@/test/test-utils";
+import { useEditorStore } from "#/stores/editor-store";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { NodeConfigPanel } from "./NodeConfigPanel";
 

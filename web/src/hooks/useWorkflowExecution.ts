@@ -7,9 +7,9 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "@/api/generated/workflows/workflows";
-import { useWorkflowExecutionContext } from "@/contexts/WorkflowExecutionContext";
-import type { NodeStatus } from "@/lib/sse-types";
+import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "#/api/generated/workflows/workflows";
+import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import type { NodeStatus } from "#/lib/sse-types";
 
 /** Referentially-stable empty map for non-matching workflows. */
 const EMPTY_MAP: Map<string, NodeStatus> = new Map();

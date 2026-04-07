@@ -6,16 +6,16 @@ vi.mock("@jalez/react-flow-smart-edge", () => ({
 }));
 
 // Mock ELK layout to avoid async layout computation in tests
-vi.mock("@/lib/workflow-layout", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/workflow-layout")>();
+vi.mock("#/lib/workflow-layout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#/lib/workflow-layout")>();
   return {
     ...actual,
     layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
   };
 });
 
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import { renderWithProviders, screen } from "@/test/test-utils";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { WorkflowGraph } from "./WorkflowGraph";
 

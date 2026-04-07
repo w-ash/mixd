@@ -8,13 +8,13 @@
 import { ChevronDown, ChevronUp, Eye, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "#/components/ui/button";
 import {
   type PreviewResult,
   useWorkflowPreview,
-} from "@/hooks/useWorkflowPreview";
-import { formatMetricHeader, formatMetricValue } from "@/lib/format";
-import { getNodeCategory } from "@/lib/workflow-config";
+} from "#/hooks/useWorkflowPreview";
+import { formatMetricHeader, formatMetricValue } from "#/lib/format";
+import { getNodeCategory } from "#/lib/workflow-config";
 
 function NodeSummaryList({ result }: { result: PreviewResult }) {
   if (result.node_summaries.length === 0) return null;

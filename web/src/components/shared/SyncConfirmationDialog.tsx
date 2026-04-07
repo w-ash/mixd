@@ -1,14 +1,14 @@
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import type { SyncPreviewResponse } from "@/api/generated/model";
-import { usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet } from "@/api/generated/playlists/playlists";
-import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
+import type { SyncPreviewResponse } from "#/api/generated/model";
+import { usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet } from "#/api/generated/playlists/playlists";
+import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import {
   ConnectorIcon,
   getConnectorLabel,
-} from "@/components/shared/ConnectorIcon";
-import { Button } from "@/components/ui/button";
+} from "#/components/shared/ConnectorIcon";
+import { Button } from "#/components/ui/button";
 
 interface SyncConfirmationDialogProps {
   open: boolean;

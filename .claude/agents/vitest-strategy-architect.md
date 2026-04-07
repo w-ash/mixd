@@ -100,7 +100,7 @@ screen.getByClassName('playlist-card')  // Breaks when styling changes
 
 **Component Tests with Mocked Queries** (use renderWithProviders):
 ```tsx
-import { renderWithProviders } from '@/test/test-utils'
+import { renderWithProviders } from '#/test/test-utils'
 import { screen, waitFor } from '@testing-library/react'
 
 test('displays playlist after loading', async () => {
@@ -120,10 +120,10 @@ test('displays playlist after loading', async () => {
 
 **Integration Tests with MSW** (use shared server from setup.ts):
 ```tsx
-import { renderWithProviders } from '@/test/test-utils'
+import { renderWithProviders } from '#/test/test-utils'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { server } from '@/test/setup'
+import { server } from '#/test/setup'
 
 test('fetches and displays playlist', async () => {
   // Override the auto-generated MSW handler for this specific test
@@ -334,7 +334,7 @@ When consulted for frontend test strategy:
 - Simple presentational components: direct `render()` from `@testing-library/react`
 
 **Path Alias**:
-- `@/` maps to `web/src/` — use in all test imports: `import { renderWithProviders } from "@/test/test-utils"`
+- `#/` maps to `web/src/` — use in all test imports: `import { renderWithProviders } from "#/test/test-utils"`
 
 **MSW Pattern**:
 - Auto-generated handlers from Orval live in `web/src/api/generated/**/*.msw.ts`

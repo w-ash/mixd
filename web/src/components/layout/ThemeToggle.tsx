@@ -1,7 +1,7 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { useTheme } from "@/contexts/ThemeContext";
+import { Button } from "#/components/ui/button";
+import { useTheme } from "#/contexts/ThemeContext";
 
 const modes = ["dark", "light", "system"] as const;
 

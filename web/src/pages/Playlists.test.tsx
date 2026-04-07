@@ -1,9 +1,9 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { makePlaylistSummary } from "@/test/factories";
-import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import { makePlaylistSummary } from "#/test/factories";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { Playlists } from "./Playlists";
 

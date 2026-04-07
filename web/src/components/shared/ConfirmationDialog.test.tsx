@@ -6,7 +6,7 @@ import {
   screen,
   userEvent,
   waitFor,
-} from "@/test/test-utils";
+} from "#/test/test-utils";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
 

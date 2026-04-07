@@ -1,8 +1,8 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { Library } from "./Library";
 

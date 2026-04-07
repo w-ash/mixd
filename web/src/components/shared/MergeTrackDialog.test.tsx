@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { TrackDetailSchema } from "@/api/generated/model";
-import { renderWithProviders, screen, userEvent } from "@/test/test-utils";
+import type { TrackDetailSchema } from "#/api/generated/model";
+import { renderWithProviders, screen, userEvent } from "#/test/test-utils";
 
 import { MergeTrackDialog } from "./MergeTrackDialog";
 

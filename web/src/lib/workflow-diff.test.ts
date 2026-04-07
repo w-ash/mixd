@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import { diffWorkflowDefs } from "@/lib/workflow-diff";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import { diffWorkflowDefs } from "#/lib/workflow-diff";
 
 function makeTask(
   overrides: Partial<WorkflowTaskDefSchema> & { id: string },

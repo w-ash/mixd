@@ -8,8 +8,8 @@
 
 import { useMemo } from "react";
 
-import type { ConfigFieldSchema } from "@/api/generated/model";
-import { useListNodeTypesApiV1WorkflowsNodesGet } from "@/api/generated/workflows/workflows";
+import type { ConfigFieldSchema } from "#/api/generated/model";
+import { useListNodeTypesApiV1WorkflowsNodesGet } from "#/api/generated/workflows/workflows";
 
 export interface NodeSchemas {
   /** Get all config field schemas for a node type. */

@@ -8,28 +8,28 @@ import {
   useImportLastfmHistoryApiV1ImportsLastfmHistoryPost,
   useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost,
   useImportSpotifyLikesApiV1ImportsSpotifyLikesPost,
-} from "@/api/generated/imports/imports";
+} from "#/api/generated/imports/imports";
 import type {
   CheckpointStatusSchema,
   ImportLastfmHistoryRequestMode,
   OperationStartedResponse,
-} from "@/api/generated/model";
-import { PageHeader } from "@/components/layout/PageHeader";
+} from "#/api/generated/model";
+import { PageHeader } from "#/components/layout/PageHeader";
 import {
   ConnectorIcon,
   type ConnectorName,
-} from "@/components/shared/ConnectorIcon";
+} from "#/components/shared/ConnectorIcon";
 import {
   DatabaseUnavailable,
   isDatabaseUnavailable,
-} from "@/components/shared/DatabaseUnavailable";
-import { FileUpload } from "@/components/shared/FileUpload";
-import { OperationProgress } from "@/components/shared/OperationProgress";
-import { SectionHeader } from "@/components/shared/SectionHeader";
-import { Button } from "@/components/ui/button";
-import { useOperationProgress } from "@/hooks/useOperationProgress";
-import { formatDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+} from "#/components/shared/DatabaseUnavailable";
+import { FileUpload } from "#/components/shared/FileUpload";
+import { OperationProgress } from "#/components/shared/OperationProgress";
+import { SectionHeader } from "#/components/shared/SectionHeader";
+import { Button } from "#/components/ui/button";
+import { useOperationProgress } from "#/hooks/useOperationProgress";
+import { formatDateTime } from "#/lib/format";
+import { cn } from "#/lib/utils";
 
 /** Query keys to invalidate when an import operation completes. */
 const CHECKPOINT_KEYS = [

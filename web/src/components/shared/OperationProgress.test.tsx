@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { OperationProgress as OperationProgressData } from "@/hooks/useOperationProgress";
+import type { OperationProgress as OperationProgressData } from "#/hooks/useOperationProgress";
 
 import { OperationProgress } from "./OperationProgress";
 

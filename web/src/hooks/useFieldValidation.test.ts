@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConfigFieldSchema } from "@/api/generated/model";
+import type { ConfigFieldSchema } from "#/api/generated/model";
 
 import { useFieldValidation } from "./useFieldValidation";
 

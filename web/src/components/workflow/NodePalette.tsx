@@ -8,9 +8,9 @@
 import type { DragEvent } from "react";
 import { useMemo, useState } from "react";
 
-import { useListNodeTypesApiV1WorkflowsNodesGet } from "@/api/generated/workflows/workflows";
-import { Input } from "@/components/ui/input";
-import { formatNodeTypeName, NODE_CONFIG } from "@/lib/workflow-config";
+import { useListNodeTypesApiV1WorkflowsNodesGet } from "#/api/generated/workflows/workflows";
+import { Input } from "#/components/ui/input";
+import { formatNodeTypeName, NODE_CONFIG } from "#/lib/workflow-config";
 
 interface PaletteItemProps {
   type: string;

@@ -21,22 +21,22 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
 import {
   useCreateWorkflowApiV1WorkflowsPost,
   useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch,
-} from "@/api/generated/workflows/workflows";
-import { Button } from "@/components/ui/button";
+} from "#/api/generated/workflows/workflows";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { VersionHistory } from "@/components/workflow/VersionHistory";
-import { layoutWorkflow } from "@/lib/workflow-layout";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/components/ui/dialog";
+import { VersionHistory } from "#/components/workflow/VersionHistory";
+import { layoutWorkflow } from "#/lib/workflow-layout";
+import { useEditorStore } from "#/stores/editor-store";
 
 export function EditorToolbar() {
   const navigate = useNavigate();

@@ -8,10 +8,10 @@
 
 import { Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import type { NodeStatus } from "@/lib/sse-types";
-import { cn } from "@/lib/utils";
-import { getNodeCategory } from "@/lib/workflow-config";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { NodeStatus } from "#/lib/sse-types";
+import { cn } from "#/lib/utils";
+import { getNodeCategory } from "#/lib/workflow-config";
 
 interface PipelineStripProps {
   tasks: WorkflowTaskDefSchema[];

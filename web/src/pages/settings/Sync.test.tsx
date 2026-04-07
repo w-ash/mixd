@@ -1,9 +1,9 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import type { CheckpointStatusSchema } from "@/api/generated/model";
-import { server } from "@/test/setup";
-import { renderWithProviders, screen } from "@/test/test-utils";
+import type { CheckpointStatusSchema } from "#/api/generated/model";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { Sync } from "./Sync";
 

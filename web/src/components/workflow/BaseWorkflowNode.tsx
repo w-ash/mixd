@@ -1,9 +1,9 @@
 import { Handle, Position } from "@xyflow/react";
 import type { LucideIcon } from "lucide-react";
 
-import type { NodeExecutionStatus } from "@/lib/sse-types";
-import { cn } from "@/lib/utils";
-import type { DiffStatus } from "@/lib/workflow-diff";
+import type { NodeExecutionStatus } from "#/lib/sse-types";
+import { cn } from "#/lib/utils";
+import type { DiffStatus } from "#/lib/workflow-diff";
 
 export interface WorkflowNodeData {
   taskId: string;

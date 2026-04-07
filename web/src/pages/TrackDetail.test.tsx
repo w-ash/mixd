@@ -2,8 +2,8 @@ import { HttpResponse, http } from "msw";
 import { Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 
-import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { TrackDetail } from "./TrackDetail";
 

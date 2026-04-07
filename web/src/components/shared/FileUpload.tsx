@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "#/components/ui/button";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 

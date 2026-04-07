@@ -1,11 +1,11 @@
 import { Command } from "cmdk";
 import { Search } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { LibraryTrackSchema } from "@/api/generated/model";
-import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { useTrackSearch } from "@/hooks/useTrackSearch";
-import { formatArtists } from "@/lib/format";
+import type { LibraryTrackSchema } from "#/api/generated/model";
+import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { formatArtists } from "#/lib/format";
 
 interface TrackSearchComboboxProps {
   onSelect: (track: LibraryTrackSchema) => void;

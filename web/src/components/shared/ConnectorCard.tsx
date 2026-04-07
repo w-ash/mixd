@@ -2,21 +2,21 @@ import { Loader2, Settings } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useState } from "react";
 
-import type { ConnectorStatusSchema } from "@/api/generated/model";
-import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
+import type { ConnectorStatusSchema } from "#/api/generated/model";
+import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import {
   ConnectorIcon,
   getConnectorLabel,
-} from "@/components/shared/ConnectorIcon";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useConnectorAuth } from "@/hooks/useConnectorAuth";
+} from "#/components/shared/ConnectorIcon";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import { useConnectorAuth } from "#/hooks/useConnectorAuth";
 import {
   CONNECTABLE_SERVICES,
   connectButtonStyles,
   humanizeAuthError,
-} from "@/lib/connectors";
-import { cn } from "@/lib/utils";
+} from "#/lib/connectors";
+import { cn } from "#/lib/utils";
 
 /** Static descriptions — what each connector enables. */
 const connectorDescriptions: Record<string, string> = {

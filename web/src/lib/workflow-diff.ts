@@ -5,7 +5,7 @@
  * added, removed, modified, and unchanged nodes for visual highlighting.
  */
 
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
 
 export type DiffStatus = "added" | "removed" | "modified" | "unchanged";
 

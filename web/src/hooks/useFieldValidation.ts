@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
-import type { ConfigFieldSchema } from "@/api/generated/model";
+import type { ConfigFieldSchema } from "#/api/generated/model";
 
 interface ValidationState {
   touched: Set<string>;

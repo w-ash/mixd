@@ -1,7 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { server } from "@/test/setup";
+import { server } from "#/test/setup";
 
 import { ApiError, customFetch } from "./client";
 

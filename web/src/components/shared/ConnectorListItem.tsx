@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { cn } from "@/lib/utils";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { cn } from "#/lib/utils";
 
 interface ConnectorListItemProps {
   connectorName: string;

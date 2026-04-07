@@ -8,23 +8,23 @@
 
 import { Settings2, X } from "lucide-react";
 
-import type { ConfigFieldSchema } from "@/api/generated/model";
-import { NodeTypeBadge } from "@/components/shared/NodeTypeBadge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import type { ConfigFieldSchema } from "#/api/generated/model";
+import { NodeTypeBadge } from "#/components/shared/NodeTypeBadge";
+import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { useAnimatedPresence } from "@/hooks/useAnimatedPresence";
-import { useFieldValidation } from "@/hooks/useFieldValidation";
-import { useNodeSchemas } from "@/hooks/useNodeSchemas";
-import { formatNodeTypeName, getNodeCategory } from "@/lib/workflow-config";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/components/ui/select";
+import { Switch } from "#/components/ui/switch";
+import { useAnimatedPresence } from "#/hooks/useAnimatedPresence";
+import { useFieldValidation } from "#/hooks/useFieldValidation";
+import { useNodeSchemas } from "#/hooks/useNodeSchemas";
+import { formatNodeTypeName, getNodeCategory } from "#/lib/workflow-config";
+import { useEditorStore } from "#/stores/editor-store";
 
 function FieldInput({
   field,

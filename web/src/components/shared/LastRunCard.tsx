@@ -9,9 +9,9 @@
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { Link } from "react-router";
 
-import type { LastRunSchema } from "@/api/generated/model";
-import { RunStatusBadge } from "@/components/shared/RunStatusBadge";
-import { formatDate } from "@/lib/format";
+import type { LastRunSchema } from "#/api/generated/model";
+import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
+import { formatDate } from "#/lib/format";
 
 interface LastRunCardProps {
   run: LastRunSchema | null;

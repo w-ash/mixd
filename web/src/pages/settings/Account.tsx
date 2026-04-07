@@ -4,12 +4,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { authClient } from "@/api/auth";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { DeleteAccountDialog } from "@/components/shared/DeleteAccountDialog";
-import { SectionHeader } from "@/components/shared/SectionHeader";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { authClient } from "#/api/auth";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { DeleteAccountDialog } from "#/components/shared/DeleteAccountDialog";
+import { SectionHeader } from "#/components/shared/SectionHeader";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 
 function AccountSkeleton() {
   return (

@@ -7,16 +7,16 @@ import { useWorkflowPreview } from "./useWorkflowPreview";
 
 // ─── Mock SSE transport ─────────────────────────────────────────
 
-vi.mock("@/api/sse-client", () => ({
+vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
-import { connectToSSE } from "@/api/sse-client";
-import { mockSSEWithEvents } from "@/test/sse-test-utils";
+import { connectToSSE } from "#/api/sse-client";
+import { mockSSEWithEvents } from "#/test/sse-test-utils";
 
 // ─── Mock editor store ──────────────────────────────────────────
 
-vi.mock("@/stores/editor-store", () => ({
+vi.mock("#/stores/editor-store", () => ({
   useEditorStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
     selector({
       workflowId: 42,
@@ -32,7 +32,7 @@ const mutateUnsaved = vi.fn();
 const savedIsPending = false;
 const unsavedIsPending = false;
 
-vi.mock("@/api/generated/workflows/workflows", () => ({
+vi.mock("#/api/generated/workflows/workflows", () => ({
   usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost: () => ({
     mutate: mutateSaved,
     isPending: savedIsPending,

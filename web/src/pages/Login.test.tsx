@@ -11,12 +11,12 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: () => mockUseAuthenticate(),
 }));
 
-vi.mock("@/components/shared/MixdLogo", () => ({
+vi.mock("#/components/shared/MixdLogo", () => ({
   MixdLogo: () => <div data-testid="mixd-logo">MixdLogo</div>,
 }));
 
 import { Route, Routes } from "react-router";
-import { renderWithProviders, screen } from "@/test/test-utils";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { Login } from "./Login";
 

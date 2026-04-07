@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import {
   getListPlaylistsApiV1PlaylistsGetQueryKey,
   useCreatePlaylistApiV1PlaylistsPost,
-} from "@/api/generated/playlists/playlists";
-import { Button } from "@/components/ui/button";
+} from "#/api/generated/playlists/playlists";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -16,8 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "#/components/ui/dialog";
+import { Input } from "#/components/ui/input";
 
 export function CreatePlaylistModal() {
   const [open, setOpen] = useState(false);

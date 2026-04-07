@@ -10,7 +10,7 @@ import type {
   PlaylistEntrySchema,
   PlaylistSummarySchema,
   WorkflowSummarySchema,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 
 export function makePlaylistSummary(
   overrides: Partial<PlaylistSummarySchema> = {},

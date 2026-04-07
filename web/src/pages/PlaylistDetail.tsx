@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import type {
   PlaylistLinkSchema,
   SyncStartedResponse,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
   getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
@@ -30,25 +30,25 @@ import {
   useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost,
   useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch,
   useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
-} from "@/api/generated/playlists/playlists";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { BackLink } from "@/components/shared/BackLink";
-import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
+} from "#/api/generated/playlists/playlists";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { BackLink } from "#/components/shared/BackLink";
+import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import {
   ConnectorIcon,
   getConnectorLabel,
-} from "@/components/shared/ConnectorIcon";
-import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { OperationProgress } from "@/components/shared/OperationProgress";
-import { SectionHeader } from "@/components/shared/SectionHeader";
+} from "#/components/shared/ConnectorIcon";
+import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { OperationProgress } from "#/components/shared/OperationProgress";
+import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   StatusIndicator,
   syncStatusVariant,
-} from "@/components/shared/StatusIndicator";
-import { SyncConfirmationDialog } from "@/components/shared/SyncConfirmationDialog";
-import { Button } from "@/components/ui/button";
+} from "#/components/shared/StatusIndicator";
+import { SyncConfirmationDialog } from "#/components/shared/SyncConfirmationDialog";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -57,16 +57,16 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "#/components/ui/dialog";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/components/ui/select";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -74,8 +74,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { useOperationProgress } from "@/hooks/useOperationProgress";
+} from "#/components/ui/table";
+import { useOperationProgress } from "#/hooks/useOperationProgress";
 import {
   decodeHtmlEntities,
   formatArtists,
@@ -83,8 +83,8 @@ import {
   formatDuration,
   formatRelativeTime,
   formatTotalDuration,
-} from "@/lib/format";
-import { formatSyncResults, getSyncStatusConfig } from "@/lib/sync-status";
+} from "#/lib/format";
+import { formatSyncResults, getSyncStatusConfig } from "#/lib/sync-status";
 
 function DetailSkeleton() {
   return (

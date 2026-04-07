@@ -11,11 +11,11 @@ import { useMemo } from "react";
 import type {
   WorkflowTaskDefSchema,
   WorkflowVersionSchema,
-} from "@/api/generated/model";
-import { useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet } from "@/api/generated/workflows/workflows";
-import { WorkflowGraph } from "@/components/shared/WorkflowGraph";
-import { diffWorkflowDefs } from "@/lib/workflow-diff";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/api/generated/model";
+import { useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet } from "#/api/generated/workflows/workflows";
+import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
+import { diffWorkflowDefs } from "#/lib/workflow-diff";
+import { useEditorStore } from "#/stores/editor-store";
 
 interface WorkflowDiffProps {
   workflowId: string;

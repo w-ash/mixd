@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { connectToSSE } from "@/api/sse-client";
+import { connectToSSE } from "#/api/sse-client";
 
 export interface UseSSEConnectionOptions {
   /** Called for each parsed SSE event. eventType is the SSE "event" field, data is the parsed JSON. */

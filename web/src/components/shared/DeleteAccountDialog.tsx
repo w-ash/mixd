@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
-import { Input } from "@/components/ui/input";
+import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
+import { Input } from "#/components/ui/input";
 
 const CONFIRM_TEXT = "DELETE";
 

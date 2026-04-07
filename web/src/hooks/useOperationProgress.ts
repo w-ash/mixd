@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { useSSEConnection } from "@/hooks/useSSEConnection";
+import { useSSEConnection } from "#/hooks/useSSEConnection";
 
 export type OperationStatus =
   | "pending"

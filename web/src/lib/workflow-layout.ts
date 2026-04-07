@@ -1,8 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { ELK } from "elkjs/lib/elk-api";
 
-import type { WorkflowTaskDefSchema } from "@/api/generated/model";
-import { getNodeCategoryName } from "@/lib/workflow-config";
+import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import { getNodeCategoryName } from "#/lib/workflow-config";
 
 let elk: ELK | null = null;
 

@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import type {
   PlaylistDetailSchema,
   PlaylistEntrySchema,
-} from "@/api/generated/model";
-import { makePlaylistDetail, makePlaylistEntries } from "@/test/factories";
-import { server } from "@/test/setup";
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+} from "#/api/generated/model";
+import { makePlaylistDetail, makePlaylistEntries } from "#/test/factories";
+import { server } from "#/test/setup";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { PlaylistDetail } from "./PlaylistDetail";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderWithProviders, screen } from "@/test/test-utils";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { ConnectorIcon } from "./ConnectorIcon";
 

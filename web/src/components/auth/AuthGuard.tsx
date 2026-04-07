@@ -3,8 +3,8 @@ import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
 import { Navigate } from "react-router";
 
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 
 /**
  * Redirects unauthenticated users to /auth/sign-in.

@@ -2,8 +2,8 @@ import { AlertTriangle, Check, Ellipsis, Play, X } from "lucide-react";
 import type {
   OperationProgress as OperationProgressData,
   SubOperationProgress,
-} from "@/hooks/useOperationProgress";
-import { cn } from "@/lib/utils";
+} from "#/hooks/useOperationProgress";
+import { cn } from "#/lib/utils";
 
 function formatEta(seconds: number): string {
   if (seconds < 60) return `${Math.ceil(seconds)}s`;

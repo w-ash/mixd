@@ -11,7 +11,7 @@ import {
 import {
   getSettingsApiV1SettingsGet,
   patchSettingsApiV1SettingsPatch,
-} from "@/api/generated/settings/settings";
+} from "#/api/generated/settings/settings";
 
 type ThemeMode = "dark" | "light" | "system";
 type ResolvedTheme = "dark" | "light";

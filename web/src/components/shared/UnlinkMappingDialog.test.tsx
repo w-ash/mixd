@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderWithProviders, screen, waitFor } from "@/test/test-utils";
+import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { UnlinkMappingDialog } from "./UnlinkMappingDialog";
 

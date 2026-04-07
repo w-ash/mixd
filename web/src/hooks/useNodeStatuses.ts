@@ -7,7 +7,7 @@
 
 import { useCallback, useState } from "react";
 
-import type { NodeStatus } from "@/lib/sse-types";
+import type { NodeStatus } from "#/lib/sse-types";
 
 export interface UseNodeStatusesReturn {
   nodeStatuses: Map<string, NodeStatus>;

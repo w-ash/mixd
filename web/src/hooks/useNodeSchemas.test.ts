@@ -4,8 +4,8 @@ import { HttpResponse, http } from "msw";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeTypeInfoSchema } from "@/api/generated/model";
-import { server } from "@/test/setup";
+import type { NodeTypeInfoSchema } from "#/api/generated/model";
+import { server } from "#/test/setup";
 
 import { useNodeSchemas } from "./useNodeSchemas";
 

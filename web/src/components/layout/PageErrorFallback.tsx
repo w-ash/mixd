@@ -1,6 +1,6 @@
 import type { FallbackProps } from "react-error-boundary";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "#/components/ui/button";
 
 export function PageErrorFallback({
   error,

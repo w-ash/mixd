@@ -1,7 +1,7 @@
 import { DatabaseZap } from "lucide-react";
 
-import { API_ERROR_CODES, ApiError } from "@/api/client";
-import { Button } from "@/components/ui/button";
+import { API_ERROR_CODES, ApiError } from "#/api/client";
+import { Button } from "#/components/ui/button";
 
 import { EmptyState } from "./EmptyState";
 

@@ -1,15 +1,15 @@
 import { Music } from "lucide-react";
 import { Link } from "react-router";
 
-import { useListPlaylistsApiV1PlaylistsGet } from "@/api/generated/playlists/playlists";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { CreatePlaylistModal } from "@/components/shared/CreatePlaylistModal";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { TablePagination } from "@/components/shared/TablePagination";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useListPlaylistsApiV1PlaylistsGet } from "#/api/generated/playlists/playlists";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { CreatePlaylistModal } from "#/components/shared/CreatePlaylistModal";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { TablePagination } from "#/components/shared/TablePagination";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -17,10 +17,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { usePagination } from "@/hooks/usePagination";
-import { decodeHtmlEntities, formatDate } from "@/lib/format";
-import { getSyncStatusConfig } from "@/lib/sync-status";
+} from "#/components/ui/table";
+import { usePagination } from "#/hooks/usePagination";
+import { decodeHtmlEntities, formatDate } from "#/lib/format";
+import { getSyncStatusConfig } from "#/lib/sync-status";
 
 function PlaylistTableSkeleton() {
   return (

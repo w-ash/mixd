@@ -11,10 +11,10 @@ import { toast } from "sonner";
 import {
   usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost,
   usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost,
-} from "@/api/generated/workflows/workflows";
-import { useWorkflowSSE } from "@/hooks/useWorkflowSSE";
-import type { NodeStatus } from "@/lib/sse-types";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/api/generated/workflows/workflows";
+import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
+import type { NodeStatus } from "#/lib/sse-types";
+import { useEditorStore } from "#/stores/editor-store";
 
 export interface PreviewTrack {
   rank: number;

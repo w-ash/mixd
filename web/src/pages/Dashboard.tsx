@@ -14,21 +14,21 @@ import type {
   DashboardStatsSchema,
   MatchMethodHealthSchema,
   MethodHealthStatSchema,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 import {
   useGetDashboardStatsApiV1StatsDashboardGet,
   useGetMatchingHealthApiV1StatsMatchingGet,
-} from "@/api/generated/stats/stats";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { SectionHeader } from "@/components/shared/SectionHeader";
+} from "#/api/generated/stats/stats";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   confidenceVariant,
   variantColorClass,
-} from "@/components/shared/StatusIndicator";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/components/shared/StatusIndicator";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -36,9 +36,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { formatCount } from "@/lib/format";
-import { cn } from "@/lib/utils";
+} from "#/components/ui/table";
+import { formatCount } from "#/lib/format";
+import { cn } from "#/lib/utils";
 
 /* ── Skeleton loader ─────────────────────────────────────── */
 

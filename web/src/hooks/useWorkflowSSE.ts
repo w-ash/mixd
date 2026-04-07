@@ -9,9 +9,9 @@
 
 import { useCallback, useState } from "react";
 
-import { useNodeStatuses } from "@/hooks/useNodeStatuses";
-import { useSSEConnection } from "@/hooks/useSSEConnection";
-import type { NodeStatus } from "@/lib/sse-types";
+import { useNodeStatuses } from "#/hooks/useNodeStatuses";
+import { useSSEConnection } from "#/hooks/useSSEConnection";
+import type { NodeStatus } from "#/lib/sse-types";
 
 const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
 

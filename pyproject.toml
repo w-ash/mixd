@@ -1,30 +1,30 @@
 [project]
 name = "mixd"
-version = "0.6.9"
+version = "0.6.10"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.13,<3.15"
 dependencies = [
-    "sqlalchemy[asyncio]>=2.0.47,<3",
-    "alembic>=1.18.4,<2",
-    "httpx>=0.28.1,<0.29",
-    "structlog>=25.1,<26",
-    "python-dotenv>=1.2.1,<2",
-    "rich>=14.3.3,<15",
-    "typer>=0.24.1,<0.25",
-    "attrs>=26.1.0,<27",
-    "tenacity>=9.1.4,<10",
-    "prefect>=3.6.19,<4",
-    "griffe>=1.5,<2",  # Prefect depends on griffe v1 API; v2.0 breaks imports
-    "psycopg[binary]>=3.2,<4",
-    "rapidfuzz>=3.14.3,<4",
-    "pydantic-settings>=2.13.1,<3",
+    "sqlalchemy[asyncio]>=2.0.47",
+    "alembic>=1.18.4",
+    "httpx>=0.28.1",
+    "structlog>=25.1",
+    "python-dotenv>=1.2.1",
+    "rich>=14.3.3",
+    "typer>=0.24.1",
+    "attrs>=26.1.0",
+    "tenacity>=9.1.4",
+    "prefect>=3.6.19",
+    "griffe>=1.5",
+    "psycopg[binary]>=3.2",
+    "rapidfuzz>=3.14.3",
+    "pydantic-settings>=2.13.1",
     "fastapi>=0.135",
     "uvicorn[standard]>=0.34",
-    "python-multipart>=0.0.22,<0.0.23",
-    "jellyfish>=1.2.1,<2",
+    "python-multipart>=0.0.22",
+    "jellyfish>=1.2.1",
     "pyjwt[crypto]>=2.12.1",
 ]
 
@@ -41,18 +41,18 @@ Repository = "https://github.com/w-ash/mixd"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2,<10",
-    "pytest-asyncio>=1.3.0,<2",
-    "pytest-cov>=7.0.0,<8",
-    "pytest-xdist>=3.8.0,<4",
-    "ruff>=0.15.4,<0.16",
-    "pre-commit>=4.5.1,<5",
-    "basedpyright>=1.38.2,<2",
-    "vulture>=2.14,<3",
-    "interrogate>=1.7.0,<2",
-    "bandit>=1.9.3,<2",
-    "psutil>=7.2.2,<8",
-    "testcontainers[postgres]>=4.10,<5",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.4",
+    "pre-commit>=4.5.1",
+    "basedpyright>=1.38.2",
+    "vulture>=2.14",
+    "interrogate>=1.7.0",
+    "bandit>=1.9.3",
+    "psutil>=7.2.2",
+    "testcontainers[postgres]>=4.10",
 ]
 
 [build-system]

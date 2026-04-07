@@ -13,23 +13,23 @@ import { toast } from "sonner";
 import type {
   WorkflowDefSchema,
   WorkflowVersionSchema,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 import {
   getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
   useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet,
   useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost,
-} from "@/api/generated/workflows/workflows";
-import { Button } from "@/components/ui/button";
+} from "#/api/generated/workflows/workflows";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { WorkflowDiff } from "@/components/workflow/WorkflowDiff";
-import { formatDateTime } from "@/lib/format";
-import { useEditorStore } from "@/stores/editor-store";
+} from "#/components/ui/dialog";
+import { WorkflowDiff } from "#/components/workflow/WorkflowDiff";
+import { formatDateTime } from "#/lib/format";
+import { useEditorStore } from "#/stores/editor-store";
 
 export function VersionHistory({ workflowId }: { workflowId: string }) {
   const [diffVersion, setDiffVersion] = useState<number | null>(null);

@@ -1,23 +1,23 @@
 import { ArrowUp, Heart, Music } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
-import { useGetConnectorsApiV1ConnectorsGet } from "@/api/generated/connectors/connectors";
-import { useListTracksApiV1TracksGet } from "@/api/generated/tracks/tracks";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { TablePagination } from "@/components/shared/TablePagination";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
+import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { TablePagination } from "#/components/shared/TablePagination";
+import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/components/ui/select";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -25,11 +25,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { usePagination } from "@/hooks/usePagination";
-import { useTrackSearch } from "@/hooks/useTrackSearch";
-import { formatArtists, formatDuration } from "@/lib/format";
-import { cn } from "@/lib/utils";
+} from "#/components/ui/table";
+import { usePagination } from "#/hooks/usePagination";
+import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { formatArtists, formatDuration } from "#/lib/format";
+import { cn } from "#/lib/utils";
 
 const PAGE_SIZE = 50;
 const STAGGER_CAP = 15;

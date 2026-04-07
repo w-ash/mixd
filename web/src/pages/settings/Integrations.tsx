@@ -7,17 +7,17 @@ import { toast } from "sonner";
 import {
   getGetConnectorsApiV1ConnectorsGetQueryKey,
   useGetConnectorsApiV1ConnectorsGet,
-} from "@/api/generated/connectors/connectors";
-import type { ConnectorStatusSchema } from "@/api/generated/model";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { ConnectorCard } from "@/components/shared/ConnectorCard";
-import { getConnectorLabel } from "@/components/shared/ConnectorIcon";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { SectionHeader } from "@/components/shared/SectionHeader";
-import { Skeleton } from "@/components/ui/skeleton";
-import { humanizeAuthError } from "@/lib/connectors";
+} from "#/api/generated/connectors/connectors";
+import type { ConnectorStatusSchema } from "#/api/generated/model";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { ConnectorCard } from "#/components/shared/ConnectorCard";
+import { getConnectorLabel } from "#/components/shared/ConnectorIcon";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { SectionHeader } from "#/components/shared/SectionHeader";
+import { Skeleton } from "#/components/ui/skeleton";
+import { humanizeAuthError } from "#/lib/connectors";
 
 const sections = [
   {

@@ -9,7 +9,7 @@ vi.mock("@neondatabase/auth/react/ui", () => ({
   useAuthenticate: mockUseAuthenticate,
 }));
 
-import { renderWithProviders, screen } from "@/test/test-utils";
+import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { AuthGuard } from "./AuthGuard";
 

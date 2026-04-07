@@ -1,18 +1,18 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/setup";
+import { server } from "#/test/setup";
 import {
   renderWithProviders,
   screen,
   userEvent,
   waitFor,
-} from "@/test/test-utils";
+} from "#/test/test-utils";
 
 import { WorkflowRunDetail } from "./WorkflowRunDetail";
 
 // Mock React Flow (jsdom can't render canvas)
-vi.mock("@/components/shared/WorkflowGraph", () => ({
+vi.mock("#/components/shared/WorkflowGraph", () => ({
   WorkflowGraph: ({ tasks }: { tasks: unknown[] }) => (
     <div data-testid="workflow-graph">Graph with {tasks.length} tasks</div>
   ),

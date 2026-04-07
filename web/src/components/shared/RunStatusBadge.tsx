@@ -1,6 +1,6 @@
 import { Check, Clock, Play, X } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "#/lib/utils";
 
 const STATUS_CONFIG: Record<
   string,

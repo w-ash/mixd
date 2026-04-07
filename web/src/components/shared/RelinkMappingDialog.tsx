@@ -5,23 +5,23 @@ import { toast } from "sonner";
 import type {
   ConnectorMappingSchema,
   LibraryTrackSchema,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch,
-} from "@/api/generated/tracks/tracks";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { MappingInfoCard } from "@/components/shared/MappingInfoCard";
-import { TrackSearchCombobox } from "@/components/shared/TrackSearchCombobox";
-import { Button } from "@/components/ui/button";
+} from "#/api/generated/tracks/tracks";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
+import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { formatArtists } from "@/lib/format";
+} from "#/components/ui/dialog";
+import { formatArtists } from "#/lib/format";
 
 interface RelinkMappingDialogProps {
   trackId: string;

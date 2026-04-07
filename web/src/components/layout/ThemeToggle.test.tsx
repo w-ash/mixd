@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderWithProviders, screen, userEvent } from "@/test/test-utils";
+import { renderWithProviders, screen, userEvent } from "#/test/test-utils";
 
 import { ThemeToggle } from "./ThemeToggle";
 

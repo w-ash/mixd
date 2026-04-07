@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { NodeStatus } from "@/lib/sse-types";
+import type { NodeStatus } from "#/lib/sse-types";
 import { PipelineStrip } from "./PipelineStrip";
 
 // Override the global scrollIntoView no-op with a spy for assertion

@@ -2,17 +2,17 @@ import { Copy, GitBranch, Lock, Pencil, Play, Plus } from "lucide-react";
 import { memo } from "react";
 import { Link } from "react-router";
 
-import type { WorkflowSummarySchema } from "@/api/generated/model";
-import { useListWorkflowsApiV1WorkflowsGet } from "@/api/generated/workflows/workflows";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { getStatusConfig } from "@/components/shared/RunStatusBadge";
-import { TablePagination } from "@/components/shared/TablePagination";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import type { WorkflowSummarySchema } from "#/api/generated/model";
+import { useListWorkflowsApiV1WorkflowsGet } from "#/api/generated/workflows/workflows";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { getStatusConfig } from "#/components/shared/RunStatusBadge";
+import { TablePagination } from "#/components/shared/TablePagination";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -20,12 +20,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { useWorkflowExecutionContext } from "@/contexts/WorkflowExecutionContext";
-import { usePagination } from "@/hooks/usePagination";
-import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
-import { formatDate } from "@/lib/format";
-import { cn } from "@/lib/utils";
+} from "#/components/ui/table";
+import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import { usePagination } from "#/hooks/usePagination";
+import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
+import { formatDate } from "#/lib/format";
+import { cn } from "#/lib/utils";
 
 function WorkflowTableSkeleton() {
   return (

@@ -2,13 +2,13 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 
-import { useGetWorkflowApiV1WorkflowsWorkflowIdGet } from "@/api/generated/workflows/workflows";
-import { EditorCanvas } from "@/components/workflow/EditorCanvas";
-import { EditorToolbar } from "@/components/workflow/EditorToolbar";
-import { NodeConfigPanel } from "@/components/workflow/NodeConfigPanel";
-import { NodePalette } from "@/components/workflow/NodePalette";
-import { PreviewPanel } from "@/components/workflow/PreviewPanel";
-import { useEditorStore } from "@/stores/editor-store";
+import { useGetWorkflowApiV1WorkflowsWorkflowIdGet } from "#/api/generated/workflows/workflows";
+import { EditorCanvas } from "#/components/workflow/EditorCanvas";
+import { EditorToolbar } from "#/components/workflow/EditorToolbar";
+import { NodeConfigPanel } from "#/components/workflow/NodeConfigPanel";
+import { NodePalette } from "#/components/workflow/NodePalette";
+import { PreviewPanel } from "#/components/workflow/PreviewPanel";
+import { useEditorStore } from "#/stores/editor-store";
 
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();

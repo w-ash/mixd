@@ -8,22 +8,22 @@ import {
 import { useCallback, useState } from "react";
 import { useParams } from "react-router";
 
-import type { WorkflowRunNodeSchema } from "@/api/generated/model";
+import type { WorkflowRunNodeSchema } from "#/api/generated/model";
 import {
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet,
-} from "@/api/generated/workflows/workflows";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { BackLink } from "@/components/shared/BackLink";
-import { EmptyState } from "@/components/shared/EmptyState";
+} from "#/api/generated/workflows/workflows";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { BackLink } from "#/components/shared/BackLink";
+import { EmptyState } from "#/components/shared/EmptyState";
 import {
   getStatusConfig,
   RunStatusBadge,
-} from "@/components/shared/RunStatusBadge";
-import { SectionHeader } from "@/components/shared/SectionHeader";
-import { WorkflowGraph } from "@/components/shared/WorkflowGraph";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/components/shared/RunStatusBadge";
+import { SectionHeader } from "#/components/shared/SectionHeader";
+import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -31,21 +31,21 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
+} from "#/components/ui/table";
+import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import {
   formatDate,
   formatDuration,
   formatMetricHeader,
   formatMetricValue,
-} from "@/lib/format";
-import type { NodeStatus } from "@/lib/sse-types";
-import { cn } from "@/lib/utils";
+} from "#/lib/format";
+import type { NodeStatus } from "#/lib/sse-types";
+import { cn } from "#/lib/utils";
 import {
   getNodeCategory,
   type PlaylistChanges,
   type PlaylistChangeTrack,
-} from "@/lib/workflow-config";
+} from "#/lib/workflow-config";
 
 // --- Sub-components ---
 

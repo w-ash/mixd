@@ -4,8 +4,8 @@ import { ErrorBoundary, type FallbackProps } from "react-error-boundary";
 import { Navigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { MixdLogo } from "@/components/shared/MixdLogo";
-import { Button } from "@/components/ui/button";
+import { MixdLogo } from "#/components/shared/MixdLogo";
+import { Button } from "#/components/ui/button";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   session_expired: "Your session has expired. Please sign in again.",

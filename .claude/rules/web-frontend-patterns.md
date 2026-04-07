@@ -35,6 +35,6 @@ paths:
 
 ## Testing (Vitest + MSW)
 - Co-located: `Component.tsx` → `Component.test.tsx`; E2E: `web/e2e/*.spec.ts` (Playwright)
-- `renderWithProviders()` from `@/test/test-utils` — wraps QueryClient (`retry: false`, `gcTime: 0`) + MemoryRouter. Use for any component with hooks/routing/queries. Plain `render()` for pure presentational.
+- `renderWithProviders()` from `#/test/test-utils` — wraps QueryClient (`retry: false`, `gcTime: 0`) + MemoryRouter. Use for any component with hooks/routing/queries. Plain `render()` for pure presentational.
 - MSW handlers auto-generated in `api/generated/**/*.msw.ts`, pre-loaded in `setup.ts`. Per-test overrides: `server.use(http.get(...))`, reset automatically.
-- `@/` alias → `web/src/`
+- `#/` alias → `web/src/`

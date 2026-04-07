@@ -5,7 +5,7 @@ import {
   Info,
   XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "#/lib/utils";
 
 type StatusVariant = "success" | "warning" | "error" | "info" | "neutral";
 

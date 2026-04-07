@@ -1,5 +1,5 @@
-import type { ConnectorMappingSchema } from "@/api/generated/model";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
+import type { ConnectorMappingSchema } from "#/api/generated/model";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 
 /** Compact display of a connector mapping's title, artists, and icon. */
 export function MappingInfoCard({

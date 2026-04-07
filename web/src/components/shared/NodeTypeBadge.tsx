@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "#/lib/utils";
 
 const CATEGORY_STYLES: Record<string, { bg: string; text: string }> = {
   source: {

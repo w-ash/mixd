@@ -12,11 +12,11 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
-import { authEnabled } from "@/api/auth";
-import { useHealthCheckApiV1HealthGet } from "@/api/generated/health/health";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
-import { MixdLogo } from "@/components/shared/MixdLogo";
-import { cn } from "@/lib/utils";
+import { authEnabled } from "#/api/auth";
+import { useHealthCheckApiV1HealthGet } from "#/api/generated/health/health";
+import { ThemeToggle } from "#/components/layout/ThemeToggle";
+import { MixdLogo } from "#/components/shared/MixdLogo";
+import { cn } from "#/lib/utils";
 
 interface NavChild {
   to: string;

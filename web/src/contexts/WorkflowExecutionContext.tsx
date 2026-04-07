@@ -20,9 +20,9 @@ import {
   getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
   getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey,
   getListWorkflowsApiV1WorkflowsGetQueryKey,
-} from "@/api/generated/workflows/workflows";
-import { useWorkflowSSE } from "@/hooks/useWorkflowSSE";
-import type { NodeStatus } from "@/lib/sse-types";
+} from "#/api/generated/workflows/workflows";
+import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
+import type { NodeStatus } from "#/lib/sse-types";
 
 export interface WorkflowExecutionState {
   workflowId: string | null;

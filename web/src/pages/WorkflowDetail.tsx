@@ -1,21 +1,21 @@
 import { HelpCircle, Lock, Pencil, Play } from "lucide-react";
 import { Link, useParams } from "react-router";
-import type { WorkflowRunSummarySchema } from "@/api/generated/model";
+import type { WorkflowRunSummarySchema } from "#/api/generated/model";
 import {
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet,
-} from "@/api/generated/workflows/workflows";
-import { STALE } from "@/api/query-client";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { BackLink } from "@/components/shared/BackLink";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { LastRunCard } from "@/components/shared/LastRunCard";
-import { PipelineStrip } from "@/components/shared/PipelineStrip";
-import { RunStatusBadge } from "@/components/shared/RunStatusBadge";
-import { SectionHeader } from "@/components/shared/SectionHeader";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/api/generated/workflows/workflows";
+import { STALE } from "#/api/query-client";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { BackLink } from "#/components/shared/BackLink";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { LastRunCard } from "#/components/shared/LastRunCard";
+import { PipelineStrip } from "#/components/shared/PipelineStrip";
+import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
+import { SectionHeader } from "#/components/shared/SectionHeader";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -23,10 +23,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { useWorkflowExecution } from "@/hooks/useWorkflowExecution";
-import { formatDate, formatDuration } from "@/lib/format";
-import { cn } from "@/lib/utils";
+} from "#/components/ui/table";
+import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
+import { formatDate, formatDuration } from "#/lib/format";
+import { cn } from "#/lib/utils";
 
 function DetailSkeleton() {
   return (

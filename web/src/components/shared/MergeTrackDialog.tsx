@@ -6,15 +6,15 @@ import { toast } from "sonner";
 import type {
   LibraryTrackSchema,
   TrackDetailSchema,
-} from "@/api/generated/model";
+} from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useMergeTrackApiV1TracksTrackIdMergePost,
-} from "@/api/generated/tracks/tracks";
-import { ConnectorIcon } from "@/components/shared/ConnectorIcon";
-import { TrackSearchCombobox } from "@/components/shared/TrackSearchCombobox";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+} from "#/api/generated/tracks/tracks";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -23,8 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { formatArtists } from "@/lib/format";
+} from "#/components/ui/dialog";
+import { formatArtists } from "#/lib/format";
 
 interface MergeTrackDialogProps {
   winner: TrackDetailSchema;

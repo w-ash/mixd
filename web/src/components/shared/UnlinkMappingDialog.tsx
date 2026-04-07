@@ -2,13 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
-import type { ConnectorMappingSchema } from "@/api/generated/model";
+import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDelete,
-} from "@/api/generated/tracks/tracks";
-import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
-import { MappingInfoCard } from "@/components/shared/MappingInfoCard";
+} from "#/api/generated/tracks/tracks";
+import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
+import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
 
 interface UnlinkMappingDialogProps {
   trackId: string;

@@ -4,35 +4,35 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { ApiError } from "@/api/client";
-import type { ConnectorMappingSchema } from "@/api/generated/model";
+import { ApiError } from "#/api/client";
+import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useGetTrackDetailApiV1TracksTrackIdGet,
   useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
-} from "@/api/generated/tracks/tracks";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { BackLink } from "@/components/shared/BackLink";
-import { ConnectorListItem } from "@/components/shared/ConnectorListItem";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { MergeTrackDialog } from "@/components/shared/MergeTrackDialog";
-import { QueryErrorState } from "@/components/shared/QueryErrorState";
-import { RelinkMappingDialog } from "@/components/shared/RelinkMappingDialog";
+} from "#/api/generated/tracks/tracks";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { BackLink } from "#/components/shared/BackLink";
+import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
+import { EmptyState } from "#/components/shared/EmptyState";
+import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { RelinkMappingDialog } from "#/components/shared/RelinkMappingDialog";
 import {
   confidenceVariant,
   StatusIndicator,
-} from "@/components/shared/StatusIndicator";
-import { UnlinkMappingDialog } from "@/components/shared/UnlinkMappingDialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "#/components/shared/StatusIndicator";
+import { UnlinkMappingDialog } from "#/components/shared/UnlinkMappingDialog";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import { Skeleton } from "#/components/ui/skeleton";
 import {
   decodeHtmlEntities,
   formatArtists,
   formatDate,
   formatDateTime,
   formatDuration,
-} from "@/lib/format";
+} from "#/lib/format";
 
 function DetailSkeleton() {
   return (

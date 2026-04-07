@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.9"
+    "version": "0.6.10"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -166,6 +166,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/neon-auth": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Neon Auth Webhook",
+        "description": "Receive and process Neon Auth webhook events.",
+        "operationId": "neon_auth_webhook_webhooks_neon_auth_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }

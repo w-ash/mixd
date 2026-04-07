@@ -12,13 +12,13 @@ import { create } from "zustand";
 import type {
   WorkflowDefSchema,
   WorkflowTaskDefSchema,
-} from "@/api/generated/model";
-import { getNodeCategoryName } from "@/lib/workflow-config";
+} from "#/api/generated/model";
+import { getNodeCategoryName } from "#/lib/workflow-config";
 import {
   buildEdges,
   generateNodeId,
   layoutWorkflow,
-} from "@/lib/workflow-layout";
+} from "#/lib/workflow-layout";
 
 const HISTORY_LIMIT = 50;
 
