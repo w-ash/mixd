@@ -92,6 +92,7 @@ web/test-results/
 # Tool Artifacts  #
 ###################
 .playwright-mcp/
+*.png
 
 ###################
 # Project-specific #
