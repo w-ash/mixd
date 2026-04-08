@@ -15,11 +15,13 @@ import random
 from typing import cast
 
 from src.domain.entities.track import TrackList
-from src.domain.transforms.core import Transform, optional_tracklist_transform
+from src.domain.transforms.core import Transform, dual_mode
 
 
-@optional_tracklist_transform
-def limit(count: int) -> Transform:
+def limit(
+    count: int,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Limit to the first n tracks.
 
@@ -33,11 +35,13 @@ def limit(count: int) -> Transform:
     def transform(t: TrackList) -> TrackList:
         return t.with_tracks(t.tracks[:count])
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
-def take_last(count: int) -> Transform:
+def take_last(
+    count: int,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Take the last n tracks.
 
@@ -52,11 +56,13 @@ def take_last(count: int) -> Transform:
         n = min(count, len(t.tracks))
         return t.with_tracks(t.tracks[-n:])
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
-def sample_random(count: int) -> Transform:
+def sample_random(
+    count: int,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Randomly sample n tracks.
 
@@ -72,11 +78,14 @@ def sample_random(count: int) -> Transform:
         selected = random.sample(t.tracks, n)  # nosec B311
         return t.with_tracks(selected)
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
-def select_by_method(count: int, method: str = "first") -> Transform:
+def select_by_method(
+    count: int,
+    method: str = "first",
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Select tracks using specified method.
 
@@ -99,11 +108,12 @@ def select_by_method(count: int, method: str = "first") -> Transform:
     def transform(t: TrackList) -> TrackList:
         return cast(Transform, transform_fn)(t)
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
-def reverse_tracks() -> Transform:
+def reverse_tracks(
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Reverse the order of tracks.
 
@@ -114,14 +124,14 @@ def reverse_tracks() -> Transform:
     def transform(t: TrackList) -> TrackList:
         return t.with_tracks(list(reversed(t.tracks)))
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
 def select_by_percentage(
     percentage: float,
     method: str = "first",
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Select a percentage of tracks.
 
@@ -137,4 +147,4 @@ def select_by_percentage(
         count = max(1, round(len(t.tracks) * percentage / 100))
         return cast(TrackList, select_by_method(count, method, tracklist=t))
 
-    return transform
+    return dual_mode(transform, tracklist)

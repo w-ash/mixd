@@ -6,16 +6,14 @@ This is application-layer knowledge — the domain provides pure sort functions,
 and this module makes the routing decisions.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from collections.abc import Callable
-from typing import Any
+from datetime import UTC, datetime
 
 from src.application.metadata_transforms import (
     sort_by_external_metrics,
     sort_by_play_history,
 )
+from src.domain.entities.shared import SortKey
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms import sort_by_key_function
 from src.domain.transforms.core import Transform
@@ -48,7 +46,7 @@ def classify_metric(metric_name: str) -> str:
     return "external_metric"
 
 
-def resolve_sort_key_function(value_name: str) -> Callable[[Track], Any] | None:
+def resolve_sort_key_function(value_name: str) -> Callable[[Track], SortKey] | None:
     """Resolve value name to appropriate key function for track attributes.
 
     Args:
@@ -57,10 +55,12 @@ def resolve_sort_key_function(value_name: str) -> Callable[[Track], Any] | None:
     Returns:
         Key function for extracting the attribute from Track entities
     """
-    track_attribute_extractors: dict[str, Callable[[Track], Any]] = {
+    track_attribute_extractors: dict[str, Callable[[Track], SortKey]] = {
         "title": lambda track: track.title,
         "album": lambda track: track.album or "",
-        "release_date": lambda track: track.release_date,
+        "release_date": lambda track: (
+            track.release_date or datetime.min.replace(tzinfo=UTC)
+        ),
         "duration_ms": lambda track: track.duration_ms or 0,
         "artist": lambda track: track.artists[0].name if track.artists else "",
     }
@@ -68,15 +68,15 @@ def resolve_sort_key_function(value_name: str) -> Callable[[Track], Any] | None:
     return track_attribute_extractors.get(value_name)
 
 
-def route_metric_sorting(cfg: dict[str, Any]) -> Transform | TrackList:
+def route_metric_sorting(cfg: dict[str, object]) -> Transform | TrackList:
     """Route metric sorting to appropriate domain function based on data source.
 
     Clean separation of concerns: application layer makes routing decisions,
     domain layer provides pure functions for each data source type.
     """
     metric_name = cfg.get("metric_name")
-    if not metric_name:
-        raise ValueError("metric_name is required for metric sorting")
+    if not isinstance(metric_name, str):
+        raise TypeError("metric_name must be a string for metric sorting")
 
     reverse: bool = bool(cfg.get("reverse", True))
     category = classify_metric(metric_name)

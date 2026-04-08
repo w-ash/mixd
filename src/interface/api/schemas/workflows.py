@@ -4,7 +4,7 @@ Domain-to-schema conversion functions translate attrs entities into
 Pydantic models for JSON serialization.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: node config values are heterogeneous, model_dump() returns dict[str, Any]
 
 from datetime import datetime

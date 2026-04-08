@@ -4,11 +4,7 @@ Supports lookup by internal database ID or external service ID (Spotify, etc).
 Includes execution timing and error handling for playlist not found scenarios.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: operation_summary return type (line 58)
-
 from datetime import datetime
-from typing import Any
 
 from attrs import define, field
 
@@ -56,7 +52,7 @@ class ReadCanonicalPlaylistResult:
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Returns operation metrics for logging and monitoring."""
         return {
             "playlist_id": self.playlist.id if self.playlist else None,

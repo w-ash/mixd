@@ -5,11 +5,8 @@ archiving and error aggregation. Follows hexagonal architecture by keeping file
 operations in the application layer and delegating actual import to use cases.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from attrs import define, field
 
@@ -31,7 +28,7 @@ class ImportExecutorProtocol(Protocol):
         self,
         service: Literal["lastfm", "spotify"],
         mode: Literal["recent", "incremental", "full", "file"],
-        **kwargs: Any,
+        **kwargs: object,
     ) -> OperationResult:
         """Execute a single file import.
 

@@ -6,7 +6,7 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 - User input prompts
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
 
 from datetime import UTC, datetime

@@ -3,11 +3,28 @@
 Pure utility functions with zero external dependencies.
 """
 
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 # Metric values stored per-track: play counts (int), averages (float),
 # timestamps (datetime), or absent (None)
 type MetricValue = int | float | datetime | None
+
+# Sort key extractors return one of these comparable types
+type SortKey = str | int | float | datetime
+
+# JSON-shaped data using covariant containers (Sequence/Mapping) so that
+# list[str] is assignable to Sequence[JsonValue] and dict[str, int] is
+# assignable to Mapping[str, JsonValue]. Invariant list/dict would break
+# at every construction site. See: pydantic#9701, pyright#2115.
+type JsonValue = (
+    str | int | float | bool | Sequence[JsonValue] | Mapping[str, JsonValue] | None
+)
+
+
+def empty_json_map() -> dict[str, JsonValue]:
+    """Typed factory for ``Mapping[str, JsonValue]`` attrs fields."""
+    return {}
 
 
 def ensure_utc(dt: datetime | None) -> datetime | None:

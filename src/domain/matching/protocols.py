@@ -4,10 +4,7 @@ These protocols define contracts for matching services without depending on
 external implementations, following the dependency inversion principle.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
-from typing import Any, Protocol
+from typing import Protocol
 
 from src.domain.entities import Track
 from src.domain.repositories import UnitOfWorkProtocol
@@ -29,7 +26,7 @@ class MatchProvider(Protocol):
         self,
         tracks: list[Track],
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,
+        **additional_options: object,
     ) -> ProviderMatchResult:
         """Fetch raw matches for tracks from external service.
 

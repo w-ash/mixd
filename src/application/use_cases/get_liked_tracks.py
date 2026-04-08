@@ -4,11 +4,7 @@ Fetches tracks that users have marked as liked on music services (Spotify, Last.
 Supports filtering by service, sorting options, and limiting results count.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import datetime
-from typing import Any
 
 from attrs import define, field
 
@@ -75,7 +71,7 @@ class GetLikedTracksResult:
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Summary stats for the retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),

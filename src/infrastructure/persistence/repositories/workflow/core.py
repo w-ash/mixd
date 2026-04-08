@@ -1,7 +1,5 @@
 """Workflow repository for CRUD operations on persisted workflows."""
 
-# pyright: reportExplicitAny=false
-
 from datetime import UTC, datetime
 from uuid import UUID
 

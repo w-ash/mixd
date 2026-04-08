@@ -1,6 +1,6 @@
 """CLI output formatting utilities using Rich tables and markup."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
 
 import json

@@ -11,7 +11,6 @@ All entities use hard deletes for simplicity and performance.
 Data recovery relies on external API re-import and database backups.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: SQLAlchemy JSON columns, __table_args__, DeclarativeBase types
 
 from datetime import UTC, datetime

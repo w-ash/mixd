@@ -13,7 +13,6 @@ Note: This module is private and should only be imported by other modules
 in the application/metadata_transforms package.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime, timedelta

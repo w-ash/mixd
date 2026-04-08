@@ -6,7 +6,7 @@ non-metric enrichment — boolean flags, status checks, etc. — that require di
 connector access and custom persistence logic.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Prefect context dicts
 
 from datetime import UTC, datetime

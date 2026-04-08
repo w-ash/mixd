@@ -16,7 +16,7 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Spotify API response data
 
 import asyncio
@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from typing import Any, Never
 from uuid import UUID
 
+import attrs
 from attrs import define, field
 
 from src.config import get_logger, settings
@@ -380,8 +381,14 @@ class SpotifyOperations:
             if added_at:
                 parsed_time = parse_spotify_timestamp(added_at)
                 if parsed_time:
-                    connector_track.raw_metadata["liked_at"] = parsed_time.isoformat()
-                    connector_track.raw_metadata["is_liked"] = True
+                    connector_track = attrs.evolve(
+                        connector_track,
+                        raw_metadata={
+                            **connector_track.raw_metadata,
+                            "liked_at": parsed_time.isoformat(),
+                            "is_liked": True,
+                        },
+                    )
 
             connector_tracks.append(connector_track)
 

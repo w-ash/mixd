@@ -5,11 +5,8 @@ music service (Spotify, Last.fm), and sorting preferences. Returns tracks with
 play count metadata for further analysis.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import cast
 
 from attrs import define, field
 
@@ -82,7 +79,7 @@ class GetPlayedTracksResult:
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Summary statistics from the track retrieval operation."""
         return {
             "track_count": len(self.tracklist.tracks),

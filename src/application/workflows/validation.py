@@ -8,7 +8,7 @@ Provides:
 - validate_workflow_def: Structural validation (required fields, upstream refs, node types, config)
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 
 from typing import Any
 
@@ -246,7 +246,7 @@ def _validate_enrichment_dependencies(
         upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
         available_metrics: set[str] = set()
         for enricher_type in upstream_enrichers:
-            available_metrics |= _ENRICHER_METRICS.get(enricher_type, set())
+            available_metrics |= _ENRICHER_METRICS.get(enricher_type, frozenset[str]())
 
         if metric_name not in available_metrics:
             warnings.append({

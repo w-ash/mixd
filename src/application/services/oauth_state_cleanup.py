@@ -1,5 +1,3 @@
-# pyright: reportAttributeAccessIssue=false
-# Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 """Prune expired OAuth CSRF state rows from the database.
 
 Called from FastAPI lifespan on startup. The oauth_states table uses a 5-minute
@@ -7,6 +5,9 @@ TTL, but rows are only pruned lazily during new state creation. This handles
 cleanup of states that expired while the server was down.
 """
 
+from typing import cast
+
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.logging import get_logger
@@ -25,7 +26,7 @@ async def prune_expired_oauth_states(session: AsyncSession) -> int:
     result = await session.execute(
         delete(DBOAuthState).where(DBOAuthState.expires_at < datetime.now(UTC))
     )
-    count = result.rowcount
+    count = cast(CursorResult[object], result).rowcount
     if count:
         logger.info("Pruned expired OAuth states", count=count)
     return count

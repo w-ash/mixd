@@ -5,11 +5,9 @@ creates playlist entity, extracts metrics from connector metadata, and commits
 the transaction. Returns operational metrics for monitoring.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
+from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field
 
@@ -24,6 +22,7 @@ from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -52,7 +51,7 @@ class CreateCanonicalPlaylistCommand:
     connector_name: str | None = None
     connector_id: str | None = None
     description: str | None = None
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -73,7 +72,7 @@ class CreateCanonicalPlaylistResult:
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Key metrics from the playlist creation operation."""
         return {
             "playlist_id": self.playlist.id,
@@ -185,7 +184,7 @@ class CreateCanonicalPlaylistUseCase:
                         entries=persisted_entries,
                         description=command.description,
                         connector_playlist_identifiers=connector_playlist_identifiers,
-                        metadata=command.metadata.copy() if command.metadata else {},
+                        metadata=dict(command.metadata) if command.metadata else {},
                     )
                 else:
                     # TrackList input - convert to Playlist with uniform added_at
@@ -204,7 +203,7 @@ class CreateCanonicalPlaylistUseCase:
                     playlist = evolve(playlist, user_id=command.user_id)
                     # Add metadata if provided
                     if command.metadata:
-                        playlist = evolve(playlist, metadata=command.metadata.copy())
+                        playlist = evolve(playlist, metadata=dict(command.metadata))
 
                 # Step 3: Persist playlist
                 playlist_repo = uow.get_playlist_repository()

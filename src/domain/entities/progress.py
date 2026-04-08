@@ -5,18 +5,16 @@ Enforces business rules like progress monotonicity and valid status transitions.
 Designed to be display-agnostic and usable across CLI, web, and future interfaces.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol, Self, override
+from typing import Protocol, Self, override
 from uuid import uuid4
 
 from attrs import define, evolve, field
 
-from .shared import utc_now_factory
+from .shared import JsonValue, empty_json_map, utc_now_factory
 
 
 class ProgressStatus(Enum):
@@ -62,7 +60,7 @@ class ProgressEvent:
     message: str
     timestamp: datetime = field(factory=utc_now_factory)
     status: ProgressStatus = ProgressStatus.IN_PROGRESS
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
     def __attrs_post_init__(self) -> None:
         """Validate business rules for progress events."""
@@ -135,7 +133,7 @@ class ProgressOperation:
     start_time: datetime = field(factory=utc_now_factory)
     end_time: datetime | None = None
     status: OperationStatus = OperationStatus.PENDING
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
     def __attrs_post_init__(self) -> None:
         """Validate business rules for operations."""
@@ -189,7 +187,7 @@ class ProgressOperation:
         """Create new operation instance with updated status and optional end time."""
         return evolve(self, status=new_status, end_time=end_time or self.end_time)
 
-    def with_metadata(self, **new_metadata: Any) -> Self:
+    def with_metadata(self, **new_metadata: JsonValue) -> Self:
         """Create new operation instance with additional metadata."""
         return evolve(self, metadata={**self.metadata, **new_metadata})
 
@@ -307,7 +305,7 @@ def create_progress_event(
     total: int | None = None,
     message: str = "Processing...",
     status: ProgressStatus = ProgressStatus.IN_PROGRESS,
-    **metadata: Any,
+    **metadata: JsonValue,
 ) -> ProgressEvent:
     """Factory function for creating valid progress events.
 
@@ -352,7 +350,7 @@ async def tracked_operation(emitter: ProgressEmitter, description: str):
 
 
 def create_progress_operation(
-    description: str, total_items: int | None = None, **metadata: Any
+    description: str, total_items: int | None = None, **metadata: JsonValue
 ) -> ProgressOperation:
     """Factory function for creating valid progress operations.
 

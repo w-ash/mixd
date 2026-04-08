@@ -11,7 +11,7 @@ Flow:
 4. Callback exchanges code/token, stores credentials, redirects to /settings/integrations
 """
 
-# pyright: reportAny=false, reportExplicitAny=false
+# pyright: reportAny=false
 
 import base64
 from datetime import UTC, datetime, timedelta

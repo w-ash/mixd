@@ -5,7 +5,7 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 
 from typing import Any, cast
 

@@ -14,7 +14,7 @@ Thread safety: asyncio.Lock prevents concurrent token refresh storms when
 multiple tasks call get_valid_token() simultaneously.
 """
 
-# pyright: reportAny=false, reportExplicitAny=false
+# pyright: reportAny=false
 
 import asyncio
 import base64

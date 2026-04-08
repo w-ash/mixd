@@ -5,11 +5,8 @@ validation of playlist existence, optional warnings for external connections,
 and atomic transaction management to ensure data consistency.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: operation_summary return type (line 64)
-
 from datetime import datetime
-from typing import Any, Never
+from typing import Never
 from uuid import UUID
 
 from attrs import define, field
@@ -63,7 +60,7 @@ class DeleteCanonicalPlaylistResult:
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Returns a structured summary of the deletion operation for logging or APIs."""
         return {
             "deleted_playlist_id": self.deleted_playlist_id,

@@ -10,7 +10,6 @@ Separated from ``workflows.protocols`` to break a circular import chain:
 -> node factories -> use cases -> ``_shared``.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Awaitable, Callable

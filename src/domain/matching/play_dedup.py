@@ -12,17 +12,16 @@ Before comparing, Spotify plays are normalized to start time via
 (default 30s) identifies cross-source duplicates.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: context dicts contain heterogeneous service metadata
-
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any, Final
+from typing import Final
 from uuid import UUID
 
 from attrs import define, field
 
 from src.domain.entities import TrackPlay
+from src.domain.entities.shared import JsonValue
 
 # Cross-service deduplication parameters (domain business rules).
 # Timestamp semantics differ by service:
@@ -50,7 +49,7 @@ class PlayDeduplicationResult:
     """
 
     plays_to_insert: list[TrackPlay]
-    plays_to_update: list[tuple[UUID, dict[str, Any]]]
+    plays_to_update: list[tuple[UUID, Mapping[str, JsonValue]]]
     suppressed_plays: list[TrackPlay]
     stats: dict[str, int] = field(factory=dict)
 
@@ -99,7 +98,7 @@ def _source_priority(service: str) -> int:
         return len(order)  # unknown services sort last
 
 
-def _merge_context(winner: TrackPlay, loser: TrackPlay) -> dict[str, Any] | None:
+def _merge_context(winner: TrackPlay, loser: TrackPlay) -> dict[str, JsonValue] | None:
     """Merge the loser's context into the winner's, namespaced by service."""
     merged = dict(winner.context) if winner.context else {}
 
@@ -144,7 +143,7 @@ def deduplicate_cross_source_plays(
         PlayDeduplicationResult with insert/update/suppress lists and stats.
     """
     plays_to_insert: list[TrackPlay] = []
-    plays_to_update: list[tuple[UUID, dict[str, Any]]] = []
+    plays_to_update: list[tuple[UUID, Mapping[str, JsonValue]]] = []
     suppressed_plays: list[TrackPlay] = []
     stats: dict[str, int] = defaultdict(int)
 
@@ -209,21 +208,17 @@ def deduplicate_cross_source_plays(
                     plays_to_insert.append(enriched)
                     suppressed_plays.append(new_play)
                     # Mark existing for update to add source_services
-                    plays_to_update.append((
-                        existing.id,
-                        {
-                            "source_services": _build_source_services(
-                                new_play, existing
-                            ),
-                        },
-                    ))
+                    update: dict[str, JsonValue] = {
+                        "source_services": _build_source_services(new_play, existing),
+                    }
+                    plays_to_update.append((existing.id, update))
                     stats["new_wins"] += 1
                 else:
                     # Existing play is higher priority — enrich it, suppress new
                     merged_context = _merge_context(existing, new_play)
                     source_services = _build_source_services(existing, new_play)
 
-                    update_fields: dict[str, Any] = {
+                    update_fields: dict[str, JsonValue] = {
                         "source_services": source_services,
                     }
                     if merged_context != existing.context:

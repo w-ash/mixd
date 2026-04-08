@@ -15,7 +15,7 @@ NullNodeObserver is the null-object default — eliminates None checks in the
 orchestration loop when no observer is provided.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SSE queue carries heterogeneous event dicts
 
 import asyncio

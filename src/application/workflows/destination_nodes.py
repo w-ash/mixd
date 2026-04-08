@@ -5,7 +5,7 @@ use cases. Supports both local canonical playlists and external platform playlis
 (Spotify, Apple Music, etc.) with automatic ID resolution and metadata templating.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 
 from typing import Any
 from uuid import UUID

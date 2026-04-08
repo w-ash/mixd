@@ -12,7 +12,6 @@ Key design decisions:
 - is_now_playing: dual check — @attr.nowplaying flag OR absent date field
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: API response data, framework types
 
 from typing import Any, ClassVar

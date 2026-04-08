@@ -17,7 +17,7 @@ The configuration is organized into logical groups:
 - SecurityConfig: Token encryption key
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Pydantic settings validators, loguru config
 
 import contextlib

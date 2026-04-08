@@ -6,7 +6,7 @@ single public interface while the internal implementation is split across
 SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response dicts, connector facade delegation
 
 from collections.abc import Awaitable, Callable

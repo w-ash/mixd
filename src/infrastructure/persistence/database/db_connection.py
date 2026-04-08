@@ -7,13 +7,14 @@ This module is responsible for:
 - Transaction handling
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SQLAlchemy engine/session factory types
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import event
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -28,7 +29,7 @@ logger = get_logger(__name__)
 
 
 def _set_connection_timeouts(
-    dbapi_connection: object,
+    dbapi_connection: DBAPIConnection,
     _connection_record: ConnectionPoolEntry,
 ) -> None:
     """Set statement and lock timeouts on each new connection.
@@ -37,7 +38,7 @@ def _set_connection_timeouts(
     because Neon's connection pooler (PgBouncer) rejects startup parameters.
     SET works with both direct and pooled connections.
     """
-    cursor = dbapi_connection.cursor()  # type: ignore[union-attr]
+    cursor = dbapi_connection.cursor()
     cursor.execute("SET statement_timeout = '30s'")
     cursor.execute("SET lock_timeout = '10s'")
     cursor.close()

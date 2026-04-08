@@ -7,9 +7,6 @@ business logic to the domain layer and all infrastructure concerns to the infras
 This replaces MatchTracksUseCase and will become the single way to resolve track identities.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -49,9 +46,9 @@ class MatchAndIdentifyTracksCommand:
     user_id: str
     tracklist: TrackList
     connector: str
-    connector_instance: Any  # ServiceConnectorProvider.get_connector() returns Any
+    connector_instance: Any  # Dynamic connector — type varies by service
     max_age_hours: float | None = None
-    additional_options: dict[str, Any] = field(factory=dict)
+    additional_options: dict[str, object] = field(factory=dict)
     progress_manager: AsyncProgressManager | None = None
     parent_operation_id: str | None = None
 

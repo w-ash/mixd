@@ -8,7 +8,7 @@ Functions for retrieving playlists and tracks from multiple sources:
 All functions return standardized track data for playlist creation and analysis.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Prefect context dicts
 
 from typing import Any, cast

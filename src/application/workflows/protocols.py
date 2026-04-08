@@ -11,7 +11,7 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: RunStatusUpdater **kwargs pass-through
 
 from collections.abc import Awaitable, Callable

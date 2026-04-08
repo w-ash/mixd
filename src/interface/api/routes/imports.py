@@ -5,7 +5,6 @@ launches the import as a background task, and immediately returns the
 operation_id so the client can subscribe to progress via SSE.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: Coroutine type params in background task helper
 
 from collections.abc import Coroutine

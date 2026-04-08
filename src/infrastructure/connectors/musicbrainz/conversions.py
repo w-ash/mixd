@@ -10,13 +10,13 @@ Key components:
 - ConnectorTrack construction from MusicBrainz recording data
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: API response data, framework types
 
 from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import Artist, ConnectorTrack
+from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.musicbrainz.models import MusicBrainzRecording
 
@@ -35,7 +35,7 @@ def _ensure_recording(
 
 def extract_recording_metadata(
     recording_data: dict[str, Any] | MusicBrainzRecording,
-) -> dict[str, str | int]:
+) -> dict[str, JsonValue]:
     """Extract comprehensive metadata from MusicBrainz recording data."""
     if not recording_data:
         return {}
@@ -45,7 +45,7 @@ def extract_recording_metadata(
     except Exception:
         return {}
 
-    metadata: dict[str, str | int] = {}
+    metadata: dict[str, JsonValue] = {}
 
     # Basic recording information
     metadata["musicbrainz_mbid"] = recording.id

@@ -4,7 +4,7 @@ Provides real-time progress streaming via Server-Sent Events and
 snapshot endpoints for querying operation state.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SSE event data dicts from queue
 
 from collections.abc import AsyncGenerator

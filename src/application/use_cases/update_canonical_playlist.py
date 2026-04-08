@@ -5,7 +5,6 @@ music services. Supports both append mode (add tracks to end) and differential
 mode (calculate minimal changes to transform current playlist into target state).
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime

@@ -8,7 +8,6 @@ The sync direction is determined by the link's configured direction, with an
 optional one-time override.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case result union types
 
 from typing import Never

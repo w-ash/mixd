@@ -14,7 +14,7 @@ through the registration functions. This eliminates static dependencies between
 shared utilities and specific service implementations.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Awaitable, Callable

@@ -1,6 +1,6 @@
 """Base class for importing music listening data from external sources."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: **kwargs variadic dispatch, import params
 
 from abc import ABC, abstractmethod

@@ -1,6 +1,6 @@
 """Track metrics repository for tracking play counts and other metrics."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: metric value types from aggregation queries
 
 from datetime import UTC, datetime, timedelta

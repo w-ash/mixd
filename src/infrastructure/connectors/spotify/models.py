@@ -20,7 +20,6 @@ Endpoint coverage:
 - POST /me/playlists  → SpotifyPlaylist
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: API response data, framework types
 
 from typing import Any, ClassVar

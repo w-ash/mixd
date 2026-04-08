@@ -9,13 +9,9 @@ in the application layer, keeping infrastructure concerns out of the route handl
 GetWorkflowRunsUseCase / GetWorkflowRunUseCase serve the run history UI.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: SSE queue carries heterogeneous event dicts, Coroutine params
-
 import asyncio
 from asyncio import CancelledError
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from attrs import define
@@ -32,6 +28,7 @@ from src.config.constants import (
     truncate_error_message,
 )
 from src.config.logging import get_logger, logging_context
+from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
     RunStatus,
@@ -49,7 +46,7 @@ logger = get_logger(__name__).bind(service="workflow_runs")
 def serialize_output_tracks(
     tracks: list[Track],
     limit: int | None = None,
-    metrics: dict[str, dict[UUID, Any]] | None = None,
+    metrics: dict[str, dict[UUID, MetricValue]] | None = None,
 ) -> tuple[list[dict[str, object]], list[str]]:
     """Serialize result tracks into lightweight dicts for the run record.
 
@@ -292,7 +289,7 @@ class ExecuteWorkflowRunUseCase:
         self,
         workflow_def: WorkflowDef,
         run_id: UUID,
-        sse_queue: asyncio.Queue[Any] | None = None,
+        sse_queue: asyncio.Queue[object] | None = None,
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> ExecuteWorkflowRunResult:
         from src.application.services.progress_manager import get_progress_manager

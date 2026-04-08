@@ -13,7 +13,6 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: Spotify API response data
 
 from collections.abc import Sequence

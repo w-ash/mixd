@@ -10,6 +10,7 @@ Each operation wraps its session in ``user_context(user_id)`` so the RLS
 """
 
 from datetime import UTC, datetime
+from typing import cast
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -39,11 +40,11 @@ def _row_to_stored_token(row: DBOAuthToken) -> StoredToken:
     """Convert a database row to a StoredToken dict, decrypting sensitive fields."""
     token: StoredToken = {}
     for field_name in SENSITIVE_FIELDS:
-        raw = getattr(row, field_name)
+        raw = cast(str | None, getattr(row, field_name))
         if raw:
             decrypted = decrypt_field(raw)
             if decrypted:
-                token[field_name] = decrypted  # type: ignore[literal-required]
+                token[field_name] = decrypted
     if row.token_type:
         token["token_type"] = row.token_type
     if row.expires_at:

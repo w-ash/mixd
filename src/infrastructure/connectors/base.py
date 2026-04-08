@@ -19,7 +19,7 @@ Example:
     ```
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: _api_call variadic dispatch, generic API responses
 
 from abc import ABC, abstractmethod

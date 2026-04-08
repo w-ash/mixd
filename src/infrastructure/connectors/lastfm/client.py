@@ -10,7 +10,7 @@ Key components:
 - Centralized retry policy using tenacity
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import hashlib
-from typing import Any, ClassVar, override
+from typing import Any, ClassVar, cast, override
 from urllib.parse import quote as _percent_encode
 
 from attrs import define, field
@@ -358,8 +358,9 @@ class LastFMAPIClient(BaseAPIClient):
         if not isinstance(raw_session, dict):
             raise TypeError("Last.fm auth.getSession returned no session object")
 
-        session_key = str(raw_session.get("key", ""))
-        username = str(raw_session.get("name", ""))
+        session_info = cast(dict[str, str], raw_session)
+        session_key = str(session_info.get("key", ""))
+        username = str(session_info.get("name", ""))
 
         if not session_key:
             raise RuntimeError("Last.fm auth.getSession returned no session key")

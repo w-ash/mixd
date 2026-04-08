@@ -4,6 +4,8 @@ Provides dependency functions for extracting user identity and other
 request-scoped context from the ASGI scope.
 """
 
+from typing import cast
+
 from starlette.requests import Request
 
 from src.config.constants import BusinessLimits
@@ -21,7 +23,9 @@ def get_current_user_id(request: Request) -> str:
         @router.get("/tracks")
         async def list_tracks(user_id: str = Depends(get_current_user_id)): ...
     """
-    claims = request.scope.get("auth_user")
-    if claims and (sub := claims.get("sub")):
-        return sub
+    raw_claims = request.scope.get("auth_user")
+    if isinstance(raw_claims, dict):
+        claims = cast(dict[str, str], raw_claims)
+        if sub := claims.get("sub"):
+            return sub
     return BusinessLimits.DEFAULT_USER_ID

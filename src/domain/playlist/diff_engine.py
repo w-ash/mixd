@@ -11,12 +11,12 @@ from typing import Final
 from uuid import UUID
 
 from attrs import define, field
-import structlog
+from structlog.stdlib import get_logger
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Track, TrackList
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 _DEBUG_TRUNCATION: Final = 10
 

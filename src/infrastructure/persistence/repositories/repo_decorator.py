@@ -10,7 +10,7 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: decorator signatures wrapping heterogeneous repository methods
 
 from collections.abc import Callable, Coroutine

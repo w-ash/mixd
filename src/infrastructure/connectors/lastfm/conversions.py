@@ -10,7 +10,7 @@ Key components:
 - Helper utilities: metadata extraction, field processing
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Last.fm API response dicts
 
 from typing import Any, Self, cast

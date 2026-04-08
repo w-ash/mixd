@@ -3,16 +3,14 @@
 Pure playlist representations and related value objects with zero external dependencies.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Final, Self
+from typing import Final, Self
 from uuid import UUID, uuid7
 
 from attrs import define, evolve, field, validators
 
-from .shared import utc_now_factory
+from .shared import JsonValue, empty_json_map, utc_now_factory
 from .track import Track, TrackList
 
 # Pseudo-connector name for internal DB track IDs (filtered from API responses)
@@ -53,7 +51,7 @@ class ConnectorPlaylistItem:
     added_by_id: str | None = None
 
     # Any service-specific data
-    extras: dict[str, Any] = field(factory=dict)
+    extras: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
 @define(frozen=True, slots=True)
@@ -79,7 +77,7 @@ class Playlist:
     # External service IDs (spotify, apple_music, etc) - NOT for internal DB ID
     connector_playlist_identifiers: dict[str, str] = field(factory=dict)
     # Additional metadata for playlist management (snapshot IDs, sync state, etc.)
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
     # DB timestamp for when playlist was last modified
     updated_at: datetime | None = field(default=None)
     # Denormalized count for list views (avoids loading all entries just to count)
@@ -171,7 +169,7 @@ class Playlist:
         new_ids = self.connector_playlist_identifiers | {connector: external_id}
         return evolve(self, connector_playlist_identifiers=new_ids)
 
-    def with_metadata(self, metadata: dict[str, Any]) -> Self:
+    def with_metadata(self, metadata: Mapping[str, JsonValue]) -> Self:
         """Create new playlist with updated metadata.
 
         Args:
@@ -199,7 +197,7 @@ class ConnectorPlaylist:
     is_public: bool = False
     collaborative: bool = False
     follower_count: int | None = None
-    raw_metadata: dict[str, Any] = field(factory=dict)
+    raw_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
     last_updated: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
 

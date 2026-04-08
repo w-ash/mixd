@@ -11,6 +11,7 @@ from datetime import datetime
 
 from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -106,17 +107,21 @@ class ConnectorPlaylistProcessingService:
                 seen_track_ids.add(item.connector_track_identifier)
 
                 # Use track data from extras which contains the full Spotify track data
-                if "full_track_data" in item.extras:
+                full_data = item.extras.get("full_track_data")
+                if isinstance(full_data, dict):
                     # Use the complete track data that we stored during playlist fetch
-                    track_data = item.extras["full_track_data"]
+                    track_data = full_data
                 else:
                     # Fallback: reconstruct from minimal metadata in extras
-                    track_data = {
+                    artist_names = item.extras.get("artist_names", [])
+                    track_data: dict[str, JsonValue] = {
                         "id": item.connector_track_identifier,
                         "name": item.extras.get("track_name"),
                         "artists": [
                             {"name": name}
-                            for name in item.extras.get("artist_names", [])
+                            for name in (
+                                artist_names if isinstance(artist_names, list) else []
+                            )
                         ],
                     }
 

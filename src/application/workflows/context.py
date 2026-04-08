@@ -4,9 +4,6 @@ Manages configuration, logging, music service connectors, database sessions,
 and business logic use cases needed for playlist synchronization workflows.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: connector config dicts, connector instance cache
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -38,8 +35,10 @@ class ConnectorRegistryImpl:
     instances so repeated calls return the same connector (same httpx pool).
     """
 
-    _connectors: dict[str, Any]  # heterogeneous connector config dicts
-    _cache: dict[str, Any]  # heterogeneous connector instances
+    _connectors: dict[
+        str, Any
+    ]  # DI container — connector configs with factory callables
+    _cache: dict[str, Any]  # DI container — cached connector instances of varying types
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""

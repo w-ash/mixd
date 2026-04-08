@@ -8,12 +8,8 @@ This service contains generic business logic for the two-phase workflow while ac
 pluggable importer instances from the infrastructure layer.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
 
 from attrs import define
 
@@ -56,7 +52,7 @@ class PlayImportOrchestrator:
         *,
         user_id: str,
         progress_emitter: ProgressEmitter | None = None,
-        **import_params: Any,
+        **import_params: object,
     ) -> OperationResult:
         """Execute two-phase play import: ingestion then resolution.
 

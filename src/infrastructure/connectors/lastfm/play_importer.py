@@ -5,7 +5,7 @@ logic contained within the lastfm connector directory. Contains sophisticated da
 chunking, checkpoint management, and boundary-respecting import logic.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: **kwargs variadic dispatch, PlayRecord raw data
 
 from datetime import UTC, date, datetime, time, timedelta

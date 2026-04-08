@@ -1,6 +1,5 @@
 """Repository for connector play operations."""
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
 from typing import Any

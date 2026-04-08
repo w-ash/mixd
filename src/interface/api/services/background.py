@@ -6,7 +6,6 @@ Shared by import and workflow endpoints:
   pattern that both import and workflow background tasks share.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: Coroutine type params are inherently Any
 
 import asyncio

@@ -4,7 +4,7 @@ Calculates minimal track changes (add/remove/move) to update external service
 playlists while preserving track timestamps and minimizing API calls.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime

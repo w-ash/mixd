@@ -5,7 +5,7 @@ logic contained within the spotify connector directory. Contains sophisticated f
 parsing, batch processing, and memory optimization logic.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: **kwargs variadic dispatch, SpotifyPlayRecord raw data
 
 from datetime import datetime

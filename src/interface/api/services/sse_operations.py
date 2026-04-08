@@ -5,7 +5,7 @@ Each route file still owns its background lifecycle logic — this module only
 provides the common setup (uuid + queue registration) and terminal event format.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SSE event data values are heterogeneous
 
 import asyncio

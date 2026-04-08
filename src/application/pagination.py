@@ -9,7 +9,7 @@ of OFFSET — O(1) seeks regardless of page depth.
 import base64
 from datetime import datetime
 import json
-from typing import Final, Literal
+from typing import Final, Literal, cast
 from uuid import UUID
 
 from attrs import define
@@ -83,13 +83,14 @@ def decode_cursor(encoded: str) -> PageCursor:
     """
     try:
         json_bytes = base64.urlsafe_b64decode(encoded)
-        payload = json.loads(json_bytes)
+        raw = cast(object, json.loads(json_bytes))
     except Exception as exc:
         raise ValueError(f"Invalid cursor encoding: {exc}") from exc
 
-    if not isinstance(payload, dict):
+    if not isinstance(raw, dict):
         raise TypeError("Cursor payload must be a JSON object")
 
+    payload = cast(dict[str, object], raw)
     try:
         sort_column = payload["c"]
         sort_value = payload["v"]

@@ -5,11 +5,9 @@ event-driven system. Provides the same functionality as DatabaseBatchProcessor
 but with better progress tracking and user feedback.
 """
 
-# pyright: reportAny=false, reportExplicitAny=false
-
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from attrs import define, field
 
@@ -26,6 +24,7 @@ from src.domain.entities.progress import (
     create_progress_event,
     create_progress_operation,
 )
+from src.domain.entities.shared import JsonValue
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="enhanced_database_batch_processor")
@@ -71,7 +70,7 @@ class EnhancedDatabaseBatchProcessor[T, R]:
         items: list[T],
         process_func: Callable[[list[T]], Awaitable[R]],
         operation_description: str = "Processing database operations",
-        **operation_metadata: Any,
+        **operation_metadata: JsonValue,
     ) -> list[R]:
         """Process items in batches with enhanced progress tracking.
 

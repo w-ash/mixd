@@ -5,9 +5,6 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self, TypedDict
@@ -48,7 +45,7 @@ class TrackListingPage(TypedDict):
     tracks: list[Track]
     total: int | None  # None when count was skipped (cursor-paginated pages)
     liked_track_ids: set[UUID]
-    next_page_key: tuple[Any, UUID] | None
+    next_page_key: tuple[str | int | float | None, UUID] | None
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -143,7 +140,7 @@ class TrackRepositoryProtocol(Protocol):
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
-        after_value: Any = None,
+        after_value: Any = None,  # Keyset pagination — type depends on sort column
         after_id: UUID | None = None,
         include_total: bool = True,
     ) -> Awaitable[TrackListingPage]:
@@ -532,7 +529,7 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def get_connector_metadata(
         self, track_ids: list[UUID], connector: str, metadata_field: str | None = None
-    ) -> Awaitable[dict[UUID, Any]]:
+    ) -> Awaitable[dict[UUID, Any]]:  # Value type varies by metadata_field
         """Get connector metadata for tracks from primary mappings only.
 
         Returns metadata from the primary mapping for each track-connector pair.
@@ -587,7 +584,7 @@ class ConnectorRepositoryProtocol(Protocol):
     def ensure_connector_tracks(
         self,
         connector_name: str,
-        tracks_data: list[dict[str, Any]],
+        tracks_data: list[dict[str, object]],
     ) -> Awaitable[dict[tuple[str, str], UUID]]:
         """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
 
@@ -998,7 +995,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def bulk_update_play_source_services(
         self,
-        updates: list[tuple[UUID, dict[str, Any]]],
+        updates: list[tuple[UUID, dict[str, object]]],
     ) -> Awaitable[None]:
         """Batch-update cross-source dedup metadata for multiple plays."""
         ...
@@ -1039,7 +1036,7 @@ class TrackIdentityServiceProtocol(Protocol):
         connector: str,
         connector_instance: object,
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,
+        **additional_options: Any,  # Pass-through to external provider
     ) -> Awaitable[dict[UUID, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
 
@@ -1425,7 +1422,9 @@ class PlayImporterProtocol(Protocol):
     """
 
     async def import_plays(
-        self, uow: UnitOfWorkProtocol, **params: Any
+        self,
+        uow: UnitOfWorkProtocol,
+        **params: Any,  # Importer-specific params
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import plays and return result with connector plays for resolution."""
         ...

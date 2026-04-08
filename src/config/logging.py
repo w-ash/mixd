@@ -25,6 +25,7 @@ import logging
 import logging.handlers
 from pathlib import Path
 import sys
+from typing import cast, override
 
 from rich.console import Console
 import structlog
@@ -99,7 +100,7 @@ def setup_logging(verbose: bool = False) -> None:
     }
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, console_level))
+    console_handler.setLevel(logging.getLevelNamesMapping()[console_level])
     console_handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=shared,
@@ -119,7 +120,7 @@ def setup_logging(verbose: bool = False) -> None:
         maxBytes=_parse_rotation(settings.logging.rotation),
         backupCount=_parse_retention(settings.logging.retention),
     )
-    file_handler.setLevel(getattr(logging, settings.logging.file_level))
+    file_handler.setLevel(logging.getLevelNamesMapping()[settings.logging.file_level])
     file_handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=shared,
@@ -140,7 +141,7 @@ def setup_logging(verbose: bool = False) -> None:
 
     # --- Prefect log levels (stdlib integration — no bridge needed) ---
     logging.getLogger("prefect").setLevel(
-        getattr(logging, settings.logging.prefect_log_level)
+        logging.getLevelNamesMapping()[settings.logging.prefect_log_level]
     )
 
     # Suppress noisy third-party loggers
@@ -197,7 +198,7 @@ def get_logger(name: str) -> BoundLogger:
         logger.info("Operation complete", operation="sync")
         ```
     """
-    return structlog.get_logger(name, service="mixd", module=name)
+    return structlog.stdlib.get_logger(name, service="mixd", module=name)
 
 
 # =============================================================================
@@ -259,6 +260,7 @@ def add_workflow_run_logger(workflow_id: str, run_id: str) -> str:
         a full context copy on every log record.
         """
 
+        @override
         def emit(self, record: logging.LogRecord) -> None:
             from structlog.contextvars import get_contextvars
 
@@ -296,6 +298,7 @@ class _RichProgressHandler(logging.Handler):
         super().__init__()
         self._console = console
 
+    @override
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
@@ -321,13 +324,16 @@ def enable_unified_console_output(progress_console: Console) -> None:
         if isinstance(h, logging.StreamHandler) and not isinstance(
             h, (logging.FileHandler, logging.handlers.RotatingFileHandler)
         ):
-            _saved_console_handler = h
-            root.removeHandler(h)
+            handler = cast(logging.Handler, h)
+            _saved_console_handler = handler
+            root.removeHandler(handler)
             break
 
     # Add handler that writes through Progress.console
     rich_handler = _RichProgressHandler(progress_console)
-    rich_handler.setLevel(getattr(logging, settings.logging.console_level))
+    rich_handler.setLevel(
+        logging.getLevelNamesMapping()[settings.logging.console_level]
+    )
     rich_handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=_shared_processors(),

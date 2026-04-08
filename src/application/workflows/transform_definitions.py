@@ -10,7 +10,7 @@ To add a new transform:
 3. It auto-registers as a workflow node via node_catalog.py
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Callable

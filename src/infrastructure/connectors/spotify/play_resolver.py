@@ -4,7 +4,7 @@ Handles Spotify's comprehensive metadata including behavioral data, technical me
 and sophisticated duration-based filtering.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Callable
@@ -271,7 +271,7 @@ class SpotifyConnectorPlayResolver:
         """Extract Spotify track ID from ConnectorTrackPlay metadata."""
         # Try service metadata first
         track_uri = connector_play.service_metadata.get("track_uri")
-        if track_uri:
+        if isinstance(track_uri, str):
             return self._extract_spotify_id_from_uri(track_uri)
 
         # Fallback to connector_track_identifier

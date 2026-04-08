@@ -4,7 +4,6 @@ This module defines standardized configuration for music service connectors,
 ensuring consistent behavior across different implementations.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Callable

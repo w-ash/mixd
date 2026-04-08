@@ -1,6 +1,6 @@
 """Track repository for play operations."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
 from collections.abc import Sequence

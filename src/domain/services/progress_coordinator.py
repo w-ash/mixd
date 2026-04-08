@@ -5,12 +5,8 @@ and derived metric calculations. Ensures progress monotonicity, prevents event
 flooding, and maintains operation state consistency.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from attrs import define, field
 
@@ -256,7 +252,7 @@ class ProgressCoordinator:
 
     async def _calculate_derived_metrics(
         self, event: ProgressEvent, operation_state: OperationState
-    ) -> dict[str, Any]:
+    ) -> dict[str, float | int | None]:
         """Calculate derived metrics for a progress event.
 
         Args:
@@ -266,7 +262,7 @@ class ProgressCoordinator:
         Returns:
             Dictionary of derived metrics to add to event metadata
         """
-        metrics: dict[str, Any] = {}
+        metrics: dict[str, float | int | None] = {}
 
         # Calculate rate (items per second) if we have enough data
         if operation_state.event_count > 0:

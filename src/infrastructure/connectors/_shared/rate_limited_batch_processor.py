@@ -53,7 +53,7 @@ class WorkItem:
     """Individual work item with tracking metadata."""
 
     item_id: str
-    item: Any  # pyright: ignore[reportExplicitAny]
+    item: Any
     queued_at: float = field(factory=time.time)
 
 
@@ -80,8 +80,8 @@ class RateLimitedBatchProcessor:
 
     rate_delay: float = field(init=False)
     work_queue: asyncio.Queue[WorkItem] = field(init=False)
-    running_tasks: set[asyncio.Task[Any]] = field(init=False)  # pyright: ignore[reportExplicitAny]
-    completed_results: dict[str, Any] = field(init=False)  # pyright: ignore[reportExplicitAny]
+    running_tasks: set[asyncio.Task[Any]] = field(init=False)
+    completed_results: dict[str, Any] = field(init=False)
     batch_start_time: float = field(init=False)
     total_expected_items: int = field(init=False)
     shutdown_event: asyncio.Event = field(init=False)
@@ -223,7 +223,7 @@ class RateLimitedBatchProcessor:
                 with contextlib.suppress(asyncio.CancelledError):
                     _ = await rate_limiter_task
 
-    async def _rate_limiter_loop(self, process_func: Callable[[Any], Any]) -> None:  # pyright: ignore[reportExplicitAny]
+    async def _rate_limiter_loop(self, process_func: Callable[[Any], Any]) -> None:
         """Background loop that launches requests at controlled intervals.
 
         This loop maintains a steady launch rate (e.g. every 200ms for 5/sec) regardless
@@ -276,7 +276,7 @@ class RateLimitedBatchProcessor:
                 self.running_tasks.add(task)
 
                 # Clean up completed tasks
-                def remove_completed_task(completed_task: asyncio.Task[Any]) -> None:  # pyright: ignore[reportExplicitAny]
+                def remove_completed_task(completed_task: asyncio.Task[Any]) -> None:
                     """Remove task from running_tasks set when completed."""
                     self.running_tasks.discard(completed_task)
 
@@ -321,7 +321,7 @@ class RateLimitedBatchProcessor:
     async def _execute_work_item(
         self,
         work_item: WorkItem,
-        process_func: Callable[[Any], Any],  # pyright: ignore[reportExplicitAny]
+        process_func: Callable[[Any], Any],
     ) -> None:
         """Execute individual work item and handle result/retry logic."""
         execution_start = time.time()
@@ -376,7 +376,7 @@ class RateLimitedBatchProcessor:
                 item_id=work_item.item_id,
             )
 
-    async def _collect_results(self) -> AsyncIterator[tuple[str, Any]]:  # pyright: ignore[reportExplicitAny]
+    async def _collect_results(self) -> AsyncIterator[tuple[str, Any]]:
         """Collect and yield results as they become available."""
         yielded_items: set[str] = set()
 

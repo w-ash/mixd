@@ -1,6 +1,6 @@
 """Spotify personal data parser for streaming history import."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from datetime import datetime

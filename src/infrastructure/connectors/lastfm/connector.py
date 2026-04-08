@@ -6,7 +6,7 @@ single public interface while the internal implementation is split across
 LastFMAPIClient, LastFMOperations, and conversion utilities.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Awaitable, Callable

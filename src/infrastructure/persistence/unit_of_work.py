@@ -4,7 +4,6 @@ This module provides the concrete implementation of the UnitOfWork pattern,
 handling transaction management and repository creation using a shared database session.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
 from typing import Self

@@ -1,6 +1,6 @@
 """Repository for workflow version history persistence."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: JSON column produces heterogeneous dicts
 
 from uuid import UUID

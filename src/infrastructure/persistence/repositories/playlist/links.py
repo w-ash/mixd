@@ -4,7 +4,7 @@ Maps DBPlaylistMapping to PlaylistLink domain entities with sync management.
 Joins through DBConnectorPlaylist to denormalize the external playlist identifier and name.
 """
 
-# pyright: reportExplicitAny=false, reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportAny=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportAny=false
 # Legitimate Any: SQLAlchemy column expressions
 
 from datetime import UTC, datetime

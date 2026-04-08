@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // empty' | xargs -I{} uv run ruff check {} --fix --quiet 2>/dev/null; exit 0"
+            "command": "jq -r '.tool_input.file_path // empty' | xargs -I{} uv run ruff check {} --fix --quiet --ignore F401 2>/dev/null; exit 0"
           },
           {
             "type": "command",

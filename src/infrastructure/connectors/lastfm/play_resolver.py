@@ -4,7 +4,7 @@ Handles Last.fm's available metadata including MusicBrainz IDs, track URLs,
 and Last.fm ecosystem integration data.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Callable

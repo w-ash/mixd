@@ -11,22 +11,19 @@ All sorting functions follow functional programming principles:
 - Purity: No side effects, logging, or external dependencies
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
 from collections.abc import Callable
-from typing import Any
 
+from src.domain.entities.shared import SortKey
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform, optional_tracklist_transform
+from src.domain.transforms.core import Transform, dual_mode
 
 
-@optional_tracklist_transform
 def sort_by_key_function(
-    key_fn: Callable[[Track], Any],
+    key_fn: Callable[[Track], SortKey],
     reverse: bool = False,
     metric_name: str | None = None,
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """Pure sorting function - sorts tracks by the provided key function.
 
     Simple domain function that does one thing: sort tracks using the key function.
@@ -59,4 +56,4 @@ def sort_by_key_function(
 
         return result
 
-    return transform
+    return dual_mode(transform, tracklist)

@@ -4,7 +4,6 @@ Provides simple template string processing for playlist names and descriptions
 with minimal overhead and clean separation of concerns.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime

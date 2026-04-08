@@ -19,13 +19,15 @@ from uuid import UUID
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import (
     Transform,
-    optional_tracklist_transform,
+    dual_mode,
     require_database_tracks,
 )
 
 
-@optional_tracklist_transform
-def filter_by_predicate(predicate: Callable[[Track], bool]) -> Transform:
+def filter_by_predicate(
+    predicate: Callable[[Track], bool],
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter tracks based on a predicate function.
 
@@ -40,11 +42,12 @@ def filter_by_predicate(predicate: Callable[[Track], bool]) -> Transform:
         filtered = [track for track in t.tracks if predicate(track)]
         return t.with_tracks(filtered)
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
-def filter_duplicates() -> Transform:
+def filter_duplicates(
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Remove duplicate tracks from a tracklist.
 
@@ -64,14 +67,14 @@ def filter_duplicates() -> Transform:
 
         return t.with_tracks(unique_tracks)
 
-    return transform
+    return dual_mode(transform, tracklist)
 
 
-@optional_tracklist_transform
 def filter_by_date_range(
     min_age_days: int | None = None,
     max_age_days: int | None = None,
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter tracks by release date range.
 
@@ -95,11 +98,13 @@ def filter_by_date_range(
         return not (min_age_days is not None and age_days < min_age_days)
 
     # cast: calling filter_by_predicate without tracklist always returns Transform
-    return cast(Transform, filter_by_predicate(in_date_range))
+    return dual_mode(cast(Transform, filter_by_predicate(in_date_range)), tracklist)
 
 
-@optional_tracklist_transform
-def exclude_tracks(reference_tracks: list[Track]) -> Transform:
+def exclude_tracks(
+    reference_tracks: list[Track],
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter out tracks that exist in a reference collection.
 
@@ -114,14 +119,14 @@ def exclude_tracks(reference_tracks: list[Track]) -> Transform:
     def not_in_reference(track: Track) -> bool:
         return track.id not in exclude_ids
 
-    return cast(Transform, filter_by_predicate(not_in_reference))
+    return dual_mode(cast(Transform, filter_by_predicate(not_in_reference)), tracklist)
 
 
-@optional_tracklist_transform
 def exclude_artists(
     reference_tracks: list[Track],
     exclude_all_artists: bool = False,
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter out tracks whose artists appear in a reference collection.
 
@@ -159,15 +164,17 @@ def exclude_artists(
             # Check only the primary artist
             return track.artists[0].name.lower() not in exclude_artists_set
 
-    return cast(Transform, filter_by_predicate(not_artist_in_reference))
+    return dual_mode(
+        cast(Transform, filter_by_predicate(not_artist_in_reference)), tracklist
+    )
 
 
-@optional_tracklist_transform
 def filter_by_duration(
     min_ms: int | None = None,
     max_ms: int | None = None,
     include_missing: bool = False,
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter tracks by duration range.
 
@@ -187,14 +194,14 @@ def filter_by_duration(
             return False
         return not (max_ms is not None and track.duration_ms > max_ms)
 
-    return cast(Transform, filter_by_predicate(in_duration_range))
+    return dual_mode(cast(Transform, filter_by_predicate(in_duration_range)), tracklist)
 
 
-@optional_tracklist_transform
 def filter_by_liked_status(
     service: str,
     is_liked: bool = True,
-) -> Transform:
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
     """
     Filter tracks by liked status on a specific service.
 
@@ -209,4 +216,4 @@ def filter_by_liked_status(
     def matches_liked(track: Track) -> bool:
         return track.is_liked_on(service) == is_liked
 
-    return cast(Transform, filter_by_predicate(matches_liked))
+    return dual_mode(cast(Transform, filter_by_predicate(matches_liked)), tracklist)

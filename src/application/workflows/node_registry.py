@@ -6,7 +6,6 @@ node registration and discovery. It serves as the connection point between
 workflow definitions and node implementations.
 """
 
-# pyright: reportExplicitAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from collections.abc import Awaitable, Callable

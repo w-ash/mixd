@@ -4,7 +4,7 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
 from datetime import UTC, datetime, timedelta

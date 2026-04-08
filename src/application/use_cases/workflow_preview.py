@@ -5,11 +5,7 @@ with ``dry_run=True`` so destination nodes skip writes. Results are delivered
 via SSE for real-time node status and a final ``preview_complete`` event.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: SSE queue carries heterogeneous event dicts
-
 import asyncio
-from typing import Any
 
 from attrs import define, field
 
@@ -49,7 +45,7 @@ class PreviewWorkflowUseCase:
     async def execute(
         self,
         workflow_def: WorkflowDef,
-        sse_queue: asyncio.Queue[Any] | None = None,
+        sse_queue: asyncio.Queue[object] | None = None,
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> PreviewWorkflowResult:
         from src.application.services.progress_manager import get_progress_manager

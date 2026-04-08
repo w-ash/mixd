@@ -1,6 +1,6 @@
 """Playlist repository mappers for domain-persistence conversions."""
 
-# pyright: reportExplicitAny=false, reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportAny=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportAny=false
 # Legitimate Any: SQLAlchemy JSON columns, dynamic relationship traversal via safe_fetch_relationship
 
 from typing import override

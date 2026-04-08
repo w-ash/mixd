@@ -10,7 +10,7 @@ Replaces 8 sequential COUNT queries with 5 efficient queries:
 Not parallelizable — AsyncSession supports one query at a time.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SQLAlchemy query result row attributes
 
 from sqlalchemy import distinct, func, select, true

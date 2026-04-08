@@ -37,7 +37,7 @@ class _ExternalPlaylistResult(TypedDict):
     success: bool
     playlist_id: str | None
     # External API metadata is genuinely dynamic (varies by connector)
-    metadata: dict[str, Any]  # pyright: ignore[reportExplicitAny]
+    metadata: dict[str, Any]
     errors: list[str]
 
 
@@ -73,7 +73,7 @@ class CreateConnectorPlaylistResult:
     tracks_created: int = 0
     execution_time_ms: int = 0
     # External API metadata is genuinely dynamic (varies by connector)
-    external_metadata: dict[str, Any] = field(factory=dict)  # pyright: ignore[reportExplicitAny]
+    external_metadata: dict[str, Any] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
@@ -235,7 +235,7 @@ class CreateConnectorPlaylistUseCase:
             )
 
             # Build metadata response (format may vary by connector)
-            external_metadata: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
+            external_metadata: dict[str, Any] = {
                 "created_at": datetime.now(UTC).isoformat(),
                 "owner": "mixd",
                 "public": False,  # Default for privacy
@@ -290,7 +290,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         command: CreateConnectorPlaylistCommand,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+        external_metadata: dict[str, Any],
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
         """Creates internal playlist based on successful external playlist creation.
@@ -367,7 +367,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         saved_playlist: Playlist,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],  # pyright: ignore[reportExplicitAny]
+        external_metadata: dict[str, Any],
         command: CreateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:

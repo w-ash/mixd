@@ -1,6 +1,6 @@
 """Repository layer for database operations with SQLAlchemy 2.0 best practices."""
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SQLAlchemy column types, getattr dynamics, generic query builder
 
 import asyncio

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import Track
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -225,7 +226,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
         """
         try:
             artists: list[str] = []
-            service_data: dict[str, object] = {
+            service_data: dict[str, JsonValue] = {
                 "mbid": mbid,
                 "title": "",
                 "artist": "",
@@ -255,7 +256,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
             Raw provider match data or None if creation fails
         """
         try:
-            service_data: dict[str, object] = {
+            service_data: dict[str, JsonValue] = {
                 "title": recording.title,
                 "mbid": recording.id,
                 "artists": [

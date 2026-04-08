@@ -6,7 +6,7 @@ for credential persistence (database-backed in production, file-backed
 in CLI development).
 """
 
-# pyright: reportAny=false, reportExplicitAny=false
+# pyright: reportAny=false
 # Legitimate Any: JSON cache data, httpx response
 
 import time
@@ -93,7 +93,7 @@ async def get_spotify_status(
                 )
                 if display_name:
                     # Cache display name back to storage
-                    merged: StoredToken = {**refreshed, "account_name": display_name}  # type: ignore[typeddict-item]
+                    merged: StoredToken = {**refreshed, "account_name": display_name}
                     await storage.save_token("spotify", user_id, merged)
 
     # First visit with valid token but no cached display_name: one-time fetch

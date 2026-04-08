@@ -5,7 +5,7 @@ Implements clean architecture by providing creation functions for all Last.fm se
 without exposing Last.fm internals to other layers.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
 from typing import Any

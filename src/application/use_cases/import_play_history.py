@@ -5,12 +5,9 @@ error handling, and transaction management. Supports LastFM recent/incremental/f
 history imports and Spotify JSON file processing.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: additional_options extensibility dict (line 68)
-
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from attrs import define, field
 
@@ -68,7 +65,7 @@ class ImportTracksCommand:
     to_date: datetime | None = None  # End date for date range filtering
 
     # Additional options for extensibility
-    additional_options: dict[str, Any] = field(factory=dict)
+    additional_options: dict[str, object] = field(factory=dict)
 
     def __attrs_post_init__(self) -> None:
         """Validates service and mode compatibility.

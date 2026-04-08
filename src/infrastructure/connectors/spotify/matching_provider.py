@@ -9,6 +9,7 @@ from uuid import UUID
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities import Track
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
@@ -241,7 +242,7 @@ class SpotifyProvider(BaseMatchingProvider):
         """
         try:
             # Extract service data without any business logic
-            service_data = {
+            service_data: dict[str, JsonValue] = {
                 "title": spotify_track.name,
                 "artist": spotify_track.artists[0].name
                 if spotify_track.artists

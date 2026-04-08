@@ -14,7 +14,7 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 
 from collections.abc import Callable
 from typing import Any, TypedDict, cast

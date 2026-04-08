@@ -10,7 +10,7 @@ inheriting would violate LSP (the abstract template-method hooks would
 raise ``NotImplementedError``).
 """
 
-# pyright: reportAny=false, reportExplicitAny=false
+# pyright: reportAny=false
 
 from typing import Any
 from uuid import UUID
@@ -18,6 +18,7 @@ from uuid import UUID
 from src.config import get_logger
 from src.config.logging import logging_context
 from src.domain.entities import Track
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.types import (
     MatchFailure,
     MatchFailureReason,
@@ -180,7 +181,7 @@ class LastFMProvider:
         """
         try:
             # Extract service data without any business logic
-            service_data = {
+            service_data: dict[str, JsonValue] = {
                 "title": track_info.lastfm_title,
                 "artist": track_info.lastfm_artist_name,
                 "artists": [track_info.lastfm_artist_name]

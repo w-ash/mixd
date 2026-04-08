@@ -5,15 +5,11 @@ These live in the domain layer because they depend only on domain types and
 are used by both application and infrastructure layers.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
 from datetime import datetime
-from typing import Any
 
 from attrs import define, field
 
-from src.domain.entities.operations import OperationResult
+from src.domain.entities.operations import ConnectorTrackPlay, OperationResult
 
 
 @define(frozen=True, slots=True)
@@ -29,7 +25,7 @@ class ImportResultData:
     new_tracks_count: int = 0  # Canonical tracks created during import
     updated_tracks_count: int = 0  # Existing canonical tracks with new plays
     checkpoint_timestamp: datetime | None = None
-    tracks: list[Any] = field(factory=list)
+    tracks: list[ConnectorTrackPlay] = field(factory=list)
 
 
 def create_import_result(
@@ -49,7 +45,6 @@ def create_import_result(
     """
     result = OperationResult(
         operation_name=operation_name,
-        tracks=import_data.tracks,
         execution_time=execution_time,
     )
 

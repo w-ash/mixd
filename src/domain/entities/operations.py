@@ -4,9 +4,7 @@ Contains classes for recording play events, sync progress, and operation results
 from music services like Spotify and Last.fm.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
+from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Self
 from uuid import UUID, uuid7
@@ -16,7 +14,7 @@ from attrs import Attribute, define, field
 if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
-from .shared import MetricValue
+from .shared import JsonValue, MetricValue, empty_json_map
 from .summary_metrics import SummaryMetricCollection
 from .track import Track, TrackList
 
@@ -162,15 +160,17 @@ class PlayRecord:
     ms_played: int | None = None  # Spotify has this, Last.fm doesn't
 
     # Service-specific metadata stored as dict for flexibility
-    service_metadata: dict[str, Any] = field(factory=dict)
+    service_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
     # Import tracking
     api_page: int | None = None
-    raw_data: dict[str, Any] = field(factory=dict)
+    raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
 def _validate_timezone_aware_datetime(
-    _instance: object, attribute: Attribute[Any], value: datetime | None
+    _instance: object,
+    attribute: Attribute[Any],
+    value: datetime | None,  # Attribute[Any]: attrs validator protocol requires Any
 ) -> None:
     """Validator to ensure datetime fields are timezone-aware."""
     if value is not None and value.tzinfo is None:
@@ -199,11 +199,11 @@ class ConnectorTrackPlay:
     user_id: str = "default"
     album_name: str | None = None
     ms_played: int | None = None
-    service_metadata: dict[str, Any] = field(factory=dict)
+    service_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
     # Import tracking (for debugging and batch management)
     api_page: int | None = None
-    raw_data: dict[str, Any] = field(factory=dict)
+    raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
     import_timestamp: datetime | None = field(
         default=None, validator=_validate_timezone_aware_datetime
     )
@@ -317,7 +317,7 @@ class TrackPlay:
     played_at: datetime = field(validator=_validate_timezone_aware_datetime)
     user_id: str = "default"
     ms_played: int | None = None
-    context: dict[str, Any] | None = None
+    context: Mapping[str, JsonValue] | None = None
     id: UUID = field(factory=uuid7)
 
     # Cross-source deduplication: which services contributed to this play record
@@ -351,7 +351,7 @@ class OperationResult:
     summary_metrics: SummaryMetricCollection = field(factory=SummaryMetricCollection)
     tracks: list[Track] = field(factory=list)
     execution_time: float = field(default=0.0)
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: dict[str, JsonValue] = field(factory=empty_json_map)
     metrics: dict[str, dict[UUID, MetricValue]] = field(
         factory=dict,
     )  # Per-track operational metrics: metric_name -> {track_id -> value}
@@ -379,7 +379,9 @@ class OperationResult:
             return default
         return self.metrics.get(metric_name, {}).get(track_id, default)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(
+        self,
+    ) -> dict[str, Any]:  # JSON serialization boundary — heterogeneous output
         """Converts result to JSON-serializable dictionary for API responses.
 
         Returns:
@@ -458,7 +460,7 @@ def create_lastfm_play_record(
     streamable: bool = False,
     loved: bool = False,
     api_page: int | None = None,
-    raw_data: dict[str, Any] | None = None,
+    raw_data: Mapping[str, JsonValue] | None = None,
 ) -> PlayRecord:
     """Creates Last.fm PlayRecord with service-specific metadata properly formatted.
 
@@ -482,7 +484,7 @@ def create_lastfm_play_record(
         PlayRecord with Last.fm metadata in standardized format
     """
     # Build Last.fm specific metadata using standardized field names
-    service_metadata = {
+    service_metadata: dict[str, JsonValue] = {
         TrackContextFields.LASTFM_TRACK_URL: lastfm_track_url,
         TrackContextFields.LASTFM_ARTIST_URL: lastfm_artist_url,
         TrackContextFields.LASTFM_ALBUM_URL: lastfm_album_url,

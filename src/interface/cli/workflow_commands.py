@@ -6,7 +6,7 @@ from both CLI and web UI. Full CRUD commands support `--format json` for
 machine-readable output consumed by the workflow-manager agent.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types, **kwargs pass-through, json.loads()
 
 from collections.abc import Sequence

@@ -5,7 +5,7 @@ progress bars, spinners, and status information for long-running operations.
 Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
 
 import asyncio
@@ -280,10 +280,12 @@ class RichProgressProvider:
 
             # Add metadata to task fields for custom columns
             task_fields: dict[str, float] = {}
-            if "eta_seconds" in event.metadata:
-                task_fields["eta_seconds"] = event.metadata["eta_seconds"]
-            if "items_per_second" in event.metadata:
-                task_fields["items_per_second"] = event.metadata["items_per_second"]
+            eta = event.metadata.get("eta_seconds")
+            if isinstance(eta, (int, float)):
+                task_fields["eta_seconds"] = float(eta)
+            rate = event.metadata.get("items_per_second")
+            if isinstance(rate, (int, float)):
+                task_fields["items_per_second"] = float(rate)
 
             # Update the task
             self._progress.update(operation_task.task_id, **task_update_kwargs)

@@ -6,7 +6,7 @@ and creating/updating playlists across music platforms. Provides progress tracki
 recovery, and database session management for long-running playlist operations.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 
 import asyncio
 import datetime

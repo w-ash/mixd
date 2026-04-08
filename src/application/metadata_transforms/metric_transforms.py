@@ -10,16 +10,14 @@ Unlike pure domain transforms, these functions:
 - Depend on external metric enrichment having occurred first
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from src.config import get_logger
+from src.domain.entities.shared import MetricValue, SortKey
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform
+from src.domain.transforms.core import Transform, dual_mode
 from src.domain.transforms.filtering import filter_by_predicate
 
 from ._helpers import parse_datetime_safe
@@ -62,7 +60,7 @@ def filter_by_metric_range(
     def transform(t: TrackList) -> TrackList:
         """Apply the metric filter transformation."""
         metrics = t.metadata.get("metrics", {})
-        metric_values: dict[UUID, Any] = metrics.get(metric_name, {})
+        metric_values: dict[UUID, MetricValue] = metrics.get(metric_name, {})
 
         if not metric_values:
             _warn_missing_metrics("Filter by", metric_name, t)
@@ -75,7 +73,9 @@ def filter_by_metric_range(
             if track.id not in metric_values:
                 return include_missing
 
-            value: Any = metric_values[track.id]
+            value = metric_values[track.id]
+            if not isinstance(value, (int, float)):
+                return include_missing
 
             if min_value is not None and value < min_value:
                 return False
@@ -98,7 +98,7 @@ def filter_by_metric_range(
 
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 def sort_by_external_metrics(
@@ -129,16 +129,18 @@ def sort_by_external_metrics(
         if not metrics_dict:
             _warn_missing_metrics("Sort by", metric_name, t)
 
-        def external_metrics_key(track: Track) -> Any:
+        def external_metrics_key(track: Track) -> SortKey:
             """Extract metric value for sorting."""
             if not track.id or track.id not in metrics_dict:
-                # Tracks without metrics sort to end (preserve original data types)
-                if reverse:
-                    return float("-inf")  # Lowest for descending sort
-                else:
-                    return float("inf")  # Highest for ascending sort
+                # Tracks without metrics sort to end
+                return float("-inf") if reverse else float("inf")
 
-            return metrics_dict[track.id]
+            value = metrics_dict[track.id]
+            # Metric values are populated by enrichers (int/float/datetime);
+            # None means the enricher skipped this track → sort to end
+            if value is None:
+                return float("-inf") if reverse else float("inf")
+            return value
 
         sorted_tracks = sorted(t.tracks, key=external_metrics_key, reverse=reverse)
         result = t.with_tracks(sorted_tracks)
@@ -146,7 +148,7 @@ def sort_by_external_metrics(
         # The metrics are already in metadata, no need to duplicate them
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 # Mapping from date_source parameter to metadata metric key
@@ -215,7 +217,7 @@ def sort_by_date(
 
         return t.with_tracks(sorted_tracks)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 def filter_by_explicit(
@@ -257,4 +259,4 @@ def filter_by_explicit(
 
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)

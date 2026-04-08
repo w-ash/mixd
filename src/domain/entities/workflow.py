@@ -4,9 +4,6 @@ These frozen domain entities represent the structure of workflow JSON definition
 Used by validation, execution (Prefect), API schemas, and persistence layers.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: node config values are heterogeneous (str, int, float, bool, list)
-
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID, uuid7
@@ -31,7 +28,9 @@ class WorkflowTaskDef:
 
     id: str
     type: str
-    config: dict[str, Any] = field(factory=dict)
+    config: dict[str, Any] = field(
+        factory=dict
+    )  # Heterogeneous node config (str/int/float/bool/list); validated by node registry
     upstream: list[str] = field(factory=list)
     result_key: str | None = None
 
@@ -189,7 +188,7 @@ class WorkflowRunNode:
     output_track_count: int | None = None
     error_message: str | None = None
     execution_order: int = 0
-    node_details: dict[str, Any] | None = None
+    node_details: dict[str, object] | None = None
 
 
 @define(frozen=True, slots=True)
@@ -215,7 +214,7 @@ class WorkflowRun:
     duration_ms: int | None = None
     output_track_count: int | None = None
     output_playlist_id: UUID | None = None
-    output_tracks: list[dict[str, Any]] = field(factory=list)
+    output_tracks: list[dict[str, object]] = field(factory=list)
     error_message: str | None = None
     nodes: list[WorkflowRunNode] = field(factory=list)
     created_at: datetime | None = None

@@ -12,7 +12,7 @@ from typing import cast
 from uuid import UUID
 
 from attrs import define
-import structlog
+from structlog.stdlib import get_logger
 
 from src.domain.entities import Track
 from src.domain.matching.algorithms import (
@@ -28,7 +28,7 @@ from src.domain.matching.types import (
     RawProviderMatch,
 )
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)

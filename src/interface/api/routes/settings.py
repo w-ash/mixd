@@ -28,7 +28,7 @@ async def get_settings(
     """Get all user settings."""
     with user_context(user_id):
         settings = await _repo.load(user_id)
-    return UserSettingsResponse(**settings)
+    return UserSettingsResponse.model_validate(settings)
 
 
 @router.patch("")
@@ -40,4 +40,4 @@ async def patch_settings(
     updates = body.model_dump(exclude_none=True)
     with user_context(user_id):
         merged = await _repo.patch(updates, user_id)
-    return UserSettingsResponse(**merged)
+    return UserSettingsResponse.model_validate(merged)

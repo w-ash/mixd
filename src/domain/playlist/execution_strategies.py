@@ -5,16 +5,15 @@ platform (canonical database vs external API). Enables DRY compliance by using
 the same diff logic with different execution approaches.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
 import bisect
-from typing import Any, Final, Protocol
+from collections.abc import Mapping
+from typing import Final, Protocol
 
 from attrs import define
-import structlog
+from structlog.stdlib import get_logger
 
 from src.domain.entities.playlist import Playlist
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track, TrackList
 from src.domain.playlist.diff_engine import (
     PlaylistDiff,
@@ -23,7 +22,7 @@ from src.domain.playlist.diff_engine import (
 )
 from src.domain.transforms.playlist_operations import reorder_to_match_target
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 _DEBUG_TRUNCATION: Final = 10
 
@@ -37,7 +36,7 @@ class ExecutionPlan:
     """
 
     operations: list[PlaylistOperation]
-    execution_metadata: dict[str, Any]
+    execution_metadata: Mapping[str, JsonValue]
     use_atomic_reorder: bool = False
     dependency_order: list[int] | None = (
         None  # Order indices for dependency-aware execution
@@ -97,10 +96,11 @@ class CanonicalExecutionStrategy:
         # For canonical playlists, we prefer atomic reordering when possible
         use_atomic_reorder = self.can_optimize_to_reorder(diff)
 
-        execution_metadata = {
+        counts: dict[str, JsonValue] = dict(diff.operation_summary)
+        execution_metadata: dict[str, JsonValue] = {
             "strategy": "canonical",
             "atomic_reorder": use_atomic_reorder,
-            "operation_counts": diff.operation_summary,
+            "operation_counts": counts,
             "confidence_score": diff.confidence_score,
         }
 
@@ -166,9 +166,10 @@ class APIExecutionStrategy:
         # Calculate dependency order for move operations to avoid conflicts
         dependency_order = self._calculate_dependency_order(sequenced_operations)
 
-        execution_metadata = {
+        api_counts: dict[str, JsonValue] = dict(diff.operation_summary)
+        execution_metadata: dict[str, JsonValue] = {
             "strategy": "api",
-            "operation_counts": diff.operation_summary,
+            "operation_counts": api_counts,
             "confidence_score": diff.confidence_score,
             "initial_operations": len(initial_operations),
             "sequenced_operations": len(sequenced_operations),
@@ -428,7 +429,7 @@ def execute_with_strategy(
     current_playlist: Playlist,
     target_tracklist: TrackList,
     diff: PlaylistDiff,
-) -> tuple[list[Track], dict[str, Any]]:
+) -> tuple[list[Track], Mapping[str, JsonValue]]:
     """Execute playlist operations using the specified strategy.
 
     This is a pure domain function that applies the execution plan to transform

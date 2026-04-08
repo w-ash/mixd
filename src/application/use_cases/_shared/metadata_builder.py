@@ -4,11 +4,8 @@ Eliminates duplicate metadata building code using modern Python 3.13+ builder pa
 with method chaining and type safety.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import UTC, datetime
-from typing import Any, Self
+from typing import Self
 
 from attrs import define, field
 
@@ -22,7 +19,7 @@ class PlaylistMetadataBuilder:
     Uses Python 3.13+ Self type for proper method chaining type hints.
     """
 
-    _metadata: dict[str, Any] = field(factory=dict)
+    _metadata: dict[str, object] = field(factory=dict)
 
     def with_timestamp(self, timestamp: datetime | None = None) -> Self:
         """Add timestamp to metadata (defaults to now)."""
@@ -71,7 +68,7 @@ class PlaylistMetadataBuilder:
         """Build final metadata dictionary."""
         return self._metadata  # pyright: ignore[reportReturnType] — builder accumulates any keys; ApiMetadata is total=False
 
-    def build_dict(self) -> dict[str, Any]:
+    def build_dict(self) -> dict[str, object]:
         """Build as plain dictionary for cases where TypedDict isn't needed."""
         return self._metadata.copy()
 

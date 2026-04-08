@@ -3,9 +3,7 @@
 Pure track representations and related value objects with zero external dependencies.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal, Self, TypedDict, cast
 from uuid import UUID, uuid7
@@ -14,7 +12,9 @@ import attrs
 from attrs import define, field, validators
 
 from .shared import (
+    JsonValue,
     MetricValue,
+    empty_json_map,
     utc_now_factory,
 )
 
@@ -64,7 +64,7 @@ class Track:
     id: UUID = field(factory=uuid7)
     version: int = 0  # 0 = unpersisted, ≥1 = persisted (set by repository on load/save)
     connector_track_identifiers: dict[str, str] = field(factory=dict)
-    connector_metadata: dict[str, dict[str, Any]] = field(factory=dict)
+    connector_metadata: Mapping[str, Mapping[str, JsonValue]] = field(factory=dict)
 
     @property
     def artists_display(self) -> str:
@@ -80,11 +80,11 @@ class Track:
     def with_connector_metadata(
         self,
         connector: str,
-        metadata: dict[str, Any],
+        metadata: Mapping[str, JsonValue],
     ) -> Self:
         """Create a new track with additional connector metadata."""
-        new_metadata = self.connector_metadata.copy()
-        new_metadata[connector] = {**new_metadata.get(connector, {}), **metadata}
+        new_metadata: dict[str, Mapping[str, JsonValue]] = dict(self.connector_metadata)
+        new_metadata[connector] = {**dict(new_metadata.get(connector, {})), **metadata}
         return attrs.evolve(self, connector_metadata=new_metadata)
 
     def is_liked_on(self, service: str) -> bool:
@@ -166,7 +166,7 @@ class ConnectorTrack:
     duration_ms: int | None = None
     isrc: str | None = None
     release_date: datetime | None = None
-    raw_metadata: dict[str, Any] = field(factory=dict)
+    raw_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
     last_updated: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
 
@@ -192,7 +192,7 @@ class ConnectorTrackMapping:
     confidence: int = field(
         validator=[validators.instance_of(int), validators.ge(0), validators.le(100)],
     )
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
 class TrackListMetadata(TypedDict, total=False):
@@ -246,9 +246,11 @@ class TrackList:
             metadata=self.metadata.copy(),
         )
 
-    def with_metadata(self, key: MetadataKey, value: Any) -> Self:
+    def with_metadata(
+        self, key: MetadataKey, value: Any
+    ) -> Self:  # Value type depends on key; cast to TrackListMetadata validates
         """Add metadata to the TrackList."""
-        new_metadata: dict[str, Any] = dict(self.metadata)
+        new_metadata: dict[str, object] = dict(self.metadata)
         new_metadata[key] = value
         return self.__class__(
             tracks=self.tracks,

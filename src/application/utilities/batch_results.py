@@ -8,11 +8,7 @@ For actual batch processing, use the specialized processors:
 - SimpleBatchProcessor: Basic chunking operations
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from enum import Enum
-from typing import Any
 from uuid import UUID
 
 from attrs import define, field
@@ -43,7 +39,7 @@ class BatchItemResult:
     status: BatchItemStatus
     track_id: UUID | None = None
     error: str | None = None
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: dict[str, object] = field(factory=dict)
 
 
 @define(frozen=True, slots=True)

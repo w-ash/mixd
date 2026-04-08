@@ -8,7 +8,7 @@ Three components bridge the domain progress system to Server-Sent Events:
 - SSEProgressSubscriber: ProgressSubscriber that routes events into SSE queues.
 """
 
-# pyright: reportExplicitAny=false, reportAny=false
+# pyright: reportAny=false
 # Legitimate Any: SSE event data dicts, progress metadata
 
 import asyncio
@@ -127,7 +127,7 @@ class SSEProgressSubscriber:
         parent_id = operation.metadata.get("parent_operation_id")
 
         # Sub-operations route to the parent's queue
-        if parent_id:
+        if isinstance(parent_id, str):
             queue = await self._registry.get_queue(parent_id)
             if queue is None:
                 return

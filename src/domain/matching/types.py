@@ -3,16 +3,14 @@
 These types represent the core concepts in our matching domain with zero external dependencies.
 """
 
-# pyright: reportExplicitAny=false
-# Legitimate Any: service_metadata, raw_data dicts, factory patterns
-
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from enum import Enum
-from typing import Any, Final, TypedDict
+from typing import Final, TypedDict
 from uuid import UUID
 
 from attrs import define, field
 
+from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track import Track
 
 type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
@@ -66,7 +64,7 @@ class RawProviderMatch(TypedDict):
 
     connector_id: str  # External service ID (e.g., Spotify track ID)
     match_method: str  # How the match was found ("isrc", "artist_title", "mbid")
-    service_data: dict[str, Any]  # Raw data from external service
+    service_data: Mapping[str, JsonValue]  # Raw data from external service
 
 
 @define(frozen=True, slots=True)
@@ -127,7 +125,9 @@ class MatchResult:
     connector_id: str = ""  # ID in the target system
     confidence: int = 0
     match_method: str = ""  # "isrc", "mbid", "artist_title"
-    service_data: dict[str, Any] = field(factory=dict)  # Data from external service
+    service_data: Mapping[str, JsonValue] = field(
+        factory=empty_json_map
+    )  # Data from external service
     evidence: ConfidenceEvidence | None = None  # Evidence for confidence calculation
 
     @property
