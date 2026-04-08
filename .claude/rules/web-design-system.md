@@ -68,6 +68,6 @@ Every spacing value must come from this scale. No ad-hoc values.
 ## Anti-AI-Slop — Visual Identity
 - **Golden record** mark — `#C59A2B` disc. Gold palette: warm gold (`oklch(0.75 0.15 85)`) primary accent
 - **Sidebar masthead**: centered `h-28` block, 48px record above wide-tracked uppercase "MIXD" in `text-text-muted`
-- 3-level depth (inset/flat/elevated); asymmetric borders (left-accent bars over full border boxes)
+- 3-level depth (inset/flat/elevated); asymmetric borders (left-accent bars on section containers, not standalone text labels)
 - No native `<select>` (use Radix); entrance animations on route change; background grain texture
 - **Avoid**: indigo/blue/purple gradients, glassmorphism as foundation, uniform `rounded-xl border bg-card p-4`, `animate-pulse` skeletons (use shimmer), text-only empty states, native form controls

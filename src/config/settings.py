@@ -184,9 +184,11 @@ class APIConfig(BaseModel):
             batch_size=50,
             concurrency=50,
             request_delay=0.1,
-            retry_base_delay=0.5,
+            retry_count=6,
+            retry_base_delay=1.0,
+            retry_max_delay=60.0,
         ),
-        description="Spotify API tuning.",
+        description="Spotify API tuning. Higher retry count + delay to survive rate limit windows during large library imports.",
     )
     musicbrainz: ConnectorAPIConfig = Field(
         default_factory=lambda: ConnectorAPIConfig(

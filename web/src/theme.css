@@ -198,19 +198,22 @@
 }
 
 /* ── Dark palette — dim-lit vinyl lounge ─────────── */
+/* Neutrals are true gray (chroma 0). Warmth comes from the gold accent,
+   not from brownish surfaces. Body text keeps a whisper of warmth (0.01
+   at hue 90) so it's off-white, not blue-white. */
 .dark {
-  /* Mixd surface tokens — warm near-blacks */
-  --mixd-surface: oklch(0.13 0.01 60);
-  --mixd-surface-elevated: oklch(0.17 0.01 60);
-  --mixd-surface-sunken: oklch(0.1 0.01 60);
+  /* Mixd surface tokens — neutral near-blacks */
+  --mixd-surface: oklch(0.13 0 0);
+  --mixd-surface-elevated: oklch(0.17 0 0);
+  --mixd-surface-sunken: oklch(0.1 0 0);
 
   /* Mixd text tokens */
   --mixd-text: oklch(0.93 0.01 90);
-  --mixd-text-muted: oklch(0.6 0.02 60);
-  --mixd-text-faint: oklch(0.6 0.01 60);
+  --mixd-text-muted: oklch(0.6 0 0);
+  --mixd-text-faint: oklch(0.5 0 0);
 
   /* Mixd border */
-  --mixd-border-muted: oklch(0.2 0.01 60);
+  --mixd-border-muted: oklch(0.2 0 0);
 
   /* Mixd primary extensions */
   --mixd-primary-hover: oklch(0.8 0.15 85);
@@ -221,33 +224,33 @@
   --mixd-destructive-hover: oklch(0.65 0.2 25);
 
   /* Mixd elevation — ambient glow */
-  --mixd-shadow-elevated: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
+  --mixd-shadow-elevated: 0 2px 12px oklch(0.08 0 0 / 0.5);
   --mixd-shadow-glow: 0 0 20px oklch(0.75 0.15 85 / 0.06);
 
   /* shadcn/ui — dark palette */
-  --background: oklch(0.13 0.01 60);
+  --background: oklch(0.13 0 0);
   --foreground: oklch(0.93 0.01 90);
-  --card: oklch(0.17 0.01 60);
+  --card: oklch(0.17 0 0);
   --card-foreground: oklch(0.93 0.01 90);
-  --popover: oklch(0.17 0.01 60);
+  --popover: oklch(0.17 0 0);
   --popover-foreground: oklch(0.93 0.01 90);
 
   --primary: oklch(0.75 0.15 85);
-  --primary-foreground: oklch(0.13 0.01 60);
+  --primary-foreground: oklch(0.13 0 0);
 
-  --secondary: oklch(0.22 0.01 60);
+  --secondary: oklch(0.22 0 0);
   --secondary-foreground: oklch(0.93 0.01 90);
 
-  --muted: oklch(0.22 0.01 60);
-  --muted-foreground: oklch(0.6 0.02 60);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.6 0 0);
 
-  --accent: oklch(0.22 0.01 60);
+  --accent: oklch(0.22 0 0);
   --accent-foreground: oklch(0.93 0.01 90);
 
   --destructive: oklch(0.6 0.2 25);
 
-  --border: oklch(0.25 0.01 60);
-  --input: oklch(0.25 0.01 60);
+  --border: oklch(0.25 0 0);
+  --input: oklch(0.25 0 0);
   --ring: oklch(0.75 0.15 85);
 
   --chart-1: oklch(0.75 0.15 85);
@@ -256,13 +259,13 @@
   --chart-4: oklch(0.55 0.22 25);
   --chart-5: oklch(0.7 0.2 350);
 
-  --sidebar: oklch(0.1 0.01 60);
+  --sidebar: oklch(0.1 0 0);
   --sidebar-foreground: oklch(0.93 0.01 90);
   --sidebar-primary: oklch(0.75 0.15 85);
-  --sidebar-primary-foreground: oklch(0.13 0.01 60);
-  --sidebar-accent: oklch(0.17 0.01 60);
+  --sidebar-primary-foreground: oklch(0.13 0 0);
+  --sidebar-accent: oklch(0.17 0 0);
   --sidebar-accent-foreground: oklch(0.93 0.01 90);
-  --sidebar-border: oklch(0.25 0.01 60);
+  --sidebar-border: oklch(0.25 0 0);
   --sidebar-ring: oklch(0.75 0.15 85);
 }
 
@@ -349,14 +352,14 @@ body::after {
 }
 
 .dark .react-flow {
-  --xy-controls-button-background-color: oklch(0.17 0.01 60);
-  --xy-controls-button-background-color-hover: oklch(0.22 0.01 60);
-  --xy-controls-button-color: oklch(0.6 0.02 60);
+  --xy-controls-button-background-color: oklch(0.17 0 0);
+  --xy-controls-button-background-color-hover: oklch(0.22 0 0);
+  --xy-controls-button-color: oklch(0.6 0 0);
   --xy-controls-button-color-hover: oklch(0.93 0.01 90);
-  --xy-controls-button-border-color: oklch(0.25 0.01 60);
-  --xy-controls-box-shadow: 0 2px 12px oklch(0.08 0.01 60 / 0.5);
+  --xy-controls-button-border-color: oklch(0.25 0 0);
+  --xy-controls-box-shadow: 0 2px 12px oklch(0.08 0 0 / 0.5);
 
-  --xy-edge-stroke: oklch(0.35 0.01 60);
+  --xy-edge-stroke: oklch(0.35 0 0);
   --xy-edge-stroke-selected: oklch(0.75 0.15 85);
 
   --xy-node-boxshadow-hover: 0 0 8px oklch(0.75 0.15 85 / 0.15);
@@ -365,7 +368,7 @@ body::after {
   --xy-selection-background-color: oklch(0.75 0.15 85 / 0.06);
   --xy-selection-border: 1px dotted oklch(0.75 0.15 85 / 0.5);
 
-  --xy-background-pattern-color: oklch(0.25 0.01 60);
+  --xy-background-pattern-color: oklch(0.25 0 0);
 }
 
 /* ── Keyframes ─────────────────────────────────── */

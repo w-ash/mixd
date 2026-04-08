@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.10
+ * OpenAPI spec version: 0.6.11
  */
 
 /**
@@ -12,4 +12,5 @@
 export interface ImportSpotifyLikesRequest {
   limit?: number | null;
   max_imports?: number | null;
+  force?: boolean;
 }

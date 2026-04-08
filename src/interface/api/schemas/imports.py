@@ -20,6 +20,7 @@ class ImportSpotifyLikesRequest(BaseModel):
 
     limit: int | None = None
     max_imports: int | None = None
+    force: bool = False
 
 
 class ExportLastfmLikesRequest(BaseModel):
@@ -46,3 +47,5 @@ class CheckpointStatusSchema(BaseModel):
     entity_type: str
     last_sync_timestamp: datetime | None = None
     has_previous_sync: bool = False
+    local_count: int | None = None
+    remote_total: int | None = None

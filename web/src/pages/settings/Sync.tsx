@@ -27,6 +27,7 @@ import { FileUpload } from "#/components/shared/FileUpload";
 import { OperationProgress } from "#/components/shared/OperationProgress";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
+import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { formatDateTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
@@ -69,6 +70,7 @@ interface OperationCardProps {
   operationId: string | null;
   isPending: boolean;
   onTrigger: () => void;
+  triggerLabel?: string;
   triggerDisabled?: boolean;
   children?: React.ReactNode;
 }
@@ -81,6 +83,7 @@ function OperationCard({
   operationId,
   isPending,
   onTrigger,
+  triggerLabel = "Import",
   triggerDisabled,
   children,
 }: OperationCardProps) {
@@ -89,10 +92,13 @@ function OperationCard({
   });
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-surface-elevated shadow-elevated p-5 transition-all duration-150 hover:shadow-glow hover:border-primary/20">
+    <div className="rounded-xl border border-border bg-surface-elevated shadow-elevated p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-display text-sm font-semibold">{title}</h3>
+          <div className="flex items-center gap-2">
+            <ConnectorIcon name={connector} />
+            <h3 className="font-display text-base font-semibold">{title}</h3>
+          </div>
           <p className="mt-0.5 text-sm text-text-muted">{description}</p>
         </div>
         <Button
@@ -100,7 +106,7 @@ function OperationCard({
           disabled={isPending || isActive || triggerDisabled}
           onClick={onTrigger}
         >
-          {isPending ? "Starting..." : isActive ? "Running..." : "Import"}
+          {isPending ? "Starting..." : isActive ? "Running..." : triggerLabel}
         </Button>
       </div>
 
@@ -108,20 +114,35 @@ function OperationCard({
 
       {progress && <OperationProgress progress={progress} className="mt-3" />}
 
-      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-        <ConnectorIcon name={connector} />
-        <span className="text-xs text-text-faint">
-          Last sync:{" "}
-          <span className="font-mono text-text-muted">
-            {formatDateTime(checkpoint?.last_sync_timestamp)}
-          </span>
+      <p className="mt-3 text-right text-xs text-text-faint">
+        Last sync:{" "}
+        <span className="font-mono text-text-muted">
+          {formatDateTime(checkpoint?.last_sync_timestamp)}
         </span>
-      </div>
+      </p>
     </div>
   );
 }
 
 // ─── Import Operations ──────────────────────────────────────────
+
+const HISTORY_MODES = [
+  {
+    value: "recent",
+    label: "Recent",
+    desc: "Last 90 days of scrobbles",
+  },
+  {
+    value: "incremental",
+    label: "Since last import",
+    desc: "Everything new since your last import",
+  },
+  {
+    value: "full",
+    label: "Full",
+    desc: "Complete listening history (may be slow)",
+  },
+] as const;
 
 /** Find a checkpoint for a service+entity combo from the pre-fetched list. */
 function findCheckpoint(
@@ -160,64 +181,46 @@ function LastfmHistoryImport({
       isPending={mutation.isPending}
       onTrigger={trigger}
     >
-      <div
-        className="flex items-center gap-1.5"
-        role="radiogroup"
-        aria-label="Import mode"
-        onKeyDown={(e) => {
-          const options = ["recent", "incremental", "full"] as const;
-          const idx = options.indexOf(mode);
-          if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-            e.preventDefault();
-            setMode(options[(idx + 1) % options.length]);
-          } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-            e.preventDefault();
-            setMode(options[(idx - 1 + options.length) % options.length]);
-          }
-        }}
-      >
-        {(
-          [
-            {
-              value: "recent",
-              label: "Recent",
-              desc: "Last 90 days of scrobbles",
-            },
-            {
-              value: "incremental",
-              label: "Since last import",
-              desc: "Everything new since your last import",
-            },
-            {
-              value: "full",
-              label: "Full",
-              desc: "Complete listening history (may be slow)",
-            },
-          ] as const
-        ).map((option) => (
-          // biome-ignore lint/a11y/useSemanticElements: styled segmented control
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={mode === option.value}
-            tabIndex={mode === option.value ? 0 : -1}
-            onClick={() => setMode(option.value)}
-            className={cn(
-              "rounded-md px-3 py-2 text-left transition-colors",
-              mode === option.value
-                ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                : "bg-surface-elevated text-text-muted hover:text-text",
-            )}
-          >
-            <span className="font-display text-xs font-medium">
+      <div>
+        <div
+          className="inline-flex w-full rounded-lg bg-surface-sunken p-1"
+          role="radiogroup"
+          aria-label="Import mode"
+          onKeyDown={(e) => {
+            const options = ["recent", "incremental", "full"] as const;
+            const idx = options.indexOf(mode);
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+              e.preventDefault();
+              setMode(options[(idx + 1) % options.length]);
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setMode(options[(idx - 1 + options.length) % options.length]);
+            }
+          }}
+        >
+          {HISTORY_MODES.map((option) => (
+            // biome-ignore lint/a11y/useSemanticElements: styled segmented control
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={mode === option.value}
+              tabIndex={mode === option.value ? 0 : -1}
+              onClick={() => setMode(option.value)}
+              className={cn(
+                "flex-1 rounded-md py-1.5 font-display text-xs font-medium transition-all duration-150",
+                mode === option.value
+                  ? "bg-surface-elevated text-text shadow-sm"
+                  : "text-text-muted hover:text-text",
+              )}
+            >
               {option.label}
-            </span>
-            <span className="block text-[10px] text-text-faint mt-0.5">
-              {option.desc}
-            </span>
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-text-faint">
+          {HISTORY_MODES.find((m) => m.value === mode)?.desc}
+        </p>
       </div>
     </OperationCard>
   );
@@ -229,12 +232,29 @@ function SpotifyLikesImport({
   checkpoints: CheckpointStatusSchema[];
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [reimportAll, setReimportAll] = useState(false);
   const mutation = useImportSpotifyLikesApiV1ImportsSpotifyLikesPost();
+  const checkpoint = findCheckpoint(checkpoints, "spotify", "likes");
+
+  const hasGap =
+    checkpoint?.remote_total != null &&
+    checkpoint?.local_count != null &&
+    checkpoint.local_count < checkpoint.remote_total * 0.95;
 
   const trigger = () => {
+    const callbacks = makeOperationCallbacks(
+      "Spotify likes import",
+      setOperationId,
+    );
     mutation.mutate(
-      { data: {} },
-      makeOperationCallbacks("Spotify likes import", setOperationId),
+      { data: { force: reimportAll } },
+      {
+        ...callbacks,
+        onSuccess: (res) => {
+          setReimportAll(false);
+          callbacks.onSuccess(res);
+        },
+      },
     );
   };
 
@@ -243,11 +263,35 @@ function SpotifyLikesImport({
       connector="spotify"
       title="Import Likes"
       description="Backup your Spotify liked tracks to the local database."
-      checkpoint={findCheckpoint(checkpoints, "spotify", "likes")}
+      checkpoint={checkpoint}
       operationId={operationId}
       isPending={mutation.isPending}
       onTrigger={trigger}
-    />
+    >
+      {checkpoint?.local_count != null && (
+        <p className="mt-2 font-mono text-xs text-text-muted">
+          {hasGap
+            ? `${checkpoint.local_count.toLocaleString()} of ${checkpoint.remote_total?.toLocaleString()} tracks imported`
+            : `${checkpoint.local_count.toLocaleString()} tracks imported`}
+        </p>
+      )}
+      {hasGap && (
+        <label
+          htmlFor="spotify-reimport-all"
+          className="mt-2 flex items-center gap-2"
+        >
+          <Switch
+            id="spotify-reimport-all"
+            size="sm"
+            checked={reimportAll}
+            onCheckedChange={setReimportAll}
+          />
+          <span className="font-body text-xs text-text-muted">
+            Re-import entire library
+          </span>
+        </label>
+      )}
+    </OperationCard>
   );
 }
 
@@ -274,6 +318,7 @@ function LastfmLikesExport({
       checkpoint={findCheckpoint(checkpoints, "lastfm", "likes")}
       operationId={operationId}
       isPending={mutation.isPending}
+      triggerLabel="Export"
       onTrigger={trigger}
     />
   );
@@ -364,8 +409,18 @@ export function Sync() {
                 description="Your play counts across services — scrobbles, stream history, and data exports."
               />
               <div className="space-y-3">
-                <LastfmHistoryImport checkpoints={checkpoints} />
-                <SpotifyHistoryImport checkpoints={checkpoints} />
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "0ms" }}
+                >
+                  <LastfmHistoryImport checkpoints={checkpoints} />
+                </div>
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "75ms" }}
+                >
+                  <SpotifyHistoryImport checkpoints={checkpoints} />
+                </div>
               </div>
             </section>
 
@@ -376,8 +431,18 @@ export function Sync() {
                 description="Tracks you've hearted or loved — sync between Spotify and Last.fm."
               />
               <div className="space-y-3">
-                <SpotifyLikesImport checkpoints={checkpoints} />
-                <LastfmLikesExport checkpoints={checkpoints} />
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "0ms" }}
+                >
+                  <SpotifyLikesImport checkpoints={checkpoints} />
+                </div>
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "75ms" }}
+                >
+                  <LastfmLikesExport checkpoints={checkpoints} />
+                </div>
               </div>
             </section>
           </div>

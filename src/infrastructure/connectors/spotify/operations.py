@@ -54,6 +54,10 @@ from src.infrastructure.connectors.spotify.playlist_sync_operations import (
 logger = get_logger(__name__).bind(service="spotify_operations")
 
 
+class SpotifyPaginationError(Exception):
+    """Raised when a paginated Spotify API call fails (suppressed error returned None)."""
+
+
 @define(slots=True)
 class SpotifyOperations:
     """Business logic service for complex Spotify operations.
@@ -333,57 +337,60 @@ class SpotifyOperations:
 
     async def get_liked_tracks_paginated(
         self, limit: int = 50, cursor: str | None = None
-    ) -> tuple[list[ConnectorTrack], str | None]:
+    ) -> tuple[list[ConnectorTrack], str | None, int | None]:
         """Fetch user's saved/liked tracks with pagination support."""
         logger.info(f"Fetching liked tracks, limit={limit}, cursor={cursor}")
 
-        try:
-            # Convert cursor to offset
-            offset = 0
-            if cursor:
-                try:
-                    offset = int(cursor)
-                except ValueError:
-                    logger.warning(f"Invalid cursor format: {cursor}, using offset=0")
+        # Convert cursor to offset
+        offset = 0
+        if cursor:
+            try:
+                offset = int(cursor)
+            except ValueError:
+                logger.warning(f"Invalid cursor format: {cursor}, using offset=0")
 
+        try:
             saved_tracks = await self.client.get_saved_tracks(
                 limit=min(limit, 50), offset=offset
             )
-
-            if not saved_tracks or "items" not in saved_tracks:
-                return [], None
-
-            connector_tracks: list[ConnectorTrack] = []
-            for item in saved_tracks["items"]:
-                if not item or "track" not in item:
-                    continue
-
-                spotify_track = item["track"]
-                added_at = item.get("added_at")
-
-                connector_track = convert_spotify_track_to_connector(spotify_track)
-
-                # Add liked timestamp to metadata
-                if added_at:
-                    parsed_time = parse_spotify_timestamp(added_at)
-                    if parsed_time:
-                        connector_track.raw_metadata["liked_at"] = (
-                            parsed_time.isoformat()
-                        )
-                        connector_track.raw_metadata["is_liked"] = True
-
-                connector_tracks.append(connector_track)
-
-            # Determine next cursor
-            next_cursor = None
-            if saved_tracks.get("next") and saved_tracks["items"]:
-                next_cursor = str(offset + len(saved_tracks["items"]))
-
         except Exception as e:
             logger.error(f"Error fetching liked tracks: {e}")
             raise
-        else:
-            return connector_tracks, next_cursor
+
+        if saved_tracks is None:
+            msg = f"Spotify API returned no response at offset {offset} (likely rate-limited or network error after retries)"
+            raise SpotifyPaginationError(msg)
+
+        remote_total: int | None = saved_tracks.get("total")
+
+        if not saved_tracks.get("items"):
+            return [], None, remote_total
+
+        connector_tracks: list[ConnectorTrack] = []
+        for item in saved_tracks["items"]:
+            if not item or "track" not in item:
+                continue
+
+            spotify_track = item["track"]
+            added_at = item.get("added_at")
+
+            connector_track = convert_spotify_track_to_connector(spotify_track)
+
+            # Add liked timestamp to metadata
+            if added_at:
+                parsed_time = parse_spotify_timestamp(added_at)
+                if parsed_time:
+                    connector_track.raw_metadata["liked_at"] = parsed_time.isoformat()
+                    connector_track.raw_metadata["is_liked"] = True
+
+            connector_tracks.append(connector_track)
+
+        # Determine next cursor
+        next_cursor = None
+        if saved_tracks.get("next") and saved_tracks["items"]:
+            next_cursor = str(offset + len(saved_tracks["items"]))
+
+        return connector_tracks, next_cursor, remote_total
 
     # Playlist Metadata Operations
 

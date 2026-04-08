@@ -77,7 +77,7 @@ class LikedTrackConnector(Protocol):
 
     async def get_liked_tracks(
         self, limit: int = 50, cursor: str | None = None
-    ) -> tuple[list[ConnectorTrack], str | None]: ...
+    ) -> tuple[list[ConnectorTrack], str | None, int | None]: ...
 
 
 class LoveTrackConnector(Protocol):

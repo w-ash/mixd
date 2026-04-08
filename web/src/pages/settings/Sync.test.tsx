@@ -87,7 +87,9 @@ describe("Sync page", () => {
     renderWithProviders(<Sync />);
 
     const importButtons = screen.getAllByRole("button", { name: "Import" });
-    expect(importButtons).toHaveLength(4);
+    expect(importButtons).toHaveLength(3);
+    const exportButtons = screen.getAllByRole("button", { name: "Export" });
+    expect(exportButtons).toHaveLength(1);
   });
 
   it("renders segmented mode selector for Last.fm history", () => {

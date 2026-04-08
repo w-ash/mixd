@@ -48,18 +48,21 @@ class SyncCheckpoint:
     entity_type: str  # 'likes', 'plays'
     last_timestamp: datetime | None = None
     cursor: str | None = None  # For pagination/continuation
+    remote_total: int | None = None  # Total items reported by remote service
     id: UUID = field(factory=uuid7)
 
     def with_update(
         self,
         timestamp: datetime,
         cursor: str | Unset | None = UNSET,
+        remote_total: int | Unset | None = UNSET,
     ) -> Self:
         """Returns new checkpoint with updated timestamp and optional cursor.
 
         Args:
             timestamp: Latest sync timestamp to record
             cursor: Pagination cursor — omit to preserve, pass None to clear
+            remote_total: Total items in remote library — omit to preserve
 
         Returns:
             New checkpoint instance with updated values
@@ -70,6 +73,9 @@ class SyncCheckpoint:
             entity_type=self.entity_type,
             last_timestamp=timestamp,
             cursor=self.cursor if isinstance(cursor, Unset) else cursor,
+            remote_total=self.remote_total
+            if isinstance(remote_total, Unset)
+            else remote_total,
             id=self.id,
         )
 
@@ -86,6 +92,8 @@ class SyncCheckpointStatus:
     entity_type: str
     last_sync_timestamp: datetime | None = None
     has_previous_sync: bool = False
+    local_count: int | None = None
+    remote_total: int | None = None
 
     def format_timestamp(self) -> str | None:
         """Format timestamp for display."""

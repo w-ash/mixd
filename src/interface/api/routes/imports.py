@@ -158,6 +158,7 @@ async def import_spotify_likes(
             user_id=user_id,
             limit=body.limit,
             max_imports=body.max_imports,
+            force=body.force,
             progress_emitter=emitter,
         )
 
@@ -273,6 +274,8 @@ async def get_checkpoints(
             entity_type=s.entity_type,
             last_sync_timestamp=s.last_sync_timestamp,
             has_previous_sync=s.has_previous_sync,
+            local_count=s.local_count,
+            remote_total=s.remote_total,
         )
         for s in statuses
     ]

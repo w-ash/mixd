@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.6.10
+**Current Version**: 0.6.11
 **Next**: v0.7.0 Preference System & Likes Migration
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -53,6 +53,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.6.8** | Resilient imports, UUID cleanup & review persistence | ✅ Completed | [details](completed/v0.6.x.md#v068-resilient-imports--real-time-progress) |
 | **v0.6.9** | SSE auth & connection resilience | ✅ Completed | [details](completed/v0.6.x.md#v069-sse-auth--connection-resilience) |
 | **v0.6.10** | Neon platform integration & multi-user hardening | ✅ Completed | [details](completed/v0.6.x.md#v0610-neon-platform-integration--multi-user-hardening) |
+| **v0.6.11** | Likes sync resilience & Sync page redesign | ✅ Completed | [details](completed/v0.6.x.md#v0611-likes-sync-resilience--sync-page-redesign) |
 | **v0.7.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.7.x.md#v070-preference-system--likes-migration) |
 | **v0.7.1** | Tagging system | 🔜 Not Started | [details](v0.7.x.md#v071-tagging-system) |
 | **v0.7.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.7.x.md#v072-spotify-playlist-mapping-preference--tag-import) |

@@ -926,3 +926,6 @@ class DBSyncCheckpoint(BaseEntity):
     entity_type: Mapped[str] = mapped_column(String(32))  # 'likes', 'plays'
     last_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cursor: Mapped[str | None] = mapped_column(String(1024))  # continuation token
+    remote_total: Mapped[int | None] = mapped_column(
+        nullable=True
+    )  # total items reported by remote service

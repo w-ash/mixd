@@ -59,10 +59,13 @@ async def update_checkpoint(
     uow: UnitOfWorkProtocol,
     timestamp: datetime | None = None,
     cursor: str | Unset | None = UNSET,
+    remote_total: int | Unset | None = UNSET,
 ) -> SyncCheckpoint:
-    """Update checkpoint with new timestamp/cursor."""
+    """Update checkpoint with new timestamp/cursor/remote_total."""
     updated = checkpoint.with_update(
-        timestamp=timestamp or datetime.now(UTC), cursor=cursor
+        timestamp=timestamp or datetime.now(UTC),
+        cursor=cursor,
+        remote_total=remote_total,
     )
     checkpoint_repo = uow.get_checkpoint_repository()
     return await checkpoint_repo.save_sync_checkpoint(updated)
@@ -116,6 +119,7 @@ class ImportSpotifyLikesCommand:
     user_id: str
     limit: int | None = None
     max_imports: int | None = None
+    force: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -199,7 +203,15 @@ class ImportSpotifyLikesUseCase:
         imported = 0
         already_synced = 0
         batches = 0
-        cursor = None
+        spotify_total: int | None = None
+
+        if command.force:
+            cursor = None
+            logger.info(
+                "Force mode — starting full re-scan from offset 0, early stop disabled"
+            )
+        else:
+            cursor = checkpoint.cursor
 
         spotify_connector = resolve_liked_track_connector(uow)
 
@@ -221,14 +233,29 @@ class ImportSpotifyLikesUseCase:
                 create_progress_event(
                     operation_id,
                     current=imported + already_synced,
-                    total=None,
+                    total=spotify_total,
                     message=f"Fetching batch {batches + 1}...",
                 )
             )
 
-            tracks, cursor = await spotify_connector.get_liked_tracks(
-                limit=batch_size, cursor=cursor
-            )
+            try:
+                tracks, cursor, batch_total = await spotify_connector.get_liked_tracks(
+                    limit=batch_size, cursor=cursor
+                )
+            except Exception:
+                logger.exception("Failed to fetch batch — saving progress")
+                checkpoint = await update_checkpoint(
+                    checkpoint,
+                    uow,
+                    checkpoint.last_timestamp or datetime.now(UTC),
+                    cursor=cursor,
+                    remote_total=spotify_total,
+                )
+                await uow.commit()
+                raise
+
+            if batch_total is not None:
+                spotify_total = batch_total
 
             if not tracks:
                 logger.info("No more tracks to import")
@@ -339,21 +366,25 @@ class ImportSpotifyLikesUseCase:
             batches += 1
 
             # Commit each batch incrementally so data survives machine restarts
-            checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
+            checkpoint = await update_checkpoint(
+                checkpoint, uow, batch_time, cursor=cursor, remote_total=spotify_total
+            )
             await commit_batch(uow)
 
             await emitter.emit_progress(
                 create_progress_event(
                     operation_id,
                     current=imported + already_synced,
-                    total=None,
+                    total=spotify_total,
                     message=f"Processed batch {batches}: {imported} imported, {already_synced} already synced",
                 )
             )
 
-            # Early termination if this batch is mostly duplicates
+            # Early termination if this batch is mostly duplicates.
+            # Skipped in force mode so the import pages through the entire library.
             if (
-                new_in_batch == 0
+                not command.force
+                and new_in_batch == 0
                 and batch_already_synced
                 > len(tracks) * BusinessLimits.DUPLICATE_RATE_EARLY_STOP
             ):
@@ -362,7 +393,7 @@ class ImportSpotifyLikesUseCase:
                     create_progress_event(
                         operation_id,
                         current=imported + already_synced,
-                        total=None,
+                        total=spotify_total,
                         message="Detected high duplicate rate, finishing...",
                     )
                 )
@@ -373,7 +404,15 @@ class ImportSpotifyLikesUseCase:
                 break
 
         # Always stamp the checkpoint on exit — regardless of which exit path was taken.
-        checkpoint = await update_checkpoint(checkpoint, uow, datetime.now(UTC))
+        # cursor is None when pagination completed naturally, preserving it for
+        # the next run which should start from offset 0 (incremental sync).
+        checkpoint = await update_checkpoint(
+            checkpoint,
+            uow,
+            datetime.now(UTC),
+            cursor=cursor,
+            remote_total=spotify_total,
+        )
         logger.info(f"Import complete: {imported} imported, {already_synced} synced")
 
         await uow.commit()  # commit checkpoint before "complete" SSE fires
@@ -704,12 +743,20 @@ class GetSyncCheckpointStatusUseCase:
             entity_type=entity_type,
         )
 
+        # Enrich likes checkpoints with local count from the database
+        local_count: int | None = None
+        if entity_type == "likes" and checkpoint is not None:
+            like_repo = uow.get_like_repository()
+            local_count = await like_repo.count_liked_tracks(service, user_id=user_id)
+
         return SyncCheckpointStatus(
             service=service,
             entity_type=entity_type,
             last_sync_timestamp=checkpoint.last_timestamp if checkpoint else None,
             has_previous_sync=checkpoint is not None
             and checkpoint.last_timestamp is not None,
+            local_count=local_count,
+            remote_total=checkpoint.remote_total if checkpoint else None,
         )
 
 
@@ -722,13 +769,14 @@ async def run_spotify_likes_import(
     user_id: str,
     limit: int | None = None,
     max_imports: int | None = None,
+    force: bool = False,
     progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
     """Import Spotify liked tracks into local database."""
     from src.application.runner import execute_use_case
 
     command = ImportSpotifyLikesCommand(
-        user_id=user_id, limit=limit, max_imports=max_imports
+        user_id=user_id, limit=limit, max_imports=max_imports, force=force
     )
     return await execute_use_case(
         lambda uow: ImportSpotifyLikesUseCase().execute(command, uow, progress_emitter),

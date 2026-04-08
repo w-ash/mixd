@@ -65,6 +65,14 @@ def import_spotify_cmd(
             help="Maximum total number of liked tracks to import (unlimited if not specified)",
         ),
     ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Re-import entire library from scratch, ignoring previously synced tracks",
+        ),
+    ] = False,
 ) -> None:
     """Import your liked tracks from Spotify into your local library.
 
@@ -76,6 +84,7 @@ def import_spotify_cmd(
     liked tracks, you can limit the total import to test the process first.
 
     Tracks that already exist and are marked as liked will be skipped automatically.
+    Use --force to re-import your entire library if a previous import was incomplete.
     """
     from src.application.use_cases.sync_likes import run_spotify_likes_import
 
@@ -86,6 +95,7 @@ def import_spotify_cmd(
                 user_id=get_cli_user_id(),
                 limit=limit,
                 max_imports=max_imports,
+                force=force,
             )
         )
 
@@ -205,8 +215,14 @@ def _interactive_spotify_import() -> None:
     )
     max_imports = int(max_imports_str) if max_imports_str else None
 
+    force_str = Prompt.ask(
+        "Re-import entire library? (yes/no)",
+        default="no",
+    )
+    force = force_str.lower() in ("yes", "y", "true")
+
     console.print("\n[green]Starting Spotify likes import...[/green]")
-    import_spotify_cmd(limit=limit, max_imports=max_imports)
+    import_spotify_cmd(limit=limit, max_imports=max_imports, force=force)
 
 
 def _interactive_lastfm_export() -> None:

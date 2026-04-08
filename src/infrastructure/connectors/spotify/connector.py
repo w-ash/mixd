@@ -185,7 +185,7 @@ class SpotifyConnector(BaseAPIConnector):
         self,
         limit: int = 50,
         cursor: str | None = None,
-    ) -> tuple[list[ConnectorTrack], str | None]:
+    ) -> tuple[list[ConnectorTrack], str | None, int | None]:
         """Fetch user's saved/liked tracks from Spotify with pagination."""
         return await self._operations.get_liked_tracks_paginated(limit, cursor)
 

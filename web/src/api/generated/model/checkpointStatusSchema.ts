@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.10
+ * OpenAPI spec version: 0.6.11
  */
 
 /**
@@ -14,4 +14,6 @@ export interface CheckpointStatusSchema {
   entity_type: string;
   last_sync_timestamp?: string | null;
   has_previous_sync?: boolean;
+  local_count?: number | null;
+  remote_total?: number | null;
 }

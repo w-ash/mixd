@@ -7,11 +7,11 @@ export function SectionHeader({
 }) {
   return (
     <div>
-      <h2 className="font-display text-xs font-medium uppercase tracking-wider text-text-muted border-l-2 border-primary/40 pl-3">
+      <h2 className="font-display text-sm font-medium uppercase tracking-wider text-text-muted">
         {title}
       </h2>
       {description && (
-        <p className="mt-1 text-sm text-text-faint">{description}</p>
+        <p className="mt-1 text-xs text-text-faint">{description}</p>
       )}
     </div>
   );

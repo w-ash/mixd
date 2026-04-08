@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.10
+ * OpenAPI spec version: 0.6.11
  */
 import {
   faker
@@ -31,7 +31,7 @@ export const getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock = (over
 
 export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock = (): CheckpointStatusSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({service: faker.string.alpha({length: {min: 10, max: 20}}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), last_sync_timestamp: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), has_previous_sync: faker.datatype.boolean()})))
+export const getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock = (): CheckpointStatusSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({service: faker.string.alpha({length: {min: 10, max: 20}}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), last_sync_timestamp: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), has_previous_sync: faker.datatype.boolean(), local_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), remote_total: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])})))
 
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {

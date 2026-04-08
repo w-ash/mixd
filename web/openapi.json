@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.10"
+    "version": "0.6.11"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -2742,6 +2742,28 @@
             "type": "boolean",
             "title": "Has Previous Sync",
             "default": false
+          },
+          "local_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Count"
+          },
+          "remote_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Total"
           }
         },
         "type": "object",
@@ -3248,6 +3270,11 @@
               }
             ],
             "title": "Max Imports"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
           }
         },
         "type": "object",

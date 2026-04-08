@@ -63,5 +63,6 @@ class SyncCheckpointRepository(BaseRepository[DBSyncCheckpoint, SyncCheckpoint])
             create_attrs={
                 "last_timestamp": checkpoint.last_timestamp,
                 "cursor": checkpoint.cursor,
+                "remote_total": checkpoint.remote_total,
             },
         )

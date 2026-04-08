@@ -80,7 +80,9 @@ class TestConnectorAPIConfigNesting:
         assert config.spotify.batch_size == 50
         assert config.spotify.concurrency == 50
         assert config.spotify.request_delay == 0.1
-        assert config.spotify.retry_base_delay == 0.5
+        assert config.spotify.retry_count == 6
+        assert config.spotify.retry_base_delay == 1.0
+        assert config.spotify.retry_max_delay == 60.0
 
     def test_musicbrainz_overrides(self):
         config = APIConfig()
