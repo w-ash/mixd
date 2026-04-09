@@ -5,7 +5,7 @@ infrastructure implementations, following the dependency inversion principle.
 Repository interfaces belong in the domain layer according to Clean Architecture.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self, TypedDict
 from uuid import UUID
@@ -584,7 +584,7 @@ class ConnectorRepositoryProtocol(Protocol):
     def ensure_connector_tracks(
         self,
         connector_name: str,
-        tracks_data: list[dict[str, object]],
+        tracks_data: Sequence[Mapping[str, Any]],
     ) -> Awaitable[dict[tuple[str, str], UUID]]:
         """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
 
@@ -995,7 +995,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def bulk_update_play_source_services(
         self,
-        updates: list[tuple[UUID, dict[str, object]]],
+        updates: Sequence[tuple[UUID, Mapping[str, Any]]],
     ) -> Awaitable[None]:
         """Batch-update cross-source dedup metadata for multiple plays."""
         ...

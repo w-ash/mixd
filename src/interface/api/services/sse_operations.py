@@ -5,17 +5,13 @@ Each route file still owns its background lifecycle logic — this module only
 provides the common setup (uuid + queue registration) and terminal event format.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: SSE event data values are heterogeneous
-
 import asyncio
-from typing import Any
 from uuid import UUID, uuid4
 
 from src.interface.api.services.progress import get_operation_registry
 
 
-async def prepare_sse_operation() -> tuple[str, asyncio.Queue[Any]]:
+async def prepare_sse_operation() -> tuple[str, asyncio.Queue[object]]:
     """Generate an operation_id, register an SSE queue, and return both.
 
     This is the minimal shared setup. Route-specific guards (e.g. the 429
@@ -31,17 +27,17 @@ def build_terminal_event(
     event_id: str,
     event_type: str,
     operation_id: str,
-    status: Any,
+    status: str,
     *,
     run_id: UUID | None = None,
-    **extra: Any,
-) -> dict[str, Any]:
+    **extra: object,
+) -> dict[str, object]:
     """Build a terminal SSE event dict with shared structure.
 
     Used by playlist sync (complete/error), workflow runs, and workflow
     previews to construct the final event pushed to the SSE queue.
     """
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         "operation_id": operation_id,
         "final_status": status,
         **extra,

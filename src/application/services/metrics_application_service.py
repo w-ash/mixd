@@ -8,6 +8,7 @@ formats, and persisting results for future use.
 # pyright: reportAny=false
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from src.application.utilities.enhanced_database_batch_processor import (
 )
 from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -48,7 +50,7 @@ class MetricsApplicationService:
 
     @staticmethod
     def _extract_metrics_from_metadata(
-        fresh_metadata: dict[UUID, dict[str, Any]],
+        fresh_metadata: dict[UUID, Mapping[str, JsonValue]],
         metric_names: list[str],
         field_map: dict[str, str],
         connector: str,
@@ -71,8 +73,10 @@ class MetricsApplicationService:
                 try:
                     if isinstance(value, (bool, int, float)):
                         converted = value
-                    else:
+                    elif isinstance(value, str):
                         converted = float(value)
+                    else:
+                        continue
                     results.append((track_id, connector, metric_name, converted))
                 except ValueError, TypeError:
                     logger.warning(f"Cannot convert {value} for {metric_name}")
@@ -191,7 +195,7 @@ class MetricsApplicationService:
 
         # Phase 2: Single API fetch for all missing tracks, then extract per-metric
         if missing_tracks_per_metric and connector_instance:
-            fresh_metadata: dict[UUID, dict[str, Any]] = {}
+            fresh_metadata: dict[UUID, Mapping[str, JsonValue]] = {}
 
             if tracks_for_api:
                 # Filter out tracks with no connector identity (avoids wasted API calls)
@@ -324,7 +328,7 @@ class MetricsApplicationService:
             available_metrics,
         ) in self.metric_config.get_all_connectors_metrics().items():
             tracks_with_metadata: list[Track] = []
-            fresh_metadata: dict[UUID, dict[str, Any]] = {}
+            fresh_metadata: dict[UUID, Mapping[str, JsonValue]] = {}
 
             for track in tracks:
                 if (
@@ -353,7 +357,7 @@ class MetricsApplicationService:
 
     async def batch_process_fresh_metadata(
         self,
-        fresh_metadata: dict[UUID, dict[str, Any]],
+        fresh_metadata: dict[UUID, Mapping[str, JsonValue]],
         connector: str,
         available_metrics: list[str],
         field_map: dict[str, str],

@@ -11,7 +11,7 @@ import asyncio
 from asyncio import CancelledError
 import contextlib
 from datetime import datetime
-from typing import Any
+from typing import Any, Unpack
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -49,9 +49,9 @@ from src.application.use_cases.workflow_versions import (
     RevertWorkflowVersionCommand,
     RevertWorkflowVersionUseCase,
 )
-import src.application.workflows.node_catalog as _node_catalog  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers nodes
 from src.application.workflows.node_config_fields import get_node_config_fields
 from src.application.workflows.node_registry import list_nodes
+from src.application.workflows.protocols import RunStatusKwargs
 from src.application.workflows.validation import (
     is_validation_error,
     validate_workflow_def_detailed,
@@ -448,7 +448,7 @@ async def _run_repo_session():
 async def _update_run_status(
     run_id: UUID,
     status: RunStatus,
-    **kwargs: Any,
+    **kwargs: Unpack[RunStatusKwargs],
 ) -> None:
     """Concrete implementation of RunStatusUpdater."""
     async with _run_repo_session() as repo:
@@ -488,7 +488,7 @@ async def _execute_workflow_background(
     operation_id: str,
     workflow_def: WorkflowDef,
     run_id: UUID,
-    sse_queue: asyncio.Queue[Any],
+    sse_queue: asyncio.Queue[object],
     user_id: str,
 ) -> None:
     """Execute workflow in background, pushing SSE events for the run lifecycle.
@@ -555,7 +555,7 @@ async def _execute_workflow_background(
 async def _execute_preview_background(
     operation_id: str,
     workflow_def: WorkflowDef,
-    sse_queue: asyncio.Queue[Any],
+    sse_queue: asyncio.Queue[object],
     user_id: str,
 ) -> None:
     """Execute workflow preview in background, pushing SSE events.

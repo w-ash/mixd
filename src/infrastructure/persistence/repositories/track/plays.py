@@ -3,7 +3,7 @@
 # pyright: reportAny=false
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, override
 from uuid import UUID
@@ -428,7 +428,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
     @db_operation("bulk_update_play_source_services")
     async def bulk_update_play_source_services(
         self,
-        updates: list[tuple[UUID, dict[str, Any]]],
+        updates: Sequence[tuple[UUID, Mapping[str, Any]]],
     ) -> None:
         """Batch-update cross-source dedup metadata for multiple plays.
 

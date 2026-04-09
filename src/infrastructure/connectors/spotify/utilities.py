@@ -5,8 +5,6 @@ Contains common functions used across Spotify connectors for:
 - Search → rank → evaluate pipeline shared by cross-discovery and inward resolver
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from attrs import define

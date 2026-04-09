@@ -4,11 +4,14 @@ These frozen domain entities represent the structure of workflow JSON definition
 Used by validation, execution (Prefect), API schemas, and persistence layers.
 """
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID, uuid7
 
 from attrs import define, field
+
+from src.domain.entities.shared import JsonValue, empty_json_map
 
 NodeExecutionStatus = Literal["completed", "failed", "skipped", "degraded"]
 RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -28,9 +31,7 @@ class WorkflowTaskDef:
 
     id: str
     type: str
-    config: dict[str, Any] = field(
-        factory=dict
-    )  # Heterogeneous node config (str/int/float/bool/list); validated by node registry
+    config: Mapping[str, JsonValue] = field(factory=empty_json_map)
     upstream: list[str] = field(factory=list)
     result_key: str | None = None
 
@@ -106,29 +107,39 @@ class WorkflowDef:
     tasks: list[WorkflowTaskDef] = field(factory=list)
 
 
-def parse_task_dict(t: dict[str, Any]) -> WorkflowTaskDef:
+def parse_task_dict(t: Mapping[str, JsonValue]) -> WorkflowTaskDef:
     """Parse a single task dict from JSON into a typed WorkflowTaskDef.
 
     Shared by the workflow_loader (JSON files) and persistence mapper (DB JSON column).
     """
+    raw_cfg = t.get("config")
+    raw_upstream = t.get("upstream")
+    raw_result_key = t.get("result_key")
     return WorkflowTaskDef(
         id=str(t["id"]),
         type=str(t["type"]),
-        config=dict(t.get("config", {})),
-        upstream=list(t.get("upstream", [])),
-        result_key=t.get("result_key"),
+        config=dict(raw_cfg) if isinstance(raw_cfg, Mapping) else {},
+        upstream=[str(u) for u in raw_upstream]
+        if isinstance(raw_upstream, Sequence) and not isinstance(raw_upstream, str)
+        else [],
+        result_key=str(raw_result_key) if isinstance(raw_result_key, str) else None,
     )
 
 
-def parse_workflow_def(raw: dict[str, Any]) -> WorkflowDef:
+def parse_workflow_def(raw: Mapping[str, JsonValue]) -> WorkflowDef:
     """Reconstruct a WorkflowDef from a JSON-serialized dict."""
-    raw_tasks: list[dict[str, Any]] = raw.get("tasks", [])
+    raw_tasks = raw.get("tasks")
+    tasks_list: Sequence[JsonValue] = (
+        raw_tasks
+        if isinstance(raw_tasks, Sequence) and not isinstance(raw_tasks, str)
+        else []
+    )
     return WorkflowDef(
         id=str(raw.get("id", "")),
         name=str(raw.get("name", "")),
         description=str(raw.get("description", "")),
         version=str(raw.get("version", "1.0")),
-        tasks=[parse_task_dict(t) for t in raw_tasks],
+        tasks=[parse_task_dict(t) for t in tasks_list if isinstance(t, Mapping)],
     )
 
 

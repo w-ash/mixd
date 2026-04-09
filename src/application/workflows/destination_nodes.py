@@ -7,6 +7,7 @@ use cases. Supports both local canonical playlists and external platform playlis
 
 # pyright: reportAny=false
 
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
@@ -23,8 +24,10 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistCommand,
 )
 from src.config import get_logger
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 
+from .config_accessors import cfg_bool, cfg_str, cfg_str_or_none
 from .node_context import NodeContext
 from .protocols import NodeResult, WorkflowContext
 from .template_utils import render_playlist_config_templates
@@ -33,8 +36,8 @@ logger = get_logger(__name__)
 
 
 def _prepare_destination(
-    context: dict[str, Any], config: dict[str, Any]
-) -> tuple[TrackList, dict[str, Any], WorkflowContext]:
+    context: dict[str, Any], config: Mapping[str, JsonValue]
+) -> tuple[TrackList, dict[str, JsonValue], WorkflowContext]:
     """Extract tracklist, render templates, and get workflow context.
 
     Shared preamble for destination nodes that need all three.
@@ -72,7 +75,7 @@ async def _find_existing_playlist_by_name(
 
 async def create_playlist(
     context: dict[str, Any],
-    config: dict[str, Any],
+    config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
 
@@ -97,7 +100,7 @@ async def create_playlist(
         )
         return {"tracklist": tracklist}
 
-    playlist_name = config.get("name")
+    playlist_name = cfg_str(config, "name")
     if not playlist_name:
         raise ValueError("Missing required 'name' for create_playlist operation")
 
@@ -118,7 +121,7 @@ async def create_playlist(
         }
         return await update_playlist(context, update_config)
 
-    if connector := config.get("connector"):
+    if connector := cfg_str_or_none(config, "connector"):
         await ctx.emit_phase_progress(
             "sync", "destination", f"Creating playlist on {connector}"
         )
@@ -129,7 +132,7 @@ async def create_playlist(
             tracklist=tracklist,
             playlist_name=playlist_name,
             connector=connector,
-            playlist_description=config.get("description", "Created by Mixd"),
+            playlist_description=cfg_str(config, "description", "Created by Mixd"),
             create_internal_playlist=True,
         )
         result = await workflow_context.execute_use_case(
@@ -151,7 +154,7 @@ async def create_playlist(
             user_id=workflow_context.user_id,
             name=playlist_name,
             tracklist=tracklist,
-            description=config.get("description", "Created by Mixd"),
+            description=cfg_str(config, "description", "Created by Mixd"),
         )
         result = await workflow_context.execute_use_case(
             workflow_context.use_cases.get_create_canonical_playlist_use_case, command
@@ -168,7 +171,7 @@ async def create_playlist(
 
 async def update_playlist(
     context: dict[str, Any],
-    config: dict[str, Any],
+    config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Update existing playlist with track replacement or appending.
 
@@ -198,15 +201,15 @@ async def update_playlist(
         )
         return {"tracklist": tracklist}
 
-    playlist_id = config.get("playlist_id")
+    playlist_id = cfg_str(config, "playlist_id")
     if not playlist_id:
         raise ValueError("Missing required 'playlist_id' for update_playlist operation")
 
-    append: bool = bool(config.get("append", False))
+    append = cfg_bool(config, "append")
 
     ctx = NodeContext(context)
 
-    if connector := config.get("connector"):
+    if connector := cfg_str_or_none(config, "connector"):
         await ctx.emit_phase_progress(
             "sync", "destination", f"Syncing playlist to {connector}"
         )
@@ -218,8 +221,8 @@ async def update_playlist(
             new_tracklist=tracklist,
             connector=connector,
             append_mode=append,
-            playlist_name=config.get("name"),  # Optional metadata update
-            playlist_description=config.get("description"),  # Optional metadata update
+            playlist_name=cfg_str_or_none(config, "name"),
+            playlist_description=cfg_str_or_none(config, "description"),
             preserve_timestamps=not append,  # Use preservation for overwrite
         )
         result = await workflow_context.execute_use_case(
@@ -245,8 +248,8 @@ async def update_playlist(
             playlist_id=playlist_id,
             new_tracklist=tracklist,
             append_mode=append,
-            playlist_name=config.get("name"),  # Optional metadata update
-            playlist_description=config.get("description"),  # Optional metadata update
+            playlist_name=cfg_str_or_none(config, "name"),
+            playlist_description=cfg_str_or_none(config, "description"),
         )
         result = await workflow_context.execute_use_case(
             workflow_context.use_cases.get_update_canonical_playlist_use_case, command

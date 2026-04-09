@@ -10,9 +10,10 @@ from the same directory without duplicating parsing logic.
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from src.config.logging import get_logger
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import WorkflowDef, parse_workflow_def
 
 logger = get_logger(__name__)
@@ -37,7 +38,9 @@ def load_workflow_def(path: Path) -> WorkflowDef:
         json.JSONDecodeError: If the file contains invalid JSON.
         KeyError/TypeError: If required fields are missing or malformed.
     """
-    raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    raw: dict[str, JsonValue] = cast(
+        dict[str, JsonValue], json.loads(path.read_text(encoding="utf-8"))
+    )
     raw.setdefault("id", path.stem)
     raw.setdefault("name", "Unknown")
     return parse_workflow_def(raw)

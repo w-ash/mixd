@@ -4,15 +4,15 @@ Provides simple template string processing for playlist names and descriptions
 with minimal overhead and clean separation of concerns.
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+
+from src.domain.entities.shared import JsonValue
 
 
 def render_playlist_config_templates(
-    config: dict[str, Any], track_count: int
-) -> dict[str, Any]:
+    config: Mapping[str, JsonValue], track_count: int
+) -> dict[str, JsonValue]:
     """Render template strings in playlist config with dynamic values.
 
     Processes 'name' and 'description' fields in config dict, replacing
@@ -41,7 +41,7 @@ def render_playlist_config_templates(
         {"name": "Obsessions 2025-07-29", "description": "42 tracks"}
     """
     if not config:
-        return config.copy()
+        return dict(config)
 
     # Build template context from current datetime and track count
     now = datetime.now(UTC)
@@ -53,7 +53,7 @@ def render_playlist_config_templates(
     }
 
     # Create new config dict to avoid mutating input
-    result = config.copy()
+    result = dict(config)
 
     # Render templates in name and description fields
     for field in ["name", "description"]:

@@ -243,7 +243,7 @@ def _def_to_schema(wf_def: WorkflowDef) -> WorkflowDefSchema:
             WorkflowTaskDefSchema(
                 id=t.id,
                 type=t.type,
-                config=t.config,
+                config=dict(t.config),
                 upstream=t.upstream,
                 result_key=t.result_key,
             )
@@ -312,7 +312,7 @@ def schema_to_workflow_def(schema: WorkflowDefSchema) -> WorkflowDef:
             WorkflowTaskDef(
                 id=t.id,
                 type=t.type,
-                config=t.config,
+                config=dict(t.config),
                 upstream=t.upstream,
                 result_key=t.result_key,
             )

@@ -16,7 +16,7 @@ definitions can focus on data flow rather than implementation details.
 
 # pyright: reportAny=false
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypedDict, cast
 
 # Import for enrichment functionality
@@ -27,9 +27,11 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksCommand,
 )
 from src.config import get_logger
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.transforms.core import require_database_tracks
 
+from .config_accessors import cfg_bool, cfg_int, cfg_str_list
 from .node_context import NodeContext
 from .node_registry import NodeFn
 from .protocols import MetricConfigProvider, NodeResult
@@ -39,7 +41,7 @@ from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
 type _TransformFn = Callable[[TrackList], TrackList]
 
 
-type _TransformFactory = Callable[[Any, dict[str, Any]], _TransformFn]
+type _TransformFactory = Callable[[NodeContext, Mapping[str, JsonValue]], _TransformFn]
 
 logger = get_logger(__name__)
 
@@ -120,7 +122,9 @@ def make_node(
     )
     operation = operation_name or f"{category}.{node_type}"
 
-    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
+    async def node_impl(  # noqa: RUF029
+        context: dict[str, Any], config: Mapping[str, JsonValue]
+    ) -> NodeResult:
         ctx = NodeContext(context)
         try:
             tracklist = ctx.extract_tracklist()
@@ -168,7 +172,9 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
     combiner_fn = COMBINER_REGISTRY[combiner_type].fn
     operation = f"combiner.{combiner_type}"
 
-    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:  # noqa: RUF029
+    async def node_impl(  # noqa: RUF029
+        context: dict[str, Any], config: Mapping[str, JsonValue]
+    ) -> NodeResult:
         ctx = NodeContext(context)
         upstream_task_ids: list[str] = context.get("upstream_task_ids", [])
 
@@ -184,7 +190,7 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
 
         # Domain combiners are dual-mode: pass tracklist=TrackList() to get
         # immediate TrackList result rather than a curried Transform function
-        deduplicate = config.get("deduplicate", False)
+        deduplicate = cfg_bool(config, "deduplicate")
         result = cast(
             TrackList,
             combiner_fn(
@@ -205,7 +211,7 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
 
 # Config builder type: constructs an EnrichmentConfig from node context and config
 type _EnrichmentConfigBuilder = Callable[
-    [NodeContext, dict[str, Any]], EnrichmentConfig
+    [NodeContext, Mapping[str, JsonValue]], EnrichmentConfig
 ]
 
 
@@ -232,7 +238,7 @@ def build_external_enrichment_config(
         raise ValueError("Enricher configuration must specify a 'connector' type")
     attribute_names = static_config.get("attributes", ["user_playcount"])
 
-    def builder(ctx: NodeContext, _config: dict[str, Any]) -> EnrichmentConfig:
+    def builder(ctx: NodeContext, _config: Mapping[str, JsonValue]) -> EnrichmentConfig:
         workflow_context = ctx.extract_workflow_context()
         metric_names = _get_connector_metric_names(
             workflow_context.metric_config, connector, attribute_names
@@ -250,13 +256,14 @@ def build_external_enrichment_config(
 
 
 def build_play_history_enrichment_config(
-    _ctx: NodeContext, config: dict[str, Any]
+    _ctx: NodeContext, config: Mapping[str, JsonValue]
 ) -> EnrichmentConfig:
     """Build config for play-history enrichment from internal database."""
+    metrics = cfg_str_list(config, "metrics") or ["total_plays", "last_played_dates"]
     return EnrichmentConfig(
         enrichment_type="play_history",
-        metrics=config.get("metrics", ["total_plays", "last_played_dates"]),
-        period_days=config.get("period_days"),
+        metrics=metrics,
+        period_days=cfg_int(config, "period_days"),
     )
 
 
@@ -274,7 +281,9 @@ def create_enricher_node(
         Async function that enriches track collections
     """
 
-    async def node_impl(context: dict[str, Any], config: dict[str, Any]) -> NodeResult:
+    async def node_impl(
+        context: dict[str, Any], config: Mapping[str, JsonValue]
+    ) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
         require_database_tracks(tracklist)

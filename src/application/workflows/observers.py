@@ -16,7 +16,7 @@ orchestration loop when no observer is provided.
 """
 
 # pyright: reportAny=false
-# Legitimate Any: SSE queue carries heterogeneous event dicts
+# Legitimate Any: _build_sse_node_event data dict, NodeStatusUpdater node_details
 
 import asyncio
 from datetime import UTC, datetime
@@ -77,7 +77,7 @@ def _build_sse_node_event(
 
 
 async def _push_sse_node_event(
-    queue: asyncio.Queue[Any] | None,
+    queue: asyncio.Queue[object] | None,
     counter: int,
     event: NodeExecutionEvent,
     status: RunStatus,
@@ -207,11 +207,11 @@ class PreviewNodeObserver:
     SSE ``node_status`` events for live canvas updates during preview.
     """
 
-    _sse_queue: asyncio.Queue[Any] | None
+    _sse_queue: asyncio.Queue[object] | None
     _event_counter: int
     _summaries: list[NodePreviewSummary]
 
-    def __init__(self, sse_queue: asyncio.Queue[Any] | None = None) -> None:
+    def __init__(self, sse_queue: asyncio.Queue[object] | None = None) -> None:
         self._sse_queue = sse_queue
         self._event_counter = 0
         self._summaries = []
@@ -269,7 +269,7 @@ class RunHistoryObserver:
 
     _run_id: UUID
     _update_node_status_fn: NodeStatusUpdater
-    _sse_queue: asyncio.Queue[Any] | None
+    _sse_queue: asyncio.Queue[object] | None
     _event_counter: int
     _persist_failure_count: int
 
@@ -277,7 +277,7 @@ class RunHistoryObserver:
         self,
         run_id: UUID,
         update_node_status: NodeStatusUpdater,
-        sse_queue: asyncio.Queue[Any] | None = None,
+        sse_queue: asyncio.Queue[object] | None = None,
     ) -> None:
         self._run_id = run_id
         self._update_node_status_fn = update_node_status

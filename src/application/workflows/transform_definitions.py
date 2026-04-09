@@ -10,12 +10,9 @@ To add a new transform:
 3. It auto-registers as a workflow node via node_catalog.py
 """
 
-# pyright: reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from operator import attrgetter
-from typing import Any, NamedTuple
+from typing import NamedTuple, Protocol
 
 from src.application.metadata_transforms import (
     filter_by_explicit,
@@ -26,6 +23,7 @@ from src.application.metadata_transforms import (
     weighted_shuffle,
 )
 from src.application.metadata_transforms.metric_routing import route_metric_sorting
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.transforms import (
     concatenate,
@@ -44,15 +42,25 @@ from src.domain.transforms import (
 )
 from src.domain.transforms.core import Transform
 
+from .config_accessors import cfg_bool, cfg_float, cfg_int, cfg_str, cfg_str_or_none
 from .node_context import NodeContext
 
 # Transform factory: takes (context, config) and returns a TrackList→TrackList transform.
-type TransformFactory = Callable[[NodeContext, dict[str, Any]], Transform | TrackList]
+type TransformFactory = Callable[
+    [NodeContext, Mapping[str, JsonValue]], Transform | TrackList
+]
 
-# Combiner factory: takes list[TrackList] and returns a merged TrackList.
-# Return type is Transform | TrackList because domain combiners are dual-mode
-# (they return TrackList when given tracklists, Transform when curried).
-type CombinerFn = Callable[..., Transform | TrackList]
+
+class CombinerFn(Protocol):
+    """Combiner: list[TrackList] → TrackList (dual-mode, returns Transform when curried)."""
+
+    def __call__(
+        self,
+        tracklists: list[TrackList],
+        *,
+        deduplicate: bool = ...,
+        tracklist: TrackList | None = ...,
+    ) -> Transform | TrackList: ...
 
 
 class TransformEntry(NamedTuple):
@@ -89,63 +97,63 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
         ),
         "by_release_date": _tf(
             lambda _ctx, cfg: filter_by_date_range(
-                cfg.get("min_age_days"),
-                cfg.get("max_age_days"),
+                cfg_int(cfg, "min_age_days"),
+                cfg_int(cfg, "max_age_days"),
             ),
             "Filters tracks by release date range",
         ),
         "by_tracks": _tf(
             lambda ctx, cfg: exclude_tracks(
-                ctx.data[cfg["exclusion_source"]]["tracklist"].tracks,
+                ctx.data[cfg_str(cfg, "exclusion_source")]["tracklist"].tracks,
             ),
             "Excludes tracks from input that are present in exclusion source",
         ),
         "by_artists": _tf(
             lambda ctx, cfg: exclude_artists(
-                ctx.data[cfg["exclusion_source"]]["tracklist"].tracks,
-                cfg.get("exclude_all_artists", False),
+                ctx.data[cfg_str(cfg, "exclusion_source")]["tracklist"].tracks,
+                cfg_bool(cfg, "exclude_all_artists"),
             ),
             "Excludes tracks whose artists appear in exclusion source",
         ),
         "by_metric": _tf(
             lambda _ctx, cfg: filter_by_metric_range(
-                metric_name=cfg["metric_name"],
-                min_value=cfg.get("min_value"),
-                max_value=cfg.get("max_value"),
-                include_missing=cfg.get("include_missing", False),
+                metric_name=cfg_str(cfg, "metric_name"),
+                min_value=cfg_float(cfg, "min_value"),
+                max_value=cfg_float(cfg, "max_value"),
+                include_missing=cfg_bool(cfg, "include_missing"),
             ),
             "Filters tracks based on metric value range",
         ),
         "by_duration": _tf(
             lambda _ctx, cfg: filter_by_duration(
-                min_ms=cfg.get("min_ms"),
-                max_ms=cfg.get("max_ms"),
-                include_missing=cfg.get("include_missing", False),
+                min_ms=cfg_int(cfg, "min_ms"),
+                max_ms=cfg_int(cfg, "max_ms"),
+                include_missing=cfg_bool(cfg, "include_missing"),
             ),
             "Filters tracks by duration range (milliseconds)",
         ),
         "by_liked_status": _tf(
             lambda _ctx, cfg: filter_by_liked_status(
-                service=cfg["service"],
-                is_liked=cfg.get("is_liked", True),
+                service=cfg_str(cfg, "service"),
+                is_liked=cfg_bool(cfg, "is_liked", True),
             ),
             "Filters tracks by liked status on a specific service",
         ),
         "by_explicit": _tf(
             lambda _ctx, cfg: filter_by_explicit(
-                keep=cfg.get("keep", "all"),
+                keep=cfg_str(cfg, "keep", "all"),
             ),
             "Filters tracks by explicit content flag",
         ),
         "by_play_history": _tf(
             lambda _ctx, cfg: filter_by_play_history(
-                min_plays=cfg.get("min_plays"),
-                max_plays=cfg.get("max_plays"),
-                start_date=cfg.get("start_date"),
-                end_date=cfg.get("end_date"),
-                min_days_back=cfg.get("min_days_back"),
-                max_days_back=cfg.get("max_days_back"),
-                include_missing=cfg.get("include_missing", False),
+                min_plays=cfg_int(cfg, "min_plays"),
+                max_plays=cfg_int(cfg, "max_plays"),
+                start_date=cfg_str_or_none(cfg, "start_date"),
+                end_date=cfg_str_or_none(cfg, "end_date"),
+                min_days_back=cfg_int(cfg, "min_days_back"),
+                max_days_back=cfg_int(cfg, "max_days_back"),
+                include_missing=cfg_bool(cfg, "include_missing"),
             ),
             "Filters tracks by play count and/or listening date with flexible constraints",
         ),
@@ -159,38 +167,38 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             lambda _ctx, cfg: sort_by_key_function(
                 key_fn=attrgetter("release_date"),
                 metric_name="release_date",
-                reverse=cfg.get("reverse", False),
+                reverse=cfg_bool(cfg, "reverse"),
             ),
             "Sorts tracks by release date",
         ),
         "by_play_history": _tf(
             lambda _ctx, cfg: sort_by_play_history(
-                start_date=cfg.get("start_date"),
-                end_date=cfg.get("end_date"),
-                min_days_back=cfg.get("min_days_back"),
-                max_days_back=cfg.get("max_days_back"),
-                reverse=cfg.get("reverse", True),
+                start_date=cfg_str_or_none(cfg, "start_date"),
+                end_date=cfg_str_or_none(cfg, "end_date"),
+                min_days_back=cfg_int(cfg, "min_days_back"),
+                max_days_back=cfg_int(cfg, "max_days_back"),
+                reverse=cfg_bool(cfg, "reverse", True),
             ),
             "Sorts tracks by play frequency within optional time windows",
         ),
         "by_added_at": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="added_at",
-                ascending=cfg.get("ascending", True),
+                ascending=cfg_bool(cfg, "ascending", True),
             ),
             "Sorts tracks by date added to source playlist",
         ),
         "by_first_played": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="first_played",
-                ascending=cfg.get("ascending", True),
+                ascending=cfg_bool(cfg, "ascending", True),
             ),
             "Sorts tracks by date first played",
         ),
         "by_last_played": _tf(
             lambda _ctx, cfg: sort_by_date(
                 date_source="last_played",
-                ascending=cfg.get("ascending", True),
+                ascending=cfg_bool(cfg, "ascending", True),
             ),
             "Sorts tracks by date most recently played",
         ),
@@ -200,7 +208,7 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
         ),
         "weighted_shuffle": _tf(
             lambda _ctx, cfg: weighted_shuffle(
-                cfg.get("shuffle_strength", 0.5),
+                cfg_float(cfg, "shuffle_strength", 0.5),
             ),
             "Shuffles tracks with configurable strength (0.0=original order, 1.0=fully random)",
         ),
@@ -208,15 +216,15 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
     "selector": {
         "limit_tracks": _tf(
             lambda _ctx, cfg: select_by_method(
-                cfg.get("count", 10),
-                cfg.get("method", "first"),
+                cfg_int(cfg, "count", 10),
+                cfg_str(cfg, "method", "first"),
             ),
             "Limits playlist to specified number of tracks",
         ),
         "percentage": _tf(
             lambda _ctx, cfg: select_by_percentage(
-                percentage=cfg["percentage"],
-                method=cfg.get("method", "first"),
+                percentage=cfg_float(cfg, "percentage", 0.0),
+                method=cfg_str(cfg, "method", "first"),
             ),
             "Selects a percentage of tracks",
         ),

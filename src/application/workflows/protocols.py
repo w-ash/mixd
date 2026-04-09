@@ -12,11 +12,11 @@ into WorkflowContext, which provides unified access to all workflow dependencies
 """
 
 # pyright: reportAny=false
-# Legitimate Any: RunStatusUpdater **kwargs pass-through
+# Legitimate Any: NodeStatusUpdater node_details, NodeResult node_details
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, NotRequired, Protocol, TypedDict
+from typing import Any, NotRequired, Protocol, TypedDict, Unpack
 from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -209,6 +209,17 @@ class MetricConfigProvider(Protocol):
         ...
 
 
+class RunStatusKwargs(TypedDict, total=False):
+    """Typed kwargs for RunStatusUpdater (forwarded to repo.update_run_status)."""
+
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: int
+    output_track_count: int | None
+    output_tracks: list[dict[str, object]] | None
+    error_message: str
+
+
 class RunStatusUpdater(Protocol):
     """Typed contract for run-level status updates.
 
@@ -216,7 +227,7 @@ class RunStatusUpdater(Protocol):
     """
 
     async def __call__(
-        self, run_id: UUID, status: RunStatus, **kwargs: Any
+        self, run_id: UUID, status: RunStatus, **kwargs: Unpack[RunStatusKwargs]
     ) -> None: ...
 
 

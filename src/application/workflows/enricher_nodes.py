@@ -9,12 +9,14 @@ connector access and custom persistence logic.
 # pyright: reportAny=false
 # Legitimate Any: Prefect context dicts
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
 from src.application.connector_protocols import LibraryContainsConnector
 from src.config import get_logger
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -26,7 +28,7 @@ logger = get_logger(__name__)
 
 async def enrich_spotify_liked_status(
     context: dict[str, Any],
-    config: dict[str, Any],  # noqa: ARG001
+    config: Mapping[str, JsonValue],  # noqa: ARG001
 ) -> NodeResult:
     """Check which tracks are saved in the user's Spotify library.
 

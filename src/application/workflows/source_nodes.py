@@ -11,10 +11,11 @@ All functions return standardized track data for playlist creation and analysis.
 # pyright: reportAny=false
 # Legitimate Any: Prefect context dicts
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 from src.application.services.connector_playlist_sync_service import (
-    sync_connector_playlist,
+    syncconnector__playlist,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.use_cases.create_canonical_playlist import (
@@ -28,10 +29,12 @@ from src.application.use_cases.read_canonical_playlist import (
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import ConnectorPlaylist
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 from src.domain.repositories.interfaces import PlaySortBy
 
+from .config_accessors import cfg_int, cfg_str, cfg_str_or_none
 from .node_context import NodeContext
 from .protocols import NodeResult
 
@@ -39,7 +42,7 @@ logger = get_logger(__name__)
 
 
 def _extract_library_config(
-    config: dict[str, Any], default_sort: str
+    config: Mapping[str, JsonValue], default_sort: str
 ) -> tuple[int, str | None, str]:
     """Extract shared config for library source nodes (liked/played).
 
@@ -48,12 +51,11 @@ def _extract_library_config(
     validator enforces the upper bound (1M sanity guard).
     """
     limit = (
-        int(config["limit"])
-        if "limit" in config
-        else BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
+        cfg_int(config, "limit", BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT)
+        or BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT
     )
-    connector_filter: str | None = config.get("connector_filter")
-    sort_by = str(config.get("sort_by", default_sort))
+    connector_filter = cfg_str_or_none(config, "connector_filter")
+    sort_by = cfg_str(config, "sort_by", default_sort)
     return limit, connector_filter, sort_by
 
 
@@ -83,7 +85,7 @@ def _build_source_tracklist(
 
 
 async def playlist_source(
-    context: dict[str, Any], config: dict[str, Any]
+    context: dict[str, Any], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Import playlist from streaming service or retrieve saved playlist.
 
@@ -102,11 +104,11 @@ async def playlist_source(
     Raises:
         ValueError: If playlist_id is missing from config.
     """
-    playlist_id = config.get("playlist_id")
+    playlist_id = cfg_str(config, "playlist_id")
     if not playlist_id:
         raise ValueError("Missing required config parameter: playlist_id")
 
-    connector = config.get("connector")
+    connector = cfg_str_or_none(config, "connector")
 
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
@@ -127,7 +129,10 @@ async def playlist_source(
             raise ValueError(f"Canonical playlist not found: {playlist_id}")
 
         tracklist_with_source = _build_source_tracklist(
-            result.playlist.tracks, result.playlist.name, "canonical", playlist_id
+            result.playlist.tracks,
+            result.playlist.name,
+            "canonical",
+            playlist_id,
         )
 
         logger.info(
@@ -144,19 +149,23 @@ async def playlist_source(
         logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
         await ctx.emit_phase_progress(
-            "fetch", "source", f"Fetching playlist from {connector}"
+            "fetch",
+            "source",
+            f"Fetching playlist from {connector}",
         )
 
+        connector_ = connector  # capture narrowed str for closure
+
         async def _sync_and_upsert(uow: UnitOfWorkProtocol):
-            connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
-                connector, playlist_id, uow
+            connector_playlist: ConnectorPlaylist = await syncconnector__playlist(
+                connector_, playlist_id, uow
             )
             if not connector_playlist.items:
                 return None
 
             result = await upsert_canonical_playlist(
                 connector_playlist,
-                connector,
+                connector_,
                 playlist_id,
                 uow,
                 metric_config=workflow_context.metric_config,
@@ -188,7 +197,10 @@ async def playlist_source(
         result, action = outcome
         playlist = result.playlist
         tracklist_with_source = _build_source_tracklist(
-            playlist.tracks, playlist.name, connector, playlist_id
+            playlist.tracks,
+            playlist.name,
+            connector_,
+            playlist_id,
         )
 
         logger.info(
@@ -206,7 +218,7 @@ async def playlist_source(
 
 
 async def source_liked_tracks(
-    context: dict[str, Any], config: dict[str, Any]
+    context: dict[str, Any], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Get user's favorited tracks with filtering and sorting options.
 
@@ -263,7 +275,7 @@ async def source_liked_tracks(
 
 
 async def source_played_tracks(
-    context: dict[str, Any], config: dict[str, Any]
+    context: dict[str, Any], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Get user's listening history with time window and sorting options.
 
@@ -285,7 +297,7 @@ async def source_played_tracks(
     limit, connector_filter, sort_by_str = _extract_library_config(
         config, "played_at_desc"
     )
-    days_back: int | None = config.get("days_back")
+    days_back = cfg_int(config, "days_back")
 
     # Get workflow context and execute use case
     ctx = NodeContext(context)

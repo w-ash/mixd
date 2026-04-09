@@ -9,6 +9,7 @@ recovery, and database session management for long-running playlist operations.
 # pyright: reportAny=false
 
 import asyncio
+from collections.abc import Mapping
 import datetime
 import signal
 import time
@@ -29,6 +30,7 @@ from src.domain.entities.progress import (
     OperationStatus,
     create_progress_operation,
 )
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import (
     NodeExecutionEvent,
     NodeExecutionRecord,
@@ -144,7 +146,7 @@ def _get_node_timeout(node_type: str) -> int:
     # transform nodes are pure and deterministic (retrying won't help)
 )
 async def execute_node(
-    node_type: str, context: dict[str, Any], config: dict[str, Any]
+    node_type: str, context: dict[str, Any], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Execute a single workflow node.
 

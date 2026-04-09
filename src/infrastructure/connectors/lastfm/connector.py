@@ -9,7 +9,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 # pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any, ClassVar, override
 from uuid import UUID
@@ -18,6 +18,7 @@ from attrs import define, field
 
 from src.config import get_logger, settings
 from src.domain.entities import ConnectorTrack, PlayRecord, Track
+from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
@@ -90,7 +91,7 @@ class LastFMConnector(BaseAPIConnector):
         self,
         tracks: list[Track],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[UUID, dict[str, Any]]:
+    ) -> dict[UUID, Mapping[str, JsonValue]]:
         """Unified interface for retrieving complete Last.fm track data (TrackMetadataConnector protocol).
 
         Uses Last.fm's batch_get_track_info to fetch complete track information objects,

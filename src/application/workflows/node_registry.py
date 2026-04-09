@@ -8,8 +8,10 @@ workflow definitions and node implementations.
 
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal, NotRequired, TypedDict, Unpack
+
+from src.domain.entities.shared import JsonValue
 
 from .protocols import NodeResult
 
@@ -24,8 +26,9 @@ type NodeType = Literal[
     "destination",
 ]
 
-# Define strict node function type
-type NodeFn = Callable[[dict[str, Any], dict[str, Any]], Awaitable[NodeResult]]
+# First param is Prefect execution context (heterogeneous, stays Any).
+# Second param is workflow config (validated JSON).
+type NodeFn = Callable[[dict[str, Any], Mapping[str, JsonValue]], Awaitable[NodeResult]]
 
 
 class NodeMetadata(TypedDict):

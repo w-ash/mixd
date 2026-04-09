@@ -10,8 +10,9 @@ Provides:
 
 # pyright: reportAny=false
 
-from typing import Any
+from collections.abc import Mapping
 
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
 
 from .node_config_fields import (
@@ -79,7 +80,9 @@ def compute_parallel_levels(
     return levels
 
 
-def _validate_node_config(node_type: str, config: dict[str, Any], task_id: str) -> None:
+def _validate_node_config(
+    node_type: str, config: Mapping[str, JsonValue], task_id: str
+) -> None:
     """Validate that a node's config contains all required keys with correct types.
 
     Derives required keys and type checks from the rich config field registry

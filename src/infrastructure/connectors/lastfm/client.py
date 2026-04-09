@@ -13,8 +13,6 @@ Key components:
 # pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
-from __future__ import annotations
-
 import asyncio
 from datetime import datetime
 import hashlib

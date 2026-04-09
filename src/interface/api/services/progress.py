@@ -8,11 +8,8 @@ Three components bridge the domain progress system to Server-Sent Events:
 - SSEProgressSubscriber: ProgressSubscriber that routes events into SSE queues.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: SSE event data dicts, progress metadata
-
 import asyncio
-from typing import Any, override
+from typing import Final, override
 
 from attrs import define, evolve, field
 
@@ -26,9 +23,12 @@ from src.domain.entities.progress import (
 
 logger = get_logger(__name__).bind(service="sse_progress")
 
-# Sentinel value placed on the queue after the final event,
-# telling the SSE generator to close the connection.
-SSE_SENTINEL = object()
+
+class _SSESentinel:
+    """Typed sentinel placed on the queue to signal stream termination."""
+
+
+SSE_SENTINEL: Final = _SSESentinel()
 
 
 # ---------------------------------------------------------------------------
@@ -79,17 +79,17 @@ class SSEOperationRegistry:
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, asyncio.Queue[Any]] = {}
+        self._queues: dict[str, asyncio.Queue[object]] = {}
         self._lock = asyncio.Lock()
 
-    async def register(self, operation_id: str) -> asyncio.Queue[Any]:
+    async def register(self, operation_id: str) -> asyncio.Queue[object]:
         async with self._lock:
-            queue: asyncio.Queue[Any] = asyncio.Queue()
+            queue: asyncio.Queue[object] = asyncio.Queue()
             self._queues[operation_id] = queue
             logger.debug("SSE queue registered", operation_id=operation_id)
             return queue
 
-    async def get_queue(self, operation_id: str) -> asyncio.Queue[Any] | None:
+    async def get_queue(self, operation_id: str) -> asyncio.Queue[object] | None:
         async with self._lock:
             return self._queues.get(operation_id)
 

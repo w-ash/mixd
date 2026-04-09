@@ -9,8 +9,8 @@ SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 # pyright: reportAny=false
 # Legitimate Any: API response dicts, connector facade delegation
 
-from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar, override
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, ClassVar, cast, override
 from uuid import UUID
 
 from attrs import define, field
@@ -21,6 +21,7 @@ from src.domain.entities import (
     Playlist,
     Track,
 )
+from src.domain.entities.shared import JsonValue
 from src.domain.playlist.diff_engine import PlaylistOperation
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
@@ -97,7 +98,7 @@ class SpotifyConnector(BaseAPIConnector):
         self,
         tracks: list[Track],
         _progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[UUID, dict[str, Any]]:
+    ) -> dict[UUID, Mapping[str, JsonValue]]:
         """Unified interface for retrieving complete Spotify track data (TrackMetadataConnector protocol).
 
         Extracts Spotify IDs from Track objects and returns complete Spotify track objects
@@ -117,9 +118,9 @@ class SpotifyConnector(BaseAPIConnector):
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
         raw_metadata = await self._operations.get_tracks_by_ids(spotify_ids)
 
-        # Map back to track.id format expected by the protocol (requires dict)
+        # Map back to track.id format expected by the protocol
         return {
-            track.id: raw_metadata[spotify_id].model_dump()
+            track.id: cast(dict[str, JsonValue], raw_metadata[spotify_id].model_dump())
             for track, spotify_id in spotify_mapped
             if spotify_id in raw_metadata
         }

@@ -7,6 +7,7 @@ tracks to canonical internal tracks, and stores service-specific metadata and ID
 # pyright: reportAny=false
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast, override
 from uuid import UUID
@@ -211,7 +212,7 @@ class TrackConnectorRepository:
         duration_ms: int | None,
         release_date: datetime | None,
         isrc: str | None,
-        raw_metadata: dict[str, Any] | None,
+        raw_metadata: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         """Build a dict suitable for bulk_upsert of connector tracks."""
         return {
@@ -233,7 +234,7 @@ class TrackConnectorRepository:
     async def ensure_connector_tracks(
         self,
         connector_name: str,
-        tracks_data: list[dict[str, Any]],
+        tracks_data: Sequence[Mapping[str, Any]],
     ) -> dict[tuple[str, str], UUID]:
         """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
 
@@ -639,7 +640,7 @@ class TrackConnectorRepository:
         # 4. Create or find domain tracks
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, Any]] = []
-        metrics_data: list[tuple[UUID | None, dict[str, Any]]] = []
+        metrics_data: list[tuple[UUID, Mapping[str, Any]]] = []
 
         # Process each unique connector track identifier
         for connector_track_identifier, track_group in tracks_by_identifier.items():

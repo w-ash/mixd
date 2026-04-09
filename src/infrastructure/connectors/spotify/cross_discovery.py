@@ -6,8 +6,6 @@ Last.fm) can discover Spotify mappings without directly importing
 domain protocol, satisfying DDD's dependency rule.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from src.config import create_evaluation_service, get_logger

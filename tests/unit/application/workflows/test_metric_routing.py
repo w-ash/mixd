@@ -39,8 +39,8 @@ class TestRouteMetricSorting:
         assert callable(result)
 
     def test_missing_metric_name_raises(self):
-        """Missing metric_name in config raises ValueError."""
-        with pytest.raises(ValueError, match="metric_name is required"):
+        """Missing metric_name in config raises TypeError."""
+        with pytest.raises(TypeError, match="metric_name must be a string"):
             route_metric_sorting({})
 
     @pytest.mark.parametrize(

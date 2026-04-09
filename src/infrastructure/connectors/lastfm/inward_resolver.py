@@ -11,8 +11,6 @@ Flow per missing track:
 4. Attempt cross-service discovery via ``CrossDiscoveryProvider`` protocol
 """
 
-from __future__ import annotations
-
 from typing import override
 
 from src.config import get_logger

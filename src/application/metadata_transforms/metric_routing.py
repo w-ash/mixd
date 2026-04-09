@@ -6,7 +6,7 @@ This is application-layer knowledge — the domain provides pure sort functions,
 and this module makes the routing decisions.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from src.application.metadata_transforms import (
@@ -68,7 +68,7 @@ def resolve_sort_key_function(value_name: str) -> Callable[[Track], SortKey] | N
     return track_attribute_extractors.get(value_name)
 
 
-def route_metric_sorting(cfg: dict[str, object]) -> Transform | TrackList:
+def route_metric_sorting(cfg: Mapping[str, object]) -> Transform | TrackList:
     """Route metric sorting to appropriate domain function based on data source.
 
     Clean separation of concerns: application layer makes routing decisions,

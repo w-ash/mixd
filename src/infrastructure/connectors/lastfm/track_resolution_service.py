@@ -6,8 +6,6 @@ Resolves Last.fm play data to canonical tracks by:
 3. Mapping resolved tracks back to the original play record order
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 
 from src.config import get_logger

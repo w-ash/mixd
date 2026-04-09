@@ -4,12 +4,9 @@ Provides real-time progress streaming via Server-Sent Events and
 snapshot endpoints for querying operation state.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: SSE event data dicts from queue
-
 from collections.abc import AsyncGenerator
 import contextlib
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -68,13 +65,18 @@ async def stream_operation_progress(
             logger.debug("SSE client disconnected", operation_id=operation_id)
             break
 
-        event_dict: Any = await queue.get()
+        raw = await queue.get()
 
-        if event_dict is SSE_SENTINEL:
+        if raw is SSE_SENTINEL:
             break
 
+        if not isinstance(raw, dict):
+            continue
+
+        event_dict: dict[str, object] = raw
+
         # Reconnection support: skip events the client already received
-        event_id: str = event_dict.get("id", "")
+        event_id = str(event_dict.get("id", ""))
         if last_seq > 0 and event_id.startswith("evt_"):
             try:
                 seq = int(event_id.removeprefix("evt_"))
@@ -83,9 +85,10 @@ async def stream_operation_progress(
             except ValueError:
                 pass
 
+        event_type = event_dict.get("event")
         yield ServerSentEvent(
             data=event_dict["data"],
-            event=event_dict.get("event"),
+            event=str(event_type) if event_type is not None else None,
             id=event_id or None,
         )
 
